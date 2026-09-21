@@ -1,0 +1,98 @@
+# Personal pick workbench. Copy to config.yaml; never put credentials here.
+# Start the Gateway with PICK_RUN_TIMEOUT_SECONDS=120 (already set in pick Compose).
+config_version: 46
+models:
+  - name: azure-pick
+    display_name: Azure LLM
+    use: langchain_openai:ChatOpenAI
+    model: $AZURE_OPENAI_DEPLOYMENT
+    base_url: $AZURE_OPENAI_BASE_URL
+    api_key: $AZURE_OPENAI_API_KEY
+    default_headers:
+      api-key: $AZURE_OPENAI_API_KEY
+    use_responses_api: true
+    output_version: responses/v1
+    use_previous_response_id: false
+    store: false
+    include: [reasoning.encrypted_content]
+    reasoning: {effort: low}
+    model_kwargs: {parallel_tool_calls: false}
+    request_timeout: 60
+    max_retries: 0
+    max_tokens: 4096
+    supports_thinking: true
+    when_thinking_enabled:
+      reasoning: {effort: medium}
+    when_thinking_disabled:
+      reasoning: {effort: low}
+    supports_vision: false
+
+database:
+  backend: sqlite
+  sqlite_dir: .deer-flow/data
+  checkpoint_channel_mode: full
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+  allow_host_bash: false
+tools:
+  - {name: pick_search_knowledge, group: pick, use: 'ggwork_pick.tools:search_knowledge_tool'}
+  - {name: pick_query_candidates, group: pick, use: 'ggwork_pick.tools:query_candidates_tool'}
+  - {name: pick_get_drama_detail, group: pick, use: 'ggwork_pick.tools:get_drama_detail_tool'}
+  - {name: pick_prepare_selection, group: pick, use: 'ggwork_pick.tools:prepare_selection_tool'}
+tool_groups:
+  - {name: pick}
+plugins:
+  - name: ggwork-pick
+    use: 'ggwork_pick:install'
+    required: true
+    enabled: true
+    table_prefix: ggwp_
+    config: {}
+recursion_limit: 1000
+max_recursion_limit: 1000
+memory:
+  enabled: false
+  injection_enabled: false
+suggestions:
+  enabled: false
+title:
+  enabled: true
+  model_name: null
+summarization:
+  enabled: false
+task_continuity:
+  enabled: false
+skill_evolution:
+  enabled: false
+scheduler:
+  enabled: false
+auth:
+  local:
+    allow_registration: false
+authorization:
+  enabled: true
+  fail_closed: true
+  default_role: user
+  provider:
+    use: deerflow.authz.rbac:RbacAuthorizationProvider
+    config:
+      roles:
+        admin:
+          tools:
+            allow: [ask_clarification, pick_search_knowledge, pick_query_candidates, pick_get_drama_detail, pick_prepare_selection]
+          routes: {allow: '*'}
+          models: {allow: [azure-pick]}
+          sandbox: {allow: false}
+          skills: {allow: [pick-drama]}
+        user:
+          tools:
+            allow: [ask_clarification, pick_search_knowledge, pick_query_candidates, pick_get_drama_detail, pick_prepare_selection]
+          routes: {allow: '*'}
+          models: {allow: [azure-pick]}
+          sandbox: {allow: false}
+          skills: {allow: [pick-drama]}
+
+extensions:
+  middlewares:
+    - ggwork_pick.middleware:PickModelGate
+    - ggwork_pick.middleware:PickToolGate

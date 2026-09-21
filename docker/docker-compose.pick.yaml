@@ -1,0 +1,54 @@
+# Isolated single-worker personal workbench; upstream frontend and Python-only pick gateway.
+# docker compose --env-file .env -p ggwork-pick -f docker/docker-compose.pick.yaml up -d --build
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:${PICK_PORT:-2027}:2026"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      frontend:
+        condition: service_started
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+  frontend:
+    build:
+      context: ../
+      dockerfile: frontend/Dockerfile
+      target: prod
+    environment:
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      DEER_FLOW_INTERNAL_GATEWAY_BASE_URL: http://gateway:8001
+      DEER_FLOW_TRUSTED_ORIGINS: http://localhost:${PICK_PORT:-2027},http://127.0.0.1:${PICK_PORT:-2027}
+    restart: unless-stopped
+  gateway:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.pick-gateway
+    command: ["sh", "-c", "cd backend && PYTHONPATH=. uv run --no-sync uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001 --workers 1"]
+    environment:
+      DEER_FLOW_PROJECT_ROOT: /app
+      DEER_FLOW_HOME: /app/backend/.deer-flow
+      DEER_FLOW_CONFIG_PATH: /app/config.yaml
+      DEER_FLOW_EXTENSIONS_CONFIG_PATH: /app/extensions_config.json
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:?Set AZURE_OPENAI_API_KEY}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:?Set AZURE_OPENAI_DEPLOYMENT}
+      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:?Set AZURE_OPENAI_BASE_URL}
+      PICK_RUN_TIMEOUT_SECONDS: "120"
+      DEER_FLOW_INTERNAL_AUTH_TOKEN: ${DEER_FLOW_INTERNAL_AUTH_TOKEN:?Set DEER_FLOW_INTERNAL_AUTH_TOKEN in .env}
+      LANGSMITH_TRACING: 'false'
+      NO_PROXY: localhost,127.0.0.1,host.docker.internal,gateway,frontend
+    volumes:
+      - ../config.yaml:/app/config.yaml
+      - ../extensions_config.json:/app/extensions_config.json
+      - ../skills:/app/skills:ro
+      - ../backend/.deer-flow:/app/backend/.deer-flow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped

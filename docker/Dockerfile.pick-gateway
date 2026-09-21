@@ -1,0 +1,20 @@
+# Personal pick runtime: only the Python host and its locked Azure Responses dependencies.
+# Business tools cannot execute shell, MCP, Docker or Feishu commands.
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.1
+FROM ${UV_IMAGE} AS uv-source
+FROM python:3.12-slim-bookworm AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+COPY --from=uv-source /uv /uvx /usr/local/bin/
+WORKDIR /app
+COPY backend ./backend
+RUN cd backend && uv sync --locked --no-dev
+FROM python:3.12-slim-bookworm
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONIOENCODING=utf-8
+COPY --from=uv-source /uv /uvx /usr/local/bin/
+WORKDIR /app
+COPY --from=builder /app/backend ./backend
+COPY config.pick.example.yaml ./config.pick.example.yaml
+COPY skills/public/pick-drama ./skills/public/pick-drama
+ENV PATH="/app/backend/.venv/bin:$PATH"
+EXPOSE 8001
+CMD ["sh", "-c", "cd backend && python -m app.gateway.pick_entrypoint"]

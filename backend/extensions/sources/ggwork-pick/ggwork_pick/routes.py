@@ -1,0 +1,165 @@
+"""Authenticated UI operations. The Agent never receives this write authority."""
+
+import csv
+import io
+from typing import Literal
+
+from deerflow_extension_api.auth import resolve_principal
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
+from pydantic import Field, ValidationError
+
+from ggwork_pick.contracts import StrictInput
+from ggwork_pick.imports import MAX_BYTES, Importer
+from ggwork_pick.repository import ConflictError, PickRepository
+from ggwork_pick.selection import result_view
+
+
+class SaveInput(StrictInput):
+    request_id: str = Field(min_length=1, max_length=128)
+    result_id: str = Field(min_length=1, max_length=64)
+    item_ids: list[str] = Field(min_length=1, max_length=20)
+    note: str = Field(default="", max_length=2000)
+
+
+class UpdateInput(StrictInput):
+    request_id: str = Field(min_length=1, max_length=128)
+    expected_version: int = Field(ge=1, strict=True)
+    note: str | None = Field(default=None, max_length=2000)
+    state: Literal["selected", "removed"] | None = None
+
+
+def public_batch(row):
+    return {key: value for key, value in row.items() if key not in {"owner_id", "raw_blob_path"}}
+
+
+def public_selection(row):
+    return {key: value for key, value in row.items() if key != "owner_id"}
+
+
+def api_error(exc):
+    if isinstance(exc, ConflictError):
+        return HTTPException(409, str(exc))
+    if isinstance(exc, LookupError):
+        return HTTPException(404, str(exc))
+    if isinstance(exc, ValidationError):
+        return HTTPException(422, {"message": "资料字段不符合约定", "fields": [list(e["loc"]) for e in exc.errors()]})
+    return HTTPException(400, str(exc))
+
+
+def csv_cell(value):
+    value = str(value or "")
+    return "'" + value if value.lstrip().startswith(("=", "+", "-", "@")) or value.startswith(("\t", "\r", "\n")) else value
+
+
+def build_router(service):
+    router = APIRouter(prefix="/api/pick", tags=["pick-workbench"])
+
+    def repository(request: Request):
+        principal = resolve_principal(request)
+        if principal is None or not principal.user_id.strip() or principal.user_id == "default":
+            raise HTTPException(401, "请先登录")
+        if service.session_factory is None:
+            raise HTTPException(503, "选剧服务尚未就绪")
+        return PickRepository(service.session_factory, principal.user_id)
+
+    async def status_view(record):
+        # Only call after an owner-scoped repository read: the host reader is privileged.
+        reader = service.run_evidence_reader
+        run = await reader.get_run_status(thread_id=record["thread_id"], run_id=record["run_id"]) if reader else None
+        status = run.status if run else "unknown"
+        if status not in {"pending", "running", "success", "error", "timeout", "interrupted"}:
+            status = "unknown"
+        return {**result_view(record), "run_status": status}
+
+    @router.get("/imports")
+    async def list_imports(request: Request):
+        return {"batches": [public_batch(row) for row in await repository(request).batches()]}
+
+    @router.post("/imports", status_code=201)
+    async def import_data(request: Request, kind: Literal["catalog", "knowledge"] = Form(...), files: list[UploadFile] = File(...), source_ref: str = Form("")):
+        importer = Importer(repository(request), service.data_dir)
+        if not files or len(files) > 50 or (kind == "catalog" and len(files) != 1):
+            raise HTTPException(400, "剧库每次导入一份文件；知识每批最多50份")
+        try:
+            contents, size = [], 0
+            for file in files:
+                payload = await file.read(MAX_BYTES - size + 1)
+                size += len(payload)
+                if size > MAX_BYTES:
+                    raise HTTPException(413, "资料超过25MB")
+                contents.append((payload, file.filename or ""))
+            if kind == "catalog":
+                payload, filename = contents[0]
+                batch = await importer.catalog(payload, filename.rsplit(".", 1)[-1].lower())
+            else:
+                batch = await importer.knowledge_bundle(
+                    [(payload, filename, f"{source_ref}#{filename}" if source_ref else f"upload:{filename}") for payload, filename in contents]
+                )
+            return public_batch(batch)
+        except (ValueError, LookupError) as exc:
+            raise api_error(exc) from None
+        finally:
+            for file in files:
+                await file.close()
+
+    @router.get("/results")
+    async def list_results(request: Request, thread_id: str):
+        return {"results": [await status_view(row) for row in await repository(request).results(thread_id)]}
+
+    @router.get("/results/{result_id}")
+    async def get_result(request: Request, result_id: str):
+        try:
+            return await status_view(await repository(request).result(result_id))
+        except LookupError as exc:
+            raise api_error(exc) from None
+
+    @router.get("/commands/{request_id}")
+    async def get_command(request: Request, request_id: str):
+        receipt = await repository(request).command_receipt(request_id)
+        if receipt is None:
+            raise HTTPException(404, "尚无已提交回执")
+        return receipt
+
+    @router.get("/selections/export.csv")
+    async def export_selections(request: Request):
+        rows = await repository(request).selections()
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(["剧名", "剧场", "语言", "推荐理由", "备注", "保存时间", "来源结果"])
+        for row in rows:
+            item = row["snapshot_json"]
+            writer.writerow(
+                [
+                    csv_cell(v)
+                    for v in [item["title"], item["theater"], item["language"], item["reason"], row["note"], row["created_at"], row["source_result_id"]]
+                ]
+            )
+        return Response(
+            "\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="my-selections.csv"'}
+        )
+
+    @router.get("/selections")
+    async def list_selections(request: Request):
+        return {"selections": [public_selection(row) for row in await repository(request).selections()]}
+
+    @router.post("/selections")
+    async def save(request: Request, body: SaveInput):
+        try:
+            repo = repository(request)
+            if await repo.command_receipt(body.request_id) is None:
+                result = await status_view(await repo.result(body.result_id))
+                if result["run_status"] != "success":
+                    raise ConflictError("来源运行尚未成功完成，请等待完成或重新选剧")
+            return await repo.save_selection(body.request_id, body.result_id, body.item_ids, body.note)
+        except (ValueError, LookupError) as exc:
+            raise api_error(exc) from None
+
+    @router.patch("/selections/{selection_id}")
+    async def update_item(request: Request, selection_id: str, body: UpdateInput):
+        try:
+            return await repository(request).update_selection(selection_id, body.request_id, body.expected_version, note=body.note, state=body.state)
+        except (ValueError, LookupError) as exc:
+            raise api_error(exc) from None
+
+    return router
