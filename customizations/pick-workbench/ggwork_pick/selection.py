@@ -18,6 +18,14 @@ class PostedDataUnavailable(ValueError):
     """The pinned catalog batch carries no publication records, so "not posted" cannot be checked."""
 
 
+def _matched_total(record: dict) -> int | None:
+    items = record["ordered_items_json"]
+    if not items:
+        # limit >= 1, so an empty snapshot means nothing matched.
+        return 0
+    return items[0].get("matched_total")
+
+
 def result_view(record: dict) -> dict:
     return {
         **{
@@ -25,8 +33,8 @@ def result_view(record: dict) -> dict:
         },
         "conditions": record["conditions_json"],
         "items": record["ordered_items_json"],
-        # Each item carries the pre-limit match count; snapshots from before it existed report None.
-        "matched_total": next((item.get("matched_total") for item in record["ordered_items_json"]), None),
+        # Each item carries the pre-limit match count; non-empty snapshots from before it existed report None.
+        "matched_total": _matched_total(record),
     }
 
 

@@ -135,3 +135,12 @@ async def test_rank_sort_on_a_signal_without_ranks_is_refused(repo):
         await SelectionService(repo[0]).query({"signal_kind": "kw", "sort": "rank"}, thread_id="t", run_id="r", call_id="c")
     plain = await SelectionService(repo[0]).query({"signal_kind": "kw"}, thread_id="t", run_id="r", call_id="c2")
     assert plain["matched_total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_result_reports_zero_matches(repo):
+    from ggwork_pick.selection import SelectionService
+
+    await load(repo, [row(1)])
+    result = await SelectionService(repo[0]).query({"language": "ko"}, thread_id="t", run_id="r", call_id="c")
+    assert result["items"] == [] and result["matched_total"] == 0

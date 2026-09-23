@@ -39,9 +39,16 @@ export function evidenceLine(evidence: PickEvidence): string {
   return `${name} · ${facts.length ? facts.join(" · ") : "数值未知"}`;
 }
 
-export function postedLine(posted: PickPosted | undefined): string | null {
+export function postedLine(
+  posted: PickPosted | undefined,
+  warnings: readonly string[] = [],
+): string | null {
   if (!posted) return null;
-  if (!posted.matched) return "发布记录：未对上（不代表从未发布）";
+  if (!posted.matched)
+    // The backend already warns about unmatched records when a posted filter was applied.
+    return warnings.some((w) => w.includes("发布记录未对上"))
+      ? null
+      : "发布记录：未对上（不代表从未发布）";
   const parts = [`已发 ${posted.post_count} 条`];
   if (posted.sched_count) parts.push(`待公开 ${posted.sched_count} 条`);
   if (posted.last_post_on) parts.push(`最近 ${posted.last_post_on}`);

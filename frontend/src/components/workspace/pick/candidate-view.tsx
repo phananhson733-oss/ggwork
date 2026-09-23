@@ -87,9 +87,9 @@ export function CandidateView({
             </span>
           </label>
           <p className="mt-3 text-sm leading-6">{item.reason}</p>
-          {postedLine(item.posted) && (
+          {postedLine(item.posted, item.warnings) && (
             <p className="text-muted-foreground mt-1 text-xs">
-              {postedLine(item.posted)}
+              {postedLine(item.posted, item.warnings)}
             </p>
           )}
           {item.warnings.map((warning) => (

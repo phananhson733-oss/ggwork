@@ -68,6 +68,19 @@ describe("pick display lines", () => {
       "发布记录：已发 2 条 · 待公开 1 条 · 最近 2026-09-10 · 账号 a、b、c 等",
     );
     expect(postedLine(undefined)).toBeNull();
+    expect(
+      postedLine(
+        {
+          matched: false,
+          records: [],
+          post_count: 0,
+          sched_count: 0,
+          last_post_on: null,
+          accounts: [],
+        },
+        ["发布记录未对上这部剧；对不上不代表从未发布"],
+      ),
+    ).toBeNull();
   });
   it("spells out posted and rank filters", () => {
     expect(
