@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { importPickData, listPickBatches } from "@/core/pick/api";
 
+import { SyncStatus } from "./sync-status";
+
 export function DataImports() {
   const { user } = useAuth();
   const client = useQueryClient();
@@ -48,6 +50,7 @@ export function DataImports() {
           剧库用于筛选，知识资料用于解释规则。每次导入保存独立版本。
         </p>
       </header>
+      <SyncStatus />
       <section className="space-y-4 rounded-xl border p-5">
         <label className="block text-sm">
           资料类型
@@ -121,9 +124,14 @@ export function DataImports() {
               className="flex justify-between gap-4 p-4 text-sm"
             >
               <span>
+                {batch.shared ? "同步" : "个人导入"} ·{" "}
                 {batch.kind === "catalog" ? "剧库" : "知识"} ·{" "}
                 {String(batch.validation_json.rows ?? 0)} 条 ·{" "}
-                {batch.status === "published" ? "可用" : "未发布"}
+                {batch.status === "published"
+                  ? "可用"
+                  : batch.status === "pruned"
+                    ? "已清理（仅留记录）"
+                    : "未发布"}
               </span>
               <time className="text-muted-foreground">
                 {new Date(batch.created_at).toLocaleString()}

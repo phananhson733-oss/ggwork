@@ -39,7 +39,8 @@ export type SavedPick = z.infer<typeof selectionSchema>;
 const batchSchema = z.object({
   id: z.string(),
   kind: z.enum(["catalog", "knowledge"]),
-  status: z.enum(["importing", "published", "failed"]),
+  status: z.enum(["importing", "published", "failed", "pruned"]),
+  shared: z.boolean().optional(),
   content_hash: z.string(),
   source_as_of: z.string().nullable(),
   created_at: z.string(),
@@ -49,6 +50,35 @@ const batchSchema = z.object({
     .passthrough(),
 });
 export type PickBatch = z.infer<typeof batchSchema>;
+const syncRunSchema = z.object({
+  id: z.string(),
+  source: z.string(),
+  trigger: z.string(),
+  status: z.enum(["running", "success", "failed"]),
+  started_at: z.string(),
+  finished_at: z.string().nullable(),
+  rows: z.number().int().nullable(),
+  catalog_batch_id: z.string().nullable(),
+  knowledge_batch_id: z.string().nullable(),
+  source_as_of: z.string().nullable(),
+  error: z.string().nullable(),
+});
+const syncStatusSchema = z.object({
+  configured: z.boolean(),
+  current: z
+    .object({
+      id: z.string(),
+      shared: z.boolean(),
+      source_as_of: z.string().nullable(),
+      published_at: z.string().nullable(),
+      freshness: z.record(z.string(), z.unknown()).nullable().optional(),
+      scope: z.string().nullable().optional(),
+      rows: z.number().int().nullable().optional(),
+    })
+    .nullable(),
+  runs: z.array(syncRunSchema),
+});
+export type PickSyncStatus = z.infer<typeof syncStatusSchema>;
 
 async function responseFor(path: string, init?: RequestInit) {
   const response = await fetchWithAuth(
@@ -127,6 +157,18 @@ export async function listPickBatches(signal?: AbortSignal) {
   return z
     .object({ batches: z.array(batchSchema) })
     .parse(await (await responseFor("/imports", { signal })).json()).batches;
+}
+
+export async function getPickSyncStatus(signal?: AbortSignal) {
+  return syncStatusSchema.parse(
+    await (await responseFor("/sync", { signal })).json(),
+  );
+}
+
+export async function startPickSync() {
+  return z
+    .object({ status: z.enum(["started", "already_running"]) })
+    .parse(await (await responseFor("/sync", { method: "POST" })).json());
 }
 
 export async function importPickData(

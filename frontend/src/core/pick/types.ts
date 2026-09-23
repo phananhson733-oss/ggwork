@@ -13,6 +13,10 @@ export const pickConditionsSchema = z
     exclude_selected: z.boolean(),
     confirmed_eligible_only: z.boolean().optional(),
     exclude_previous: z.boolean().optional(),
+    signal_kind: z.string().max(20).nullable().optional(),
+    sort: z.enum(["evidence_date", "rank"]).optional(),
+    exclude_posted: z.boolean().optional(),
+    posted_account: z.string().max(200).nullable().optional(),
   })
   .strict();
 
@@ -23,6 +27,31 @@ export const pickEvidenceSchema = z
     source_ref: z.string().min(1).max(2048),
     observed_at: z.string().max(40).nullable(),
     value: z.union([z.string().max(4000), z.number().finite(), z.null()]),
+    label: z.string().max(200).optional(),
+    rank: z.number().int().nullable().optional(),
+    grade: z.string().max(100).optional(),
+    note: z.string().max(1000).optional(),
+  })
+  .strict();
+
+export const pickPostedSchema = z
+  .object({
+    matched: z.boolean(),
+    records: z.array(z.string().max(64)).max(50),
+    post_count: z.number().int().nonnegative(),
+    sched_count: z.number().int().nonnegative(),
+    last_post_on: z.string().max(40).nullable(),
+    accounts: z.array(z.string().max(200)).max(100),
+  })
+  .strict();
+
+export const pickDataAsOfSchema = z
+  .object({
+    source_as_of: z.string().max(40).nullable(),
+    published_at: z.string().max(40).nullable(),
+    freshness: z.record(z.string(), z.unknown()).nullable().optional(),
+    scope: z.string().max(500).nullable().optional(),
+    shared: z.boolean(),
   })
   .strict();
 
@@ -37,6 +66,9 @@ export const pickItemSchema = z
     reason: z.string().max(4000),
     warnings: z.array(z.string().max(1000)).max(20),
     evidence: z.array(pickEvidenceSchema).max(50),
+    posted: pickPostedSchema.optional(),
+    detail_url: z.string().max(2048).optional(),
+    matched_total: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -61,6 +93,8 @@ export const pickResultSchema = z
     conditions: pickConditionsSchema,
     items: z.array(pickItemSchema).max(20),
     created_at: z.string().datetime({ offset: true }),
+    matched_total: z.number().int().nonnegative().nullable().optional(),
+    data_as_of: pickDataAsOfSchema.nullable().optional(),
   })
   .strict()
   .refine(
@@ -72,6 +106,8 @@ export const pickResultSchema = z
 
 export type PickConditions = z.infer<typeof pickConditionsSchema>;
 export type PickEvidence = z.infer<typeof pickEvidenceSchema>;
+export type PickPosted = z.infer<typeof pickPostedSchema>;
+export type PickDataAsOf = z.infer<typeof pickDataAsOfSchema>;
 export type PickItem = z.infer<typeof pickItemSchema>;
 export type PickResult = z.infer<typeof pickResultSchema>;
 

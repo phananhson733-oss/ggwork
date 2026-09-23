@@ -1,0 +1,114 @@
+{
+  "id": "e0158824b34244e0b2f8c8da633b4dc6",
+  "thread_id": "t",
+  "run_id": "r",
+  "catalog_batch_id": "b1bc6a19147b4493b6e3861f5e99f715",
+  "knowledge_batch_id": "1aeadf3eb20f457ba13cbf73e2928a95",
+  "rule_version": "pick-rules-v1",
+  "ranking_version": "signal-rank-v1",
+  "created_at": "2026-09-23T03:17:34.200620+00:00",
+  "conditions": {
+    "theater": null,
+    "language": null,
+    "channel": null,
+    "query": null,
+    "tags": [],
+    "limit": 5,
+    "exclude_selected": true,
+    "confirmed_eligible_only": true,
+    "exclude_previous": false,
+    "signal_kind": "kd",
+    "sort": "rank",
+    "exclude_posted": false,
+    "posted_account": "other"
+  },
+  "items": [
+    {
+      "item_id": "75f6fa213ddb4b1bb0edd4e17df8b57a",
+      "identity": "[\"realshort-pick\",\"row1\",\"en\"]",
+      "title": "Feed Drama 1",
+      "theater": "KalosTV",
+      "language": "en",
+      "availability": "unknown",
+      "reason": "KalosTV 日榜第1名（2026-09-20）；符合本次筛选条件；有1条来源信号。",
+      "warnings": [
+        "上下架状态待核实",
+        "发布记录未对上这部剧；对不上不代表从未发布"
+      ],
+      "evidence": [
+        {
+          "citation_id": "75f6fa213ddb4b1bb0edd4e17df8b57a:1",
+          "kind": "kd",
+          "source_ref": "ref:1",
+          "observed_at": "2026-09-20",
+          "value": null,
+          "label": "KalosTV 日榜",
+          "rank": 1,
+          "grade": "",
+          "note": ""
+        }
+      ],
+      "detail_url": "ref:1",
+      "posted": {
+        "matched": false,
+        "records": [],
+        "post_count": 0,
+        "sched_count": 0,
+        "last_post_on": null,
+        "accounts": []
+      },
+      "matched_total": 2
+    },
+    {
+      "item_id": "cc6cb8598eee414c8e03ac5ea4ff7afa",
+      "identity": "[\"realshort-pick\",\"row2\",\"en\"]",
+      "title": "Feed Drama 2",
+      "theater": "KalosTV",
+      "language": "en",
+      "availability": "unknown",
+      "reason": "KalosTV 日榜第2名（2026-09-20）；符合本次筛选条件；有1条来源信号。",
+      "warnings": [
+        "上下架状态待核实"
+      ],
+      "evidence": [
+        {
+          "citation_id": "cc6cb8598eee414c8e03ac5ea4ff7afa:1",
+          "kind": "kd",
+          "source_ref": "ref:2",
+          "observed_at": "2026-09-20",
+          "value": null,
+          "label": "KalosTV 日榜",
+          "rank": 2,
+          "grade": "",
+          "note": ""
+        }
+      ],
+      "detail_url": "ref:2",
+      "posted": {
+        "matched": true,
+        "records": [
+          "SD-1"
+        ],
+        "post_count": 2,
+        "sched_count": 0,
+        "last_post_on": "2026-09-10",
+        "accounts": [
+          "acc"
+        ]
+      },
+      "matched_total": 2
+    }
+  ],
+  "matched_total": 2,
+  "run_status": "success",
+  "data_as_of": {
+    "source_as_of": "2026-09-23T03:00:00.000Z",
+    "published_at": "2026-09-23T03:17:34.190005+00:00",
+    "freshness": {
+      "catalogImportedAt": "2026-09-22T03:19:21.327Z",
+      "reelshortSyncedAt": "2026-09-23T00:05:56.475Z"
+    },
+    "scope": "test scope",
+    "shared": true
+  }
+}

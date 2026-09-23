@@ -1,6 +1,12 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import {
+  conditionsLine,
+  dataAsOfLine,
+  evidenceLine,
+  postedLine,
+} from "@/core/pick/format";
 import { pickRunStatusLabel, type PickResult } from "@/core/pick/types";
 
 export function CandidateView({
@@ -28,6 +34,8 @@ export function CandidateView({
           <h2 className="font-semibold">本次候选</h2>
           <p className="text-muted-foreground text-sm">
             找到 {result.items.length} 部 / 请求 {result.conditions.limit} 部
+            {typeof result.matched_total === "number" &&
+              ` · 符合条件共 ${result.matched_total} 部`}
           </p>
         </div>
         {!readOnly && (
@@ -43,14 +51,13 @@ export function CandidateView({
         )}
       </div>
       <p className="text-muted-foreground text-xs">
-        {result.conditions.theater?.trim()
-          ? result.conditions.theater
-          : "全部剧场"}{" "}
-        ·{" "}
-        {result.conditions.language?.trim()
-          ? result.conditions.language
-          : "全部语种"}{" "}
-        · {result.conditions.exclude_selected ? "排除我的已选" : "包含我的已选"}
+        {conditionsLine(result.conditions)}
+      </p>
+      <p
+        className="text-muted-foreground text-xs"
+        data-testid="pick-data-as-of"
+      >
+        数据截至：{dataAsOfLine(result.data_as_of)}
       </p>
       {result.items.length === 0 && (
         <p className="rounded-lg border border-dashed p-6 text-sm">
@@ -80,6 +87,11 @@ export function CandidateView({
             </span>
           </label>
           <p className="mt-3 text-sm leading-6">{item.reason}</p>
+          {postedLine(item.posted) && (
+            <p className="text-muted-foreground mt-1 text-xs">
+              {postedLine(item.posted)}
+            </p>
+          )}
           {item.warnings.map((warning) => (
             <p
               key={warning}
@@ -101,9 +113,7 @@ export function CandidateView({
                     key={evidence.citation_id}
                     className="border-l-2 pl-3 break-words"
                   >
-                    <p>
-                      {evidence.kind} · {evidence.value ?? "数值未知"}
-                    </p>
+                    <p>{evidenceLine(evidence)}</p>
                     <p className="text-muted-foreground">
                       {evidence.observed_at ?? "日期未知"} ·{" "}
                       {evidence.source_ref}
