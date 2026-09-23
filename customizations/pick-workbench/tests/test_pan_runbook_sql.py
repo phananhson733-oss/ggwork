@@ -1,4 +1,4 @@
-"""The weekly pan check in docs/pick-workbench/supabase.md section 6: pan-check.sql, pan-redact.sql and the grep for raw files.
+"""The weekly pan check in docs/pick-workbench/supabase.md section 6: pan-check.sql, pan-redact.sql and the host's threads.
 
 Until RealShort #67 scrubs v1 feed notes, a note holding a pan link is stored verbatim and copied onward: every catalog batch
 the sync keeps, candidate snapshots, saved selections, and the host's checkpoints of the conversation that showed it. The
@@ -6,10 +6,9 @@ runbook's scripts run here as files from docs/, through psql, logged in as a sta
 of the deerflow schema and every table in it. The contaminated data is written by the real sync, import, selection and
 repository code; the host tables come from the host's own table definitions and langgraph's PostgresSaver.setup(). Every
 location the check reports and every host branch holds a hit of its own, so disabling any one of them turns a test red. The
-PostgreSQL half skips when PICK_TEST_PG_URL is unset.
+PostgreSQL half skips when PICK_TEST_PG_URL is unset. The container's disk is test_pan_runbook_disk.py.
 """
 
-import hashlib
 import json
 import os
 import re
@@ -27,16 +26,34 @@ import pytest
 import pytest_asyncio
 import yaml
 from engines import HOST_JSON_SERIALIZER, host_engine
+from pan_runbook import (
+    CHECK,
+    CODE_NOTE,
+    PASSWORD_NBSP,
+    PASSWORD_NEWLINE,
+    PASSWORD_TAB,
+    PASSWORD_VT,
+    REDACT,
+    ROOT,
+    RUNBOOK,
+    Scan,
+    clean_scan,
+    feed_signal,
+    feed_transport,
+    password,
+    pattern_of,
+    pull,
+    runbook_pan,
+    runbook_steps,
+    scan,
+    shell,
+    step_lines,
+)
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from test_realshort_sync import RULES, TOKEN, feed_row
+from test_realshort_sync import feed_row
 
-ROOT = Path(__file__).resolve().parents[3]
-DOCS = ROOT / "docs/pick-workbench"
-CHECK = DOCS / "supabase/pan-check.sql"
-REDACT = DOCS / "supabase/pan-redact.sql"
-RUNBOOK = DOCS / "supabase.md"
 PLACEHOLDER = "[网盘信息已移除]"
 # pan-check.sql's owner for a thread the DELETE route cannot find (require_existing): the runbook stops there.
 NO_META = "(没有 threads_meta 行)"
@@ -61,13 +78,6 @@ NOTHING = dict.fromkeys(LOCATIONS, 0)
 # A note quoting a link, with escaped quotes and backslashes in the same string; the strings next to it hold escapes too
 # (grade ends in a backslash right before note's opening quote) and must come through byte for byte.
 LINK_NOTE = 'He said "see PAN.baidu.com/s/1AbC?pwd=x7k2", saved to C:\\dl\\'
-CODE_NOTE = "访问码：8k2p，速存"
-# Only a password and its separator, split by whitespace that JSON writes as the two characters \n and \t.
-PASSWORD_NEWLINE = "密码\n：ab12"
-PASSWORD_TAB = "密碼\t= cd34"
-# U+000B, which JSON always writes as an escape, and U+00A0, which ensure_ascii escapes.
-PASSWORD_VT = "密码" + chr(0x0B) + "：ab12"
-PASSWORD_NBSP = "密码" + chr(0xA0) + "：cd34"
 QUOTED_LABEL = 'KalosTV "日榜" 第1\\2'
 TRAILING_BACKSLASH = "A\\"
 SCOPE = "范围说明见 pan.quark.cn/s/scope1"
@@ -81,48 +91,12 @@ CLEAN_NOTE = "密码学入门，见 pan 字样也不算"
 WIDE_SPACES = [chr(c) for c in range(0x80, sys.maxunicode + 1) if chr(c).isspace()]
 # The pattern's other non-ASCII characters: the keywords and the full-width colon.
 KEYWORD_CHARS = "提取码碼访问訪問密："
-# The shells the runbook's greps may run in: the gateway image sets C.UTF-8, an ssh session may come up in C.
-LOCALES = ("C", "C.UTF-8")
-
-
-def _password(space: int) -> str:
-    """A password whose only gap is one raw non-ASCII whitespace character."""
-    return "密码" + chr(space) + "：ab12"
-
-
-def _pattern(text: str) -> str:
-    [pattern] = re.findall(r"^SELECT '([^']*)' AS pan \\gset$", text, re.M)
-    return pattern
-
-
-def _runbook_lines() -> list[str]:
-    # split, not splitlines: U+0085, U+2028 and U+2029 inside the PAN= line are not line breaks.
-    return [line.strip() for line in RUNBOOK.read_text(encoding="utf-8").split("\n")]
-
-
-def _runbook_pan() -> str:
-    [line] = [line for line in _runbook_lines() if line.startswith("PAN='")]
-    return line
-
-
-def _runbook_steps() -> dict[int, str]:
-    """Section 6's numbered steps of the pan check, by number."""
-    text = RUNBOOK.read_text(encoding="utf-8")
-    section = text[text.index("**网盘片段核查") : text.index("## 7.")]
-    parts = re.split(r"^(\d+)\. \*\*", section, flags=re.M)
-    return {int(number): body for number, body in zip(parts[1::2], parts[2::2], strict=True)}
-
-
-def _tool_results_line() -> str:
-    """Step 1's find over every thread's externalized tool outputs: the threads with a hit, comma-separated."""
-    [line] = [line.strip() for line in _runbook_steps()[1].split("\n") if line.strip().startswith("find /data ") and "/.tool-results/" in line]
-    return line
 
 
 def test_the_scripts_and_the_runbook_use_one_pattern_that_keeps_the_old_one():
-    pattern = _pattern(CHECK.read_text(encoding="utf-8"))
-    assert _pattern(REDACT.read_text(encoding="utf-8")) == pattern
-    assert _runbook_pan() == f"PAN='{pattern}'"
+    pattern = pattern_of(CHECK.read_text(encoding="utf-8"))
+    assert pattern_of(REDACT.read_text(encoding="utf-8")) == pattern
+    assert runbook_pan() == f"PAN='{pattern}'"
     assert set(OLD_PATTERN.split("|")) <= set(pattern.split("|"))
     # Every backslash escape takes one or more backslashes, whatever the number of JSON layers.
     backslash = chr(92)
@@ -138,13 +112,12 @@ def test_the_scripts_and_the_runbook_use_one_pattern_that_keeps_the_old_one():
 
 def test_every_check_looks_at_the_database_and_the_disk():
     # Imports write the raw file before the rows: the database can be clean while the disk is not.
-    steps = _runbook_steps()
-    assert sorted(steps) == list(range(1, 9))
+    steps = runbook_steps()
+    assert sorted(steps) == list(range(1, 10))
     assert "-f docs/pick-workbench/supabase/pan-check.sql" in steps[1] and "PAN='" in steps[1]
-    assert 'grep -rlziE "$PAN" /data/pick' in steps[1]
-    # The host's externalized tool outputs: the threads found on disk go into the check with -v disk_threads.
-    assert _tool_results_line().endswith("| paste -sd, -") and "-v disk_threads=" in steps[1]
-    assert "第 1 步" in steps[8] and "库和磁盘都查" in steps[8]
+    # pan_scan covers the raw feed files and the host's externalized tool outputs; its threads go in with -v disk_threads.
+    assert 'pan_scan; echo "pan_scan 退出码 $?"' in steps[1] and "-v disk_threads=" in steps[1]
+    assert "第 1 步" in steps[8] and "库和磁盘都查" in steps[8] and "第 1 步" in steps[9]
     # A leftover anywhere but the kept locations means redact and restart again, not only for candidate sets.
     assert "重做第 4、5 步" in steps[8] and "选择快照" in steps[8]
     assert "暂停使用" in steps[4]
@@ -159,7 +132,7 @@ def _libpq(url: str) -> str:
 
 def _create_host_tables(url: str) -> None:
     from deerflow.persistence.models.run_event import RunEventRow
-    from deerflow.persistence.run.model import RunRow
+    from deerflow.persistence.run.model import RunChangeClockRow, RunRow
     from deerflow.persistence.thread_meta.model import ThreadMetaRow
     from deerflow.persistence.user.model import UserRow
     from langgraph.checkpoint.postgres import PostgresSaver
@@ -169,7 +142,7 @@ def _create_host_tables(url: str) -> None:
     engine = create_engine(make_url(url).set(drivername="postgresql+psycopg"), json_serializer=HOST_JSON_SERIALIZER)
     try:
         with engine.begin() as conn:
-            for table in (UserRow.__table__, ThreadMetaRow.__table__, RunRow.__table__, RunEventRow.__table__):
+            for table in (UserRow.__table__, ThreadMetaRow.__table__, RunRow.__table__, RunChangeClockRow.__table__, RunEventRow.__table__):
                 table.create(conn)
     finally:
         engine.dispose()
@@ -284,42 +257,16 @@ async def service(workbench, tmp_path):
     await engine.dispose()
 
 
-def _transport(rows, *, scope: str) -> httpx.MockTransport:
-    """One feed page with rules, the way RealShort sends it; the scope lands in each batch's validation_json."""
-    body = {"ok": True, "version": "pick-feed-v1", "capturedAt": "2026-09-23T03:00:00.000Z", "scope": scope, "total": len(rows)}
-    body |= {"freshness": {"catalogImportedAt": "2026-09-22T03:19:21.327Z"}, "rules": RULES, "rows": rows, "nextCursor": None}
-
-    def handler(request: httpx.Request):
-        if request.headers.get("authorization") != f"Bearer {TOKEN}":
-            return httpx.Response(401)
-        return httpx.Response(200, json=body)
-
-    return httpx.MockTransport(handler)
-
-
-async def _sync(service, rows, *, scope: str = "test scope", **kwargs) -> dict:
-    from ggwork_pick.sync import RealShortSync
-
-    transport = _transport(rows, scope=scope)
-    outcome = await RealShortSync(service, base_url="https://realshort.test", token=TOKEN, transport=transport, **kwargs).run("manual")
-    assert outcome["status"] == "success", outcome
-    return outcome
-
-
-def _signal(i, **fields):
-    return {"kind": "kd", "label": "KalosTV 日榜", "source_ref": f"ref:{i}", "observed_at": "2026-09-20", "rank": i, "grade": "", "note": "", **fields}
-
-
 def _contaminated_feed() -> list[dict]:
     return [
-        feed_row(1, signals=[_signal(1, label=QUOTED_LABEL, grade=TRAILING_BACKSLASH, note=LINK_NOTE)]),
-        feed_row(2, signals=[_signal(2, note=CODE_NOTE)]),
-        feed_row(3, title=CLEAN_TITLE, signals=[_signal(3, note=CLEAN_NOTE)]),
+        feed_row(1, signals=[feed_signal(1, label=QUOTED_LABEL, grade=TRAILING_BACKSLASH, note=LINK_NOTE)]),
+        feed_row(2, signals=[feed_signal(2, note=CODE_NOTE)]),
+        feed_row(3, title=CLEAN_TITLE, signals=[feed_signal(3, note=CLEAN_NOTE)]),
         feed_row(4),
-        feed_row(6, signals=[_signal(6, note=PASSWORD_NEWLINE)]),
-        feed_row(7, signals=[_signal(7, note=PASSWORD_TAB)]),
-        feed_row(8, signals=[_signal(8, note=PASSWORD_VT)]),
-        feed_row(9, signals=[_signal(9, note=PASSWORD_NBSP)]),
+        feed_row(6, signals=[feed_signal(6, note=PASSWORD_NEWLINE)]),
+        feed_row(7, signals=[feed_signal(7, note=PASSWORD_TAB)]),
+        feed_row(8, signals=[feed_signal(8, note=PASSWORD_VT)]),
+        feed_row(9, signals=[feed_signal(9, note=PASSWORD_NBSP)]),
     ]
 
 
@@ -338,6 +285,16 @@ def _identity(i: int) -> str:
     return json.dumps(["realshort-pick", f"row{i}", "en"], separators=(",", ":"))
 
 
+def _source_hits(workbench, tmp_path: Path) -> int:
+    """Step 3's check after the manual pull, in the psql of step 2: hits in the batch the latest successful pull used."""
+    lines = step_lines(3)
+    start = lines.index("```sql")
+    query = "\n".join(lines[start + 1 : lines.index("```", start + 1)])
+    script = tmp_path / "source.sql"
+    script.write_text(f"\\set disk_threads ''\n\\i {CHECK}\n{query}\n", encoding="utf-8")
+    return int(workbench.run(script).strip().split("\n")[-1])
+
+
 def _knowledge(workbench) -> list[tuple]:
     return workbench.fetch("SELECT title, source_ref, text FROM deerflow.ggwp_knowledge_versions WHERE text = %s", KNOWLEDGE_TEXT)
 
@@ -353,7 +310,7 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
     selection = SelectionService(alice)
     # Batch A carries the notes and a scope quoting a link; a card, an empty query naming a pan domain, a saved choice and an
     # answer note use it. The save's request id holds a hit too: it is an id, kept by design.
-    first = await _sync(service, _contaminated_feed(), scope=SCOPE)
+    first = await pull(service, _contaminated_feed(), scope=SCOPE)
     card = await selection.query({"limit": 20}, thread_id="thread-pan", run_id="run-1", call_id="call-1")
     empty = await selection.query({"query": "pan.baidu"}, thread_id="thread-pan", run_id="run-1", call_id="call-2")
     assert empty["items"] == [] and card["catalog_batch_id"] == first["catalog_batch_id"]
@@ -372,7 +329,7 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         synthetic,
     )
     # The source is not fixed yet: batch B still carries the notes and becomes current; A stays, the card uses it.
-    second = await _sync(service, [*_contaminated_feed(), feed_row(5)])
+    second = await pull(service, [*_contaminated_feed(), feed_row(5)])
     assert (await alice.current_batch("catalog"))["id"] == second["catalog_batch_id"] != first["catalog_batch_id"]
     assert LINK_NOTE in _notes((await alice.catalog_rows(second["catalog_batch_id"]))[0])
 
@@ -440,6 +397,20 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
     settled = workbench.json_columns()
     assert workbench.redact() == [0] * 9
     assert workbench.json_columns() == settled
+
+
+@pytest.mark.asyncio
+async def test_step_3_tells_whether_the_latest_successful_pull_is_clean(workbench, service, tmp_path):
+    from ggwork_pick.sync import RealShortSync
+
+    await pull(service, _contaminated_feed())
+    assert _source_hits(workbench, tmp_path) == 6
+    # A pull that failed used no batch and does not count.
+    failed = await RealShortSync(service, base_url="https://realshort.test", token="not-the-token", transport=feed_transport([], scope="s")).run("manual")
+    assert failed["status"] == "failed" and _source_hits(workbench, tmp_path) == 6
+    # Fixed at the source, the next pull's batch is clean even though the older batches still hold the notes.
+    await pull(service, [feed_row(i) for i in (1, 2, 3, 4, 6, 7, 8, 9)])
+    assert _source_hits(workbench, tmp_path) == 0 and workbench.check()[0]["ggwp_drama_versions.payload_json"] == 6
 
 
 @pytest.mark.asyncio
@@ -592,7 +563,7 @@ async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(wor
     link = json.dumps({"items": [{"evidence": [{"note": "资源 PAN.Baidu.com/s/1x"}]}]}, ensure_ascii=False)
     quiet = [HumanMessage("找剧")]
     escaped = ToolMessage(json.dumps({"note": PASSWORD_TAB}, ensure_ascii=True), tool_call_id="c3")
-    raw = {t: ToolMessage(json.dumps({"note": _password(space)}, ensure_ascii=False), tool_call_id=t) for t, space in RAW_SPACES.items()}
+    raw = {t: ToolMessage(json.dumps({"note": password(space)}, ensure_ascii=False), tool_call_id=t) for t, space in RAW_SPACES.items()}
     special = {
         "thread-ckpt": dict(messages=quiet, title="访问码 8k2p 的剧"),
         "thread-ckpt-meta": dict(messages=quiet, metadata={"note": "提取码 x7k2"}),
@@ -662,7 +633,56 @@ async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(wor
     assert workbench.fetch("SELECT count(*) FROM deerflow.checkpoints WHERE thread_id = 'thread-clean'") == [(1,)]
 
 
-# ---- tool outputs the host keeps on disk: found in the container, listed by thread, removed with the thread ----
+# ---- tool outputs the host keeps on disk: found by pan_scan, listed by thread, removed with the thread ----
+
+
+async def _delete_as_owner(workbench, service, monkeypatch, home: Path, owner: str, threads: tuple[str, ...]) -> None:
+    """DELETE /api/threads/{id} on the gateway's own router, signed in as the owner, with the stores production wires in."""
+    from uuid import UUID
+
+    from app.gateway.auth.models import User
+    from app.gateway.authz import AuthContext, Permissions
+    from app.gateway.routers import threads as threads_router
+    from deerflow.config.paths import Paths
+    from deerflow.persistence.run.sql import RunRepository
+    from deerflow.persistence.thread_meta.sql import ThreadMetaRepository
+    from deerflow.runtime.events.store.db import DbRunEventStore
+    from deerflow.runtime.runs.manager import RunManager
+    from deerflow.runtime.user_context import reset_current_user, set_current_user
+    from fastapi import FastAPI
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    user = User(email="owner@example.com", password_hash="x", system_role="user", id=UUID(owner))
+
+    class SignedIn(BaseHTTPMiddleware):
+        """What AuthMiddleware leaves behind for a signed-in user: request.state and the user context."""
+
+        async def dispatch(self, request, call_next):
+            request.state.user = user
+            request.state.auth = AuthContext(user=user, permissions=[Permissions.THREADS_DELETE])
+            token = set_current_user(user)
+            try:
+                return await call_next(request)
+            finally:
+                reset_current_user(token)
+
+    # The volume the gateway resolves from DEER_FLOW_HOME.
+    monkeypatch.setattr("deerflow.config.paths._paths", Paths(home))
+    app = FastAPI()
+    app.add_middleware(SignedIn)
+    app.include_router(threads_router.router)
+    runs = RunRepository(service.session_factory)
+    app.state.thread_store = ThreadMetaRepository(service.session_factory)
+    app.state.run_store = runs
+    app.state.run_event_store = DbRunEventStore(service.session_factory)
+    app.state.run_manager = RunManager(store=runs)
+    async with AsyncPostgresSaver.from_conn_string(_libpq(workbench.url)) as checkpointer:
+        app.state.checkpointer = checkpointer
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+            for thread in threads:
+                response = await client.delete(f"/api/threads/{thread}")
+                assert response.status_code == 200, response.text
 
 
 @pytest.mark.asyncio
@@ -671,7 +691,6 @@ async def test_tool_outputs_kept_on_disk_bring_their_threads_into_the_check_and_
     from deerflow.config.paths import Paths
     from deerflow.config.tool_output_config import ToolOutputConfig
     from deerflow.persistence.thread_meta.model import ThreadMetaRow
-    from deerflow.persistence.thread_meta.sql import ThreadMetaRepository
     from deerflow.persistence.user.model import UserRow
     from langchain_core.messages import HumanMessage, ToolMessage
     from langgraph.checkpoint.postgres import PostgresSaver
@@ -680,7 +699,7 @@ async def test_tool_outputs_kept_on_disk_bring_their_threads_into_the_check_and_
     if shutil.which("bash") is None:
         pytest.skip("needs bash")
     monkeypatch.syspath_prepend(str(ROOT / "backend"))
-    from app.gateway.routers.threads import _copy_branch_user_data_sync, _delete_thread_data
+    from app.gateway.routers.threads import _copy_branch_user_data_sync
 
     # The pick runtime keeps the host's defaults: a tool output over the threshold goes to .tool-results.
     pick = yaml.safe_load((ROOT / "config.pick.example.yaml").read_text(encoding="utf-8"))
@@ -688,6 +707,7 @@ async def test_tool_outputs_kept_on_disk_bring_their_threads_into_the_check_and_
     assert config.enabled and config.storage_subdir == ".tool-results"
     home, alice = tmp_path / "data", str(uuid4())
     paths = Paths(home)
+    (home / "pick").mkdir(parents=True)
     # A long candidate list with one note deep inside, externalized the way the host does it: the file holds the note, the
     # preview that stays in the checkpoint does not.
     items = [{"title": f"剧目{i}", "note": ""} for i in range(400)]
@@ -711,119 +731,26 @@ async def test_tool_outputs_kept_on_disk_bring_their_threads_into_the_check_and_
         await conn.execute(insert(UserRow.__table__), [{"id": alice, "email": "alice@example.test"}])
         await conn.execute(insert(ThreadMetaRow.__table__), [{"thread_id": t, "user_id": alice, "display_name": None, "metadata_json": {}} for t in threads])
 
-    # The database alone finds nothing. The find in the container names the threads; the check lists them with their owner.
+    # The database alone finds nothing. pan_scan names the threads; the check lists them with their owner.
     assert workbench.check() == (NOTHING, [])
-    [found] = _shell(home, _tool_results_line())
-    assert found == "thread-big,thread-big-branch,thread-legacy"
+    found = scan(home)
+    assert found == Scan(0, [], "thread-big,thread-big-branch,thread-legacy", "")
     owner = "alice@example.test"
     listed = [("thread-big", owner, ".tool-results"), ("thread-big-branch", owner, ".tool-results"), ("thread-legacy", NO_META, ".tool-results")]
-    assert workbench.check(found) == (NOTHING, listed)
+    assert workbench.check(found.threads) == (NOTHING, listed)
     # Without the disk's threads the check refuses to run.
     refused = workbench.call(CHECK)
     assert refused.returncode == 3 and "缺 -v disk_threads" in refused.stdout
 
-    # Deleting a conversation, as its owner, removes its directory under the owner first, then its rows.
-    metas = ThreadMetaRepository(service.session_factory)
-    with PostgresSaver.from_conn_string(_libpq(workbench.url)) as saver:
-        for thread in threads:
-            assert _delete_thread_data(thread, paths=paths, user_id=alice).success
-            saver.delete_thread(thread)
-            await metas.delete(thread, user_id=alice)
-    assert _shell(home, _tool_results_line()) == ["thread-legacy"]
+    # The owner deletes both conversations; the route removes each thread directory with the rows.
+    await _delete_as_owner(workbench, service, monkeypatch, home, alice, threads)
+    assert not any(paths.thread_dir(thread, user_id=alice).exists() for thread in threads)
+    assert workbench.fetch("SELECT count(*) FROM deerflow.threads_meta") == [(0,)]
+    assert workbench.fetch("SELECT count(*) FROM deerflow.checkpoints") == [(0,)]
+    assert scan(home) == Scan(0, [], "thread-legacy", "")
     assert workbench.check("thread-legacy") == (NOTHING, [listed[2]])
     # The route cannot reach that one: step 6 deletes its files directly.
-    [removal] = [line.strip() for line in _runbook_steps()[6].split("\n") if line.strip().startswith("find /data ") and "xargs -0r rm" in line]
-    _shell(home, removal.replace("<线程>", "thread-legacy"))
-    assert _shell(home, _tool_results_line()) == [] and workbench.check() == (NOTHING, [])
+    [removal] = [line for line in step_lines(6) if line.startswith("find /data ") and "xargs -0r rm" in line]
+    shell(home, removal.replace("<线程>", "thread-legacy"))
+    assert clean_scan(home) and workbench.check() == (NOTHING, [])
     assert not legacy.exists()
-
-
-# ---- raw feed files: found with the runbook's grep, deleted, never overwritten ----
-
-
-def _shell(home: Path, command: str, *, locale: str | None = None) -> list[str]:
-    """A runbook command after the runbook's PAN= line, with a test directory standing in for the volume at /data."""
-    script = _runbook_pan() + "\n" + command.replace(" /data", f" {home}")
-    env = os.environ | ({"LC_ALL": locale} if locale else {})
-    result = subprocess.run(["bash", "-c", script], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", timeout=60)
-    assert result.returncode in (0, 1), result.stdout  # grep exits 1 when nothing matches
-    return sorted(result.stdout.split())
-
-
-@pytest_asyncio.fixture
-async def files_service(pick_db_url, tmp_path):
-    from ggwork_pick.service import PickService
-
-    engine = host_engine(pick_db_url)
-    svc = PickService(tmp_path / "pick")
-    await svc.initialize(async_sessionmaker(engine, expire_on_commit=False))
-    yield svc
-    await engine.dispose()
-
-
-def _upload(note: str, *, ensure_ascii: bool) -> bytes:
-    row = {"source": "synthetic", "source_id": "1", "language": "en", "title": "T", "signals": [{"kind": "r", "source_ref": "x", "note": note}]}
-    return json.dumps([row], ensure_ascii=ensure_ascii).encode()
-
-
-@pytest.mark.asyncio
-async def test_raw_files_with_a_hit_are_found_and_deleting_them_is_safe(files_service):
-    from ggwork_pick.imports import Importer
-    from ggwork_pick.repository import PickRepository
-    from ggwork_pick.sync import RealShortSync
-
-    if shutil.which("bash") is None or shutil.which("grep") is None:
-        pytest.skip("needs bash and grep")
-    step_one = _runbook_steps()[1]
-    [listing] = {line.strip() for line in step_one.split("\n") if line.strip().startswith("grep -") and line.strip().endswith('"$PAN" /data/pick')}
-    [removal] = [line for line in _runbook_lines() if line.startswith("grep ") and "| xargs -0r rm" in line]
-    shared, alice = PickRepository.shared(files_service.session_factory), PickRepository(files_service.session_factory, "alice")
-    importer = Importer(alice, files_service.data_dir)
-    # Each file holds exactly one hit, each in a different form.
-    first = await _sync(files_service, [feed_row(1, signals=[_signal(1, note=PASSWORD_NEWLINE)]), feed_row(4)])  # backslash-n in the feed
-    escaped_code = await importer.catalog(_upload("提取码 x7k2", ensure_ascii=True), "json")  # 提取码 as escapes
-    escaped_nbsp = await importer.catalog(_upload(PASSWORD_NBSP, ensure_ascii=True), "json")  # keyword, U+00A0 and colon all escaped
-    vertical_tab = await importer.catalog(_upload(PASSWORD_VT, ensure_ascii=False), "json")  # U+000B, which JSON always escapes
-    csv = 'source,source_id,language,title\nsynthetic,2,en,"剧名 密码\n：ab12"\n'  # a quoted CSV field across two lines
-    across_lines = await importer.catalog(csv.encode(), "csv")
-    em_space = await importer.catalog(_upload(_password(0x2003), ensure_ascii=False), "json")  # a raw U+2003
-    uploads = [first["catalog_batch_id"], escaped_code["id"], escaped_nbsp["id"], vertical_tab["id"], across_lines["id"], em_space["id"]]
-    fixed = [feed_row(1), feed_row(4)]
-    second = await _sync(files_service, fixed)
-    paths = {row["id"]: row["raw_blob_path"] for row in await alice.batches()}
-    assert "提取码" not in Path(paths[escaped_code["id"]]).read_text(encoding="utf-8")
-    # The same list whether the ssh session's grep compares characters (C.UTF-8) or bytes (C).
-    for locale in LOCALES:
-        assert _shell(files_service.data_dir.parent, listing, locale=locale) == sorted(paths[batch_id] for batch_id in uploads), locale
-    _shell(files_service.data_dir.parent, removal, locale="C")
-    assert all(_shell(files_service.data_dir.parent, listing, locale=locale) == [] for locale in LOCALES)
-    assert not any(Path(paths[batch_id]).exists() for batch_id in uploads)
-    # The next sync prunes the old batches, one of whose files is already gone.
-    clean = await _sync(files_service, [*fixed, feed_row(5)], keep_batches=1)
-    statuses = {row["id"]: row["status"] for row in await shared.batches()}
-    assert (statuses[first["catalog_batch_id"]], statuses[second["catalog_batch_id"]]) == ("pruned", "pruned")
-    assert _shell(files_service.data_dir.parent, listing) == []
-    # Nothing reads a raw file at runtime; only an import of the same content looks at it again, and rewrites a missing one.
-    blob = Path((await shared.current_batch("catalog"))["raw_blob_path"])
-    blob.unlink()
-    assert (await _sync(files_service, [*fixed, feed_row(5)]))["catalog_batch_id"] == clean["catalog_batch_id"] and blob.exists()
-    # An overwritten file fails that same import, which is why the runbook deletes and never rewrites.
-    blob.write_bytes(b"[]")
-    transport = _transport([*fixed, feed_row(5)], scope="s")
-    refused = await RealShortSync(files_service, base_url="https://realshort.test", token=TOKEN, transport=transport).run("manual")
-    assert refused["status"] == "failed" and "校验失败" in refused["error"]
-
-
-def test_the_runbook_gives_the_sha256_of_its_pan_line(tmp_path):
-    # The image has no docs/, so PAN is pasted. Copied from a rendered page, an invisible whitespace character can turn into a
-    # space, a line break or another whitespace character of the same length; the digest shows any of them.
-    if shutil.which("bash") is None or shutil.which("sha256sum") is None:
-        pytest.skip("needs bash and sha256sum")
-    step_one = _runbook_steps()[1]
-    [command] = [line.strip() for line in step_one.split("\n") if line.strip() == 'printf %s "$PAN" | sha256sum']
-    [expected] = re.findall(r'`printf %s "\$PAN" \| sha256sum` 应输出 `([0-9a-f]{64})`', step_one)
-    pattern = _pattern(CHECK.read_text(encoding="utf-8"))
-    assert expected == hashlib.sha256(pattern.encode()).hexdigest()
-    assert expected != hashlib.sha256(pattern.replace(chr(0x2003), chr(0x2002)).encode()).hexdigest()
-    for locale in LOCALES:
-        assert _shell(tmp_path, command, locale=locale) == sorted([expected, "-"]), locale
