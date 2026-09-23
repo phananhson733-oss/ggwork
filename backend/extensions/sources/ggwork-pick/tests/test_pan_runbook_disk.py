@@ -167,6 +167,27 @@ def test_the_scan_stops_at_a_symbolic_link_instead_of_giving_a_list(tmp_path):
     assert clean_scan(home)
 
 
+@pytest.mark.parametrize("kind", ["dangling threads root", "looping threads root", "users root"])
+def test_the_scan_stops_when_a_root_is_a_link_instead_of_skipping_it(tmp_path, kind):
+    # The legacy /data/threads is optional, so the scan checks whether it is there; a link that does not resolve must still
+    # count as there, or a broken or looping root would drop out of the scan and the list would look complete.
+    home = tmp_path / "data"
+    (home / "pick").mkdir(parents=True)
+    (home / "users").mkdir()
+    assert clean_scan(home)
+    if kind == "users root":
+        root = home / "users"
+        root.rmdir()
+        (tmp_path / "elsewhere").mkdir()
+        root.symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    else:
+        root = home / "threads"
+        root.symlink_to(tmp_path / "gone" if kind == "dangling threads root" else root, target_is_directory=True)
+    for locale in LOCALES:
+        stopped = scan(home, locale=locale)
+        assert (stopped.code, stopped.feed_files, stopped.threads) == (2, None, None) and str(root) in stopped.errors, locale
+
+
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads any file")
 def test_the_scan_stops_at_a_file_it_cannot_read_instead_of_giving_a_list(tmp_path):
     home = tmp_path / "data"
