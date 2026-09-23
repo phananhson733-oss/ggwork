@@ -437,6 +437,9 @@ async def test_count_tool_and_posted_filters_through_runtime(tmp_path):
     assert counted["total"] == 3 and counted["data_as_of"]["shared"] is False
     refused = json.loads(await query_candidates_tool.coroutine(filters={"exclude_posted": True}, runtime=runtime))
     assert refused["status"] == "posted_unavailable"
+    runtime.tool_call_id = "call2"
+    unranked = json.loads(await query_candidates_tool.coroutine(filters={"sort": "rank"}, runtime=runtime))
+    assert unranked["status"] == "rejected" and "signal_kind" in unranked["notice"]
     task = store.get(__import__("ggwork_pick.context", fromlist=["PickTask"]).PickTask)
     assert task.posted_checked is False
     assert await PickRepository(service.session_factory, "alice").results("thread1") == []
@@ -467,3 +470,33 @@ async def test_unbound_detail_is_a_readable_refusal_not_a_raw_tool_error(tmp_pat
     with pytest.raises(ValueError, match="身份"):
         await get_drama_detail_tool.coroutine(result_id=earlier["id"], item_id="x", runtime=foreign)
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_answer_check_handles_responses_content_blocks_and_user_named_titles():
+    from langchain.agents.middleware.types import ModelRequest, ModelResponse
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from ggwork_pick.context import PickTask
+    from ggwork_pick.middleware import PickModelGate
+
+    task = PickTask(service=None, info=TaskInfo("t", "r", "c", "lead"))
+    task.repository = AsyncMock()
+    store = ExtensionData("t")
+    store.set(task)
+    request = ModelRequest(
+        model=SimpleNamespace(),
+        messages=[HumanMessage(content="查一下《Asked By User》")],
+        runtime=SimpleNamespace(context={EXTENSION_TASK_STORE_KEY: store}),
+        tools=[],
+    )
+    blocks = [
+        {"type": "reasoning", "summary": []},
+        {"type": "text", "text": "《Asked By User》没有匹配；推荐《Made Up》。", "annotations": []},
+    ]
+    response = await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[AIMessage(content=blocks, id="m1")])))
+    fixed = response.result[-1]
+    assert fixed.id == "m1" and isinstance(fixed.content, list)
+    assert fixed.content[:2] == blocks
+    note = fixed.content[-1]["text"]
+    assert "《Made Up》" in note and "Asked By User" not in note

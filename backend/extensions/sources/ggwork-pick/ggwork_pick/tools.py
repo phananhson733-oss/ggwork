@@ -71,6 +71,8 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
         )
     except PostedDataUnavailable as exc:
         return _posted_unavailable(exc)
+    except (ValueError, LookupError) as exc:
+        return _rejected(exc)
     task.produced_result_ids.add(result["id"])
     task.known_titles.update(item["title"] for item in result["items"])
     conditions = result["conditions"]
@@ -92,6 +94,8 @@ async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> st
         counted = await SelectionService(repo).count(PickConditions.model_validate(filters).model_dump(exclude_unset=True), catalog_id=task.catalog_id)
     except PostedDataUnavailable as exc:
         return _posted_unavailable(exc)
+    except (ValueError, LookupError) as exc:
+        return _rejected(exc)
     if counted["conditions"].get("exclude_posted") or counted["conditions"].get("posted_account"):
         task.posted_checked = True
     return json.dumps({**counted, "data_as_of": await _data_as_of(repo, task.catalog_id)}, ensure_ascii=False)

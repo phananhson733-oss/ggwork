@@ -78,6 +78,14 @@ def matching_rows(rows, conditions: PickConditions, excluded: set[str]):
     if conditions.sort == "rank" and not conditions.signal_kind:
         raise ValueError("按名次排序必须指定 signal_kind（同一类榜单内才能比较名次）")
     matches = [row for row in rows if _row_matches(row, conditions, excluded)]
+    if conditions.sort == "rank":
+        # One board at a time, like RealShort's rank tab: ranks from different days are not comparable.
+        kind_signals = [s for row in rows for s in row["signals"] if s["kind"] == conditions.signal_kind]
+        if kind_signals and all(s.get("rank") is None for s in kind_signals):
+            raise ValueError(f"{conditions.signal_kind} 这类信号没有名次，不能按名次排序；去掉 sort 只按这类依据筛选")
+        board = max((s["observed_at"] for s in kind_signals if s["observed_at"]), default=None)
+        if board is not None:
+            matches = [row for row in matches if _kind_signal(row, conditions.signal_kind)["observed_at"] == board]
     matches.sort(key=lambda row: row["identity"])
     if conditions.sort == "rank":
 

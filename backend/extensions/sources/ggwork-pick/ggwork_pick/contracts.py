@@ -59,7 +59,7 @@ class PickConditions(StrictInput):
     exclude_previous: bool = Field(default=False, description="仅用户明确说换一批且已经绑定旧候选时为true。首次查询和排除已选必须为false。")
     signal_kind: str | None = Field(default=None, max_length=20, description="只要带这类来源信号的剧，如kd=KalosTV日榜；种类见知识资料「信号种类」。")
     sort: Literal["evidence_date", "rank"] = Field(
-        default="evidence_date", description="rank=按signal_kind那一类榜单名次升序，必须同时给signal_kind；默认按最近依据日期。"
+        default="evidence_date", description="rank=只看signal_kind那张榜最新一期上榜的剧并按名次升序，必须同时给signal_kind；默认按最近依据日期。"
     )
     exclude_posted: bool = Field(default=False, description="排除团队发布记录里已发过（post_count>0）的剧。用户说账号/团队没发过时使用。")
     posted_account: str | None = Field(default=None, max_length=200, description="排除发布记录里该账号发过的剧，账号名原样传入。")

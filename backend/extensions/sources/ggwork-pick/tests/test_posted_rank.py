@@ -50,11 +50,22 @@ async def load(repo_svc, rows):
 async def test_rank_sort_only_compares_one_signal_kind(repo):
     from ggwork_pick.selection import SelectionService
 
-    await load(repo, [row(1, rank=5), row(2, rank=1), row(3, rank=None), row(4, rank=2, kind="sm"), row(5, rank=3, observed="2026-09-21")])
+    await load(
+        repo,
+        [
+            row(1, rank=5, observed="2026-09-21"),
+            row(2, rank=1, observed="2026-09-21"),
+            row(3, rank=None, observed="2026-09-21"),
+            row(4, rank=2, kind="sm", observed="2026-09-21"),
+            row(5, rank=1, observed="2026-08-05"),
+        ],
+    )
     result = await SelectionService(repo[0]).query({"signal_kind": "kd", "sort": "rank", "limit": 10}, thread_id="t", run_id="r", call_id="c")
-    assert [i["title"] for i in result["items"]] == ["Drama 2", "Drama 5", "Drama 1", "Drama 3"]
+    # One board at a time: only the latest kd day is ranked; an older day's #1 is not mixed in.
+    assert [i["title"] for i in result["items"]] == ["Drama 2", "Drama 1", "Drama 3"]
     assert result["ranking_version"] == "signal-rank-v1"
-    assert result["matched_total"] == 4
+    assert result["matched_total"] == 3
+    assert "2026-09-21" in result["items"][0]["reason"]
     with pytest.raises(ValueError, match="signal_kind"):
         await SelectionService(repo[0]).query({"sort": "rank"}, thread_id="t", run_id="r", call_id="c2")
 
@@ -113,3 +124,14 @@ async def test_signal_fields_survive_import_and_reach_evidence(repo):
     result = await SelectionService(repo[0]).query({}, thread_id="t", run_id="r", call_id="c")
     evidence = result["items"][0]["evidence"][0]
     assert evidence["rank"] == 7 and evidence["label"] == "KalosTV 日榜"
+
+
+@pytest.mark.asyncio
+async def test_rank_sort_on_a_signal_without_ranks_is_refused(repo):
+    from ggwork_pick.selection import SelectionService
+
+    await load(repo, [row(1, kind="kw", rank=None), row(2, kind="kw", rank=None)])
+    with pytest.raises(ValueError, match="没有名次"):
+        await SelectionService(repo[0]).query({"signal_kind": "kw", "sort": "rank"}, thread_id="t", run_id="r", call_id="c")
+    plain = await SelectionService(repo[0]).query({"signal_kind": "kw"}, thread_id="t", run_id="r", call_id="c2")
+    assert plain["matched_total"] == 2

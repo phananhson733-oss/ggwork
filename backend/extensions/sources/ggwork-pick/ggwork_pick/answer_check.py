@@ -27,6 +27,10 @@ def _claims(pattern: re.Pattern, text: str) -> bool:
     return False
 
 
+def titles_in(text: str) -> set[str]:
+    return {match.group(1).strip() for match in _TITLE.finditer(text) if match.group(1).strip()}
+
+
 def check_answer(text: str, *, known_titles: set[str], posted_checked: bool) -> list[str]:
     notes = []
     known = {_norm(title) for title in known_titles}

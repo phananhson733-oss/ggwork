@@ -5,9 +5,9 @@ import json
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelResponse
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from ggwork_pick.answer_check import append_notes, check_answer
+from ggwork_pick.answer_check import append_notes, check_answer, titles_in
 from ggwork_pick.context import task_from_runtime
 
 ALLOWED_TOOLS = frozenset(
@@ -21,8 +21,8 @@ PICK_INSTRUCTIONS = """你是个人短剧选剧助手，使用中文。用选剧
 首次查询示例：找3部英语剧排除已选，应调用pick_query_candidates(filters={"language":"en","limit":3,"exclude_selected":true,"exclude_previous":false})。
 “没选过”对应个人清单（exclude_selected）；“没发过”对应团队发布记录（exclude_posted=true，某账号用posted_account）。两者不同，不能互相代替。
 发布记录来自运营选剧池，对不上的剧只能说“发布记录里没有”，不能说“从未发布”。工具返回posted_unavailable时如实转述。
-看榜单时用signal_kind=榜单种类并sort=rank；不同榜单、不同剧场的名次不能互相比较。信号种类代码见知识资料。
-问“有多少部”用pick_count_candidates，不用查询后数卡片。回答里说明data_as_of给出的数据时点。
+只要求“有某类依据”时只传signal_kind。用户要“按名次/榜单前几”时才加sort=rank，结果只含该榜最新一期；有名次的只有kd、qc、qr，其他种类没有名次。不同榜单、不同日期、不同剧场的名次不能互相比较。信号种类代码见知识资料。
+问“有多少部”用pick_count_candidates，不用查询后数卡片。要求渠道确认可发却0结果时，说明来源只标了禁用或待核实，可建议改为只排除明确禁用的（confirmed_eligible_only=false）。回答里说明data_as_of给出的数据时点。
 保存当前绑定候选的第1、3部时调用pick_prepare_selection(positions=[1,3],note="用户备注")，省略result_id和item_ids，由服务器映射精确标识。不要复述或重新输入长ID。
 追问使用当前绑定的result_id；缺少明确结果时先澄清，不猜最新列表。更新条件创建新结果，查看旧结果保留旧依据。
 直接查询优先，不需要先规划多步骤研究，不使用外部搜索或生成代码。"""
@@ -63,21 +63,43 @@ class PickModelGate(AgentMiddleware):
         adjusted = request.override(tools=tools, system_message=SystemMessage(content=system + "\n\n" + PICK_INSTRUCTIONS + reference))
         async with asyncio.timeout(task.remaining()):
             response = await handler(adjusted)
-        return _checked(response, task)
+        return _checked(response, task, request.messages)
 
 
-def _checked(response, task):
+def _text_of(content) -> str | None:
+    """Plain text of an AI message: a string, or Responses API content blocks (output_version responses/v1)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"]
+        return "".join(parts) if parts else None
+    return None
+
+
+def _user_titles(messages) -> set[str]:
+    # Titles the user typed are theirs to name; only titles the model introduces need a tool source.
+    return {title for message in messages if isinstance(message, HumanMessage) for title in titles_in(_text_of(message.content) or "")}
+
+
+def _checked(response, task, request_messages=()):
     """Append verification notes to a final answer; tool-calling turns pass through untouched."""
     messages = getattr(response, "result", None)
     if not isinstance(messages, list) or not messages:
         return response
     last = messages[-1]
-    if not isinstance(last, AIMessage) or last.tool_calls or not isinstance(last.content, str):
+    text = _text_of(last.content) if isinstance(last, AIMessage) else None
+    if text is None or last.tool_calls:
         return response
-    notes = check_answer(last.content, known_titles=task.known_titles, posted_checked=task.posted_checked)
+    known = task.known_titles | _user_titles(request_messages)
+    notes = check_answer(text, known_titles=known, posted_checked=task.posted_checked)
     if not notes:
         return response
-    fixed = last.model_copy(update={"content": append_notes(last.content, notes)})
+    if isinstance(last.content, str):
+        content = append_notes(last.content, notes)
+    else:
+        # Leading blank line: clients that join text blocks must still show the note as its own paragraph.
+        content = [*last.content, {"type": "text", "text": append_notes("", notes)}]
+    fixed = last.model_copy(update={"content": content})
     return ModelResponse(result=[*messages[:-1], fixed], structured_response=getattr(response, "structured_response", None))
 
 
