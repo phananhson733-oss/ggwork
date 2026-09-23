@@ -214,19 +214,28 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 - 超过时：经线程的 DELETE 接口删掉不再需要的旧会话，和/或在控制台扩磁盘。
 - 不要指望 `checkpoint_retention.py`：它没有生产触发点，也不剪长对话的主链；要接上它是另一项需要评审的任务。
 
-**网盘片段核查（RealShort #67 上线前每周一次，结果写进第 12 节）。** v1 feed 的备注在 #67 合并前不经清洗，同步时原样入库（`pan_url`、`pan_pw` 这些字段本身从不同步），之后被复制到：同步留下的旧批次（最近 3 个，外加 30 天内有候选引用的）、候选快照、保存选择时的快照、回答核对、宿主 checkpoint 里的工具输出与模型回答，以及 `/data/pick` 下的原始 feed 文件。脚本：[supabase/pan-check.sql](supabase/pan-check.sql)（只读）和 [supabase/pan-redact.sql](supabase/pan-redact.sql)。
+**网盘片段核查（RealShort #67 上线前每周一次，结果写进第 12 节）。** v1 feed 的备注在 #67 合并前不经清洗，同步时原样入库（`pan_url`、`pan_pw` 这些字段本身从不同步），之后被复制到：同步留下的旧批次（最近 3 个，外加 30 天内有候选引用的）、候选快照、保存选择时的快照、回答核对、宿主 checkpoint 里的工具输出与模型回答，以及 `/data/pick` 下的原始 feed 文件。核查另外也看手工导入的知识文档的文件名、来源和正文。脚本：[supabase/pan-check.sql](supabase/pan-check.sql)（只读）和 [supabase/pan-redact.sql](supabase/pan-redact.sql)。
 
-模式沿用原来的宽模式，另补了 RealShort 清洗正则里的 `yun.baidu`、`115cdn`、`123684/123865/123912.com`、移动云盘的两个域名，以及后面（可隔空白）跟着 `=`、`:`、`：` 的「密码」「密碼」（不带分隔符的「密码」会误中「财富密码」这类剧名）。两个脚本和第 7 步的 grep 用同一个模式。`customizations/pick-workbench/tests/test_pan_runbook_sql.py` 钉住三处逐字相同；它在 PG 17 上用真实的同步、选剧和保存代码造出污染数据，以非超级用户的表属主替身按下面的顺序跑这两个脚本，并在临时目录里跑第 7 步的两条 grep。
+模式沿用原来的宽模式，另补了 RealShort 清洗正则里的 `yun.baidu`、`115cdn`、`123684/123865/123912.com`、移动云盘的两个域名，以及后面（可隔空白）跟着 `=`、`:`、`：` 的「密码」「密碼」（不带分隔符的「密码」会误中「财富密码」这类剧名）。它还认 JSON 的两种转义写法：中文关键字和全角冒号按 ensure_ascii 写成的 `\uXXXX`（手工导入的原始文件原样存盘，可能就是这种写法），以及「密码」与分隔符之间写成 `\n`、`\t`、`\r`、`\f` 的空白。两个脚本和第 1 步的 `PAN=` 用同一个模式。`customizations/pick-workbench/tests/test_pan_runbook_sql.py` 钉住三处逐字相同；它在 PG 17 上用真实的同步、选剧和保存代码造出污染数据，以非超级用户的表属主替身按下面的顺序跑这两个脚本，并在临时目录里跑下面的 grep。
 
-1. **核查。** 两个脚本都以表的属主 `deerflow_app` 执行，连法与 2.3 相同，密码在提示时粘贴：
+1. **核查：库和磁盘都查，每次都做。** 两个脚本都以表的属主 `deerflow_app` 执行，连法与 2.3 相同，密码在提示时粘贴：
 
    ```bash
    PGSSLMODE=require psql "postgresql://deerflow_app.<ref>@aws-0-us-east-1.pooler.supabase.com:5432/postgres" \
      -X -f docs/pick-workbench/supabase/pan-check.sql
    ```
 
-   输出两张表，只有条数、线程和属主，没有命中的文本：工作台 9 个位置各有几行命中（前 8 个是 JSON 列，最后一个是知识正文）；宿主表里有命中的线程、属主邮箱、命中在哪几张表。9 个 0、线程表为空就结束，结果记进第 12 节。
-2. **逐条人看。** 模式比 #67 的清洗正则宽，误报是预期的。在交互式 psql 里先 `\i` 核查脚本，`:pan` 就设好了，再按位置看命中的片段，例如剧目（其他位置换表名和列名）：
+   输出两张表，只有条数、线程和属主，没有命中的文本：工作台 11 个位置各有几行命中（前 9 个清除脚本会处理，最后两个是知识正文和知识来源）；宿主表里有命中的线程、属主邮箱、命中在哪几张表。
+
+   然后 `railway ssh -i ~/.ssh/railway_ggwork` 进 gateway 容器，列出 `/data/pick` 下含命中的原始文件。`PAN` 后面几步还要用，在同一个 ssh 会话里做；新开会话先重新设一次：
+
+   ```bash
+   PAN='pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)([[:space:]]|\\[fnrt])*(=|:|：|\\uff1a)|\\u63d0\\u53d6\\u78(01|bc)|\\u8bbf\\u95ee\\u7801|\\u8a2a\\u554f\\u78bc|\\u5bc6\\u78(01|bc)([[:space:]]|\\[fnrt])*(=|:|：|\\uff1a)'
+   grep -rliE "$PAN" /data/pick
+   ```
+
+   磁盘每次都要查：导入先写原始文件、后写库，导入中途失败，或者上次处置在删文件前中断，库里就是 0 而磁盘上仍有原文。11 个 0、线程表为空、grep 没有输出，才算没有命中，到此结束，结果记进第 12 节。
+2. **逐条人看。** 模式比 #67 的清洗正则宽，误报是预期的。库里的命中：在交互式 psql 里先 `\i` 核查脚本，`:pan` 就设好了，再按位置看命中的片段，例如剧目（其他位置换表名和列名）：
 
    ```sql
    \i docs/pick-workbench/supabase/pan-check.sql
@@ -234,38 +243,34 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
      FROM deerflow.ggwp_drama_versions WHERE payload_json::jsonb::text ~* :'pan';
    ```
 
-   看到的内容不贴进第 12 节，也不贴进任何对话。线程的原文没法在库里看，它的命中通常就是同一 `thread_id` 的候选快照里那条备注。全是误报时到此为止，第 12 节记下误报的位置和原因，后面几步都不做。
+   磁盘上的文件在容器里看：`grep -oiE ".{0,40}($PAN).{0,40}" <文件>`。看到的内容不贴进第 12 节，也不贴进任何对话。线程的原文没法在库里看，它的命中通常就是同一 `thread_id` 的候选快照里那条备注。全是误报时到此为止，第 12 节记下误报的位置（含文件路径）和原因。只有磁盘有真命中时，直接做第 7、8 步。
 3. **源头改掉。** 在 RealShort 改掉那条备注，再手动同步一次：内容变了会发布新批次并成为当前批次。旧批次和它的行不会因此消失（见上），所以仍要做下一步。
-4. **清除工作台里的副本。**
+4. **清除工作台里的副本。** 先通知大家暂停使用工作台，或者挑没人用的时候做，并紧接着做第 5 步：清除提交后、重启前，已经读到旧数据的请求会把原文写回去，换一批写进新的候选快照，保存选择写进选择快照。
 
    ```bash
    PGSSLMODE=require psql "postgresql://deerflow_app.<ref>@aws-0-us-east-1.pooler.supabase.com:5432/postgres" \
      -X -f docs/pick-workbench/supabase/pan-redact.sql
    ```
 
-   - 一个事务。8 个 JSON 列里，含命中的 JSON 字符串整串换成 `[网盘信息已移除]`，其余字节不动，JSON 仍然有效；当前批次、旧批次、候选卡、换一批和已存选择照常能读能用。
-   - 输出逐行是 `BEGIN`、`CREATE FUNCTION`、8 行 `UPDATE n`、`DROP FUNCTION`、`COMMIT`，各行的 n 记进第 12 节。可以重复执行，第二次全是 `UPDATE 0`。
+   - 一个事务。8 个 JSON 列里，含命中的 JSON 字符串整串换成 `[网盘信息已移除]`，其余字节不动，JSON 仍然有效；知识文档的文件名（`title`，只用于显示和检索）命中时整个换掉。当前批次、旧批次、候选卡、换一批和已存选择照常能读能用。
+   - 输出逐行是 `BEGIN`、`CREATE FUNCTION`、9 行 `UPDATE n`、`DROP FUNCTION`、`COMMIT`，各行的 n 记进第 12 节。可以重复执行，第二次全是 `UPDATE 0`。
    - 用的是与核查相同的模式，同一次会把误报一起换掉。
-   - 不改主键和 identity 列，不改 JSON 里 `identity`、`source_id`、`item_id`、`citation_id`、`request_id` 的值（改了剧目、快照、选择与回执就对不上），不改知识正文，不碰宿主的表。
-5. **重启 gateway。** 在 Railway 控制台重启 gateway 服务。进程内的批次缓存（最多两个批次）还留着清除前读进来的行，不重启的话，在旧候选卡上换一批会把原文再写进新的候选快照。
+   - 不改这几处，它们有命中时不算清除完成，停下来另议：主键和 identity 列；JSON 里 `identity`、`source_id`、`item_id`、`citation_id`、`request_id` 的值（改了剧目、快照、选择与回执就对不上）；知识来源 `source_ref`（`document_id` 是它的 sha256，属于文档身份）；知识正文（规则全文）；宿主的表。
+5. **立刻重启 gateway。** 在 Railway 控制台重启 gateway 服务，之后再恢复使用。进程内的批次缓存（最多两个批次）还留着清除前读进来的行，不重启的话，在旧候选卡上换一批会把原文再写进新的候选快照。
 6. **删会话。** 核查列出的每个线程，请属主在界面里删掉这段对话。前端删对话走的就是 `DELETE /api/threads/{thread_id}`，接口只认 `threads_meta` 里记的属主，管理员也删不了别人的。
    - 这会删掉整段对话：checkpoint、运行记录、线程元数据，属主再也看不到它。只能整段删，是因为 checkpoint 是二进制（msgpack），没法像 JSON 列那样就地替换。
    - 删线程不删工作台的行：`ggwp_candidate_sets` 没有外键，按 `thread_id` 和属主读，线程删了照样读得到，所以第 4 步不能省。
    - 属主一栏是 `(没有 threads_meta 行)` 或 `(属主账号已不存在)` 时，接口删不掉，停下来另议；是 `(无属主)` 时，任何登录用户都能删。
-7. **原始 feed 文件。** 每个批次的原文存成 `/data/pick/<属主哈希>/<内容哈希>`，只在导入时写。运行时没有代码读它，只有再次导入同样的内容时会读它核对哈希，文件不在就重写一份；清理旧批次时文件不在也不报错。所以直接删，不要改写：改写过的文件哈希对不上，同样的内容再导入会失败。`railway ssh -i ~/.ssh/railway_ggwork` 进 gateway 容器，先列出含命中的文件，人看过列表再删：
+7. **原始 feed 文件。** 每个批次的原文存成 `/data/pick/<属主哈希>/<内容哈希>`，只在导入时写。运行时没有代码读它，只有再次导入同样的内容时会读它核对哈希，文件不在就重写一份；清理旧批次时文件不在也不报错。所以直接删，不要改写：改写过的文件哈希对不上，同样的内容再导入会失败。在第 1 步设好 `PAN` 的 ssh 会话里，人看过列表再删：
 
    ```bash
-   grep -rliE 'pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)[[:space:]]*(=|:|：)' /data/pick
-   grep -rliE --null 'pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)[[:space:]]*(=|:|：)' /data/pick | xargs -0r rm -v --
+   grep -rliE --null "$PAN" /data/pick | xargs -0r rm -v --
    ```
 
-8. **复查。** 再跑第 1 步的 pan-check.sql：9 个位置全为 0，线程表为空。容器里再列一次，没有输出：
-
-   ```bash
-   grep -rliE 'pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)[[:space:]]*(=|:|：)' /data/pick
-   ```
-
-   清除后仍不为 0：命中在第 4 步不改的那几处（identity 等键的值、知识正文），停下来另议。候选快照里又出现命中，说明重启前有人用了旧卡，重做第 4、5 步。
+8. **复查。** 再做一遍第 1 步，库和磁盘都查：11 个位置全为 0，线程表为空，grep 没有输出。
+   - 知识来源、知识正文，或者 identity 等键的值里仍有命中：第 4 步不改这几处，不算清除完成，停下来另议。
+   - 其余任何位置不为 0（剧目、候选快照、选择快照、回执……），都重做第 4、5 步再复查：多半是清除后、重启前有请求读到了旧数据。
+   - 线程表不为空：还有会话没删（第 6 步）。grep 有输出：重做第 7 步。
 
 - 不在范围内：`/data/data/deerflow.db` 和 `/data/backup/` 下的 SQLite 文件（切换前的旧数据，第 11 节要求保留）。
 - 2026-09-23 的基线：7,669 行剧目、12 份候选、2 条选择，全部为 0（当时用的是原来的模式，只查了剧目与候选快照两处）。
@@ -463,4 +468,4 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 
 **每周容量（第 6 节）：** 切换后开始记录。
 
-**网盘片段核查（第 6 节）：** 2026-09-23 只查了剧目与候选快照两处，都是 0；按 pan-check.sql 的第一次完整核查待补。
+**网盘片段核查（第 6 节）：** 2026-09-23 只查了剧目与候选快照两处，都是 0；按第 1 步（pan-check.sql 加容器里的 grep）的第一次完整核查待补。
