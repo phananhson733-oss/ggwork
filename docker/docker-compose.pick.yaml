@@ -27,7 +27,7 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile.pick-gateway
-    command: ["sh", "-c", "cd backend && PYTHONPATH=. uv run --no-sync uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001 --workers 1"]
+    command: ["sh", "-c", "cd backend && PYTHONPATH=. uv run --no-sync uvicorn app.gateway.pick_asgi:app --host 0.0.0.0 --port 8001 --workers 1"]
     environment:
       DEER_FLOW_PROJECT_ROOT: /app
       DEER_FLOW_HOME: /app/backend/.deer-flow

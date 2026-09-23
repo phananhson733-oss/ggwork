@@ -14,9 +14,12 @@ on:
       - 'backend/uv.lock'
       - 'config.pick.example.yaml'
       - 'backend/app/gateway/pick_entrypoint.py'
+      - 'backend/app/gateway/pick_asgi.py'
+      - 'backend/app/gateway/json_body_sanitizer.py'
       - 'backend/app/gateway/auth/**'
       - 'backend/tests/test_pick_cloud_entrypoint.py'
       - 'backend/tests/test_create_user_cli.py'
+      - 'backend/tests/test_json_body_sanitizer.py'
       - 'backend/tests/support/pg.py'
       - 'docs/pick-workbench/supabase.md'
       - 'docs/pick-workbench/supabase/**'
@@ -31,9 +34,12 @@ on:
       - 'backend/uv.lock'
       - 'config.pick.example.yaml'
       - 'backend/app/gateway/pick_entrypoint.py'
+      - 'backend/app/gateway/pick_asgi.py'
+      - 'backend/app/gateway/json_body_sanitizer.py'
       - 'backend/app/gateway/auth/**'
       - 'backend/tests/test_pick_cloud_entrypoint.py'
       - 'backend/tests/test_create_user_cli.py'
+      - 'backend/tests/test_json_body_sanitizer.py'
       - 'backend/tests/support/pg.py'
       - 'docs/pick-workbench/supabase.md'
       - 'docs/pick-workbench/supabase/**'
@@ -96,7 +102,7 @@ jobs:
           PICK_TEST_PG_URL: postgresql://postgres:pick-ci@127.0.0.1:5432/postgres
         run: backend/.venv/bin/python -m pytest customizations/pick-workbench/tests -q -rs
 
-      - name: Run pick entrypoint and create_user tests (SQLite and PostgreSQL)
+      - name: Run pick entrypoint, JSON body sanitizer and create_user tests (SQLite and PostgreSQL)
         env:
           PICK_TEST_PG_URL: postgresql://postgres:pick-ci@127.0.0.1:5432/postgres
-        run: backend/.venv/bin/python -m pytest backend/tests/test_pick_cloud_entrypoint.py backend/tests/test_create_user_cli.py -q -rs
+        run: backend/.venv/bin/python -m pytest backend/tests/test_pick_cloud_entrypoint.py backend/tests/test_json_body_sanitizer.py backend/tests/test_create_user_cli.py -q -rs

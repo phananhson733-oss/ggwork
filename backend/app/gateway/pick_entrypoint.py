@@ -111,7 +111,9 @@ def main() -> None:
     prepare_config(home, PROJECT_ROOT / "config.pick.example.yaml", backend)
     os.environ.update(paths)
     os.environ.setdefault("PICK_RUN_TIMEOUT_SECONDS", "120")
-    uvicorn.run("app.gateway.app:app", host="0.0.0.0", port=int(os.environ.get("PORT", "8001")), workers=1)
+    # The gateway behind the JSON body sanitizer: NUL and lone surrogates in a message would pass the routes and
+    # then fail the host's write on PostgreSQL (plan 6.7). Both backends get it so they behave alike.
+    uvicorn.run("app.gateway.pick_asgi:app", host="0.0.0.0", port=int(os.environ.get("PORT", "8001")), workers=1)
 
 
 if __name__ == "__main__":

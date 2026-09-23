@@ -203,6 +203,15 @@ def test_main_sqlite_writes_what_the_previous_entrypoint_wrote(environ, served, 
     assert len(served) == 1
 
 
+@pytest.mark.parametrize("backend", ["sqlite", "postgres"])
+def test_main_serves_the_gateway_behind_the_json_body_sanitizer(environ, served, tmp_path, backend):
+    from app.gateway.pick_entrypoint import main
+
+    environ.update(DEER_FLOW_HOME=str(tmp_path / "home"), PICK_DB_BACKEND=backend, PICK_DATABASE_URL=URL)
+    main()
+    assert served[0][0] == ("app.gateway.pick_asgi:app",)
+
+
 def test_main_fills_the_shared_defaults(environ, served, tmp_path):
     from app.gateway.pick_entrypoint import PROJECT_ROOT, main
 
@@ -254,9 +263,10 @@ def test_runtime_environment_fills_only_what_is_missing(tmp_path):
     assert PROJECT_ROOT == Path(__file__).resolve().parents[2]
 
 
-# What ``uvicorn.run("app.gateway.app:app")`` does before serving: importing the module builds the app, and
-# create_app() resolves the runtime yaml's $VARIABLES. load_dotenv() is disabled because a fresh worktree has
+# What ``uvicorn.run("app.gateway.pick_asgi:app")`` does before serving: importing the module builds the app,
+# and create_app() resolves the runtime yaml's $VARIABLES. load_dotenv() is disabled because a fresh worktree has
 # no .env above it; on a developer checkout it finds the repo's git-ignored .env and hides a missing variable.
+# The served object must be the real gateway behind the JSON body sanitizer (plan 6.7).
 LAPTOP_START = """
 import importlib
 
@@ -265,7 +275,17 @@ import dotenv
 dotenv.load_dotenv = lambda *args, **kwargs: False
 from app.gateway import pick_entrypoint
 
-pick_entrypoint.uvicorn.run = lambda target, **kwargs: importlib.import_module(target.partition(":")[0])
+
+def serve(target, **kwargs):
+    module, _, name = target.partition(":")
+    served = getattr(importlib.import_module(module), name)
+    from app.gateway.app import app as gateway
+    from app.gateway.json_body_sanitizer import JsonBodySanitizer
+
+    assert isinstance(served, JsonBodySanitizer) and served.app is gateway, target
+
+
+pick_entrypoint.uvicorn.run = serve
 pick_entrypoint.main()
 """
 
