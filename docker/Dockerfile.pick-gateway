@@ -1,4 +1,6 @@
-# Personal pick runtime: only the Python host and its locked Azure Responses dependencies.
+# Personal pick runtime: only the Python host and its locked Azure Responses dependencies,
+# plus the locked postgres extra (asyncpg, psycopg, psycopg-pool, langgraph-checkpoint-postgres)
+# that PICK_DB_BACKEND=postgres needs.
 # Business tools cannot execute shell, MCP, Docker or Feishu commands.
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.1
 FROM ${UV_IMAGE} AS uv-source
@@ -7,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 COPY --from=uv-source /uv /uvx /usr/local/bin/
 WORKDIR /app
 COPY backend ./backend
-RUN cd backend && uv sync --locked --no-dev
+RUN cd backend && uv sync --locked --no-dev --extra postgres
 FROM python:3.12-slim-bookworm
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONIOENCODING=utf-8
 COPY --from=uv-source /uv /uvx /usr/local/bin/

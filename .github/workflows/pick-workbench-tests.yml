@@ -1,6 +1,7 @@
 name: Pick Workbench Tests
 
-# The ggwork-pick extension suite on both dialects: SQLite and a postgres:17 service.
+# The ggwork-pick extension suite and the pick entrypoint / create_user tests on both dialects:
+# SQLite and a postgres:17 service.
 # The PostgreSQL half skips only when PICK_TEST_PG_URL is unset, which never happens here.
 on:
   push:
@@ -12,6 +13,10 @@ on:
       - 'backend/pyproject.toml'
       - 'backend/uv.lock'
       - 'config.pick.example.yaml'
+      - 'backend/app/gateway/pick_entrypoint.py'
+      - 'backend/app/gateway/auth/**'
+      - 'backend/tests/test_pick_cloud_entrypoint.py'
+      - 'backend/tests/test_create_user_cli.py'
       - '.github/workflows/pick-workbench-tests.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -22,6 +27,10 @@ on:
       - 'backend/pyproject.toml'
       - 'backend/uv.lock'
       - 'config.pick.example.yaml'
+      - 'backend/app/gateway/pick_entrypoint.py'
+      - 'backend/app/gateway/auth/**'
+      - 'backend/tests/test_pick_cloud_entrypoint.py'
+      - 'backend/tests/test_create_user_cli.py'
       - '.github/workflows/pick-workbench-tests.yml'
   workflow_dispatch:
 
@@ -80,3 +89,8 @@ jobs:
         env:
           PICK_TEST_PG_URL: postgresql://postgres:pick-ci@127.0.0.1:5432/postgres
         run: backend/.venv/bin/python -m pytest customizations/pick-workbench/tests -q -rs
+
+      - name: Run pick entrypoint and create_user tests (SQLite and PostgreSQL)
+        env:
+          PICK_TEST_PG_URL: postgresql://postgres:pick-ci@127.0.0.1:5432/postgres
+        run: backend/.venv/bin/python -m pytest backend/tests/test_pick_cloud_entrypoint.py backend/tests/test_create_user_cli.py -q -rs
