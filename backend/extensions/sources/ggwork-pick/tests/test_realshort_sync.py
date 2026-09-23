@@ -57,10 +57,10 @@ def feed_transport(rows, *, page=2, total=None, seen=None, fail_on=None, rules=R
 
 
 @pytest_asyncio.fixture
-async def service(tmp_path):
+async def service(pick_db_url, tmp_path):
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    engine = create_async_engine(pick_db_url)
     svc = PickService(tmp_path / "files")
     await svc.initialize(async_sessionmaker(engine, expire_on_commit=False))
     yield svc

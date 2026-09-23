@@ -28,11 +28,11 @@ def row(i, *, rank=None, kind="kd", observed="2026-09-20", posted=None, sched=0,
 
 
 @pytest_asyncio.fixture
-async def repo(tmp_path):
+async def repo(pick_db_url, tmp_path):
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    engine = create_async_engine(pick_db_url)
     svc = PickService(tmp_path / "files")
     await svc.initialize(async_sessionmaker(engine, expire_on_commit=False))
     yield PickRepository(svc.session_factory, "alice"), svc

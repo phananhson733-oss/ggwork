@@ -1,0 +1,82 @@
+name: Pick Workbench Tests
+
+# The ggwork-pick extension suite on both dialects: SQLite and a postgres:17 service.
+# The PostgreSQL half skips only when PICK_TEST_PG_URL is unset, which never happens here.
+on:
+  push:
+    branches: [ 'main' ]
+    paths:
+      - 'customizations/pick-workbench/**'
+      - 'backend/extensions/sources/ggwork-pick/**'
+      - 'backend/packages/**'
+      - 'backend/pyproject.toml'
+      - 'backend/uv.lock'
+      - 'config.pick.example.yaml'
+      - '.github/workflows/pick-workbench-tests.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'customizations/pick-workbench/**'
+      - 'backend/extensions/sources/ggwork-pick/**'
+      - 'backend/packages/**'
+      - 'backend/pyproject.toml'
+      - 'backend/uv.lock'
+      - 'config.pick.example.yaml'
+      - '.github/workflows/pick-workbench-tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: pick-workbench-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pick-workbench-tests:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          # Throwaway CI database; the tests create and drop their own databases and roles on it.
+          POSTGRES_PASSWORD: pick-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          # Must match backend/Dockerfile's UV_IMAGE tag; pinned by backend/tests/test_ci_uv_version_pin.py
+          version: "0.11.1"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --group dev --extra postgres
+
+      - name: Lint pick workbench
+        run: |
+          backend/.venv/bin/ruff check customizations/pick-workbench
+          backend/.venv/bin/ruff format --check customizations/pick-workbench
+
+      - name: Run pick workbench tests (SQLite and PostgreSQL)
+        env:
+          PICK_TEST_PG_URL: postgresql://postgres:pick-ci@127.0.0.1:5432/postgres
+        run: backend/.venv/bin/python -m pytest customizations/pick-workbench/tests -q -rs

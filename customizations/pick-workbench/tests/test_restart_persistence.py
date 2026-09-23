@@ -12,8 +12,8 @@ from ggwork_pick.service import PickService
 
 
 @pytest.mark.asyncio
-async def test_restart_preserves_candidates_sources_notes_and_command_receipts(tmp_path):
-    url = f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}"
+async def test_restart_preserves_candidates_sources_notes_and_command_receipts(pick_db_url, tmp_path):
+    url = pick_db_url
     engine = create_async_engine(url)
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))

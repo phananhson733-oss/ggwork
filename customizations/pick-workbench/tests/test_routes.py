@@ -15,11 +15,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 
 @pytest_asyncio.fixture
-async def app_client(tmp_path):
+async def app_client(pick_db_url, tmp_path):
     from ggwork_pick.routes import build_router
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = create_async_engine(pick_db_url)
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     service.run_evidence_reader = SimpleNamespace(get_run_status=AsyncMock(return_value=SimpleNamespace(status="success")))

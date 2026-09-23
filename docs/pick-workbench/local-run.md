@@ -45,6 +45,19 @@ docker-compose --env-file .env -p ggwork-pick -f docker/docker-compose.pick.yaml
 
 `frontend/playwright.config.ts` 的常规 E2E 有模拟网络；既有 real-backend 套件也使用回放模型。需要另外完成本期保留认证与真实本地模型的验证。
 
+### 扩展单元测试（SQLite 与 PostgreSQL）
+
+用 `pick_db_url` 夹具的用例在两种方言上各跑一遍；`PICK_TEST_PG_URL` 未设时 PG 那一份跳过。CI（`.github/workflows/pick-workbench-tests.yml`）用 `postgres:17` service 跑两种方言。本机复现：
+
+```bash
+# 仓库根目录。只指向一次性的本机库：用例会在上面建删数据库和角色。backend/.venv 需装 --extra postgres 的依赖。
+docker run --rm -d --name pick-pg -e POSTGRES_PASSWORD=<本机随机口令> -p 5433:5432 postgres:17
+PICK_TEST_PG_URL=postgresql://postgres:<本机随机口令>@127.0.0.1:5433/postgres \
+  backend/.venv/bin/python -m pytest customizations/pick-workbench/tests -q
+```
+
+URL 用 libpq 格式、不带查询参数。每个会话先建一个迁移到 head 的模板库，每个用例从模板复制一个独立的库（search_path 为 `deerflow`，与生产一致），并建一个带随机后缀的只读角色、写进 `PICK_MIRROR_READER_ROLE`，用例结束时都删掉。
+
 ## 当前原生调试入口
 
 Docker基础镜像下载期间，已启动相同配置的原生Gateway（127.0.0.1:8007）和生产前端（localhost:3007）。浏览器可打开 `http://localhost:3007/setup` 设置个人管理员。首次凭据由用户在浏览器亲自设置。

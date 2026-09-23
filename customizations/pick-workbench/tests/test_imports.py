@@ -17,12 +17,12 @@ def catalog_bytes(rows=None):
 
 
 @pytest.mark.asyncio
-async def test_import_is_atomic_deduplicated_and_owner_scoped(tmp_path):
+async def test_import_is_atomic_deduplicated_and_owner_scoped(pick_db_url, tmp_path):
     from ggwork_pick.imports import Importer
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    engine = create_async_engine(pick_db_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     service = PickService(tmp_path / "files")
     await service.initialize(factory)
@@ -46,12 +46,12 @@ async def test_import_is_atomic_deduplicated_and_owner_scoped(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_knowledge_retains_source_version_and_original_text(tmp_path):
+async def test_knowledge_retains_source_version_and_original_text(pick_db_url, tmp_path):
     from ggwork_pick.imports import Importer
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    engine = create_async_engine(pick_db_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     service = PickService(tmp_path / "files")
     await service.initialize(factory)

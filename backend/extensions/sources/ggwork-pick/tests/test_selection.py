@@ -6,13 +6,12 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
-@pytest_asyncio.fixture
-async def workspace(tmp_path):
+async def _open_workspace(url, tmp_path):
     from ggwork_pick.imports import Importer
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    engine = create_async_engine(url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     service = PickService(tmp_path / "files")
     await service.initialize(factory)
@@ -38,7 +37,20 @@ async def workspace(tmp_path):
     ]
     importer = Importer(repo, service.data_dir)
     batch = await importer.catalog(json.dumps(rows).encode(), "json")
-    yield repo, importer, batch, rows
+    return engine, (repo, importer, batch, rows)
+
+
+@pytest_asyncio.fixture
+async def workspace(pick_db_url, tmp_path):
+    engine, opened = await _open_workspace(pick_db_url, tmp_path)
+    yield opened
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def pg_workspace(pg_db_url, tmp_path):
+    engine, opened = await _open_workspace(pg_db_url, tmp_path)
+    yield opened
     await engine.dispose()
 
 
@@ -150,3 +162,63 @@ async def test_query_replay_cannot_change_refresh_intent(workspace):
     await service.query({}, thread_id="t1", run_id="r1", call_id="c1")
     with pytest.raises(ValueError, match="重复"):
         await service.query({}, thread_id="t1", run_id="r1", call_id="c1", use_latest=True)
+
+
+def _first_param(parameters):
+    return parameters[0] if isinstance(parameters, (list, tuple)) else next(iter(parameters.values()))
+
+
+async def _wait_for_a_lock_waiter(engine, timeout: float = 5.0) -> None:
+    from sqlalchemy import text
+
+    waiting = text(
+        "select count(*) from pg_locks l join pg_database d on d.oid = l.database"
+        " where d.datname = current_database() and l.locktype = 'advisory' and not l.granted"
+    )
+    deadline = asyncio.get_running_loop().time() + timeout
+    async with engine.connect() as conn:
+        while (await conn.execute(waiting)).scalar_one() == 0:
+            assert asyncio.get_running_loop().time() < deadline, "no write queued behind the held advisory lock"
+            await conn.rollback()
+            await asyncio.sleep(0.02)
+
+
+@pytest.mark.asyncio
+async def test_postgres_writes_queue_on_a_per_owner_advisory_lock(pg_workspace):
+    from sqlalchemy import event, text
+
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+
+    repo, _, _, _ = pg_workspace
+    engine = repo.session_factory.kw["bind"]
+    keys = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if "pg_advisory_xact_lock" in statement:
+            keys.append(_first_param(parameters))
+
+    event.listen(engine.sync_engine, "before_cursor_execute", capture)
+    try:
+        result = await SelectionService(repo).query({"language": "en"}, thread_id="t1", run_id="r1", call_id="c1")
+        ids = [item["item_id"] for item in result["items"]]
+        await repo.save_selection("save-1", result["id"], ids[:1])
+        assert len(keys) == 1
+        async with engine.connect() as holder:
+            # Another session holds alice's key: her next write must wait inside its transaction.
+            await holder.execute(text("select pg_advisory_lock(:key)"), {"key": keys[0]})
+            queued = asyncio.create_task(repo.save_selection("save-2", result["id"], ids[1:2]))
+            try:
+                await _wait_for_a_lock_waiter(engine)
+                assert not queued.done()
+                # bob's write takes his own key and is not queued behind alice's.
+                with pytest.raises(LookupError):
+                    await asyncio.wait_for(PickRepository(repo.session_factory, "bob").save_selection("save-3", result["id"], ids[:1]), 5)
+            finally:
+                await holder.execute(text("select pg_advisory_unlock(:key)"), {"key": keys[0]})
+        receipt = await asyncio.wait_for(queued, 5)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", capture)
+    assert [saved["status"] for saved in receipt["saved"]] == ["created"]
+    assert keys[1] == keys[0] != keys[2]
+    assert len(await repo.selections()) == 2
