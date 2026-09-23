@@ -178,7 +178,16 @@
 - 后端：pick 扩展 94 passed，ruff 通过；托管副本与源码 `diff -rq` 为空。
 - 前端：rstest 1936 passed，tsc、eslint 通过；prettier 只报了本轮没改过的生成 fixture `backend-result.json`。
 
-**遗留**：
+**上线（2026-09-23 14:20 北京时间）**：
+- 提交 `80077f1`（代码）、`554ce0c`（文档），推送到 ggwork main。
+- 先删 Vercel 上的 `CRON_SECRET`、`PICK_SYNC_TOKEN`、`DEER_FLOW_INTERNAL_AUTH_TOKEN`，再部署前端；新部署里不带这三个变量，项目上也没有 Cron 任务了。
+- Railway 部署后，日志显示迁移 `0003 -> 0004`、扩展 1/1 加载、`/api/pick/answer-checks` 挂载、`/cron/sync` 不再挂载；之后删除 Railway 上的 `PICK_SYNC_TOKEN`。
+- 线上核对：
+  - 回答核对接口返回 200。
+  - 资料页「立即同步」走新路径，约 10 秒拉到 7,086 部；面板和导入列表随后刷新，规则批次按内容去重，沿用原来那份。
+  - 自动化浏览器的标签页不可见，react-query 暂停轮询，面板要等页面可见后才刷新；真人正常查看页面时不受影响。
+
+**遗留**（RealShort 侧前四项已在 phananhson733-oss/realshort#66 修复，待合并）：
 - RealShort 侧：
   - ReelShort 行无信号日期，标签被拼成一条。
   - `feedDate` 接受 2026-02-30。

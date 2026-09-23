@@ -71,4 +71,4 @@ ggwork-deerflow 的 Vercel 项目不再需要 `CRON_SECRET`、`PICK_SYNC_TOKEN`�
 - 候选池以外的剧（没有信号的、已下架的）不在工作台里。
 - 发布记录来自运营飞书选剧池的归一结果。对不上的剧只能说「记录里没有」，不能说「从未发布」；工具与界面都按这个口径输出。
 - 有名次的信号目前只有 kd、qc、qr；其余种类只能用来筛选「有这类依据」，不能按名次排序。
-- ReelShort 行的信号没有日期，默认按依据日期排序时排在后面；ReelShort 标签在 feed 里被拼成一条。这两处都要在 RealShort 侧修。
+- ReelShort 行的信号没有日期，默认按依据日期排序时排在后面；ReelShort 标签在 feed 里被拼成一条。修复在 RealShort PR phananhson733-oss/realshort#66（同时拒绝日历上不存在的日期、截断不劈代理对），合并部署后下一次同步生效。
