@@ -8,13 +8,17 @@
 -- 模式比 RealShort #67 的清洗正则宽，命中不一定是网盘信息，要人看。除了原文，它认任意层 JSON 转义的写法（反斜杠一个或多个，
 -- 比如工具输出本身是 JSON、又被宿主的运行事件整个再转一次，换行就成了两个反斜杠加 n）：
 --   - 中文关键字与全角冒号写成 \uXXXX（ensure_ascii；十六进制不分大小写）；
---   - 「密码」与分隔符之间的空白：原样的空白、U+00A0 与 U+3000（模式里那两个看不见的字符），或者 \n、\t 这类转义与任意 \uXXXX。
+--   - 「密码」与分隔符之间的空白：原样的 ASCII 空白；Unicode White_Space 里全部 19 个非 ASCII 字符（U+0085、U+00A0、U+1680、
+--     U+2000 到 U+200A、U+2028、U+2029、U+202F、U+205F、U+3000），每个单独一条分支、原样写在模式里（看不见）；
+--     或者 \n、\t 这类转义与任意 \uXXXX。非 ASCII 空白不靠 [[:space:]]：它认不认这些字符随 locale 变（C locale 只认 ASCII），
+--     下面 blob 的匹配和容器里的 grep 也都可能是按字节比。
 -- 它与 pan-redact.sql、运行手册里的 PAN= 逐字相同（customizations/pick-workbench/tests/test_pan_runbook_sql.py 钉住），三处一起改。
 \set ON_ERROR_STOP on
-SELECT 'pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)([[:space:]]| |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)|\\+u63d0\\+u53d6\\+u78(01|bc)|\\+u8bbf\\+u95ee\\+u7801|\\+u8a2a\\+u554f\\+u78bc|\\+u5bc6\\+u78(01|bc)([[:space:]]| |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)' AS pan \gset
+SELECT 'pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)([[:space:]]|| | | | | | | | | | | | | | | | | |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)|\\+u63d0\\+u53d6\\+u78(01|bc)|\\+u8bbf\\+u95ee\\+u7801|\\+u8a2a\\+u554f\\+u78bc|\\+u5bc6\\+u78(01|bc)([[:space:]]|| | | | | | | | | | | | | | | | | |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)' AS pan \gset
 -- checkpoint 的 blob 是 msgpack，字符串是原样的 UTF-8 字节。encode(blob, 'escape') 只把 0x00 和 0x80 以上的字节写成 \ooo、
 -- 把反斜杠写成 \\，其余字节（含真实的换行、制表符）原样。模式里的反斜杠都写成「一个或多个」，编码后翻倍的反斜杠照样匹配；
--- 所以匹配 blob 前只需把每个非 ASCII 字符换成它的 \ooo 字节序列。ASCII 部分照旧不分大小写。
+-- 所以匹配 blob 前只需把每个非 ASCII 字符换成它的 \ooo 字节序列。ASCII 部分照旧不分大小写。改写是逐字符的，
+-- 非 ASCII 字符在模式里只能是单独的分支、不能放进 [...]；[[:space:]] 碰不到 \ooo，非 ASCII 空白只靠那 19 条分支。
 SELECT string_agg(CASE WHEN ascii(c) > 127
                        THEN '(?:' || replace(encode(convert_to(c, 'UTF8'), 'escape'), '\', '\\') || ')'
                        ELSE c END, '' ORDER BY i) AS pan_bytes

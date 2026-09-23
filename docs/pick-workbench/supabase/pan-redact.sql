@@ -17,9 +17,9 @@
 -- 整个脚本是一个事务，任何一句失败都整体回滚。辅助函数在事务里建、提交前删掉，库里不留东西。
 -- 可以重复执行：第二次每个 UPDATE 都是 0。
 -- 模式与 pan-check.sql、运行手册里的 PAN= 逐字相同（customizations/pick-workbench/tests/test_pan_runbook_sql.py 钉住），
--- 各部分的含义见 pan-check.sql 开头；里面有 U+00A0 与 U+3000 两个看不见的字符。
+-- 各部分的含义见 pan-check.sql 开头；里面有 19 个看不见的非 ASCII 空白字符。
 \set ON_ERROR_STOP on
-SELECT 'pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)([[:space:]]| |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)|\\+u63d0\\+u53d6\\+u78(01|bc)|\\+u8bbf\\+u95ee\\+u7801|\\+u8a2a\\+u554f\\+u78bc|\\+u5bc6\\+u78(01|bc)([[:space:]]| |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)' AS pan \gset
+SELECT 'pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)([[:space:]]|| | | | | | | | | | | | | | | | | |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)|\\+u63d0\\+u53d6\\+u78(01|bc)|\\+u8bbf\\+u95ee\\+u7801|\\+u8a2a\\+u554f\\+u78bc|\\+u5bc6\\+u78(01|bc)([[:space:]]|| | | | | | | | | | | | | | | | | |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)' AS pan \gset
 BEGIN;
 -- 把 JSON 文本从头切成两种片段：字符串字面量（引号到引号，\" 与 \\ 这类转义算在串里），和两个串之间的其余字符。
 -- 合法 JSON 里每个引号都是某个串的开头或结尾，所以切出来的片段首尾相接、拼回去与原文逐字相同，一个片段不会跨两个串。

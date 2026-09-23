@@ -15,6 +15,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -72,6 +73,18 @@ KNOWLEDGE_TEXT = "# 规则\n\n素材的提取码在群公告里"
 # Near misses: 密码 without a separator is a common word in titles.
 CLEAN_TITLE = "财富密码"
 CLEAN_NOTE = "密码学入门，见 pan 字样也不算"
+# Every non-ASCII character Unicode counts as whitespace, from Python's own tables. The pattern writes each as a branch of its
+# own: a binary checkpoint column and a C-locale grep match them only as bytes, where [[:space:]] never sees them.
+WIDE_SPACES = [chr(c) for c in range(0x80, sys.maxunicode + 1) if chr(c).isspace()]
+# The pattern's other non-ASCII characters: the keywords and the full-width colon.
+KEYWORD_CHARS = "提取码碼访问訪問密："
+# The shells the runbook's greps may run in: the gateway image sets C.UTF-8, an ssh session may come up in C.
+LOCALES = ("C", "C.UTF-8")
+
+
+def _password(space: int) -> str:
+    """A password whose only gap is one raw non-ASCII whitespace character."""
+    return "密码" + chr(space) + "：ab12"
 
 
 def _pattern(text: str) -> str:
@@ -80,7 +93,8 @@ def _pattern(text: str) -> str:
 
 
 def _runbook_lines() -> list[str]:
-    return [line.strip() for line in RUNBOOK.read_text(encoding="utf-8").splitlines()]
+    # split, not splitlines: U+0085, U+2028 and U+2029 inside the PAN= line are not line breaks.
+    return [line.strip() for line in RUNBOOK.read_text(encoding="utf-8").split("\n")]
 
 
 def _runbook_pan() -> str:
@@ -101,10 +115,13 @@ def test_the_scripts_and_the_runbook_use_one_pattern_that_keeps_the_old_one():
     assert _pattern(REDACT.read_text(encoding="utf-8")) == pattern
     assert _runbook_pan() == f"PAN='{pattern}'"
     assert set(OLD_PATTERN.split("|")) <= set(pattern.split("|"))
-    # Every backslash escape takes one or more backslashes, whatever the number of JSON layers; the gap takes U+00A0 and U+3000.
+    # Every backslash escape takes one or more backslashes, whatever the number of JSON layers.
     backslash = chr(92)
     assert backslash * 2 + "u" not in pattern.replace(backslash * 2 + "+u", "") and backslash * 2 + "[" not in pattern
-    assert pattern.count(chr(0xA0)) == pattern.count(chr(0x3000)) == 2
+    # Both gaps after 密码: ASCII whitespace, each non-ASCII whitespace character as its own branch, then the escapes.
+    gap = "([[:space:]]|" + "|".join(WIDE_SPACES) + f"|{backslash * 2}+[bfnrtv]|{backslash * 2}+u[0-9a-fA-F]{{4}})*"
+    assert pattern.count(gap) == 2
+    assert {c for c in pattern if not c.isascii()} - set(KEYWORD_CHARS) == set(WIDE_SPACES)
     # The old inline queries are gone: the runbook holds the pattern once, and every grep uses $PAN.
     runbook = RUNBOOK.read_text(encoding="utf-8")
     assert runbook.count(pattern) == 1 and OLD_PATTERN not in runbook
@@ -488,6 +505,11 @@ HOST_THREADS = {
     "thread-json-newline": ("bob", "checkpoint_blobs"),  # the tool output's JSON writes the newline as backslash-n
     "thread-real-newline": ("bob", "checkpoint_blobs"),  # a model answer with a real newline byte
     "thread-write-ascii": (None, "checkpoint_writes"),  # a pending write, ensure_ascii; no threads_meta row
+    # Raw non-ASCII whitespace in a tool output (ensure_ascii off), so its UTF-8 bytes land in the blob as they are.
+    "thread-blob-nbsp": ("alice", "checkpoint_blobs"),  # U+00A0
+    "thread-blob-ideographic": ("bob", "checkpoint_blobs"),  # U+3000
+    "thread-write-em": ("alice", "checkpoint_writes"),  # U+2003, in a pending write
+    "thread-write-line": ("bob", "checkpoint_writes"),  # U+2028, in a pending write
     "thread-run-first": ("bob", "runs"),  # runs.first_human_message
     "thread-run-last": ("bob", "runs"),  # runs.last_ai_message
     "thread-run-kwargs": ("bob", "runs"),  # runs.kwargs_json
@@ -499,6 +521,7 @@ HOST_THREADS = {
     "thread-meta-json": ("bob", "threads_meta"),  # threads_meta.metadata_json
     "thread-clean": ("alice", None),
 }
+RAW_SPACES = {"thread-blob-nbsp": 0xA0, "thread-blob-ideographic": 0x3000, "thread-write-em": 0x2003, "thread-write-line": 0x2028}
 
 
 async def _record_events(service, owners: dict[str, str]) -> None:
@@ -554,6 +577,7 @@ async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(wor
     link = json.dumps({"items": [{"evidence": [{"note": "资源 PAN.Baidu.com/s/1x"}]}]}, ensure_ascii=False)
     quiet = [HumanMessage("找剧")]
     escaped = ToolMessage(json.dumps({"note": PASSWORD_TAB}, ensure_ascii=True), tool_call_id="c3")
+    raw = {t: ToolMessage(json.dumps({"note": _password(space)}, ensure_ascii=False), tool_call_id=t) for t, space in RAW_SPACES.items()}
     special = {
         "thread-ckpt": dict(messages=quiet, title="访问码 8k2p 的剧"),
         "thread-ckpt-meta": dict(messages=quiet, metadata={"note": "提取码 x7k2"}),
@@ -561,6 +585,10 @@ async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(wor
         "thread-json-newline": dict(messages=[ToolMessage(json.dumps({"note": PASSWORD_NEWLINE}, ensure_ascii=False), tool_call_id="c2")]),
         "thread-real-newline": dict(messages=[*quiet, AIMessage(PASSWORD_NEWLINE)]),
         "thread-write-ascii": dict(messages=quiet, writes=[("messages", [escaped])]),
+        "thread-blob-nbsp": dict(messages=[*quiet, raw["thread-blob-nbsp"]]),
+        "thread-blob-ideographic": dict(messages=[*quiet, raw["thread-blob-ideographic"]]),
+        "thread-write-em": dict(messages=quiet, writes=[("messages", [raw["thread-write-em"]])]),
+        "thread-write-line": dict(messages=quiet, writes=[("messages", [raw["thread-write-line"]])]),
         "thread-clean": dict(messages=[HumanMessage("有没有财富密码"), AIMessage("《财富密码》在候选里。")], title=CLEAN_TITLE),
     }
     with PostgresSaver.from_conn_string(_libpq(workbench.url)) as saver:
@@ -585,6 +613,13 @@ async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(wor
         for t, values in runs.items():  # one statement each: the rows set different columns
             await conn.execute(insert(RunRow.__table__).values(run_id=f"run-{t}", thread_id=t, user_id=owners[t], **values))
     await _record_events(service, owners)
+    # The raw bytes of 密码 and the whitespace character are in the blob: only the pattern's literal branch matches them.
+    for thread, space in RAW_SPACES.items():
+        table = HOST_THREADS[thread][1]
+        [(found,)] = workbench.fetch(
+            f"SELECT bool_or(position(%s::bytea IN blob) > 0) FROM deerflow.{table} WHERE thread_id = %s", ("密码" + chr(space)).encode(), thread
+        )
+        assert found, thread
 
     listed = [(t, f"{owner}@example.test" if owner else NO_META, table) for t, (owner, table) in sorted(HOST_THREADS.items()) if table]
     assert workbench.check() == (NOTHING, listed)
@@ -615,10 +650,11 @@ async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(wor
 # ---- raw feed files: found with the runbook's grep, deleted, never overwritten ----
 
 
-def _shell(data_dir: Path, command: str) -> list[str]:
+def _shell(data_dir: Path, command: str, *, locale: str | None = None) -> list[str]:
     """A runbook command after the runbook's PAN= line, pointed at a test data directory."""
     script = _runbook_pan() + "\n" + command.replace("/data/pick", str(data_dir))
-    result = subprocess.run(["bash", "-c", script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", timeout=60)
+    env = os.environ | ({"LC_ALL": locale} if locale else {})
+    result = subprocess.run(["bash", "-c", script], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", timeout=60)
     assert result.returncode in (0, 1), result.stdout  # grep exits 1 when nothing matches
     return sorted(result.stdout.split())
 
@@ -648,7 +684,7 @@ async def test_raw_files_with_a_hit_are_found_and_deleting_them_is_safe(files_se
     if shutil.which("bash") is None or shutil.which("grep") is None:
         pytest.skip("needs bash and grep")
     step_one = _runbook_steps()[1]
-    [listing] = {line.strip() for line in step_one.splitlines() if line.strip().startswith("grep -") and line.strip().endswith('"$PAN" /data/pick')}
+    [listing] = {line.strip() for line in step_one.split("\n") if line.strip().startswith("grep -") and line.strip().endswith('"$PAN" /data/pick')}
     [removal] = [line for line in _runbook_lines() if "| xargs -0r rm" in line]
     shared, alice = PickRepository.shared(files_service.session_factory), PickRepository(files_service.session_factory, "alice")
     importer = Importer(alice, files_service.data_dir)
@@ -659,14 +695,17 @@ async def test_raw_files_with_a_hit_are_found_and_deleting_them_is_safe(files_se
     vertical_tab = await importer.catalog(_upload(PASSWORD_VT, ensure_ascii=False), "json")  # U+000B, which JSON always escapes
     csv = 'source,source_id,language,title\nsynthetic,2,en,"剧名 密码\n：ab12"\n'  # a quoted CSV field across two lines
     across_lines = await importer.catalog(csv.encode(), "csv")
-    uploads = [first["catalog_batch_id"], escaped_code["id"], escaped_nbsp["id"], vertical_tab["id"], across_lines["id"]]
+    em_space = await importer.catalog(_upload(_password(0x2003), ensure_ascii=False), "json")  # a raw U+2003
+    uploads = [first["catalog_batch_id"], escaped_code["id"], escaped_nbsp["id"], vertical_tab["id"], across_lines["id"], em_space["id"]]
     fixed = [feed_row(1), feed_row(4)]
     second = await _sync(files_service, fixed)
     paths = {row["id"]: row["raw_blob_path"] for row in await alice.batches()}
     assert "提取码" not in Path(paths[escaped_code["id"]]).read_text(encoding="utf-8")
-    assert _shell(files_service.data_dir, listing) == sorted(paths[batch_id] for batch_id in uploads)
-    _shell(files_service.data_dir, removal)
-    assert _shell(files_service.data_dir, listing) == []
+    # The same list whether the ssh session's grep compares characters (C.UTF-8) or bytes (C).
+    for locale in LOCALES:
+        assert _shell(files_service.data_dir, listing, locale=locale) == sorted(paths[batch_id] for batch_id in uploads), locale
+    _shell(files_service.data_dir, removal, locale="C")
+    assert all(_shell(files_service.data_dir, listing, locale=locale) == [] for locale in LOCALES)
     assert not any(Path(paths[batch_id]).exists() for batch_id in uploads)
     # The next sync prunes the old batches, one of whose files is already gone.
     clean = await _sync(files_service, [*fixed, feed_row(5)], keep_batches=1)
@@ -682,3 +721,15 @@ async def test_raw_files_with_a_hit_are_found_and_deleting_them_is_safe(files_se
     transport = _transport([*fixed, feed_row(5)], scope="s")
     refused = await RealShortSync(files_service, base_url="https://realshort.test", token=TOKEN, transport=transport).run("manual")
     assert refused["status"] == "failed" and "校验失败" in refused["error"]
+
+
+def test_the_runbook_gives_the_byte_count_of_its_pan_line(tmp_path):
+    # Copied from a rendered page, the invisible whitespace characters can turn into spaces or line breaks; the count shows it.
+    if shutil.which("bash") is None:
+        pytest.skip("needs bash")
+    step_one = _runbook_steps()[1]
+    [count] = [line.strip() for line in step_one.split("\n") if line.strip() == 'printf %s "$PAN" | wc -c']
+    [expected] = re.findall(r'`printf %s "\$PAN" \| wc -c` 应输出 (\d+)', step_one)
+    assert int(expected) == len(_pattern(CHECK.read_text(encoding="utf-8")).encode())
+    for locale in LOCALES:
+        assert _shell(tmp_path, count, locale=locale) == [expected], locale
