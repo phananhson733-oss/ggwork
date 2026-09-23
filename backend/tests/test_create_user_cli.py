@@ -2,7 +2,8 @@
 
 It runs inside ``railway ssh`` sessions, where none of the DEER_FLOW_* variables that pick_entrypoint sets
 for the gateway exist and the working directory holds no config.yaml, so the subprocess cases reproduce
-that shell. The PostgreSQL case needs PICK_TEST_PG_URL (a throwaway cluster) and skips without it.
+that shell. The PostgreSQL case needs PICK_TEST_PG_URL (a throwaway cluster) and skips without it; with it
+set, a missing psycopg fails the case rather than skipping it (tests/support/pg.py).
 """
 
 import os
@@ -12,9 +13,9 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
+from support import pg as support_pg
 
 BACKEND = Path(__file__).resolve().parents[1]
 TEMPLATE = BACKEND.parent / "config.pick.example.yaml"
@@ -198,22 +199,24 @@ def test_railway_ssh_shell_without_runtime_config_fails_before_the_database(tmp_
 @pytest.fixture
 def pg_database():
     """A fresh database on the PICK_TEST_PG_URL cluster, dropped afterwards; its libpq URL."""
-    url = os.environ.get("PICK_TEST_PG_URL")
-    if not url:
-        pytest.skip("PICK_TEST_PG_URL is not set")
-    psycopg = pytest.importorskip("psycopg")
-    from psycopg import sql
-    from sqlalchemy.engine import make_url
+    url = support_pg.cluster_url()
+    if url is None:
+        pytest.skip(f"{support_pg.URL_ENV} is not set")
+    with support_pg.fresh_database(url, "t_create_user") as database:
+        yield database
 
-    name = f"t_create_user_{uuid4().hex[:12]}"
-    admin = make_url(url)
-    with psycopg.connect(url, autocommit=True) as conn:
-        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+
+def test_the_postgres_case_fails_without_its_driver_instead_of_skipping(monkeypatch):
+    # With PICK_TEST_PG_URL set, a run that cannot import psycopg must not pass by skipping the case.
+    monkeypatch.setitem(sys.modules, "psycopg", None)
     try:
-        yield admin.set(database=name).render_as_string(hide_password=False)
-    finally:
-        with psycopg.connect(url, autocommit=True) as conn:
-            conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name)))
+        with support_pg.fresh_database("postgresql://unused@127.0.0.1:9/postgres", "t_no_driver"):
+            pass
+    except pytest.skip.Exception:
+        pytest.fail("a missing psycopg skipped the PostgreSQL case")
+    except ImportError:
+        return
+    pytest.fail("the database was created without psycopg")
 
 
 def test_railway_ssh_shell_creates_the_user_in_the_postgres_schema(tmp_path, pg_database):
