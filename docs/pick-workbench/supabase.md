@@ -342,6 +342,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 
 - 原文件 `/data/data/deerflow.db` 和备份 `/data/backup/deerflow-sqlite-<日期>.db` 都至少保留 30 天，备份的 sha256 记在第 12 节。
 - 备份只用于回滚，不能在应用里浏览。
+- 两种后端共用 `/data/pick` 下的原始文件目录（按 owner 与内容哈希命名）。PG 上的清理只看 PG 里的批次，可能删掉旧 SQLite 批次也指向的原始文件。原始文件只在导入时写入，运行时不读，接口也不返回路径，所以回滚后 SQLite 照常工作；少掉的只是那几份原始 feed 的留档副本。要保留它们，把 `/data/pick` 复制进 `/data/backup`（2026-09-23 的切换没有复制）。
 
 ## 12. 留档
 
