@@ -1,7 +1,7 @@
 name: Pick Workbench Tests
 
 # The ggwork-pick extension suite and the pick entrypoint / create_user tests on both dialects:
-# SQLite and a postgres:17 service.
+# SQLite and a postgres:17 service. test_bootstrap_sql runs docs/pick-workbench/supabase/*.sql with the runner's psql.
 # The PostgreSQL half skips only when PICK_TEST_PG_URL is unset, which never happens here.
 on:
   push:
@@ -17,6 +17,8 @@ on:
       - 'backend/app/gateway/auth/**'
       - 'backend/tests/test_pick_cloud_entrypoint.py'
       - 'backend/tests/test_create_user_cli.py'
+      - 'docs/pick-workbench/supabase.md'
+      - 'docs/pick-workbench/supabase/**'
       - '.github/workflows/pick-workbench-tests.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -31,6 +33,8 @@ on:
       - 'backend/app/gateway/auth/**'
       - 'backend/tests/test_pick_cloud_entrypoint.py'
       - 'backend/tests/test_create_user_cli.py'
+      - 'docs/pick-workbench/supabase.md'
+      - 'docs/pick-workbench/supabase/**'
       - '.github/workflows/pick-workbench-tests.yml'
   workflow_dispatch:
 

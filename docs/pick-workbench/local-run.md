@@ -58,6 +58,8 @@ PICK_TEST_PG_URL=postgresql://postgres:<本机随机口令>@127.0.0.1:5433/postg
 
 URL 用 libpq 格式、不带查询参数。每个会话先建一个迁移到 head 的模板库，每个用例从模板复制一个独立的库（search_path 为 `deerflow`，与生产一致），并建一个带随机后缀的只读角色、写进 `PICK_MIRROR_READER_ROLE`，用例结束时都删掉。
 
+`test_bootstrap_sql.py` 用 PATH 上的 `psql` 执行 `docs/pick-workbench/supabase/` 下的脚本（任意较新的 psql 客户端即可；没有时该文件的 PG 用例直接失败，不会跳过）。它以一个 `NOSUPERUSER CREATEROLE`、持有独立测试库的替身角色登录，模拟 Supabase 的 `postgres`，脚本里的角色名和库名都换成带随机后缀的名字，结束时删掉。
+
 ## 当前原生调试入口
 
 Docker基础镜像下载期间，已启动相同配置的原生Gateway（127.0.0.1:8007）和生产前端（localhost:3007）。浏览器可打开 `http://localhost:3007/setup` 设置个人管理员。首次凭据由用户在浏览器亲自设置。

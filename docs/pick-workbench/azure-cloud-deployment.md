@@ -22,6 +22,7 @@ Vercel的RealShort生产环境确有AZURE_OPENAI_ENDPOINT/API_KEY/DEPLOYMENT，�
   - `sqlite`：SQLite放/data/data，生成的yaml与此前逐字相同；从Postgres回滚时改回它。
   - `postgres`：database段只写字面的`$PICK_DATABASE_URL`，由AppConfig在加载时解析，卷上的yaml不含密钥；`PICK_DATABASE_URL`缺失、不是`postgresql://`连接串或带`sslmode`、`ssl`等ssl开头的参数时拒绝启动，TLS改由`PGSSLMODE=require`指定。镜像构建带`--extra postgres`。
 - 自助注册关闭。其他成员的账号经`railway ssh`建：`cd /app/backend && DEER_FLOW_HOME=/data python -m app.gateway.auth.create_user --email <邮箱> [--role user|admin]`。入口与gateway共用补缺省值的函数（`DEER_FLOW_CONFIG_PATH=/data/pick-runtime.yaml`等），运行时yaml不存在时不连库、非零退出；账号首次登录需重新设置，随机初始密码只写进/data/credentials/<邮箱>.txt（0600），不打印，发给本人后删掉文件。
+- 迁到Supabase的bootstrap、连接、切换与回滚步骤见[supabase.md](supabase.md)。
 - 后端数据库和私有文件不能放Vercel临时文件系统。前端通过配置好的后端URL请求API，Azure密钥仅在Railway。
 
 本文是接入与部署进行中的记录，不代表新线上工作台已验收通过。部署ID、域名、数据迁移、默认DNS下的Azure工具调用及重启保持性需要在实际验证后补录。
