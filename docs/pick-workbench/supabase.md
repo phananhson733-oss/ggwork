@@ -245,11 +245,12 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 
       ```bash
       export PICK_DB_BACKEND=postgres PGSSLMODE=require DEER_FLOW_HOME=<scratch>/gw-cutover-home
+      export AZURE_OPENAI_DEPLOYMENT=unused AZURE_OPENAI_BASE_URL=http://127.0.0.1:9 AZURE_OPENAI_API_KEY=unused
       read -rs PICK_DATABASE_URL && export PICK_DATABASE_URL   # 粘贴 deerflow_app 的 session pooler 连接串
       .venv/bin/python -m app.gateway.pick_entrypoint
       ```
 
-      不设 feed token，不会触发同步。`DEER_FLOW_HOME` 必须显式设：缺省的 `/data` 在 macOS 上建不了。启动会完成宿主建表、checkpointer 与 store 建表、ggwp 迁移 0001–0004。入口监听 `0.0.0.0:8001`，建好管理员之前同一网络里的人也能调 `/api/v1/auth/initialize`，所以只在可信网络上做，并尽快走完下一步。
+      不设 feed token，不会触发同步。`DEER_FLOW_HOME` 必须显式设：缺省的 `/data` 在 macOS 上建不了。三个 `AZURE_OPENAI_*` 只是占位：运行时 yaml 从 `config.pick.example.yaml` 抄来模型段的 `$AZURE_OPENAI_*`，缺一个，gateway 启动时就报 `Environment variable AZURE_OPENAI_DEPLOYMENT not found`。开发机上 `app_config.py` 的 `load_dotenv()` 会往上找到仓库根被 git 忽略的 `.env`，把这个问题盖住；新 worktree 上面没有 `.env`。建管理员不调模型，真实密钥不必上本机。启动会完成宿主建表、checkpointer 与 store 建表、ggwp 迁移 0001–0004。入口监听 `0.0.0.0:8001`，建好管理员之前同一网络里的人也能调 `/api/v1/auth/initialize`，所以只在可信网络上做，并尽快走完下一步。
    4. 本机起前端（`pnpm dev`，`DEER_FLOW_INTERNAL_GATEWAY_BASE_URL=http://127.0.0.1:8001`），打开 `/setup` 建管理员。
    5. `GET /api/v1/auth/setup-status` 返回 `needs_setup=false` 后，停掉本机网关，删掉 worktree 和 `<scratch>/gw-cutover-home`（里面有 JWT 密钥文件）。
 4. **设置 Railway 变量。** 在控制台 Variables 的 Raw Editor 里粘贴，不走命令行参数：`PICK_DB_BACKEND=postgres`、`PICK_DATABASE_URL`、`PGSSLMODE=require`。
@@ -287,7 +288,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 | RealShort Vercel Production | `PICK_EXPORT_TOKEN` | P1 | v2 的 Bearer；未配置时 v2 路由返回 404 |
 | ggwork Vercel Production | `PICK_MIRROR_READER_URL` | P3 | transaction pooler 连接串，角色 `pick_board_reader` |
 | ggwork Vercel Production | `PICK_MIRROR_CA_PEM` | P3 | Supabase 的 CA 证书（公开信息，作为配置放在环境变量里） |
-| 本机，只在切换第 3 步 | `PICK_DB_BACKEND`、`PICK_DATABASE_URL`、`PGSSLMODE`、`DEER_FLOW_HOME` | P0-6 | 本机建表与建管理员，用完即关掉 shell |
+| 本机，只在切换第 3 步 | `PICK_DB_BACKEND`、`PICK_DATABASE_URL`、`PGSSLMODE`、`DEER_FLOW_HOME`、`AZURE_OPENAI_DEPLOYMENT`、`AZURE_OPENAI_BASE_URL`、`AZURE_OPENAI_API_KEY` | P0-5、P0-6 | 本机建表与建管理员，用完即关掉 shell；三个 `AZURE_OPENAI_*` 填占位值，不用真实密钥 |
 
 - 所有 token 与数据库密码都用 `openssl rand -hex 32` 生成，存进密码管理器。写给 `vercel env add` 的临时文件用 `printf '%s'`（不带末尾换行），再重定向输入，不用管道。
 - 轮换 v2 token 的顺序：先改 RealShort 的值并重新部署，再改 Railway 的值，最后手动同步一次确认。
@@ -298,7 +299,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 只在独立的临时项目 `ggwork-rehearsal` 上做（按小时计费，演练完删除），不在正式项目里演练；临时项目开不出来时演练顺延，不降级。有一项不通过，就不进入正式切换。
 
 1. 在临时项目上按第 1 节设置，按第 2 节执行 bootstrap：以真实 `postgres` 完整执行，退出状态 0、输出无 WARNING、2.4 全部符合。
-2. 新镜像连 session pooler，执行第 8 节第 9 步的全部检查。
+2. 先对临时项目走一遍第 8 节第 3 步：在新 worktree 里照抄那一步的命令（不靠仓库的 `.env`），建好管理员，`needs_setup=false`，再删掉 worktree 和 home。然后新镜像连 session pooler：启动不报 alembic 版本错误，能用这个管理员登录；再执行第 8 节第 9 步的全部检查。
 3. 另外核对：
    - 宿主 bootstrap（create_all 加 alembic stamp）与 ggwp 迁移；`/health/ready` 的 postgres checkpointer 探针；
    - 连接峰值（第 4 节）；SSL（第 3 节）；

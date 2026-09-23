@@ -995,7 +995,7 @@ v1 也要顺手修两处：
 3. **在本机先建管理员。** 这一步是为了堵住空库时任何人都能调 `/api/v1/auth/initialize` 抢注管理员的窗口。
    0. 先确认正式项目 `deerflow` schema 是空的（P0-5 末尾的查询），不空就停下排查。
    1. **本机代码必须与要部署的镜像同一个 commit。** 用 `git worktree add <scratch>/gw-cutover <镜像的 SHA>` 检出，在那里装 backend 环境（`--extra postgres`）。本机代码如果更新（例如已含 0005/0006），库里的 alembic head 会领先于 Railway 镜像，镜像启动就会失败。
-   2. 设置 `PICK_DB_BACKEND=postgres`、`PICK_DATABASE_URL`、`PGSSLMODE=require`，以及 `DEER_FLOW_HOME=<scratch>/gw-cutover-home`：`main()` 里 `DEER_FLOW_HOME` 缺省是 `/data`（`backend/app/gateway/pick_entrypoint.py:30`），macOS 上建不了。不设 feed token，这样不会触发同步。
+   2. 设置 `PICK_DB_BACKEND=postgres`、`PICK_DATABASE_URL`、`PGSSLMODE=require`，以及 `DEER_FLOW_HOME=<scratch>/gw-cutover-home`：`main()` 里 `DEER_FLOW_HOME` 缺省是 `/data`（`backend/app/gateway/pick_entrypoint.py:30`），macOS 上建不了。不设 feed token，这样不会触发同步。另设三个占位值 `AZURE_OPENAI_DEPLOYMENT=unused`、`AZURE_OPENAI_BASE_URL=http://127.0.0.1:9`、`AZURE_OPENAI_API_KEY=unused`：运行时 yaml 从 `config.pick.example.yaml` 抄来模型段的 `$AZURE_OPENAI_*`，`AppConfig.resolve_env_variables` 遇到没设的变量就抛 ValueError，`create_app()` 和 lifespan 都读配置，gateway 起不来。开发机上是 `app_config.py` 的 `load_dotenv()` 往上找到仓库根被 git 忽略的 `.env` 才把它盖住，新 worktree 上面没有 `.env`。`/setup` 不调模型，真实密钥不必上本机（评审 P2；运行手册 8.3.3 与第 9 节同步，`backend/tests/test_pick_cloud_entrypoint.py` 只用运行手册那一步 export 的变量、在不读 `.env` 的子进程里建一次 gateway 应用）。
    3. 运行 `python -m app.gateway.pick_entrypoint`。启动过程会完成宿主建表、checkpointer 和 store 建表，以及 ggwp 迁移 0001–0004。
    4. 本机起前端（`pnpm dev`，`DEER_FLOW_INTERNAL_GATEWAY_BASE_URL=http://127.0.0.1:8001`），打开 `/setup` 建管理员。
    5. 确认 `GET /api/v1/auth/setup-status` 返回 `needs_setup=false`，然后停掉本机网关，删掉 worktree 和 scratch home（里面有 JWT 密钥文件）。
@@ -1389,7 +1389,7 @@ export function getDb() {
 原先的备选（正式项目里建 `deerflow_staging` schema）取消：演练要测的恰好是 Supavisor 会不会丢掉 search_path，一旦丢了，表和演练用的管理员会按角色默认值落进正式项目的 `deerflow`，带进正式切换。临时项目开不出来时，演练顺延，不降级。正式切换时，在 6.8 第 3 步本机建表之前另查一次：正式项目 `deerflow` schema 里没有任何表（`SELECT count(*) FROM pg_tables WHERE schemaname = 'deerflow'` 为 0）。
 
 **步骤：**
-1. 用新镜像连 session pooler。
+1. 先按 6.8 第 3 步对临时项目在本机建管理员（新 worktree，照抄运行手册 8.3.3 的命令，不靠仓库的 `.env`），再用新镜像连 session pooler：启动不报 alembic 版本错误，能用这个管理员登录。正式切换前只有这里跑得到这条路径。
 2. 执行 6.8 第 9 步的全部检查。
 3. 另外核对：
    - 宿主 bootstrap（create_all 加 alembic stamp）；

@@ -1,11 +1,15 @@
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
-TEMPLATE = Path(__file__).resolve().parents[2] / "config.pick.example.yaml"
+BACKEND = Path(__file__).resolve().parents[1]
+TEMPLATE = BACKEND.parent / "config.pick.example.yaml"
+RUNBOOK = BACKEND.parent / "docs/pick-workbench/supabase.md"
 PASSWORD = "entrypoint-test-password"
 URL = f"postgresql://deerflow_app.ref:{PASSWORD}@pooler.invalid:5432/postgres"
 POSTGRES_DATABASE = {
@@ -248,3 +252,55 @@ def test_runtime_environment_fills_only_what_is_missing(tmp_path):
     assert runtime_environment(source) == explicit
     assert source == {**explicit, "UNRELATED": "1"}
     assert PROJECT_ROOT == Path(__file__).resolve().parents[2]
+
+
+# What ``uvicorn.run("app.gateway.app:app")`` does before serving: importing the module builds the app, and
+# create_app() resolves the runtime yaml's $VARIABLES. load_dotenv() is disabled because a fresh worktree has
+# no .env above it; on a developer checkout it finds the repo's git-ignored .env and hides a missing variable.
+LAPTOP_START = """
+import importlib
+
+import dotenv
+
+dotenv.load_dotenv = lambda *args, **kwargs: False
+from app.gateway import pick_entrypoint
+
+pick_entrypoint.uvicorn.run = lambda target, **kwargs: importlib.import_module(target.partition(":")[0])
+pick_entrypoint.main()
+"""
+
+
+def laptop_cutover_step(runbook: str) -> str:
+    """Runbook section 8, step 3: the gateway runs once on the operator's laptop to create the admin."""
+    cutover = runbook.split("\n## 8. ", 1)[1].split("\n## 9. ", 1)[0]
+    return cutover.split("\n3. **", 1)[1].split("\n4. **", 1)[0]
+
+
+def exported_variables(step: str) -> dict[str, str | None]:
+    """NAME -> value of every ``export`` in the step; None for a name whose value ``read`` takes from the prompt."""
+    variables = {}
+    for line in step.splitlines():
+        if "export " in line:
+            for word in line.split("export ", 1)[1].split("#", 1)[0].split():
+                name, _, value = word.partition("=")
+                variables[name] = value or None
+    return variables
+
+
+def laptop_row_variables(runbook: str) -> set[str]:
+    row = next(line for line in runbook.splitlines() if line.startswith("| 本机，只在切换第 3 步 |"))
+    return {name.strip("`") for name in row.split("|")[2].replace("、", " ").split()}
+
+
+def test_the_laptop_cutover_step_starts_the_gateway_with_only_what_it_exports(tmp_path):
+    """Runbook 8.3.3 runs pick_entrypoint in a fresh git worktree, with no repo .env to fill in the model keys."""
+    runbook = RUNBOOK.read_text()
+    variables = exported_variables(laptop_cutover_step(runbook))
+    assert set(variables) == laptop_row_variables(runbook)
+    assert variables["PICK_DATABASE_URL"] is None
+    env = {name: os.environ[name] for name in ("PATH", "HOME", "TMPDIR") if name in os.environ}
+    env.update({name: value for name, value in variables.items() if value is not None})
+    env.update(DEER_FLOW_HOME=str(tmp_path / "home"), PICK_DATABASE_URL=URL)
+    result = subprocess.run([sys.executable, "-c", LAPTOP_START], cwd=BACKEND, env=env, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert PASSWORD not in result.stdout + result.stderr
