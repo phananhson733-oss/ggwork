@@ -67,20 +67,29 @@ def _alice(service):
 @pytest.mark.asyncio
 async def test_feed_metadata_is_stored_with_replacements(service, bad):
     # Only rows pass DramaInput; the page's capture time, scope, freshness and revision go straight to the batch.
-    page = {"capturedAt": f"2026-09-23T03:00:00{bad}Z", "scope": f"scope{bad}", "freshness": {f"at{bad}": f"v{bad}"}, "sourceRevision": f"rev{bad}"}
-    first = await _run_sync(service, _feed([feed_row(1)], **page))
+    def page(n):
+        return {
+            "capturedAt": f"2026-09-23T0{n}:00:00{bad}Z",
+            "scope": f"scope{n}{bad}",
+            "freshness": {f"at{n}{bad}": f"v{bad}"},
+            "sourceRevision": f"rev{n}{bad}",
+        }
+
+    first = await _run_sync(service, _feed([feed_row(1)], **page(3)))
     assert first["status"] == "success", first["error"]
-    # The same content again takes the reuse path, which rewrites the metadata.
-    again = await _run_sync(service, _feed([feed_row(1)], **page))
+    assert first["source_as_of"] == f"2026-09-23T03:00:00{REPLACEMENT}Z"
+    # The same content with new metadata takes the reuse path, which must rewrite the metadata the same way.
+    again = await _run_sync(service, _feed([feed_row(1)], **page(4)))
     assert again["status"] == "success", again["error"]
     assert again["catalog_batch_id"] == first["catalog_batch_id"]
-    as_of = f"2026-09-23T03:00:00{REPLACEMENT}Z"
-    assert first["source_as_of"] == again["source_as_of"] == as_of
+    as_of = f"2026-09-23T04:00:00{REPLACEMENT}Z"
+    assert again["source_as_of"] == as_of
     catalog = await _alice(service).current_batch("catalog")
+    assert catalog["id"] == first["catalog_batch_id"]
     assert catalog["source_as_of"] == as_of
-    assert catalog["validation_json"]["scope"] == f"scope{REPLACEMENT}"
-    assert catalog["validation_json"]["freshness"] == {f"at{REPLACEMENT}": f"v{REPLACEMENT}"}
-    assert catalog["validation_json"]["source_revision"] == f"rev{REPLACEMENT}"
+    assert catalog["validation_json"]["scope"] == f"scope4{REPLACEMENT}"
+    assert catalog["validation_json"]["freshness"] == {f"at4{REPLACEMENT}": f"v{REPLACEMENT}"}
+    assert catalog["validation_json"]["source_revision"] == f"rev4{REPLACEMENT}"
 
 
 @pytest.mark.asyncio
