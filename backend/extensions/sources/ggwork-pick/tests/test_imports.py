@@ -1,7 +1,8 @@
 import json
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from engines import host_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 def catalog_bytes(rows=None):
@@ -22,7 +23,7 @@ async def test_import_is_atomic_deduplicated_and_owner_scoped(pick_db_url, tmp_p
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(pick_db_url)
+    engine = host_engine(pick_db_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     service = PickService(tmp_path / "files")
     await service.initialize(factory)
@@ -51,7 +52,7 @@ async def test_knowledge_retains_source_version_and_original_text(pick_db_url, t
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(pick_db_url)
+    engine = host_engine(pick_db_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     service = PickService(tmp_path / "files")
     await service.initialize(factory)

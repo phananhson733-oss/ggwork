@@ -7,9 +7,10 @@ import pg
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from engines import host_engine
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 TABLES = {
     "ggwp_alembic_version",
@@ -53,12 +54,12 @@ async def test_migrations_reach_head_in_an_empty_schema_and_a_restart_is_a_no_op
 
     # The second pass is a gateway restart: a new engine re-runs the upgrade against a database already at head.
     for _ in range(2):
-        engine = create_async_engine(empty_pg_url)
+        engine = host_engine(empty_pg_url)
         try:
             await PickService(tmp_path / "files").initialize(async_sessionmaker(engine, expire_on_commit=False))
         finally:
             await engine.dispose()
-    engine = create_async_engine(empty_pg_url)
+    engine = host_engine(empty_pg_url)
     try:
         async with engine.connect() as conn:
             tables = (await conn.execute(text("select tablename from pg_tables where tablename like 'ggwp%' and schemaname = :s"), {"s": pg.SCHEMA})).scalars()
@@ -82,7 +83,7 @@ async def test_migrations_reach_head_in_an_empty_schema_and_a_restart_is_a_no_op
 
 @pytest.mark.asyncio
 async def test_each_test_gets_its_own_migrated_database_and_reader_role(pg_db_url, pg_template, pg_reader_role):
-    engine = create_async_engine(pg_db_url)
+    engine = host_engine(pg_db_url)
     try:
         async with engine.connect() as conn:
             assert (await conn.execute(text("select current_database()"))).scalar_one() != pg_template

@@ -3,7 +3,8 @@
 import hashlib
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from engines import host_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from ggwork_pick.imports import Importer
 from ggwork_pick.repository import PickRepository
@@ -14,7 +15,7 @@ from ggwork_pick.service import PickService
 @pytest.mark.asyncio
 async def test_restart_preserves_candidates_sources_notes_and_command_receipts(pick_db_url, tmp_path):
     url = pick_db_url
-    engine = create_async_engine(url)
+    engine = host_engine(url)
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     repo = PickRepository(service.session_factory, "alice")
@@ -30,7 +31,7 @@ async def test_restart_preserves_candidates_sources_notes_and_command_receipts(p
     await service.stop()
     await engine.dispose()
 
-    second = create_async_engine(url)
+    second = host_engine(url)
     restarted = PickService(tmp_path / "files")
     try:
         await restarted.initialize(async_sessionmaker(second, expire_on_commit=False))

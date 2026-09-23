@@ -9,9 +9,10 @@ import httpx
 import pg
 import pytest
 import pytest_asyncio
+from engines import HOST_JSON_SERIALIZER, host_engine
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # Exercise the pinned host API source; production installs the workspace package.
@@ -26,12 +27,25 @@ def _refuse_session_settings(conn, cursor, statement, parameters, context, execu
         raise AssertionError(f"session-level setting on a pooled connection, use SET LOCAL: {statement[:200]}")
 
 
+def _refuse_foreign_json_serializer(conn, cursor, statement, parameters, context, executemany):
+    if conn.dialect._json_serializer is not HOST_JSON_SERIALIZER:
+        raise AssertionError("engine does not serialize JSON like the host's; create it with engines.host_engine")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _transaction_scoped_settings_only():
     """Every statement any test sends through SQLAlchemy, on either dialect."""
     event.listen(Engine, "before_cursor_execute", _refuse_session_settings)
     yield
     event.remove(Engine, "before_cursor_execute", _refuse_session_settings)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _host_json_serializer_only():
+    """Production writes through the host's engine; a test engine must not store what production cannot."""
+    event.listen(Engine, "before_cursor_execute", _refuse_foreign_json_serializer)
+    yield
+    event.remove(Engine, "before_cursor_execute", _refuse_foreign_json_serializer)
 
 
 @pytest.fixture(autouse=True)
@@ -99,7 +113,7 @@ async def app_client(pick_db_url, tmp_path):
     from ggwork_pick.routes import build_router
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(pick_db_url)
+    engine = host_engine(pick_db_url)
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     service.run_evidence_reader = SimpleNamespace(get_run_status=AsyncMock(return_value=SimpleNamespace(status="success")))

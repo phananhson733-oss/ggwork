@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 from deerflow_extension_api import ExtensionData, TaskInfo
 from deerflow_extension_api.runtime_bridge import EXTENSION_TASK_STORE_KEY
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from engines import host_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 @pytest.mark.asyncio
@@ -17,7 +18,7 @@ async def test_tools_use_runtime_owner_and_do_not_expose_authority_arguments(tmp
     from ggwork_pick.service import PickService
     from ggwork_pick.tools import prepare_selection_tool, query_candidates_tool
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     await Importer(PickRepository(service.session_factory, "alice"), service.data_dir).catalog(
@@ -59,7 +60,7 @@ async def test_selected_reference_ids_are_validated_and_available_to_the_model(t
     from ggwork_pick.selection import SelectionService
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     repo = PickRepository(service.session_factory, "alice")
@@ -170,7 +171,7 @@ async def test_new_result_after_reference_is_owned_and_refresh_pins_all_tools(tm
     from ggwork_pick.service import PickService
     from ggwork_pick.tools import prepare_selection_tool, query_candidates_tool, search_knowledge_tool
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     repo = PickRepository(service.session_factory, "alice")
@@ -273,7 +274,7 @@ async def test_imported_save_instruction_cannot_add_write_authority(tmp_path):
     from ggwork_pick.service import PickService
     from ggwork_pick.tools import prepare_selection_tool, query_candidates_tool, search_knowledge_tool
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     repo = PickRepository(service.session_factory, "alice")
@@ -351,7 +352,7 @@ async def test_empty_catalog_returns_actionable_status_without_internal_exceptio
     from ggwork_pick.service import PickService
     from ggwork_pick.tools import query_candidates_tool
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'empty.db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'empty.db'}")
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     store = ExtensionData("empty")
@@ -438,7 +439,7 @@ async def test_count_tool_and_posted_filters_through_runtime(tmp_path):
     from ggwork_pick.service import PickService
     from ggwork_pick.tools import count_candidates_tool, query_candidates_tool
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     rows = [{"source": "s", "source_id": str(i), "language": "en", "title": f"T{i}"} for i in range(3)]
@@ -468,7 +469,7 @@ async def test_unbound_detail_is_a_readable_refusal_not_a_raw_tool_error(tmp_pat
     from ggwork_pick.service import PickService
     from ggwork_pick.tools import get_drama_detail_tool
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     repo = PickRepository(service.session_factory, "alice")
@@ -529,7 +530,7 @@ async def test_follow_ups_use_their_own_conditions_and_current_data_unless_askin
     from ggwork_pick.service import PickService
     from ggwork_pick.tools import count_candidates_tool, get_drama_detail_tool, query_candidates_tool
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     repo = PickRepository(service.session_factory, "alice")
@@ -570,7 +571,7 @@ async def test_code_bugs_surface_as_errors_not_polite_refusals(tmp_path, monkeyp
     from ggwork_pick.service import PickService
     from ggwork_pick.tools import get_drama_detail_tool
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     repo = PickRepository(service.session_factory, "alice")

@@ -27,14 +27,15 @@ def _shape(value):
 
 @pytest.mark.asyncio
 async def test_result_payload_matches_frontend_fixture(tmp_path):
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from engines import host_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
     from test_realshort_sync import TOKEN, feed_row, feed_transport
 
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.selection import SelectionService, result_view
     from ggwork_pick.service import PickService, SyncSettings
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     service = PickService(tmp_path / "files", SyncSettings("https://realshort.test", TOKEN))
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     posted = {"matched": True, "records": ["SD-1"], "post_count": 2, "sched_count": 0, "last_post_on": "2026-09-10", "accounts": ["acc"]}

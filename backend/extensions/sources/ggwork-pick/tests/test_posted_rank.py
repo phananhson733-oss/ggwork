@@ -2,7 +2,8 @@ import json
 
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from engines import host_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 def row(i, *, rank=None, kind="kd", observed="2026-09-20", posted=None, sched=0, accounts=(), matched=None, language="en"):
@@ -32,7 +33,7 @@ async def repo(pick_db_url, tmp_path):
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(pick_db_url)
+    engine = host_engine(pick_db_url)
     svc = PickService(tmp_path / "files")
     await svc.initialize(async_sessionmaker(engine, expire_on_commit=False))
     yield PickRepository(svc.session_factory, "alice"), svc

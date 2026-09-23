@@ -13,12 +13,13 @@ from pathlib import Path
 
 import pg
 import pytest
-from sqlalchemy import text
+from engines import host_engine
+from sqlalchemy import insert, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 NUL = chr(0)
-# What Python's JSON decoder makes of a "\ud800" escape: asyncpg and psycopg encode strictly and cannot send it.
+# What Python's JSON decoder makes of a "\ud800" escape: asyncpg, psycopg and sqlite3 encode strictly and cannot send it.
 LONE_SURROGATE = chr(0xD800)
 UNSTORABLE = pytest.mark.parametrize("bad", [NUL, LONE_SURROGATE], ids=["nul", "lone-surrogate"])
 ALICE = {"test-owner": "alice"}
@@ -29,7 +30,7 @@ async def _open(url, tmp_path):
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(url)
+    engine = host_engine(url)
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     return engine, service, PickRepository(service.session_factory, "alice")
@@ -126,10 +127,10 @@ async def test_model_conditions_refuse_unstorable_text():
 
 
 @pytest.mark.asyncio
-async def test_json_columns_keep_escaped_nul_and_lone_surrogates(pick_db_url, tmp_path):
+async def test_json_columns_keep_escaped_nul(pick_db_url, tmp_path):
     engine, _, repo = await _open(pick_db_url, tmp_path)
     try:
-        odd = f"a{NUL}b{LONE_SURROGATE}c"
+        odd = f"a{NUL}b"
         batch = await repo.publish_import(kind="catalog", content_hash="h", raw_blob_path="/x", rows=[], meta={"scope": odd})
         record = dict(
             id="result-1",
@@ -167,6 +168,37 @@ async def test_json_columns_keep_escaped_nul_and_lone_surrogates(pick_db_url, tm
         await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_a_lone_surrogate_cannot_be_stored_in_a_json_column(pick_db_url, tmp_path):
+    # The host's serializer keeps it verbatim (ensure_ascii=False), and every driver encodes parameters as
+    # strict UTF-8; SQLAlchemy's default serializer would have escaped it and hidden this.
+    from ggwork_pick.models import answer_checks
+    from ggwork_pick.repository import stamp
+
+    engine, _, _ = await _open(pick_db_url, tmp_path)
+    try:
+        row = dict(id="check-1", owner_id="alice", thread_id="t", run_id="r", message_id=None, created_at=stamp())
+        async with engine.connect() as conn:
+            for notes in ([f"a{LONE_SURROGATE}b"], {f"k{LONE_SURROGATE}": "v"}):
+                with pytest.raises((UnicodeEncodeError, DBAPIError), match="surrogates not allowed"):
+                    await conn.execute(insert(answer_checks).values(**row, notes_json=notes))
+            await conn.execute(insert(answer_checks).values(**row, notes_json=[f"a{chr(0xFFFD)}b"]))
+            assert (await conn.execute(select(answer_checks.c.notes_json))).scalar_one() == [f"a{chr(0xFFFD)}b"]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_an_engine_that_serializes_json_differently_fails_the_suite(pick_db_url):
+    engine = create_async_engine(pick_db_url)
+    try:
+        with pytest.raises(AssertionError, match="host_engine"):
+            async with engine.connect() as conn:
+                await conn.execute(text("select 1"))
+    finally:
+        await engine.dispose()
+
+
 # ---- session settings on pooled connections ----
 
 
@@ -174,7 +206,7 @@ async def test_json_columns_keep_escaped_nul_and_lone_surrogates(pick_db_url, tm
 async def test_transaction_settings_do_not_follow_a_pooled_connection(pg_db_url, tmp_path):
     from ggwork_pick.selection import SelectionService
 
-    engine = create_async_engine(pg_db_url, pool_size=1, max_overflow=0)
+    engine = host_engine(pg_db_url, pool_size=1, max_overflow=0)
     try:
         async with engine.begin() as conn:
             pid = (await conn.execute(text("select pg_backend_pid()"))).scalar_one()
@@ -212,7 +244,7 @@ def test_extension_sql_files_only_set_local():
 
 @pytest.mark.asyncio
 async def test_a_session_level_setting_fails_the_suite(pick_db_url):
-    engine = create_async_engine(pick_db_url)
+    engine = host_engine(pick_db_url)
     try:
         async with engine.connect() as conn:
             with pytest.raises(AssertionError, match="SET LOCAL"):
@@ -271,7 +303,7 @@ async def test_stored_timestamps_sort_in_time_order_under_each_collation(pick_db
     stamps = [stamp(moment) for moment in _moments()]
     assert all(len(value) == len(stamps[0]) for value in stamps)
     expected = sorted(stamps, key=datetime.fromisoformat)
-    engine = create_async_engine(pick_db_url)
+    engine = host_engine(pick_db_url)
     try:
         async with engine.connect() as conn:
             await conn.execute(text("create temporary table stamps (v varchar(40))"))

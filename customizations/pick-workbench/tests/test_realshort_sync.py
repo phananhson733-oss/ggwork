@@ -3,7 +3,8 @@ import json
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from engines import host_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 TOKEN = "feed-token-for-tests"
 
@@ -60,7 +61,7 @@ def feed_transport(rows, *, page=2, total=None, seen=None, fail_on=None, rules=R
 async def service(pick_db_url, tmp_path):
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(pick_db_url)
+    engine = host_engine(pick_db_url)
     svc = PickService(tmp_path / "files")
     await svc.initialize(async_sessionmaker(engine, expire_on_commit=False))
     yield svc

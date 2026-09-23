@@ -73,11 +73,12 @@ class PgCluster:
 
 async def migrate(url: str, data_dir: Path) -> None:
     """Bring a database to the ggwp head the way the gateway does at startup."""
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from engines import host_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(url)
+    engine = host_engine(url)
     try:
         await PickService(data_dir).initialize(async_sessionmaker(engine, expire_on_commit=False))
     finally:

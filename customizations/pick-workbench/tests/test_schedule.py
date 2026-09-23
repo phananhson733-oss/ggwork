@@ -5,7 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from engines import host_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -65,7 +66,7 @@ async def test_service_runs_the_schedule_only_when_the_feed_is_configured(tmp_pa
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService, SyncSettings
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
     idle = PickService(tmp_path / "idle")
     await idle.start(SimpleNamespace(session_factory=factory, run_evidence_reader=None))

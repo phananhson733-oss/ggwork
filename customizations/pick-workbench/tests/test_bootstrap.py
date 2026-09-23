@@ -1,13 +1,14 @@
 import pytest
+from engines import host_engine
 from sqlalchemy import inspect, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 @pytest.mark.asyncio
 async def test_private_migrations_persist_and_are_repeatable(tmp_path):
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
     service = PickService(tmp_path / "files")
     await service.initialize(factory)
@@ -27,7 +28,7 @@ async def test_private_migrations_persist_and_are_repeatable(tmp_path):
         }
         assert (await conn.execute(text("select version_num from ggwp_alembic_version"))).scalar_one() == "0004"
     await engine.dispose()
-    second = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    second = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
     await service.initialize(async_sessionmaker(second, expire_on_commit=False))
     await second.dispose()
 
@@ -36,7 +37,7 @@ async def test_private_migrations_persist_and_are_repeatable(tmp_path):
 async def test_a_migration_retried_after_a_partial_ddl_still_builds_its_indexes(tmp_path):
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
     service = PickService(tmp_path / "files")
     await service.initialize(factory)
@@ -56,7 +57,7 @@ async def test_a_migration_retried_after_a_partial_ddl_still_builds_its_indexes(
 async def test_unknown_migration_fails_instead_of_restamping(tmp_path):
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
     service = PickService(tmp_path / "files")
     await service.initialize(factory)
@@ -127,7 +128,7 @@ async def test_upgrade_from_0002_keeps_batches_and_allows_pruned_status(tmp_path
     import ggwork_pick
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
 
     def to_0002(connection):
         config = Config()
@@ -163,7 +164,7 @@ async def test_downgrade_below_0003_survives_pruned_batches(tmp_path):
     import ggwork_pick
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
     await PickService(tmp_path / "files").initialize(async_sessionmaker(engine, expire_on_commit=False))
     async with engine.begin() as conn:
         await conn.execute(

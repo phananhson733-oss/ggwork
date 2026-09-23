@@ -12,8 +12,9 @@ from datetime import timedelta
 
 import pytest
 import pytest_asyncio
+from engines import host_engine
 from sqlalchemy import event, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 def _rows(tag: str, count: int = 3) -> bytes:
@@ -59,7 +60,7 @@ async def workspace(pick_db_url, tmp_path):
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService
 
-    engine = create_async_engine(pick_db_url)
+    engine = host_engine(pick_db_url)
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     alice = PickRepository(service.session_factory, "alice")
