@@ -16,6 +16,12 @@ def _posted_unavailable(exc: Exception) -> str:
     return json.dumps({"status": "posted_unavailable", "notice": str(exc) + "。可以改为排除个人已选，或等数据同步带上发布记录后再查。"}, ensure_ascii=False)
 
 
+def _rejected(exc: Exception) -> str:
+    # Host tool-error middleware would print a raw "Error: Tool ... failed" line into the chat;
+    # a business refusal is an answer the model can relay, and carries no data.
+    return json.dumps({"status": "rejected", "notice": str(exc)}, ensure_ascii=False)
+
+
 async def _data_as_of(repo, batch_id):
     info = await repo.batch_info(batch_id)
     if info is None:
@@ -98,15 +104,19 @@ async def _owned_result(runtime, result_id):
     if record["thread_id"] != task.info.thread_id:
         raise ValueError("候选不属于当前对话")
     if result_id != task.reference_id and result_id not in task.produced_result_ids:
-        raise ValueError("请使用用户当前绑定的候选结果")
+        raise ValueError("请使用用户当前绑定的候选结果；没有绑定时请用户点开要追问的那份候选，或重新查询")
     return task, repo, record
 
 
 @tool("pick_get_drama_detail")
 async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) -> str:
     """读取指定历史候选条目的依据与当时数据。使用查询返回的真实result_id与item_id，不猜编号或身份。"""
-    task, repo, _ = await _owned_result(runtime, result_id)
-    detail = await SelectionService(repo).detail(result_id, item_id)
+    await task_from_runtime(runtime).repository(runtime)
+    try:
+        task, repo, _ = await _owned_result(runtime, result_id)
+        detail = await SelectionService(repo).detail(result_id, item_id)
+    except (ValueError, LookupError) as exc:
+        return _rejected(exc)
     task.known_titles.add(detail["item"]["title"])
     return json.dumps({**detail, "data_as_of": await _data_as_of(repo, detail["catalog_batch_id"])}, ensure_ascii=False)
 
@@ -124,21 +134,24 @@ async def prepare_selection_tool(
     """
     task = task_from_runtime(runtime)
     await task.repository(runtime)
-    if result_id is None:
-        if not task.reference_id or task.produced_result_ids:
-            raise ValueError("请明确选择要保存的候选结果")
-        result_id = task.reference_id
-    _, repo, record = await _owned_result(runtime, result_id)
-    if positions is not None:
-        if item_ids is not None:
-            raise ValueError("序号和条目标识只能指定一种")
-        ordered = record["ordered_items_json"]
-        if not positions or any(type(index) is not int or index < 1 or index > len(ordered) for index in positions):
-            raise ValueError("候选序号超出范围")
-        item_ids = [ordered[index - 1]["item_id"] for index in positions]
-    elif item_ids is None:
-        item_ids = task.selected_item_ids if result_id == task.reference_id else []
-    return json.dumps(await SelectionService(repo).prepare(result_id, item_ids, note), ensure_ascii=False)
+    try:
+        if result_id is None:
+            if not task.reference_id or task.produced_result_ids:
+                raise ValueError("请明确选择要保存的候选结果")
+            result_id = task.reference_id
+        _, repo, record = await _owned_result(runtime, result_id)
+        if positions is not None:
+            if item_ids is not None:
+                raise ValueError("序号和条目标识只能指定一种")
+            ordered = record["ordered_items_json"]
+            if not positions or any(type(index) is not int or index < 1 or index > len(ordered) for index in positions):
+                raise ValueError("候选序号超出范围")
+            item_ids = [ordered[index - 1]["item_id"] for index in positions]
+        elif item_ids is None:
+            item_ids = task.selected_item_ids if result_id == task.reference_id else []
+        return json.dumps(await SelectionService(repo).prepare(result_id, item_ids, note), ensure_ascii=False)
+    except (ValueError, LookupError) as exc:
+        return _rejected(exc)
 
 
 @tool("pick_search_knowledge")

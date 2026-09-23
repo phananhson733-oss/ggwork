@@ -191,8 +191,8 @@ async def test_new_result_after_reference_is_owned_and_refresh_pins_all_tools(tm
         await prepare_selection_tool.coroutine(result_id=result["id"], item_ids=[result["items"][0]["item_id"]], runtime=runtime, note="下周准备剪辑")
     )
     assert prepared["note"] == "下周准备剪辑"
-    with pytest.raises(ValueError):
-        await prepare_selection_tool.coroutine(result_id=unrelated["id"], item_ids=[unrelated["items"][0]["item_id"]], runtime=runtime)
+    refused = json.loads(await prepare_selection_tool.coroutine(result_id=unrelated["id"], item_ids=[unrelated["items"][0]["item_id"]], runtime=runtime))
+    assert refused["status"] == "rejected" and "绑定" in refused["notice"] and "item_ids" not in refused
     await importer.knowledge_bundle([(b"# even newer", "rules.md", "rules")])
     knowledge = json.loads(await search_knowledge_tool.coroutine(query="", runtime=runtime))
     assert knowledge["documents"][0]["batch_id"] == latest["id"]
@@ -440,4 +440,30 @@ async def test_count_tool_and_posted_filters_through_runtime(tmp_path):
     task = store.get(__import__("ggwork_pick.context", fromlist=["PickTask"]).PickTask)
     assert task.posted_checked is False
     assert await PickRepository(service.session_factory, "alice").results("thread1") == []
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_unbound_detail_is_a_readable_refusal_not_a_raw_tool_error(tmp_path):
+    from ggwork_pick.context import PickLifecycle
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import get_drama_detail_tool
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    service = PickService(tmp_path / "files")
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    repo = PickRepository(service.session_factory, "alice")
+    await Importer(repo, service.data_dir).catalog(b'[{"source":"s","source_id":"1","language":"en","title":"Example"}]', "json")
+    earlier = await SelectionService(repo).query({}, thread_id="t", run_id="old", call_id="c")
+    store = ExtensionData("task")
+    await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task", "new", "t", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="d1")
+    refused = json.loads(await get_drama_detail_tool.coroutine(result_id=earlier["id"], item_id=earlier["items"][0]["item_id"], runtime=runtime))
+    assert refused["status"] == "rejected" and "item" not in refused
+    foreign = SimpleNamespace(context={"user_id": "bob", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="d2")
+    with pytest.raises(ValueError, match="身份"):
+        await get_drama_detail_tool.coroutine(result_id=earlier["id"], item_id="x", runtime=foreign)
     await engine.dispose()

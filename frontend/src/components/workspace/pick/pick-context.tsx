@@ -12,7 +12,7 @@ import {
 
 import { useAuth } from "@/core/auth/AuthProvider";
 import { getPickResult } from "@/core/pick/api";
-import { bindPickReference } from "@/core/pick/references";
+import { bindPickReference, chooseReference } from "@/core/pick/references";
 import type { PickResult } from "@/core/pick/types";
 
 type PickContextValue = {
@@ -24,6 +24,8 @@ type PickContextValue = {
   toggle: (id: string) => void;
   close: () => void;
   current: () => PickResult | null;
+  /** A finished candidate card rendered in the chat; the newest per thread is the default follow-up target. */
+  observe: (result: PickResult) => void;
   referenceFor: (
     threadId: string,
   ) => ReturnType<typeof bindPickReference> | undefined;
@@ -61,6 +63,7 @@ function OwnedPickProvider({
   const [selected, setSelected] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const currentRef = useRef<PickResult | null>(null);
+  const latestRef = useRef(new Map<string, PickResult>());
   const current = useCallback(() => currentRef.current, []);
   const show = useCallback(
     (next: PickResult, ids: string[] = []) => {
@@ -88,12 +91,20 @@ function OwnedPickProvider({
   useEffect(() => {
     if (result) persist(ownerId, result, selected, open);
   }, [ownerId, result, selected, open]);
+  const observe = useCallback((next: PickResult) => {
+    if (next.run_status !== "success") return;
+    const known = latestRef.current.get(next.thread_id);
+    if (!known || known.created_at < next.created_at)
+      latestRef.current.set(next.thread_id, next);
+  }, []);
   const referenceFor = useCallback(
     (threadId: string) =>
-      result?.thread_id === threadId
-        ? bindPickReference(threadId, result, selected)
-        : undefined,
-    [result, selected],
+      chooseReference(
+        threadId,
+        { result, open, selected },
+        latestRef.current.get(threadId) ?? null,
+      ),
+    [result, open, selected],
   );
   const value = useMemo(
     () => ({
@@ -105,6 +116,7 @@ function OwnedPickProvider({
       toggle,
       close,
       current,
+      observe,
       referenceFor,
     }),
     [
@@ -116,6 +128,7 @@ function OwnedPickProvider({
       toggle,
       close,
       current,
+      observe,
       referenceFor,
     ],
   );

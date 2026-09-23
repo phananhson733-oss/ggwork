@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/core/auth/AuthProvider";
@@ -21,6 +21,7 @@ function parseResult(raw: unknown): {
   item_ids?: string[];
   note?: string;
   requires_confirmation?: boolean;
+  notice?: string;
 } | null {
   try {
     const value = typeof raw === "string" ? (JSON.parse(raw) as unknown) : raw;
@@ -63,7 +64,12 @@ export function PickToolCard({
         : false,
   });
   const show = pick?.show;
+  const observe = pick?.observe;
   const data = query.data?.thread_id === threadId ? query.data : null;
+  const isQueryCard = !payload?.requires_confirmation;
+  useEffect(() => {
+    if (data && isQueryCard) observe?.(data);
+  }, [data, isQueryCard, observe]);
   if (!id)
     return isLoading ? (
       <p role="status" className="text-muted-foreground text-sm">
@@ -73,9 +79,11 @@ export function PickToolCard({
       <p role="alert" className="text-sm text-red-600">
         {payload?.status === "catalog_unavailable"
           ? "当前工作空间尚未接入剧库。请在「选剧资料」确认数据状态后重新提问。"
-          : payload?.status === "posted_unavailable"
-            ? "当前剧库批次没有发布记录，无法核对是否发过。可以改为排除个人已选，或等下一次数据同步。"
-            : "选剧查询未完成，请检查资料或重试。"}
+          : payload?.status === "rejected" && typeof payload.notice === "string"
+            ? payload.notice
+            : payload?.status === "posted_unavailable"
+              ? "当前剧库批次没有发布记录，无法核对是否发过。可以改为排除个人已选，或等下一次数据同步。"
+              : "选剧查询未完成，请检查资料或重试。"}
       </p>
     );
   const requested = Array.isArray(payload?.item_ids)

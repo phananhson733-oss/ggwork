@@ -49,3 +49,29 @@ export function resolvePickOrdinals(
     ordinals.map((n) => result.items[n - 1]!.item_id),
   );
 }
+
+type DatedPickResult = ReferenceablePickResult & { created_at: string };
+
+/**
+ * Which result a follow-up message is about. An open panel is an explicit choice;
+ * otherwise the newest finished candidate card in this thread is what the user is
+ * looking at. A closed panel only wins when it is at least as new as that card.
+ */
+export function chooseReference(
+  threadId: string,
+  panel: {
+    result: DatedPickResult | null;
+    open: boolean;
+    selected: readonly string[];
+  },
+  latest: DatedPickResult | null,
+): PickReference | undefined {
+  const own = (r: DatedPickResult | null) =>
+    r?.thread_id === threadId ? r : null;
+  const shown = own(panel.result);
+  const newest = own(latest);
+  if (shown && (panel.open || !newest || shown.created_at >= newest.created_at))
+    return bindPickReference(threadId, shown, panel.selected);
+  if (newest) return bindPickReference(threadId, newest, []);
+  return undefined;
+}
