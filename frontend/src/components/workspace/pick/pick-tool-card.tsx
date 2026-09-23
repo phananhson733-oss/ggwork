@@ -79,11 +79,11 @@ export function PickToolCard({
       <p role="alert" className="text-sm text-red-600">
         {payload?.status === "catalog_unavailable"
           ? "当前工作空间尚未接入剧库。请在「选剧资料」确认数据状态后重新提问。"
-          : payload?.status === "rejected" && typeof payload.notice === "string"
+          : (payload?.status === "rejected" ||
+                payload?.status === "posted_unavailable") &&
+              typeof payload.notice === "string"
             ? payload.notice
-            : payload?.status === "posted_unavailable"
-              ? "当前剧库批次没有发布记录，无法核对是否发过。可以改为排除个人已选，或等下一次数据同步。"
-              : "选剧查询未完成，请检查资料或重试。"}
+            : "选剧查询未完成，请检查资料或重试。"}
       </p>
     );
   const requested = Array.isArray(payload?.item_ids)

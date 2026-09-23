@@ -64,12 +64,11 @@ class PickTask:
                     self.known_titles.update(item["title"] for item in parent["ordered_items_json"])
                     self.selected_item_ids = [item_id for item_id in order if item_id in ids]
                     self.reference_id = parent["id"]
-                    self.catalog_id, self.knowledge_id = parent["catalog_batch_id"], parent["knowledge_batch_id"]
-                else:
-                    catalog = await repo.current_batch("catalog")
-                    knowledge = await repo.current_batch("knowledge")
-                    self.catalog_id = catalog["id"] if catalog else None
-                    self.knowledge_id = knowledge["id"] if knowledge else None
+                # Every run reads the current data; only 换一批 goes back to the bound card's version.
+                catalog = await repo.current_batch("catalog")
+                knowledge = await repo.current_batch("knowledge")
+                self.catalog_id = catalog["id"] if catalog else None
+                self.knowledge_id = knowledge["id"] if knowledge else None
                 self.initialized = True
             return repo
 

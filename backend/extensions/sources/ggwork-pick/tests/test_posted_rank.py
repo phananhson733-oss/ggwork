@@ -144,3 +144,39 @@ async def test_empty_result_reports_zero_matches(repo):
     await load(repo, [row(1)])
     result = await SelectionService(repo[0]).query({"language": "ko"}, thread_id="t", run_id="r", call_id="c")
     assert result["items"] == [] and result["matched_total"] == 0
+
+
+def test_same_day_ranked_signal_beats_an_unranked_one():
+    from ggwork_pick.selection import _kind_signal
+
+    signals = [{"kind": "kd", "observed_at": "2026-09-21", "rank": 5}, {"kind": "kd", "observed_at": "2026-09-21", "rank": None}]
+    assert _kind_signal({"signals": signals}, "kd")["rank"] == 5
+    assert _kind_signal({"signals": list(reversed(signals))}, "kd")["rank"] == 5
+
+
+@pytest.mark.asyncio
+async def test_unknown_account_or_signal_kind_is_refused_instead_of_matching_everything(repo):
+    from ggwork_pick.selection import SelectionService
+
+    await load(repo, [row(1, posted=1, accounts=["Acc One"]), row(2, posted=0)])
+    service = SelectionService(repo[0])
+    with pytest.raises(ValueError, match="账号"):
+        await service.query({"posted_account": "acc onee"}, thread_id="t", run_id="r", call_id="c1")
+    with pytest.raises(ValueError, match="xx"):
+        await service.query({"signal_kind": "xx"}, thread_id="t", run_id="r", call_id="c2")
+    kept = await service.query({"posted_account": "ACC ONE"}, thread_id="t", run_id="r", call_id="c3")
+    assert [i["title"] for i in kept["items"]] == ["Drama 2"]
+
+
+@pytest.mark.asyncio
+async def test_count_honours_a_new_batch_request_like_the_query(repo):
+    from ggwork_pick.selection import SelectionService
+
+    await load(repo, [row(1), row(2), row(3)])
+    service = SelectionService(repo[0])
+    parent = await service.query({"limit": 1}, thread_id="t", run_id="r", call_id="c")
+    more = await service.query({"exclude_previous": True}, thread_id="t", run_id="r2", call_id="c2", parent_result_id=parent["id"])
+    counted = await service.count({"exclude_previous": True}, parent=await repo[0].result(parent["id"]))
+    assert counted["total"] == more["matched_total"] == 2
+    with pytest.raises(ValueError, match="换一批"):
+        await service.count({"exclude_previous": True})

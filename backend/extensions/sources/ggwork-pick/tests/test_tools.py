@@ -392,7 +392,7 @@ async def test_empty_catalog_status_does_not_generate_a_raw_error_followup():
 
 
 @pytest.mark.asyncio
-async def test_final_answer_gets_verification_notes_but_tool_turns_do_not():
+async def test_final_answer_notes_are_stored_beside_the_answer_not_in_it():
     from langchain.agents.middleware.types import ModelRequest, ModelResponse
     from langchain_core.messages import AIMessage
 
@@ -400,21 +400,34 @@ async def test_final_answer_gets_verification_notes_but_tool_turns_do_not():
     from ggwork_pick.middleware import PickModelGate
 
     task = PickTask(service=None, info=TaskInfo("t", "r", "c", "lead"))
-    task.repository = AsyncMock()
+    repo = AsyncMock()
+    task.repository = AsyncMock(return_value=repo)
     task.known_titles = {"Real Drama"}
     store = ExtensionData("t")
     store.set(task)
     request = ModelRequest(model=SimpleNamespace(), messages=[], runtime=SimpleNamespace(context={EXTENSION_TASK_STORE_KEY: store}), tools=[])
-    final = AsyncMock(return_value=ModelResponse(result=[AIMessage(content="推荐《Real Drama》和《Fake Drama》，都没发过。")]))
-    response = await PickModelGate().awrap_model_call(request, final)
-    text = response.result[-1].content
-    assert text.startswith("推荐《Real Drama》") and "《Fake Drama》不在本轮" in text and "发布记录" in text
+    answer = AIMessage(content="推荐《Real Drama》和《Fake Drama》，都没发过。", id="m1")
+    response = await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[answer])))
+    assert response.result[-1] is answer
+    stored = repo.record_answer_check.await_args.kwargs
+    assert stored["message_id"] == "m1" and stored["run_id"] == "r" and stored["thread_id"] == "c"
+    joined = "\n".join(stored["notes"])
+    assert "《Fake Drama》不在本轮" in joined and "发布记录" in joined
+    repo.record_answer_check.reset_mock()
     tool_turn = AIMessage(content="《Fake Drama》", tool_calls=[{"name": "pick_query_candidates", "args": {}, "id": "x"}])
     passthrough = await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[tool_turn])))
     assert passthrough.result[-1] is tool_turn
+    await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[AIMessage(content="《Fake Drama》")])))
+    assert repo.record_answer_check.await_args.kwargs["message_id"] is None
+    # A note that cannot be stored is logged; the answer the user already saw still returns.
+    repo.record_answer_check.side_effect = RuntimeError("database is locked")
+    kept = AIMessage(content="《Fake Drama》", id="m2")
+    assert (await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[kept])))).result[-1] is kept
+    repo.record_answer_check.side_effect = None
+    repo.record_answer_check.reset_mock()
     task.posted_checked = True
-    clean = await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[AIMessage(content="《Real Drama》没发过。")])))
-    assert clean.result[-1].content == "《Real Drama》没发过。"
+    await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[AIMessage(content="《Real Drama》没发过。")])))
+    repo.record_answer_check.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -481,7 +494,8 @@ async def test_answer_check_handles_responses_content_blocks_and_user_named_titl
     from ggwork_pick.middleware import PickModelGate
 
     task = PickTask(service=None, info=TaskInfo("t", "r", "c", "lead"))
-    task.repository = AsyncMock()
+    repo = AsyncMock()
+    task.repository = AsyncMock(return_value=repo)
     store = ExtensionData("t")
     store.set(task)
     request = ModelRequest(
@@ -494,9 +508,82 @@ async def test_answer_check_handles_responses_content_blocks_and_user_named_titl
         {"type": "reasoning", "summary": []},
         {"type": "text", "text": "《Asked By User》没有匹配；推荐《Made Up》。", "annotations": []},
     ]
-    response = await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[AIMessage(content=blocks, id="m1")])))
-    fixed = response.result[-1]
-    assert fixed.id == "m1" and isinstance(fixed.content, list)
-    assert fixed.content[:2] == blocks
-    note = fixed.content[-1]["text"]
-    assert "《Made Up》" in note and "Asked By User" not in note
+    answer = AIMessage(content=blocks, id="m1")
+    response = await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[answer])))
+    assert response.result[-1] is answer and answer.content == blocks
+    notes = "\n".join(repo.record_answer_check.await_args.kwargs["notes"])
+    assert "《Made Up》" in notes and "Asked By User" not in notes
+
+
+def _posted(accounts=(), posts=0):
+    records = ["SD"] if accounts else []
+    return {"matched": bool(accounts), "records": records, "post_count": posts, "sched_count": 0, "last_post_on": None, "accounts": list(accounts)}
+
+
+@pytest.mark.asyncio
+async def test_follow_ups_use_their_own_conditions_and_current_data_unless_asking_for_more(tmp_path):
+    from ggwork_pick.context import PickLifecycle, PickTask
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import count_candidates_tool, get_drama_detail_tool, query_candidates_tool
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    service = PickService(tmp_path / "files")
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    repo = PickRepository(service.session_factory, "alice")
+    importer = Importer(repo, service.data_dir)
+    languages = ((1, "en"), (2, "en"), (3, "en"), (4, "ko"))
+    rows = [
+        {"source": "s", "source_id": str(i), "language": lang, "title": f"T{i}", "posted": _posted(["acc"] if i == 2 else [], 1 if i == 2 else 0)}
+        for i, lang in languages
+    ]
+    old_batch = await importer.catalog(json.dumps(rows).encode(), "json")
+    parent = await SelectionService(repo).query({"language": "en", "limit": 1}, thread_id="t", run_id="r0", call_id="c0")
+    new_batch = await importer.catalog(json.dumps([*rows, {**rows[0], "source_id": "5", "title": "T5"}]).encode(), "json")
+    store = ExtensionData("task")
+    await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task", "r1", "t", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", "pick_reference": {"result_id": parent["id"]}, EXTENSION_TASK_STORE_KEY: store}, tool_call_id="q1")
+    fresh = json.loads(await query_candidates_tool.coroutine(filters={"limit": 5}, runtime=runtime))
+    assert fresh["conditions"]["language"] is None and fresh["catalog_batch_id"] == new_batch["id"]
+    runtime.tool_call_id = "q2"
+    more = json.loads(await query_candidates_tool.coroutine(filters={"exclude_previous": True, "exclude_posted": True}, runtime=runtime))
+    assert more["conditions"]["language"] == "en" and more["catalog_batch_id"] == old_batch["id"]
+    assert [i["title"] for i in more["items"]] == ["T3"]
+    counted = json.loads(await count_candidates_tool.coroutine(filters={"exclude_previous": True}, runtime=runtime))
+    assert counted["total"] == 2 and counted["catalog_batch_id"] == old_batch["id"]
+    detail = json.loads(await get_drama_detail_tool.coroutine(result_id=more["id"], item_id=more["items"][0]["item_id"], runtime=runtime))
+    assert detail["data_as_of"]["shared"] is False
+    task = store.get(PickTask)
+    assert task.posted_checked is True
+    assert {"T1", "T3"} <= task.known_titles and {i["title"] for i in fresh["items"]} <= task.known_titles
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_code_bugs_surface_as_errors_not_polite_refusals(tmp_path, monkeypatch):
+    from ggwork_pick.context import PickLifecycle
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import get_drama_detail_tool
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    service = PickService(tmp_path / "files")
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    repo = PickRepository(service.session_factory, "alice")
+    await Importer(repo, service.data_dir).catalog(b'[{"source":"s","source_id":"1","language":"en","title":"Example"}]', "json")
+    parent = await SelectionService(repo).query({}, thread_id="t", run_id="r0", call_id="c0")
+    store = ExtensionData("task")
+    await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task", "r1", "t", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", "pick_reference": {"result_id": parent["id"]}, EXTENSION_TASK_STORE_KEY: store}, tool_call_id="d1")
+
+    async def broken(self, result_id, item_id):
+        return {}["item"]
+
+    monkeypatch.setattr(SelectionService, "detail", broken)
+    with pytest.raises(KeyError):
+        await get_drama_detail_tool.coroutine(result_id=parent["id"], item_id=parent["items"][0]["item_id"], runtime=runtime)
+    await engine.dispose()

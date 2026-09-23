@@ -2,13 +2,16 @@
 
 import asyncio
 import json
+import logging
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from ggwork_pick.answer_check import append_notes, check_answer, titles_in
+from ggwork_pick.answer_check import check_answer, titles_in
 from ggwork_pick.context import task_from_runtime
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_TOOLS = frozenset(
     {"ask_clarification", "pick_search_knowledge", "pick_query_candidates", "pick_count_candidates", "pick_get_drama_detail", "pick_prepare_selection"}
@@ -24,7 +27,8 @@ PICK_INSTRUCTIONS = """你是个人短剧选剧助手，使用中文。用选剧
 只要求“有某类依据”时只传signal_kind。用户要“按名次/榜单前几”时才加sort=rank，结果只含该榜最新一期；有名次的只有kd、qc、qr，其他种类没有名次。不同榜单、不同日期、不同剧场的名次不能互相比较。信号种类代码见知识资料。
 问“有多少部”用pick_count_candidates，不用查询后数卡片。要求渠道确认可发却0结果时，说明来源只标了禁用或待核实，可建议改为只排除明确禁用的（confirmed_eligible_only=false）。回答里说明data_as_of给出的数据时点。
 保存当前绑定候选的第1、3部时调用pick_prepare_selection(positions=[1,3],note="用户备注")，省略result_id和item_ids，由服务器映射精确标识。不要复述或重新输入长ID。
-追问使用当前绑定的result_id；缺少明确结果时先澄清，不猜最新列表。更新条件创建新结果，查看旧结果保留旧依据。
+每次查询的filters是本次完整条件，用本轮最新数据；在上一份候选基础上细化时，把要保留的条件一起写上。只有“换一批”（exclude_previous=true）沿用绑定候选的条件和数据版本。
+追问某一部、保存第N部使用当前绑定的result_id；缺少明确结果时先澄清，不猜最新列表。查看旧结果保留旧依据。
 直接查询优先，不需要先规划多步骤研究，不使用外部搜索或生成代码。"""
 
 
@@ -63,7 +67,11 @@ class PickModelGate(AgentMiddleware):
         adjusted = request.override(tools=tools, system_message=SystemMessage(content=system + "\n\n" + PICK_INSTRUCTIONS + reference))
         async with asyncio.timeout(task.remaining()):
             response = await handler(adjusted)
-        return _checked(response, task, request.messages)
+        try:
+            await _record_checks(response, task, request)
+        except Exception:  # noqa: BLE001 - a missing note must not fail an answer the user already saw
+            logger.exception("[pick] answer check not recorded")
+        return response
 
 
 def _text_of(content) -> str | None:
@@ -81,26 +89,25 @@ def _user_titles(messages) -> set[str]:
     return {title for message in messages if isinstance(message, HumanMessage) for title in titles_in(_text_of(message.content) or "")}
 
 
-def _checked(response, task, request_messages=()):
-    """Append verification notes to a final answer; tool-calling turns pass through untouched."""
+async def _record_checks(response, task, request) -> None:
+    """Check a final answer and store the notes beside it; the answer itself is never rewritten.
+
+    The host streams and journals the model message before this middleware returns, so a note
+    appended to the message would reach only the next model turn, never the user.
+    """
     messages = getattr(response, "result", None)
     if not isinstance(messages, list) or not messages:
-        return response
+        return
     last = messages[-1]
     text = _text_of(last.content) if isinstance(last, AIMessage) else None
     if text is None or last.tool_calls:
-        return response
-    known = task.known_titles | _user_titles(request_messages)
+        return
+    known = task.known_titles | _user_titles(request.messages)
     notes = check_answer(text, known_titles=known, posted_checked=task.posted_checked)
     if not notes:
-        return response
-    if isinstance(last.content, str):
-        content = append_notes(last.content, notes)
-    else:
-        # Leading blank line: clients that join text blocks must still show the note as its own paragraph.
-        content = [*last.content, {"type": "text", "text": append_notes("", notes)}]
-    fixed = last.model_copy(update={"content": content})
-    return ModelResponse(result=[*messages[:-1], fixed], structured_response=getattr(response, "structured_response", None))
+        return
+    repo = await task.repository(request.runtime)
+    await repo.record_answer_check(thread_id=task.info.thread_id, run_id=task.info.run_id, message_id=last.id or None, notes=notes)
 
 
 class PickToolGate(AgentMiddleware):

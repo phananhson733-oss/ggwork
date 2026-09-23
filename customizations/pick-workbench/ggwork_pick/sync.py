@@ -10,10 +10,13 @@ Nothing here writes to RealShort.
 import asyncio
 import json
 import re
+import shutil
+from pathlib import Path
 
 import httpx
+from pydantic import ValidationError
 
-from ggwork_pick.imports import Importer
+from ggwork_pick.imports import Importer, decode_payload
 from ggwork_pick.repository import PickRepository
 
 FEED_VERSION = "pick-feed-v1"
@@ -23,6 +26,10 @@ MAX_PAGES = 40
 KEEP_BATCHES = 3
 DRIFT_MIN = 20
 DRIFT_RATIO = 0.01
+# The whole download, not one read: a feed that trickles bytes must not hold the sync lock forever.
+DEADLINE_SECONDS = 600
+# The pick tables share the host database's volume; a full disk would stop the whole gateway.
+MIN_FREE_BYTES = 500 * 2**20
 RULES_SOURCE_REF = "realshort:/api/pick-feed#rules"
 _CAPTURE_LINE = re.compile(r"^采集时间：.*$", re.MULTILINE)
 
@@ -33,6 +40,15 @@ class FeedError(Exception):
 
 def _page_error(response: httpx.Response) -> FeedError:
     return FeedError(f"RealShort feed 返回 HTTP {response.status_code}")
+
+
+def _safe_error(exc: Exception) -> str:
+    """Run errors are shown to every signed-in user; a validation error names the field, never the value."""
+    if isinstance(exc, ValidationError):
+        first = exc.errors(include_input=False, include_url=False)[0]
+        where = ".".join(str(part) for part in first["loc"])
+        return f"RealShort feed 数据不符合约定：{where}（{first['type']}），共 {exc.error_count()} 处"
+    return str(exc)[:500]
 
 
 async def fetch_feed(client: httpx.AsyncClient, token: str) -> tuple[dict, list[dict]]:
@@ -70,17 +86,53 @@ async def fetch_feed(client: httpx.AsyncClient, token: str) -> tuple[dict, list[
     return {**meta, "drift": drift}, rows
 
 
+def _rules_payload(meta: dict) -> bytes | None:
+    """Validated before the catalog is published, so bad rules cannot leave a half-updated pair."""
+    rules = meta.get("rules")
+    if not isinstance(rules, str) or not rules.strip():
+        return None
+    # The capture timestamp lives on the batch; dropping it here lets unchanged rules dedupe.
+    payload = _CAPTURE_LINE.sub("", rules).encode()
+    decode_payload(payload)
+    return payload
+
+
+def _encode_rows(rows: list[dict]) -> bytes:
+    # A string cut mid-emoji upstream arrives as a lone surrogate; one bad character must not sink the batch.
+    return json.dumps(rows, ensure_ascii=False).encode("utf-8", errors="replace")
+
+
+def _delete_blobs(data_dir: Path, paths: list[str]) -> None:
+    root = data_dir.resolve()
+    for raw in paths:
+        path = Path(raw).resolve()
+        if path.is_relative_to(root):
+            path.unlink(missing_ok=True)
+
+
 class RealShortSync:
-    def __init__(self, service, *, base_url: str, token: str, transport: httpx.AsyncBaseTransport | None = None, keep_batches: int = KEEP_BATCHES):
+    def __init__(
+        self,
+        service,
+        *,
+        base_url: str,
+        token: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+        keep_batches: int = KEEP_BATCHES,
+        deadline_seconds: float = DEADLINE_SECONDS,
+        min_free_bytes: int = MIN_FREE_BYTES,
+    ):
         self.service = service
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.transport = transport
         self.keep_batches = keep_batches
+        self.deadline_seconds = deadline_seconds
+        self.min_free_bytes = min_free_bytes
 
     @property
     def _lock(self) -> asyncio.Lock:
-        # One lock per service so the cron call and the manual button share it.
+        # One lock per service so the schedule and the manual button share it.
         return self.service.sync_lock
 
     async def run(self, trigger: str) -> dict:
@@ -93,8 +145,13 @@ class RealShortSync:
             record = await repo.start_sync_run(SOURCE, trigger)
             try:
                 values = await self._pull(repo)
+            except asyncio.CancelledError:
+                await asyncio.shield(repo.finish_sync_run(record["id"], status="failed", error="同步被中止（进程停止或取消）"))
+                raise
+            except TimeoutError:
+                return await repo.finish_sync_run(record["id"], status="failed", error=f"RealShort feed 超时（超过 {self.deadline_seconds:g} 秒）")
             except (FeedError, ValueError) as exc:
-                return await repo.finish_sync_run(record["id"], status="failed", error=str(exc)[:500])
+                return await repo.finish_sync_run(record["id"], status="failed", error=_safe_error(exc))
             except httpx.HTTPError as exc:
                 return await repo.finish_sync_run(record["id"], status="failed", error=f"RealShort feed 连接失败：{type(exc).__name__}")
             except Exception as exc:  # noqa: BLE001 - recorded, never swallowed silently
@@ -102,9 +159,23 @@ class RealShortSync:
                 raise
             return await repo.finish_sync_run(record["id"], status="success", **values)
 
+    async def _prune(self, repo: PickRepository) -> None:
+        unused = [*await repo.prune_shared("catalog", self.keep_batches), *await repo.prune_shared("knowledge", self.keep_batches)]
+        await asyncio.to_thread(_delete_blobs, self.service.data_dir, unused)
+
+    def _check_disk(self) -> None:
+        free = shutil.disk_usage(self.service.data_dir).free
+        if free < self.min_free_bytes:
+            raise FeedError(f"磁盘剩余空间不足（剩 {free // 2**20} MB），本次不发布")
+
     async def _pull(self, repo: PickRepository) -> dict:
         async with httpx.AsyncClient(base_url=self.base_url, transport=self.transport, timeout=httpx.Timeout(60.0, connect=10.0)) as client:
-            meta, rows = await fetch_feed(client, self.token)
+            async with asyncio.timeout(self.deadline_seconds):
+                meta, rows = await fetch_feed(client, self.token)
+        rules = _rules_payload(meta)
+        # Reclaim what has aged out before the space check; otherwise a full disk could never recover.
+        await self._prune(repo)
+        await asyncio.to_thread(self._check_disk)
         importer = Importer(repo, self.service.data_dir)
         as_of = meta["capturedAt"] if isinstance(meta.get("capturedAt"), str) else None
         batch_meta = {
@@ -115,14 +186,11 @@ class RealShortSync:
             "source_total": meta.get("total"),
             "paging_drift": meta.get("drift"),
         }
-        catalog = await importer.catalog(json.dumps(rows, ensure_ascii=False).encode(), "json", source_as_of=as_of, meta=batch_meta)
+        catalog = await importer.catalog(_encode_rows(rows), "json", source_as_of=as_of, meta=batch_meta, keep_original=False)
         knowledge = None
-        if isinstance(meta.get("rules"), str) and meta["rules"].strip():
-            # The capture timestamp lives on the batch; dropping it here lets unchanged rules dedupe.
-            rules = _CAPTURE_LINE.sub("", meta["rules"]).encode()
+        if rules is not None:
             knowledge = await importer.knowledge_bundle([(rules, "realshort-rules.md", RULES_SOURCE_REF)], source_as_of=as_of, meta=batch_meta)
-        await repo.prune_shared("catalog", self.keep_batches)
-        await repo.prune_shared("knowledge", self.keep_batches)
+        await self._prune(repo)
         return dict(
             rows=len(rows),
             catalog_batch_id=catalog["id"],

@@ -43,9 +43,21 @@ def _latest_date(row) -> str:
 
 
 def _kind_signal(row, kind):
-    """The newest signal of one kind; rank comparisons never mix kinds or sources."""
+    """The newest signal of one kind, a ranked one first on the same day; ranks never mix kinds or sources."""
     signals = [s for s in row["signals"] if s["kind"] == kind]
-    return max(signals, key=lambda s: (s["observed_at"] or "", -(s.get("rank") or 0)), default=None)
+    return max(signals, key=lambda s: (s["observed_at"] or "", s.get("rank") is not None, -(s.get("rank") or 0)), default=None)
+
+
+def _check_references(rows, conditions: PickConditions) -> None:
+    """A kind or account the batch does not contain is a typo, not a filter that silently matches nothing or everything."""
+    if conditions.signal_kind and not any(s["kind"] == conditions.signal_kind for row in rows for s in row["signals"]):
+        raise ValueError(f"剧库里没有 {conditions.signal_kind} 这类信号；信号种类代码见知识资料")
+    if conditions.posted_account:
+        if any(row.get("posted") is None for row in rows):
+            raise PostedDataUnavailable("当前剧库批次没有发布记录，无法核对是否发过")
+        wanted = conditions.posted_account.strip().casefold()
+        if not any(account.casefold() == wanted for row in rows for account in row["posted"]["accounts"]):
+            raise ValueError(f"发布记录里没有账号「{conditions.posted_account.strip()}」，请确认账号名")
 
 
 def _posted_excluded(row, conditions: PickConditions) -> bool:
@@ -77,7 +89,7 @@ def _row_matches(row, conditions: PickConditions, excluded: set[str]) -> bool:
         permission = row["channel_rules"].get(conditions.channel, "unknown")
         if permission == "denied" or (conditions.confirmed_eligible_only and (permission != "allowed" or row["availability"] != "active")):
             return False
-    if (conditions.exclude_posted or conditions.posted_account) and _posted_excluded(row, conditions):
+    if conditions.filters_posted and _posted_excluded(row, conditions):
         return False
     return True
 
@@ -85,6 +97,7 @@ def _row_matches(row, conditions: PickConditions, excluded: set[str]) -> bool:
 def matching_rows(rows, conditions: PickConditions, excluded: set[str]):
     if conditions.sort == "rank" and not conditions.signal_kind:
         raise ValueError("按名次排序必须指定 signal_kind（同一类榜单内才能比较名次）")
+    _check_references(rows, conditions)
     matches = [row for row in rows if _row_matches(row, conditions, excluded)]
     if conditions.sort == "rank":
         # One board at a time, like RealShort's rank tab: ranks from different days are not comparable.
@@ -108,10 +121,6 @@ def matching_rows(rows, conditions: PickConditions, excluded: set[str]):
     return matches
 
 
-def filter_rows(rows, conditions: PickConditions, excluded: set[str]):
-    return matching_rows(rows, conditions, excluded)[: conditions.limit]
-
-
 def _posted_warnings(row, conditions) -> list[str]:
     posted = row.get("posted")
     if posted is None:
@@ -119,7 +128,7 @@ def _posted_warnings(row, conditions) -> list[str]:
     warnings = []
     if posted["post_count"] == 0 and posted["sched_count"] > 0:
         warnings.append(f"发布记录显示已排期未发（{posted['sched_count']}条待公开）")
-    if (conditions.exclude_posted or conditions.posted_account) and not posted["matched"]:
+    if conditions.filters_posted and not posted["matched"]:
         warnings.append("发布记录未对上这部剧；对不上不代表从未发布")
     return warnings
 
@@ -165,6 +174,48 @@ class SelectionService:
     def __init__(self, repository: PickRepository):
         self.repository = repository
 
+    async def _parent(self, parent_result_id: str | None, thread_id: str) -> dict | None:
+        if not parent_result_id:
+            return None
+        parent = await self.repository.result(parent_result_id)
+        if parent["thread_id"] != thread_id:
+            raise LookupError("引用结果不属于当前对话")
+        return parent
+
+    async def _parent_versions(self, parent: dict) -> tuple[str, str | None]:
+        if parent["rule_version"] != RULE_VERSION or parent["ranking_version"] not in RANKING_VERSIONS:
+            raise ValueError("历史规则版本仅供查看，重新选剧需明确使用最新规则")
+        info = await self.repository.batch_info(parent["catalog_batch_id"])
+        if info is None or info["status"] != "published":
+            raise ValueError("这份候选用的数据版本已过保留期被清理，不能在它上面换一批；请直接重新查询")
+        return parent["catalog_batch_id"], parent["knowledge_batch_id"]
+
+    async def _current_versions(self, pinned_versions) -> tuple[str, str | None]:
+        if pinned_versions is not None:
+            if pinned_versions[0] is None:
+                raise ValueError("本轮开始时尚未导入剧库，请导入后重新提问")
+            return pinned_versions
+        catalog = await self.repository.current_batch("catalog")
+        if catalog is None:
+            raise ValueError("尚未导入剧库")
+        knowledge = await self.repository.current_batch("knowledge")
+        return catalog["id"], knowledge["id"] if knowledge else None
+
+    async def _scope(self, filters: dict, parent: dict | None, *, use_latest: bool, pinned_versions):
+        """Conditions, data versions and exclusions for one call.
+
+        Only 换一批 (exclude_previous) derives from the bound parent: its conditions, its data version
+        and its items. Any other question stands on its own conditions and this run's data.
+        """
+        derived = parent is not None and filters.get("exclude_previous") is True
+        conditions = PickConditions.model_validate({**parent["conditions_json"], **filters} if derived else filters)
+        if conditions.exclude_previous and not derived:
+            raise ValueError("换一批需要明确引用上一份候选")
+        versions = await self._parent_versions(parent) if derived and not use_latest else await self._current_versions(pinned_versions)
+        selected = {r["identity"] for r in await self.repository.selections()} if conditions.exclude_selected else set()
+        previous = {item["identity"] for item in parent["ordered_items_json"]} if derived else set()
+        return conditions, versions, frozenset(selected | previous)
+
     async def query(
         self,
         filters: dict,
@@ -176,10 +227,8 @@ class SelectionService:
         use_latest: bool = False,
         pinned_versions: tuple[str | None, str | None] | None = None,
     ):
-        parent = await self.repository.result(parent_result_id) if parent_result_id else None
-        if parent is not None and parent["thread_id"] != thread_id:
-            raise LookupError("引用结果不属于当前对话")
-        effective = PickConditions.model_validate({**(parent["conditions_json"] if parent else {}), **filters})
+        parent = await self._parent(parent_result_id, thread_id)
+        effective, (catalog_id, knowledge_id), excluded = await self._scope(filters, parent, use_latest=use_latest, pinned_versions=pinned_versions)
         request_hash = hashlib.sha256(
             json.dumps(
                 {"conditions": effective.model_dump(), "parent_result_id": parent_result_id, "use_latest": use_latest}, sort_keys=True, ensure_ascii=False
@@ -190,25 +239,6 @@ class SelectionService:
             if old["thread_id"] != thread_id or old["request_hash"] != request_hash:
                 raise ValueError("重复工具调用的参数不同")
             return result_view(old)
-        if parent is not None and not use_latest:
-            if parent["rule_version"] != RULE_VERSION or parent["ranking_version"] not in RANKING_VERSIONS:
-                raise ValueError("历史规则版本仅供查看，重新选剧需明确使用最新规则")
-            catalog_id, knowledge_id = parent["catalog_batch_id"], parent["knowledge_batch_id"]
-        elif pinned_versions is not None:
-            catalog_id, knowledge_id = pinned_versions
-            if catalog_id is None:
-                raise ValueError("本轮开始时尚未导入剧库，请导入后重新提问")
-        else:
-            catalog = await self.repository.current_batch("catalog")
-            if catalog is None:
-                raise ValueError("尚未导入剧库")
-            knowledge = await self.repository.current_batch("knowledge")
-            catalog_id, knowledge_id = catalog["id"], knowledge["id"] if knowledge else None
-        excluded = {r["identity"] for r in await self.repository.selections()} if effective.exclude_selected else set()
-        if effective.exclude_previous:
-            if parent is None:
-                raise ValueError("换一批需要明确引用上一份候选")
-            excluded.update(item["identity"] for item in parent["ordered_items_json"])
         rows = await self.repository.catalog_rows(catalog_id)
         matches = matching_rows(rows, effective, excluded)
         items = [candidate_item(row, effective, len(matches)) for row in matches[: effective.limit]]
@@ -222,7 +252,7 @@ class SelectionService:
                 parent_result_id=parent_result_id,
                 catalog_batch_id=catalog_id,
                 knowledge_batch_id=knowledge_id,
-                rule_version=parent["rule_version"] if parent and not use_latest else RULE_VERSION,
+                rule_version=RULE_VERSION,
                 ranking_version=RANK_RANKING_VERSION if effective.sort == "rank" else RANKING_VERSION,
                 conditions_json=effective.model_dump(),
                 ordered_items_json=items,
@@ -231,15 +261,9 @@ class SelectionService:
         )
         return result_view(record)
 
-    async def count(self, filters: dict, *, catalog_id: str | None = None) -> dict:
-        """Aggregate the same filter without persisting a candidate snapshot."""
-        conditions = PickConditions.model_validate(filters)
-        if catalog_id is None:
-            catalog = await self.repository.current_batch("catalog")
-            if catalog is None:
-                raise ValueError("尚未导入剧库")
-            catalog_id = catalog["id"]
-        excluded = {r["identity"] for r in await self.repository.selections()} if conditions.exclude_selected else set()
+    async def count(self, filters: dict, *, parent: dict | None = None, pinned_versions=None) -> dict:
+        """Aggregate the same filter as a query, without persisting a candidate snapshot."""
+        conditions, (catalog_id, _), excluded = await self._scope(filters, parent, use_latest=False, pinned_versions=pinned_versions)
         matches = matching_rows(await self.repository.catalog_rows(catalog_id), conditions, excluded)
         by_theater, by_language = {}, {}
         for row in matches:

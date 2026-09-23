@@ -41,12 +41,12 @@ export function evidenceLine(evidence: PickEvidence): string {
 
 export function postedLine(
   posted: PickPosted | undefined,
-  warnings: readonly string[] = [],
+  conditions?: Pick<PickConditions, "exclude_posted" | "posted_account">,
 ): string | null {
   if (!posted) return null;
   if (!posted.matched)
-    // The backend already warns about unmatched records when a posted filter was applied.
-    return warnings.some((w) => w.includes("发布记录未对上"))
+    // Under a posted filter the backend puts the same caution in the card warnings.
+    return conditions?.exclude_posted || conditions?.posted_account?.trim()
       ? null
       : "发布记录：未对上（不代表从未发布）";
   const parts = [`已发 ${posted.post_count} 条`];

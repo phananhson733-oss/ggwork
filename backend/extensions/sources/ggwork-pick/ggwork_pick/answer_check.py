@@ -3,17 +3,23 @@
 Ported in spirit from RealShort's ask answer-check / negative-claims: the model may explain,
 but it cannot introduce titles no tool returned, claim a save that only the UI can commit,
 or assert "not posted" without a query that filtered on publication records. Findings are
-appended as a visible note instead of rewriting the answer.
+stored per answer and shown beside it; the answer itself is never rewritten.
 """
 
 import re
 
-_TITLE = re.compile(r"《([^《》\n]{1,200})》")
-_SAVE_CLAIM = re.compile(r"(已经?|成功)(为你|帮你|给你)?(成功)?(保存|加入|写入|添加)|保存(成功|好了|完成)")
-_NOT_POSTED = re.compile(r"(从来没有?|从没|没有?|未曾?)(被)?(发布|发)(过)?")
-# A claim quoted inside a disclaimer ("不能声称没发过") is not a claim.
-_NEGATING_PREFIX = re.compile(r"(不能|无法|不代表|不等于|不能声称|不能断言|不能确认|不会|才会|是否|尚未|请勿|不要)[^。！？\n]{0,8}$")
-NOTE_HEADER = "核对提示"
+_TITLE = re.compile(r"《([^《》\n]{1,500})》")
+_WHO = r"(为你|帮你|给你)?(成功)?"
+# "已保存的剧" describes earlier saves and "已加入…条件" edits a filter; only a save into the list is a claim.
+_SAVE_CLAIM = re.compile(
+    rf"(已经?|成功){_WHO}(保存|收藏|存入)(?!的|过的)"
+    rf"|(已经?|成功){_WHO}(加入|写入|添加|放入)(到|进)?(了)?(你的)?(个人)?(选剧)?清单"
+    r"|保存(成功|好了|完成)(?!后)"
+)
+# 发 must be the verb: 没发现/没发生/没有发布记录 are not claims, and "已排期未发" relays a card warning.
+_NOT_POSTED = re.compile(r"(?<!排期)(从来没有?|从没|没有?|未曾?)(被)?(发布|发(?!布))(过)?(?!现|生|展|放|起|出|送|给|挥|记录)")
+# A claim quoted inside a disclaimer ("不能声称没发过") is not a claim; a comma ends the disclaimer.
+_NEGATING_PREFIX = re.compile(r"(不能|无法|不代表|不等于|不能声称|不能断言|不能确认|不会|才会|是否|请勿|不要)[^。！？，,；;\n]{0,6}$")
 
 
 def _norm(title: str) -> str:
@@ -46,9 +52,3 @@ def check_answer(text: str, *, known_titles: set[str], posted_checked: bool) -> 
     if not posted_checked and _claims(_NOT_POSTED, text):
         notes.append("本轮查询没有按发布记录过滤，不能据此断言没发过。")
     return notes
-
-
-def append_notes(text: str, notes: list[str]) -> str:
-    if not notes:
-        return text
-    return text.rstrip() + "\n\n> " + NOTE_HEADER + "：" + " ".join(notes)

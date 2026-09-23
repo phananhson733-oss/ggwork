@@ -3,18 +3,21 @@
 import hashlib
 import json
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import delete, insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from ggwork_pick.models import candidate_sets, drama_versions, import_batches, knowledge_versions, selection_commands, selections, sync_runs
+from ggwork_pick.models import answer_checks, candidate_sets, drama_versions, import_batches, knowledge_versions, selection_commands, selections, sync_runs
 
 # Batches published by the scheduled source sync. Every user can read them; nobody can log in as this owner
 # (host principals are UUIDs, and the constructor below refuses the value).
 SHARED_OWNER = "system:shared"
+# A shared batch a candidate snapshot used within this window keeps its rows so the card can still 换一批.
+RETAIN_REFERENCED = timedelta(days=30)
+DATA_AS_OF_KEYS = ("source_as_of", "published_at", "freshness", "scope", "shared")
 
 
 class ConflictError(ValueError):
@@ -52,6 +55,7 @@ class PickRepository:
                 return None
             return {
                 "id": row["id"],
+                "status": row["status"],
                 "shared": row["owner_id"] == SHARED_OWNER,
                 "source_as_of": row["source_as_of"],
                 "published_at": row["published_at"],
@@ -59,6 +63,11 @@ class PickRepository:
                 "scope": (row["validation_json"] or {}).get("scope"),
                 "rows": (row["validation_json"] or {}).get("rows"),
             }
+
+    async def data_as_of(self, batch_id: str | None) -> dict | None:
+        """When the data behind a result or tool answer was captured; one shape for the UI and the model."""
+        info = await self.batch_info(batch_id)
+        return {key: info[key] for key in DATA_AS_OF_KEYS} if info else None
 
     async def current_batch(self, kind: str) -> dict | None:
         async with self.session_factory() as session:
@@ -140,8 +149,9 @@ class PickRepository:
                             await session.execute(insert(knowledge_versions), [dict(batch_id=batch_id, **row) for row in rows])
                     else:
                         raise ValueError("未知资料类型")
+                return batch
             except IntegrityError:
-                row = (
+                existing = (
                     (
                         await session.execute(
                             select(import_batches).where(
@@ -155,10 +165,25 @@ class PickRepository:
                     .mappings()
                     .first()
                 )
-                if row is None:
+                if existing is None:
                     raise
-                return dict(row)
-        return batch
+        return await self._reuse(dict(existing), kind, source_as_of=source_as_of, meta=meta)
+
+    async def _reuse(self, existing: dict, kind: str, *, source_as_of: str | None, meta: dict | None) -> dict:
+        """Identical content seen again: record when, and make it current if a newer batch replaced it (A, B, then A)."""
+        current = await self.current_batch(kind)
+        values = {}
+        if current is None or current["id"] != existing["id"]:
+            values["published_at"] = datetime.now(UTC).isoformat()
+        if source_as_of is not None:
+            values["source_as_of"] = source_as_of
+        if meta is not None:
+            values["validation_json"] = {**meta, "rows": (existing["validation_json"] or {}).get("rows")}
+        if not values:
+            return existing
+        async with self.session_factory() as session, session.begin():
+            await session.execute(update(import_batches).where(import_batches.c.id == existing["id"]).values(**values))
+        return {**existing, **values}
 
     async def result(self, result_id: str) -> dict:
         async with self.session_factory() as session:
@@ -364,29 +389,85 @@ class PickRepository:
             )
             return [dict(row) for row in rows.mappings()]
 
-    async def prune_shared(self, kind: str, keep: int) -> list[str]:
-        """Drop rows of old shared batches that no candidate snapshot references; the batch row stays as history."""
+    async def close_interrupted_runs(self, source: str = "realshort") -> None:
+        """At startup nothing can be running in this process; a "running" row is left over from a dead one."""
+        now = datetime.now(UTC).isoformat()
+        async with self.session_factory() as session, session.begin():
+            await session.execute(
+                update(sync_runs)
+                .where(sync_runs.c.source == source, sync_runs.c.status == "running")
+                .values(status="failed", finished_at=now, error="interrupted")
+            )
+
+    async def prune_shared(self, kind: str, keep: int, *, referenced_within: timedelta = RETAIN_REFERENCED) -> list[str]:
+        """Drop rows of old shared batches no recent candidate snapshot uses; the batch row stays as history.
+
+        Returns the raw blob paths that no live batch uses any more, for the caller to delete.
+        """
+        cutoff = (datetime.now(UTC) - referenced_within).isoformat()
+        column = candidate_sets.c.catalog_batch_id if kind == "catalog" else candidate_sets.c.knowledge_batch_id
         async with self.session_factory() as session, session.begin():
             batches = (
+                await session.execute(
+                    select(import_batches.c.id, import_batches.c.raw_blob_path)
+                    .where(import_batches.c.owner_id == SHARED_OWNER, import_batches.c.kind == kind, import_batches.c.status == "published")
+                    .order_by(import_batches.c.published_at.desc(), import_batches.c.id.desc())
+                )
+            ).all()
+            referenced = set((await session.execute(select(column).where(candidate_sets.c.created_at >= cutoff).distinct())).scalars())
+            victims = [batch for batch in batches[keep:] if batch.id not in referenced]
+            if not victims:
+                return []
+            table = drama_versions if kind == "catalog" else knowledge_versions
+            await session.execute(delete(table).where(table.c.batch_id.in_([batch.id for batch in victims])))
+            for batch in victims:
+                # Free the content-hash slot so identical content can be published again later.
+                await session.execute(update(import_batches).where(import_batches.c.id == batch.id).values(status="pruned", content_hash="pruned-" + batch.id))
+            paths = {batch.raw_blob_path for batch in victims}
+            live = set(
                 (
                     await session.execute(
-                        select(import_batches.c.id)
-                        .where(import_batches.c.owner_id == SHARED_OWNER, import_batches.c.kind == kind, import_batches.c.status == "published")
-                        .order_by(import_batches.c.published_at.desc(), import_batches.c.id.desc())
+                        select(import_batches.c.raw_blob_path).where(import_batches.c.raw_blob_path.in_(paths), import_batches.c.status != "pruned")
                     )
-                )
-                .scalars()
-                .all()
+                ).scalars()
             )
-            column = candidate_sets.c.catalog_batch_id if kind == "catalog" else candidate_sets.c.knowledge_batch_id
-            referenced = set((await session.execute(select(column).distinct())).scalars())
-            victims = [batch_id for batch_id in batches[keep:] if batch_id not in referenced]
-            if victims:
-                table = drama_versions if kind == "catalog" else knowledge_versions
-                await session.execute(delete(table).where(table.c.batch_id.in_(victims)))
-                for batch_id in victims:
-                    # Free the content-hash slot so identical content can be published again later.
-                    await session.execute(
-                        update(import_batches).where(import_batches.c.id == batch_id).values(status="pruned", content_hash="pruned-" + batch_id)
-                    )
-            return victims
+            return sorted(paths - live)
+
+    # ---- answer-check notes (per user) ----
+
+    async def record_answer_check(self, *, thread_id: str, run_id: str, message_id: str | None, notes: list[str]) -> None:
+        row = dict(
+            id=uuid4().hex,
+            owner_id=self.owner_id,
+            thread_id=thread_id,
+            run_id=run_id,
+            message_id=message_id,
+            notes_json=list(notes),
+            created_at=datetime.now(UTC).isoformat(),
+        )
+        async with self.session_factory() as session:
+            try:
+                async with session.begin():
+                    await session.execute(insert(answer_checks).values(**row))
+            except IntegrityError:
+                if message_id is None or not await self._answer_checked(message_id):
+                    raise
+                # a retried model call already recorded this answer
+
+    async def _answer_checked(self, message_id: str) -> bool:
+        async with self.session_factory() as session:
+            found = await session.execute(select(answer_checks.c.id).where(answer_checks.c.owner_id == self.owner_id, answer_checks.c.message_id == message_id))
+            return found.first() is not None
+
+    async def answer_checks(self, thread_id: str) -> list[dict]:
+        async with self.session_factory() as session:
+            rows = await session.execute(
+                select(answer_checks)
+                .where(answer_checks.c.owner_id == self.owner_id, answer_checks.c.thread_id == thread_id)
+                .order_by(answer_checks.c.created_at)
+                .limit(500)
+            )
+            return [
+                {"message_id": row["message_id"], "run_id": row["run_id"], "notes": row["notes_json"], "created_at": row["created_at"]}
+                for row in rows.mappings()
+            ]

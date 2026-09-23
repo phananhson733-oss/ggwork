@@ -66,6 +66,7 @@ import { CitationSourcesPanel } from "../citations/citation-sources-panel";
 import { KnowledgeSourcesPanel } from "../citations/knowledge-source";
 import { ConversationReferenceChip } from "../conversation-references/conversation-reference-chip";
 import { CopyButton } from "../copy-button";
+import { PickAnswerCheckNote } from "../pick/answer-check-note";
 import { ReferenceAttachmentSummary } from "../sidecar/reference-attachments";
 import { SlashSkillChip } from "../slash-skill-chip";
 import { Tooltip } from "../tooltip";
@@ -620,6 +621,14 @@ function MessageContent_({
       />
       <CitationSourcesPanel sources={citationSources} />
       <KnowledgeSourcesPanel content={contentToDisplay} />
+      {message.type === "ai" && (
+        <PickAnswerCheckNote
+          threadId={threadId}
+          messageId={message.id}
+          runId={runId}
+          isLoading={isLoading}
+        />
+      )}
       {message.type === "ai" && showWorkspaceChanges && (
         <WorkspaceChangeBadge
           threadId={threadId}

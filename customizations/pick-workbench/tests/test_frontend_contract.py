@@ -35,20 +35,16 @@ async def test_result_payload_matches_frontend_fixture(tmp_path):
     from ggwork_pick.service import PickService, SyncSettings
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
-    service = PickService(tmp_path / "files", SyncSettings("https://realshort.test", TOKEN, "t"))
+    service = PickService(tmp_path / "files", SyncSettings("https://realshort.test", TOKEN))
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     posted = {"matched": True, "records": ["SD-1"], "post_count": 2, "sched_count": 0, "last_post_on": "2026-09-10", "accounts": ["acc"]}
-    service.sync_transport = feed_transport([feed_row(1), feed_row(2, posted=posted)])
+    by_other = {**posted, "records": ["SD-3"], "accounts": ["other"]}
+    service.sync_transport = feed_transport([feed_row(1), feed_row(2, posted=posted), feed_row(3, posted=by_other)])
     await service.realshort_sync().run("cron")
     repo = PickRepository(service.session_factory, "alice")
     result = await SelectionService(repo).query({"signal_kind": "kd", "sort": "rank", "posted_account": "other"}, thread_id="t", run_id="r", call_id="c")
     record = await repo.result(result["id"])
-    info = await repo.batch_info(record["catalog_batch_id"])
-    payload = {
-        **result_view(record),
-        "run_status": "success",
-        "data_as_of": {key: info[key] for key in ("source_as_of", "published_at", "freshness", "scope", "shared")},
-    }
+    payload = {**result_view(record), "run_status": "success", "data_as_of": await repo.data_as_of(record["catalog_batch_id"])}
     await engine.dispose()
     if os.environ.get("PICK_WRITE_CONTRACT"):
         FIXTURE.parent.mkdir(parents=True, exist_ok=True)

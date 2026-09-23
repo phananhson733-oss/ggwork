@@ -3,6 +3,7 @@ import { z } from "zod";
 import { fetch as fetchWithAuth } from "@/core/api/fetcher";
 import { getBackendBaseURL } from "@/core/config";
 
+import { pickAnswerCheckSchema } from "./answer-checks";
 import { pickItemSchema, pickResultSchema } from "./types";
 
 export type SaveCommand = {
@@ -157,6 +158,19 @@ export async function listPickBatches(signal?: AbortSignal) {
   return z
     .object({ batches: z.array(batchSchema) })
     .parse(await (await responseFor("/imports", { signal })).json()).batches;
+}
+
+export async function listPickAnswerChecks(
+  threadId: string,
+  signal?: AbortSignal,
+) {
+  const response = await responseFor(
+    `/answer-checks?thread_id=${encodeURIComponent(threadId)}`,
+    { signal },
+  );
+  return z
+    .object({ checks: z.array(pickAnswerCheckSchema) })
+    .parse(await response.json()).checks;
 }
 
 export async function getPickSyncStatus(signal?: AbortSignal) {

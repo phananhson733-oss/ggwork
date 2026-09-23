@@ -78,7 +78,7 @@ describe("pick display lines", () => {
           last_post_on: null,
           accounts: [],
         },
-        ["发布记录未对上这部剧；对不上不代表从未发布"],
+        { exclude_posted: false, posted_account: "acc" },
       ),
     ).toBeNull();
   });

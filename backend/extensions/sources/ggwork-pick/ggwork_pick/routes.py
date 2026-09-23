@@ -1,13 +1,12 @@
 """Authenticated UI operations. The Agent never receives this write authority."""
 
 import csv
-import hmac
 import io
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from deerflow_extension_api.auth import resolve_principal
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import Field, ValidationError
 
@@ -17,6 +16,8 @@ from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import result_view
 
 MANUAL_SYNC_COOLDOWN = timedelta(minutes=5)
+# After a failure the button stays usable, but a broken source is not hammered by repeated clicks.
+FAILED_SYNC_BACKOFF = timedelta(minutes=1)
 
 
 class SaveInput(StrictInput):
@@ -74,9 +75,7 @@ def build_router(service):
         status = run.status if run else "unknown"
         if status not in {"pending", "running", "success", "error", "timeout", "interrupted"}:
             status = "unknown"
-        repo = PickRepository(service.session_factory, record["owner_id"])
-        info = await repo.batch_info(record["catalog_batch_id"])
-        data_as_of = {key: info[key] for key in ("source_as_of", "published_at", "freshness", "scope", "shared")} if info else None
+        data_as_of = await PickRepository(service.session_factory, record["owner_id"]).data_as_of(record["catalog_batch_id"])
         return {**result_view(record), "run_status": status, "data_as_of": data_as_of}
 
     @router.get("/sync")
@@ -96,31 +95,16 @@ def build_router(service):
         if service.sync_lock.locked():
             return {"status": "already_running"}
         runs = await PickRepository.shared(service.session_factory).sync_runs(limit=1)
-        if runs and runs[0]["status"] in ("running", "success"):
-            started = datetime.fromisoformat(runs[0]["started_at"])
-            if datetime.now(UTC) - started < MANUAL_SYNC_COOLDOWN:
-                raise HTTPException(429, "刚同步过，5分钟内不重复拉取")
+        if runs:
+            wait = FAILED_SYNC_BACKOFF if runs[0]["status"] == "failed" else MANUAL_SYNC_COOLDOWN
+            if datetime.now(UTC) - datetime.fromisoformat(runs[0]["started_at"]) < wait:
+                raise HTTPException(429, f"刚同步过，{int(wait.total_seconds() // 60)}分钟内不重复拉取")
         service.spawn(sync.run("manual"))
         return {"status": "started"}
 
-    @router.post("/cron/sync", status_code=202)
-    async def cron_sync(request: Request):
-        # Only the host's internal-token caller (the Vercel cron route) plus the dedicated sync token.
-        # Extensions cannot mount under the host's auth-exempt prefixes, so the host checks identity first.
-        expected = service.sync_settings.trigger_token
-        sync = service.realshort_sync()
-        if not expected or sync is None:
-            raise HTTPException(404, "Not Found")
-        principal = resolve_principal(request)
-        supplied = request.headers.get("x-pick-sync-token", "")
-        if principal is None or not principal.is_internal or not hmac.compare_digest(supplied.encode(), expected.encode()):
-            raise HTTPException(401, "unauthorized")
-        if service.session_factory is None:
-            raise HTTPException(503, "选剧服务尚未就绪")
-        if service.sync_lock.locked():
-            return {"status": "already_running"}
-        service.spawn(sync.run("cron"))
-        return {"status": "started"}
+    @router.get("/answer-checks")
+    async def list_answer_checks(request: Request, thread_id: str = Query(min_length=1, max_length=64)):
+        return {"checks": await repository(request).answer_checks(thread_id)}
 
     @router.get("/imports")
     async def list_imports(request: Request):

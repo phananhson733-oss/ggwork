@@ -93,3 +93,15 @@ sync_runs = Table(
     Column("source_as_of", String(40)),
     Column("error", Text),
 )
+answer_checks = Table(
+    "ggwp_answer_checks",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("owner_id", String(128), nullable=False),
+    Column("thread_id", String(64), nullable=False),
+    Column("run_id", String(128), nullable=False),
+    # Null when the model message had no id; the UI then matches the note by run.
+    Column("message_id", String(256)),
+    Column("notes_json", JSON, nullable=False),
+    Column("created_at", String(40), nullable=False),
+)

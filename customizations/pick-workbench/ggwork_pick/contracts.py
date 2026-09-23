@@ -63,3 +63,7 @@ class PickConditions(StrictInput):
     )
     exclude_posted: bool = Field(default=False, description="排除团队发布记录里已发过（post_count>0）的剧。用户说账号/团队没发过时使用。")
     posted_account: str | None = Field(default=None, max_length=200, description="排除发布记录里该账号发过的剧，账号名原样传入。")
+
+    @property
+    def filters_posted(self) -> bool:
+        return self.exclude_posted or bool(self.posted_account)

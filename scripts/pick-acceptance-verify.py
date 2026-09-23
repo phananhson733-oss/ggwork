@@ -25,7 +25,7 @@ def expected(c, exclude=()):
     if k: rows = [r for r in rows if any(s["kind"] == k for s in r["signals"])]
     rows.sort(key=ident)
     if c.get("sort") == "rank":
-        sig = lambda r: max((s for s in r["signals"] if s["kind"] == k), key=lambda s: (s["observed_at"] or "", -(s["rank"] or 0)))
+        sig = lambda r: max((s for s in r["signals"] if s["kind"] == k), key=lambda s: (s["observed_at"] or "", s["rank"] is not None, -(s["rank"] or 0)))
         board = max(s["observed_at"] for r in feed for s in r["signals"] if s["kind"] == k and s["observed_at"])
         rows = [r for r in rows if sig(r)["observed_at"] == board]
         rows.sort(key=lambda r: (sig(r)["rank"] is None, sig(r)["rank"] or 0))

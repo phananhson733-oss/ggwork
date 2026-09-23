@@ -26,7 +26,10 @@ def feed_row(i, **extra):
     return {**row, **extra}
 
 
-def feed_transport(rows, *, page=2, total=None, seen=None, fail_on=None):
+RULES = "# RealShort 选剧规则与口径\n\n## KalosTV\nYouTube：禁"
+
+
+def feed_transport(rows, *, page=2, total=None, seen=None, fail_on=None, rules=RULES):
     def handler(request: httpx.Request):
         if seen is not None:
             seen.append(request)
@@ -44,7 +47,7 @@ def feed_transport(rows, *, page=2, total=None, seen=None, fail_on=None):
             "scope": "test scope",
             "total": (len(rows) if total is None else total) if not cursor else None,
             "freshness": {"catalogImportedAt": "2026-09-22T03:19:21.327Z", "reelshortSyncedAt": "2026-09-23T00:05:56.475Z"} if not cursor else None,
-            "rules": "# RealShort 选剧规则与口径\n\n## KalosTV\nYouTube：禁" if not cursor else None,
+            "rules": rules if not cursor else None,
             "rows": chunk,
             "nextCursor": str(start + page) if start + page < len(rows) else None,
         }
@@ -166,3 +169,179 @@ async def test_small_paging_drift_on_a_live_source_is_accepted_and_recorded(serv
     catalog = await PickRepository(service.session_factory, "alice").current_batch("catalog")
     assert catalog["validation_json"]["paging_drift"] == 1
     assert catalog["validation_json"]["source_total"] == 2
+
+
+async def _current(service, kind):
+    from ggwork_pick.repository import PickRepository
+
+    return await PickRepository(service.session_factory, "alice").current_batch(kind)
+
+
+@pytest.mark.asyncio
+async def test_feed_reverting_to_earlier_content_becomes_current_again(service):
+    first = await make_sync(service, feed_transport([feed_row(1)])).run("cron")
+    await make_sync(service, feed_transport([feed_row(2)], rules=RULES + "\n## ShortMax")).run("cron")
+    back = await make_sync(service, feed_transport([feed_row(1)])).run("cron")
+    assert back["status"] == "success" and back["catalog_batch_id"] == first["catalog_batch_id"]
+    assert (await _current(service, "catalog"))["id"] == first["catalog_batch_id"]
+    assert (await _current(service, "knowledge"))["id"] == first["knowledge_batch_id"]
+
+
+@pytest.mark.asyncio
+async def test_old_references_age_out_and_pruned_batches_lose_their_blob(service):
+    from pathlib import Path
+
+    from sqlalchemy import text
+
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+
+    alice = PickRepository(service.session_factory, "alice")
+    old = await make_sync(service, feed_transport([feed_row(1), feed_row(2)])).run("cron")
+    aged = await SelectionService(alice).query({"limit": 1}, thread_id="t", run_id="r1", call_id="c1")
+    recent_batch = await make_sync(service, feed_transport([feed_row(3), feed_row(4)]), keep_batches=1).run("cron")
+    recent = await SelectionService(alice).query({"limit": 1}, thread_id="t", run_id="r2", call_id="c2")
+    async with service.session_factory() as session, session.begin():
+        await session.execute(text("update ggwp_candidate_sets set created_at = '2026-01-01T00:00:00+00:00' where id = :id"), {"id": aged["id"]})
+    shared = PickRepository.shared(service.session_factory)
+    blob = Path(next(b for b in await shared.batches() if b["id"] == old["catalog_batch_id"])["raw_blob_path"])
+    assert blob.exists()
+    await make_sync(service, feed_transport([feed_row(5)]), keep_batches=1).run("cron")
+    status = {b["id"]: b["status"] for b in await shared.batches()}
+    assert status[old["catalog_batch_id"]] == "pruned" and not blob.exists()
+    assert status[recent_batch["catalog_batch_id"]] == "published"
+    # The old card still shows; only 换一批 on its pruned data is refused.
+    assert (await alice.result(aged["id"]))["ordered_items_json"]
+    with pytest.raises(ValueError, match="保留期"):
+        await SelectionService(alice).query({"exclude_previous": True}, thread_id="t", run_id="r3", call_id="c3", parent_result_id=aged["id"])
+    assert recent["catalog_batch_id"] == recent_batch["catalog_batch_id"]
+
+
+@pytest.mark.asyncio
+async def test_synced_rows_are_stored_once_and_low_disk_refuses_to_publish(service):
+    from ggwork_pick.repository import PickRepository
+
+    done = await make_sync(service, feed_transport([feed_row(1)])).run("cron")
+    rows = await PickRepository(service.session_factory, "alice").catalog_rows(done["catalog_batch_id"])
+    assert "original" not in rows[0]
+    full = await make_sync(service, feed_transport([feed_row(2)]), min_free_bytes=10**18).run("cron")
+    assert full["status"] == "failed" and "磁盘" in full["error"]
+    assert (await _current(service, "catalog"))["id"] == done["catalog_batch_id"]
+
+
+@pytest.mark.asyncio
+async def test_a_full_disk_still_reclaims_batches_whose_references_aged_out(service):
+    from pathlib import Path
+
+    from sqlalchemy import text
+
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+
+    alice = PickRepository(service.session_factory, "alice")
+    old = await make_sync(service, feed_transport([feed_row(1)])).run("cron")
+    card = await SelectionService(alice).query({"limit": 1}, thread_id="t", run_id="r1", call_id="c1")
+    await make_sync(service, feed_transport([feed_row(2)]), keep_batches=1).run("cron")
+    shared = PickRepository.shared(service.session_factory)
+    blob = Path(next(b for b in await shared.batches() if b["id"] == old["catalog_batch_id"])["raw_blob_path"])
+    async with service.session_factory() as session, session.begin():
+        await session.execute(text("update ggwp_candidate_sets set created_at = '2026-01-01T00:00:00+00:00' where id = :id"), {"id": card["id"]})
+    full = await make_sync(service, feed_transport([feed_row(3)]), keep_batches=1, min_free_bytes=10**18).run("cron")
+    assert full["status"] == "failed" and "磁盘" in full["error"]
+    status = {b["id"]: b["status"] for b in await shared.batches()}
+    assert status[old["catalog_batch_id"]] == "pruned" and not blob.exists()
+
+
+@pytest.mark.asyncio
+async def test_bad_rules_fail_before_the_catalog_is_published(service):
+    good = await make_sync(service, feed_transport([feed_row(1)])).run("cron")
+    bad = await make_sync(service, feed_transport([feed_row(2)], rules="# 规则\x00")).run("cron")
+    assert bad["status"] == "failed"
+    assert (await _current(service, "catalog"))["id"] == good["catalog_batch_id"]
+
+
+@pytest.mark.asyncio
+async def test_validation_errors_name_the_field_without_feed_values(service):
+    broken = feed_row(1, posted={"matched": True, "records": [], "post_count": "secret-looking-value", "sched_count": 0, "last_post_on": None, "accounts": []})
+    outcome = await make_sync(service, feed_transport([broken])).run("cron")
+    assert outcome["status"] == "failed"
+    assert "post_count" in outcome["error"] and "secret-looking-value" not in outcome["error"]
+
+
+def _handler_transport(handler):
+    def guarded(request):
+        if request.headers.get("authorization") != f"Bearer {TOKEN}":
+            return httpx.Response(401)
+        return handler(request)
+
+    return httpx.MockTransport(guarded)
+
+
+def _page(**extra):
+    body = {"ok": True, "version": "pick-feed-v1", "capturedAt": "2026-09-23T03:00:00.000Z", "total": 1, "rows": [feed_row(1)], "nextCursor": None}
+    return {**body, **extra}
+
+
+def _refuse_connection(request):
+    raise httpx.ConnectError("down", request=request)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("handler", "expected"),
+    [
+        (lambda r: httpx.Response(200, text="<html>maintenance</html>"), "不是 JSON"),
+        (lambda r: httpx.Response(200, json=_page(version="pick-feed-v2")), "版本"),
+        (lambda r: httpx.Response(200, json=_page(total=None)), "总数"),
+        (lambda r: httpx.Response(200, json=_page(nextCursor="same")), "页数"),
+        (_refuse_connection, "ConnectError"),
+    ],
+)
+async def test_broken_feeds_fail_readably_and_keep_the_previous_batch(service, handler, expected):
+    good = await make_sync(service, feed_transport([feed_row(1)])).run("cron")
+    outcome = await make_sync(service, _handler_transport(handler)).run("cron")
+    assert outcome["status"] == "failed" and expected in outcome["error"]
+    assert TOKEN not in outcome["error"]
+    assert (await _current(service, "catalog"))["id"] == good["catalog_batch_id"]
+
+
+@pytest.mark.asyncio
+async def test_a_stalled_feed_hits_the_deadline_and_a_cancelled_run_is_closed(service):
+    import asyncio
+
+    from ggwork_pick.repository import PickRepository
+
+    gate = asyncio.Event()
+
+    async def stall(request):
+        await gate.wait()
+        return httpx.Response(200, json=_page())
+
+    slow = await make_sync(service, _handler_transport(stall), deadline_seconds=0.05).run("cron")
+    assert slow["status"] == "failed" and "超时" in slow["error"]
+    task = asyncio.create_task(make_sync(service, _handler_transport(stall)).run("manual"))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    last = (await PickRepository.shared(service.session_factory).sync_runs())[0]
+    assert last["status"] == "failed" and "中止" in last["error"] and last["finished_at"]
+    assert not service.sync_lock.locked()
+
+
+@pytest.mark.asyncio
+async def test_restart_closes_runs_left_running_by_a_dead_process(service):
+    from ggwork_pick.repository import PickRepository
+
+    shared = PickRepository.shared(service.session_factory)
+    crashed = await shared.start_sync_run("realshort", "cron")
+    await service.initialize(service.session_factory)
+    run = next(r for r in await shared.sync_runs() if r["id"] == crashed["id"])
+    assert run["status"] == "failed" and run["error"] == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_lone_surrogates_from_a_cut_emoji_do_not_fail_the_batch(service):
+    cut = json.dumps(_page(rows=[feed_row(1, title="Drama \ud83d")])).encode()
+    outcome = await make_sync(service, _handler_transport(lambda r: httpx.Response(200, content=cut))).run("cron")
+    assert outcome["status"] == "success"

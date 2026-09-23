@@ -22,11 +22,26 @@ def _rejected(exc: Exception) -> str:
     return json.dumps({"status": "rejected", "notice": str(exc)}, ensure_ascii=False)
 
 
-async def _data_as_of(repo, batch_id):
-    info = await repo.batch_info(batch_id)
-    if info is None:
-        return None
-    return {key: info[key] for key in ("source_as_of", "published_at", "freshness", "scope", "shared")}
+async def _answer(work) -> str:
+    """Business refusals become answers the model can relay; code bugs (KeyError, IndexError) stay errors."""
+    try:
+        return await work()
+    except PostedDataUnavailable as exc:
+        return _posted_unavailable(exc)
+    except (KeyError, IndexError):
+        raise
+    except (ValueError, LookupError) as exc:
+        return _rejected(exc)
+
+
+def _catalog_unavailable() -> str:
+    return json.dumps(
+        {
+            "status": "catalog_unavailable",
+            "notice": "当前工作空间尚未接入剧库，暂时无法生成真实候选。请先在「选剧资料」确认数据接入状态，再重新提问。",
+        },
+        ensure_ascii=False,
+    )
 
 
 async def _pin_latest(task, repo):
@@ -38,13 +53,21 @@ async def _pin_latest(task, repo):
         task.versions_refreshed = True
 
 
+async def _bound_parent(task, repo, filters: dict) -> dict | None:
+    """The bound card matters only for 换一批; every other question stands on its own conditions."""
+    if filters.get("exclude_previous") is not True or not task.reference_id:
+        return None
+    return await repo.result(task.reference_id)
+
+
 @tool("pick_query_candidates")
 async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_latest: bool = False) -> str:
     """查询真实剧库。filters支持theater/language/channel/query/tags/limit(1-20)/exclude_selected/exclude_previous/
     signal_kind/sort/exclude_posted/posted_account。
+    filters是本次的完整条件，用本轮最新数据；在上一份候选基础上细化时，把要保留的条件一起写上。
     语种用en/ko等代码。默认排除已选和已下架；渠道明确可发要求规则允许。
     看某张榜单：signal_kind=榜单种类(如kd)，sort=rank按名次。团队没发过：exclude_posted=true；某账号没发过：posted_account=账号名。
-    exclude_previous=true表示在绑定的上一份候选之外换一批。use_latest=true仅用于用户明确要求最新资料。
+    exclude_previous=true表示换一批：沿用绑定候选的条件和数据版本，排除它已给出的剧。use_latest=true仅用于用户明确要求最新资料。
     返回持久化的result_id、有序items、matched_total(符合条件总数)、依据、data_as_of(数据时点)；不可自行重排编号。
     """
     task = task_from_runtime(runtime)
@@ -52,16 +75,12 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
     if use_latest:
         await _pin_latest(task, repo)
     if task.catalog_id is None:
-        return json.dumps(
-            {
-                "status": "catalog_unavailable",
-                "notice": "当前工作空间尚未接入剧库，暂时无法生成真实候选。请先在「选剧资料」确认数据接入状态，再重新提问。",
-            },
-            ensure_ascii=False,
-        )
-    try:
+        return _catalog_unavailable()
+    requested = PickConditions.model_validate(filters).model_dump(exclude_unset=True)
+
+    async def work():
         result = await SelectionService(repo).query(
-            PickConditions.model_validate(filters).model_dump(exclude_unset=True),
+            requested,
             thread_id=task.info.thread_id,
             run_id=task.info.run_id,
             call_id=runtime.tool_call_id,
@@ -69,36 +88,34 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
             use_latest=task.versions_refreshed,
             pinned_versions=(task.catalog_id, task.knowledge_id),
         )
-    except PostedDataUnavailable as exc:
-        return _posted_unavailable(exc)
-    except (ValueError, LookupError) as exc:
-        return _rejected(exc)
-    task.produced_result_ids.add(result["id"])
-    task.known_titles.update(item["title"] for item in result["items"])
-    conditions = result["conditions"]
-    if conditions.get("exclude_posted") or conditions.get("posted_account"):
-        task.posted_checked = True
-    return json.dumps({**result, "data_as_of": await _data_as_of(repo, result["catalog_batch_id"])}, ensure_ascii=False)
+        task.produced_result_ids.add(result["id"])
+        task.known_titles.update(item["title"] for item in result["items"])
+        if PickConditions.model_validate(result["conditions"]).filters_posted:
+            task.posted_checked = True
+        return json.dumps({**result, "data_as_of": await repo.data_as_of(result["catalog_batch_id"])}, ensure_ascii=False)
+
+    return await _answer(work)
 
 
 @tool("pick_count_candidates")
 async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> str:
     """只统计符合条件的剧有多少部（按剧场、语种分组），不生成候选卡。用户问“有多少部/哪个剧场多”时使用。
-    filters与pick_query_candidates相同，limit无效。统计用本轮固定的资料版本。
+    filters与pick_query_candidates相同（完整条件；exclude_previous=true时沿用绑定候选），limit无效。
     """
     task = task_from_runtime(runtime)
     repo = await task.repository(runtime)
     if task.catalog_id is None:
-        return json.dumps({"status": "catalog_unavailable", "notice": "当前工作空间尚未接入剧库。"}, ensure_ascii=False)
-    try:
-        counted = await SelectionService(repo).count(PickConditions.model_validate(filters).model_dump(exclude_unset=True), catalog_id=task.catalog_id)
-    except PostedDataUnavailable as exc:
-        return _posted_unavailable(exc)
-    except (ValueError, LookupError) as exc:
-        return _rejected(exc)
-    if counted["conditions"].get("exclude_posted") or counted["conditions"].get("posted_account"):
-        task.posted_checked = True
-    return json.dumps({**counted, "data_as_of": await _data_as_of(repo, task.catalog_id)}, ensure_ascii=False)
+        return _catalog_unavailable()
+    requested = PickConditions.model_validate(filters).model_dump(exclude_unset=True)
+
+    async def work():
+        parent = await _bound_parent(task, repo, requested)
+        counted = await SelectionService(repo).count(requested, parent=parent, pinned_versions=(task.catalog_id, task.knowledge_id))
+        if PickConditions.model_validate(counted["conditions"]).filters_posted:
+            task.posted_checked = True
+        return json.dumps({**counted, "data_as_of": await repo.data_as_of(counted["catalog_batch_id"])}, ensure_ascii=False)
+
+    return await _answer(work)
 
 
 async def _owned_result(runtime, result_id):
@@ -116,13 +133,14 @@ async def _owned_result(runtime, result_id):
 async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) -> str:
     """读取指定历史候选条目的依据与当时数据。使用查询返回的真实result_id与item_id，不猜编号或身份。"""
     await task_from_runtime(runtime).repository(runtime)
-    try:
+
+    async def work():
         task, repo, _ = await _owned_result(runtime, result_id)
         detail = await SelectionService(repo).detail(result_id, item_id)
-    except (ValueError, LookupError) as exc:
-        return _rejected(exc)
-    task.known_titles.add(detail["item"]["title"])
-    return json.dumps({**detail, "data_as_of": await _data_as_of(repo, detail["catalog_batch_id"])}, ensure_ascii=False)
+        task.known_titles.add(detail["item"]["title"])
+        return json.dumps({**detail, "data_as_of": await repo.data_as_of(detail["catalog_batch_id"])}, ensure_ascii=False)
+
+    return await _answer(work)
 
 
 @tool("pick_prepare_selection")
@@ -138,24 +156,27 @@ async def prepare_selection_tool(
     """
     task = task_from_runtime(runtime)
     await task.repository(runtime)
-    try:
-        if result_id is None:
+
+    async def work():
+        target = result_id
+        if target is None:
             if not task.reference_id or task.produced_result_ids:
                 raise ValueError("请明确选择要保存的候选结果")
-            result_id = task.reference_id
-        _, repo, record = await _owned_result(runtime, result_id)
+            target = task.reference_id
+        _, repo, record = await _owned_result(runtime, target)
+        chosen = item_ids
         if positions is not None:
-            if item_ids is not None:
+            if chosen is not None:
                 raise ValueError("序号和条目标识只能指定一种")
             ordered = record["ordered_items_json"]
             if not positions or any(type(index) is not int or index < 1 or index > len(ordered) for index in positions):
                 raise ValueError("候选序号超出范围")
-            item_ids = [ordered[index - 1]["item_id"] for index in positions]
-        elif item_ids is None:
-            item_ids = task.selected_item_ids if result_id == task.reference_id else []
-        return json.dumps(await SelectionService(repo).prepare(result_id, item_ids, note), ensure_ascii=False)
-    except (ValueError, LookupError) as exc:
-        return _rejected(exc)
+            chosen = [ordered[index - 1]["item_id"] for index in positions]
+        elif chosen is None:
+            chosen = task.selected_item_ids if target == task.reference_id else []
+        return json.dumps(await SelectionService(repo).prepare(target, chosen, note), ensure_ascii=False)
+
+    return await _answer(work)
 
 
 @tool("pick_search_knowledge")

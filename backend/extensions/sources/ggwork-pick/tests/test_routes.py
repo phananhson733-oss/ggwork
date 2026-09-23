@@ -127,31 +127,25 @@ def _configure_sync(service, rows):
 
     from ggwork_pick.service import SyncSettings
 
-    service.sync_settings = SyncSettings(feed_url="https://realshort.test", feed_token=TOKEN, trigger_token="trigger-secret")
+    service.sync_settings = SyncSettings(feed_url="https://realshort.test", feed_token=TOKEN)
     service.sync_transport = feed_transport(rows)
 
 
 @pytest.mark.asyncio
-async def test_cron_sync_requires_internal_caller_and_sync_token(app_client):
+async def test_there_is_no_inbound_cron_endpoint_and_sync_status_is_shared(app_client):
     from test_realshort_sync import feed_row
 
     client, service = app_client
+    _configure_sync(service, [feed_row(1), feed_row(2)])
     internal = {"test-owner": "default", "test-internal": "1"}
     assert (await client.post("/api/pick/cron/sync", headers=internal)).status_code == 404
-    _configure_sync(service, [feed_row(1), feed_row(2)])
-    good = {**internal, "x-pick-sync-token": "trigger-secret"}
-    assert (await client.post("/api/pick/cron/sync", headers={**internal, "x-pick-sync-token": "wrong"})).status_code == 401
-    assert (await client.post("/api/pick/cron/sync", headers=internal)).status_code == 401
-    # A logged-in user holding the token is still not the internal cron caller.
-    assert (await client.post("/api/pick/cron/sync", headers={"test-owner": "alice", "x-pick-sync-token": "trigger-secret"})).status_code == 401
-    started = await client.post("/api/pick/cron/sync", headers=good)
-    assert started.status_code == 202
+    assert (await client.post("/api/pick/sync", headers={"test-owner": "bob"})).status_code == 202
     await service.wait_background()
-    status = (await client.get("/api/pick/sync", headers={"test-owner": "bob"})).json()
+    status = (await client.get("/api/pick/sync", headers={"test-owner": "alice"})).json()
     assert status["configured"] is True
-    assert status["runs"][0]["status"] == "success" and status["runs"][0]["trigger"] == "cron"
+    assert status["runs"][0]["status"] == "success" and status["runs"][0]["trigger"] == "manual"
     assert status["current"]["rows"] == 2 and status["current"]["shared"] is True
-    assert "trigger-secret" not in json.dumps(status) and "feed-token" not in json.dumps(status)
+    assert "feed-token" not in json.dumps(status)
     batches = (await client.get("/api/pick/imports", headers={"test-owner": "bob"})).json()["batches"]
     assert {b["shared"] for b in batches} == {True}
     assert (await client.get("/api/pick/sync")).status_code == 401
@@ -175,3 +169,44 @@ async def test_manual_sync_is_rate_limited_and_results_expose_data_time(app_clie
     view = (await client.get(f"/api/pick/results/{result['id']}", headers={"test-owner": "alice"})).json()
     assert view["data_as_of"]["source_as_of"] == "2026-09-23T03:00:00.000Z"
     assert view["data_as_of"]["freshness"]["catalogImportedAt"] == "2026-09-22T03:19:21.327Z"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_sync_can_be_retried_after_a_short_backoff(app_client):
+    from sqlalchemy import text
+    from test_realshort_sync import feed_row
+
+    client, service = app_client
+    _configure_sync(service, [feed_row(1)])
+    from test_realshort_sync import feed_transport
+
+    service.sync_transport = feed_transport([feed_row(1), feed_row(2)], fail_on=1, page=1)
+    assert (await client.post("/api/pick/sync", headers={"test-owner": "alice"})).status_code == 202
+    await service.wait_background()
+    blocked = await client.post("/api/pick/sync", headers={"test-owner": "alice"})
+    assert blocked.status_code == 429 and "1分钟" in blocked.json()["detail"]
+    async with service.session_factory() as session, session.begin():
+        await session.execute(text("update ggwp_sync_runs set started_at = '2026-01-01T00:00:00+00:00'"))
+    assert (await client.post("/api/pick/sync", headers={"test-owner": "alice"})).status_code == 202
+    await service.wait_background()
+
+
+@pytest.mark.asyncio
+async def test_answer_checks_are_listed_per_owner_and_thread(app_client):
+    from ggwork_pick.repository import PickRepository
+
+    client, service = app_client
+    alice = PickRepository(service.session_factory, "alice")
+    await alice.record_answer_check(thread_id="t1", run_id="r1", message_id="m1", notes=["正文提到的《X》不在本轮查询结果中"])
+    await alice.record_answer_check(thread_id="t1", run_id="r1", message_id="m1", notes=["retried call"])
+    await alice.record_answer_check(thread_id="t2", run_id="r2", message_id="m2", notes=["other thread"])
+    listed = (await client.get("/api/pick/answer-checks", params={"thread_id": "t1"}, headers={"test-owner": "alice"})).json()["checks"]
+    assert [(c["message_id"], c["notes"]) for c in listed] == [("m1", ["正文提到的《X》不在本轮查询结果中"])]
+    assert (await client.get("/api/pick/answer-checks", params={"thread_id": "t1"}, headers={"test-owner": "bob"})).json()["checks"] == []
+    assert (await client.get("/api/pick/answer-checks", headers={"test-owner": "alice"})).status_code == 422
+    assert (await client.get("/api/pick/answer-checks", params={"thread_id": "t1"})).status_code == 401
+    # Answers without a message id are kept apart by run and never swallow each other.
+    await alice.record_answer_check(thread_id="t3", run_id="r3", message_id=None, notes=["first"])
+    await alice.record_answer_check(thread_id="t3", run_id="r4", message_id=None, notes=["second"])
+    idless = (await client.get("/api/pick/answer-checks", params={"thread_id": "t3"}, headers={"test-owner": "alice"})).json()["checks"]
+    assert [(c["message_id"], c["run_id"], c["notes"]) for c in idless] == [(None, "r3", ["first"]), (None, "r4", ["second"])]

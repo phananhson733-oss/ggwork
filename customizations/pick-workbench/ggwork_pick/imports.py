@@ -25,7 +25,7 @@ def decode_payload(payload: bytes) -> str:
     return text
 
 
-def parse_catalog(payload: bytes, format: str) -> list[dict]:
+def parse_catalog(payload: bytes, format: str, keep_original: bool = True) -> list[dict]:
     text = decode_payload(payload)
     if format == "json":
         raw = json.loads(text)
@@ -53,7 +53,8 @@ def parse_catalog(payload: bytes, format: str) -> list[dict]:
         if identity in identities:
             raise ValueError("同一批次存在重复的来源剧目ID和语种")
         identities.add(identity)
-        rows.append({**row, "identity": identity, "original": original})
+        # Synced batches skip the verbatim copy: the raw blob already holds it, and it doubled every row.
+        rows.append({**row, "identity": identity, **({"original": original} if keep_original else {})})
     return rows
 
 
@@ -84,8 +85,8 @@ class Importer:
         self.repository = repository
         self.data_dir = data_dir
 
-    async def catalog(self, payload: bytes, format: str, *, source_as_of: str | None = None, meta: dict | None = None) -> dict:
-        rows = await asyncio.to_thread(parse_catalog, payload, format)
+    async def catalog(self, payload: bytes, format: str, *, source_as_of: str | None = None, meta: dict | None = None, keep_original: bool = True) -> dict:
+        rows = await asyncio.to_thread(parse_catalog, payload, format, keep_original)
         return await self._publish(payload, "catalog", rows, source_as_of=source_as_of, meta=meta)
 
     async def knowledge(self, payload: bytes, filename: str, source_ref: str) -> dict:

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/core/auth/AuthProvider";
@@ -22,15 +22,25 @@ export function SyncStatus() {
   const { user } = useAuth();
   const client = useQueryClient();
   const key = ["pick-sync", user?.id];
+  const [watchUntil, setWatchUntil] = useState(0);
   const query = useQuery({
     queryKey: key,
     queryFn: ({ signal }) => getPickSyncStatus(signal),
     enabled: !!user,
+    // A manual run is recorded a moment after the click; keep polling until it shows up and ends.
     refetchInterval: (q) =>
-      q.state.data?.runs[0]?.status === "running" ? 3000 : false,
+      q.state.data?.runs[0]?.status === "running" || Date.now() < watchUntil
+        ? 3000
+        : false,
   });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const latestId = query.data?.runs[0]?.id;
+  const latestStatus = query.data?.runs[0]?.status;
+  useEffect(() => {
+    if (latestId && latestStatus !== "running")
+      void client.invalidateQueries({ queryKey: ["pick-imports", user?.id] });
+  }, [client, latestId, latestStatus, user?.id]);
   const trigger = async () => {
     setBusy(true);
     setMessage("");
@@ -41,8 +51,8 @@ export function SyncStatus() {
           ? "已开始同步，约需半分钟。"
           : "已有同步在进行。",
       );
+      setWatchUntil(Date.now() + 120_000);
       await client.invalidateQueries({ queryKey: key });
-      await client.invalidateQueries({ queryKey: ["pick-imports", user?.id] });
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "同步没有开始");
     } finally {
@@ -104,8 +114,9 @@ export function SyncStatus() {
         </ul>
       ) : null}
       <p className="text-muted-foreground text-xs">
-        每天
-        11:40、23:40（北京时间）自动拉取有来源信号且未下架的候选池与发布记录；条数对不上时整批放弃，继续用上一版。
+        后端每天
+        11:40、23:40（北京时间）自动拉取有来源信号且未下架的候选池与发布记录。分页期间条数变化超过
+        max(20, 1%) 时整批放弃、继续用上一版；小幅变化照常发布并记录。
       </p>
       {message && (
         <p role="status" className="text-sm">

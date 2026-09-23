@@ -23,12 +23,33 @@ async def test_private_migrations_persist_and_are_repeatable(tmp_path):
             "ggwp_selections",
             "ggwp_selection_commands",
             "ggwp_sync_runs",
+            "ggwp_answer_checks",
         }
-        assert (await conn.execute(text("select version_num from ggwp_alembic_version"))).scalar_one() == "0003"
+        assert (await conn.execute(text("select version_num from ggwp_alembic_version"))).scalar_one() == "0004"
     await engine.dispose()
     second = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
     await service.initialize(async_sessionmaker(second, expire_on_commit=False))
     await second.dispose()
+
+
+@pytest.mark.asyncio
+async def test_a_migration_retried_after_a_partial_ddl_still_builds_its_indexes(tmp_path):
+    from ggwork_pick.service import PickService
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    service = PickService(tmp_path / "files")
+    await service.initialize(factory)
+    # SQLite commits each DDL statement on its own: simulate a crash after CREATE TABLE, before CREATE INDEX.
+    async with engine.begin() as conn:
+        await conn.execute(text("drop index ggwp_answer_checks_thread"))
+        await conn.execute(text("drop index ggwp_sync_runs_started"))
+        await conn.execute(text("update ggwp_alembic_version set version_num='0002'"))
+    await service.initialize(factory)
+    async with engine.connect() as conn:
+        indexes = await conn.run_sync(lambda c: {i["name"] for t in ("ggwp_answer_checks", "ggwp_sync_runs") for i in inspect(c).get_indexes(t)})
+    assert {"ggwp_answer_checks_thread", "ggwp_sync_runs_started"} <= indexes
+    await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -129,4 +150,36 @@ async def test_upgrade_from_0002_keeps_batches_and_allows_pruned_status(tmp_path
         await conn.execute(text("update ggwp_import_batches set status='pruned' where id='b1'"))
         with pytest.raises(Exception):
             await conn.execute(text("update ggwp_import_batches set status='bogus' where id='b1'"))
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_downgrade_below_0003_survives_pruned_batches(tmp_path):
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
+    import ggwork_pick
+    from ggwork_pick.service import PickService
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
+    await PickService(tmp_path / "files").initialize(async_sessionmaker(engine, expire_on_commit=False))
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "insert into ggwp_import_batches (id, owner_id, kind, content_hash, raw_blob_path, status, created_at, validation_json)"
+                " values ('b1', 'system:shared', 'catalog', 'pruned-b1', '/x', 'pruned', '2026-09-21', '{}')"
+            )
+        )
+
+    def to_0002(connection):
+        config = Config()
+        config.set_main_option("script_location", str(Path(ggwork_pick.__file__).parent / "migrations"))
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0002")
+
+    async with engine.begin() as conn:
+        await conn.run_sync(to_0002)
+        assert (await conn.execute(text("select status from ggwp_import_batches where id='b1'"))).scalar_one() == "failed"
     await engine.dispose()
