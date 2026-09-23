@@ -2,7 +2,7 @@
 
 对应方案 [2026-09-23-supabase-pick-board-plan.md](../plans/2026-09-23-supabase-pick-board-plan.md) 第 6 节（6.1–6.10）与第 9 节。本文只写怎么做、看什么结果，原因与取舍看方案；两者冲突时以方案第 13、14 节为准。
 
-**状态（2026-09-23）：** 正式项目已建并实测（第 1 节）；bootstrap 脚本和测试已完成（P0-4），**还没有在正式项目上执行**；演练（P0-5）和正式切换（P0-6）都没做，结果按第 12 节留档。
+**状态（2026-09-23）：** 正式项目已建并实测（第 1 节）；bootstrap 脚本和测试已完成（P0-4）。演练（P0-5）已在临时项目上做完，全部通过，临时资源已删除，结果见第 12 节。**正式项目上还没有执行 bootstrap**，正式切换（P0-6）还没做。
 
 **凭据规则：**
 - 本文和仓库里只有占位符：`<ref>` 是项目 ref，`<pw>` 是对应角色的密码。真实值只在密码管理器里，不进 git，不贴进对话，不写在命令行参数里。
@@ -359,7 +359,32 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 
 **bootstrap（第 2 节）：** 待执行。记：退出状态、`grep -c WARNING` 的输出、2.4 各查询的结果、两个角色的密码已设置并已登录验证。
 
-**演练（第 10 节）：** 待执行。
+**演练（第 10 节）：2026-09-23 完成，全部通过。** 临时项目 `ggwork-rehearsal`（us-east-1，Micro，PostgreSQL 17.6）与 Railway 临时环境 `rehearsal`（从 production 复制，镜像 81a518d），演练后都已删除。
+
+| 项 | 结果 |
+|---|---|
+| 控制台设置 | SSL 强制用 CLI 打开：`supabase ssl-enforcement update --experimental --project-ref <ref> --enable-db-ssl-enforcement`。Data API 在 Integrations → Data API → Overview 里关闭。Pool Size 在 Database → Settings → Connection pooling 里改为 20 |
+| bootstrap | 退出状态 0，`grep -c WARNING` 为 0，输出与 2.1 逐行一致。2.4 全部符合：两个角色 `rolconnlimit=20`，rolconfig 与预期一致；`deerflow` 只有 `deerflow_app=UC`，`pick_mirror` 另有 `pick_board_reader=U`；reader_mirror、app_create 为 t，其余为 f；库属主是 postgres |
+| 角色密码 | 本机算好 SCRAM 摘要后执行 `ALTER ROLE … PASSWORD`，与 `\password` 发出的语句相同。`deerflow_app` 经 5432 登录，search_path 为 `deerflow`；reader 经 6543 登录，`default_transaction_read_only=on` |
+| 本机建管理员（8.3） | 在新 worktree 里启动，没有 `.env`，只用 8.3.3 列出的变量。宿主建表、ggwp 0001–0004 都完成。`POST /api/v1/auth/initialize` 返回 201，setup-status 为 `needs_setup=false`。第一次 readiness 探测超过 3 秒、返回 503（本机到 us-east-1 延迟高），稍等后为 200 |
+| 新镜像 | 启动时没有 alembic 版本错误（宿主迁移已在 head），`/health/ready` 返回 200，本机建的管理员能登录 |
+| 表的位置 | 38 张表全部在 `deerflow`，属主都是 `deerflow_app`，`public` 下为 0。checkpoint 三张表（psycopg 建）和 users、ggwp 表（asyncpg 建）都在 `deerflow` |
+| search_path | 本机和容器内的探针都打印 `deerflow, public`（asyncpg）和 `deerflow,public`（psycopg）。Supavisor 转发了两个驱动的启动参数，`postgres_schema` 不用改 |
+| SSL | `deerflow_app` 的连接全部 `ssl=t`，TLSv1.3 |
+| 同步 | 启动后的补跑成功（7,590 行，约 12 秒）；手动同步成功（约 12 秒） |
+| 10 题验收 | 经 API 跑，追问按前端的做法带上 `pick_reference`。用 `scripts/pick-acceptance-verify.py` 对 12:38Z 拉取的 feed 独立核对：8 张卡的顺序、条件和符合总数全部一致。Q5 总数 2,351 与 8 个剧场的分项都一致；Q7 沿用 Q1 的批次，5 部全是新剧；Q8 的依据与卡片一致 |
+| 保存与导出 | 保存 2 部成功，同一个 request_id 重试拿到相同的回执；CSV 有 2 行 |
+| NUL 与孤立代理项（第 7 节） | 两条消息都返回 200 并走完工具调用，存下来的消息里对应位置是 U+FFFD |
+| create_user（`railway ssh`） | ssh 会话里 `PICK_DATABASE_URL`、`PGSSLMODE`、`PICK_DB_BACKEND` 都可见。账号建在演练库的 `deerflow.users` 里（`needs_setup=t`）。`/data/credentials` 权限 700，文件 600 |
+| Supavisor 会话重置 | 客户端被 kill 之后，下一个客户端拿到同一个服务端连接（pid 相同），但 advisory lock 已释放，`lock_timeout` 回到 0。session 模式下客户端断开后会话状态会被重置 |
+| 连接峰值 | 空闲时 `deerflow_app` 8 个；对话和同步同时进行时 `deerflow_app` 7 个，所有角色合计 22 个（`max_connections=60`） |
+| 延迟 | 每个对话的第一轮约 14 秒（含把批次载入 LRU 缓存），之后 5–9 秒，与 SQLite 时期（5–13 秒）持平。有一轮 59 秒，慢在 Azure 的第一次调用（54 秒），不是数据库 |
+
+**演练中确认的操作细节（切换时照做）：**
+- 复制 Railway 环境后，本地 CLI 会自动 link 到新环境。演练期间所有命令都显式带 `--environment`，结束后用 `railway environment production` 切回。
+- `railway ssh` 要求账号上登记过公钥。本机的专用钥匙是 `~/.ssh/railway_ggwork`，2026-09-23 已登记为 `railway-ggwork`，用法是 `railway ssh -i ~/.ssh/railway_ggwork …`。远端命令作为一个字符串传：它会被拼成 `bash -c`，外面再包一层 `sh -c` 会被拆坏。
+- 建管理员可以不起前端，直接 `POST /api/v1/auth/initialize`（JSON，含 email 和 password），这个路径免 CSRF。请求体从权限 600 的文件读。
+- pick 配置没有设置 `run_events`，运行事件走内存后端，所以 `deerflow.run_events` 为空是正常的；消息存在 checkpointer 的表里。
 
 **正式切换（第 8 节）：** 待执行。记：SQLite 备份文件名与 sha256、`integrity_check` 结果、切换时间、第 9 步各项结果、连接峰值。
 
