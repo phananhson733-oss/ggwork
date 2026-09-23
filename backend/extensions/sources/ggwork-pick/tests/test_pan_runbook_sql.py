@@ -61,6 +61,9 @@ CODE_NOTE = "访问码：8k2p，速存"
 # Only a password and its separator, split by whitespace that JSON writes as the two characters \n and \t.
 PASSWORD_NEWLINE = "密码\n：ab12"
 PASSWORD_TAB = "密碼\t= cd34"
+# U+000B, which JSON always writes as an escape, and U+00A0, which ensure_ascii escapes.
+PASSWORD_VT = "密码" + chr(0x0B) + "：ab12"
+PASSWORD_NBSP = "密码" + chr(0xA0) + "：cd34"
 QUOTED_LABEL = 'KalosTV "日榜" 第1\\2'
 TRAILING_BACKSLASH = "A\\"
 SCOPE = "范围说明见 pan.quark.cn/s/scope1"
@@ -98,6 +101,10 @@ def test_the_scripts_and_the_runbook_use_one_pattern_that_keeps_the_old_one():
     assert _pattern(REDACT.read_text(encoding="utf-8")) == pattern
     assert _runbook_pan() == f"PAN='{pattern}'"
     assert set(OLD_PATTERN.split("|")) <= set(pattern.split("|"))
+    # Every backslash escape takes one or more backslashes, whatever the number of JSON layers; the gap takes U+00A0 and U+3000.
+    backslash = chr(92)
+    assert backslash * 2 + "u" not in pattern.replace(backslash * 2 + "+u", "") and backslash * 2 + "[" not in pattern
+    assert pattern.count(chr(0xA0)) == pattern.count(chr(0x3000)) == 2
     # The old inline queries are gone: the runbook holds the pattern once, and every grep uses $PAN.
     runbook = RUNBOOK.read_text(encoding="utf-8")
     assert runbook.count(pattern) == 1 and OLD_PATTERN not in runbook
@@ -108,7 +115,7 @@ def test_every_check_looks_at_the_database_and_the_disk():
     steps = _runbook_steps()
     assert sorted(steps) == list(range(1, 9))
     assert "-f docs/pick-workbench/supabase/pan-check.sql" in steps[1] and "PAN='" in steps[1]
-    assert 'grep -rliE "$PAN" /data/pick' in steps[1]
+    assert 'grep -rlziE "$PAN" /data/pick' in steps[1]
     assert "第 1 步" in steps[8] and "库和磁盘都查" in steps[8]
     # A leftover anywhere but the kept locations means redact and restart again, not only for candidate sets.
     assert "重做第 4、5 步" in steps[8] and "选择快照" in steps[8]
@@ -279,6 +286,8 @@ def _contaminated_feed() -> list[dict]:
         feed_row(4),
         feed_row(6, signals=[_signal(6, note=PASSWORD_NEWLINE)]),
         feed_row(7, signals=[_signal(7, note=PASSWORD_TAB)]),
+        feed_row(8, signals=[_signal(8, note=PASSWORD_VT)]),
+        feed_row(9, signals=[_signal(9, note=PASSWORD_NBSP)]),
     ]
 
 
@@ -338,7 +347,7 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
     before = workbench.json_columns()
     counts, threads = workbench.check()
     assert counts == {
-        "ggwp_drama_versions.payload_json": 8,
+        "ggwp_drama_versions.payload_json": 12,
         "ggwp_candidate_sets.ordered_items_json": 1,
         "ggwp_candidate_sets.conditions_json": 1,
         "ggwp_selections.snapshot_json": 1,
@@ -357,8 +366,8 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
     # Left: the request id (an id), the knowledge source (the document's identity) and its text (the whole rules).
     kept = {"ggwp_selection_commands.receipt_json": 1, "ggwp_knowledge_versions.text": 1, "ggwp_knowledge_versions.source_ref": 1}
     assert workbench.check() == (NOTHING | kept, [])
-    assert redacted == [8, 1, 1, 1, 1, 1, 1, 1, 1]
-    hits = (LINK_NOTE, CODE_NOTE, PASSWORD_NEWLINE, PASSWORD_TAB, "pan.baidu", *answer_notes, SCOPE, "提取码 x7k2", KNOWLEDGE_FILE)
+    assert redacted == [12, 1, 1, 1, 1, 1, 1, 1, 1]
+    hits = (LINK_NOTE, CODE_NOTE, PASSWORD_NEWLINE, PASSWORD_TAB, PASSWORD_VT, PASSWORD_NBSP, "pan.baidu", *answer_notes, SCOPE, "提取码 x7k2", KNOWLEDGE_FILE)
     assert after == {key: _redacted(text, *hits) for key, text in before.items()}
     changed = {key for key in before if after[key] != before[key]}
     assert len(changed) == sum(redacted[:8])
@@ -374,7 +383,7 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         rows = {row["identity"]: row for row in await alice.catalog_rows(batch["catalog_batch_id"])}
         [signal] = rows[_identity(1)]["signals"]
         assert (signal["note"], signal["label"], signal["grade"]) == (PLACEHOLDER, QUOTED_LABEL, TRAILING_BACKSLASH)
-        assert [_notes(rows[_identity(i)]) for i in (2, 6, 7)] == [[PLACEHOLDER]] * 3
+        assert [_notes(rows[_identity(i)]) for i in (2, 6, 7, 8, 9)] == [[PLACEHOLDER]] * 5
         assert rows[_identity(3)]["title"] == CLEAN_TITLE and _notes(rows[_identity(3)]) == [CLEAN_NOTE]
     assert (await alice.batch_info(first["catalog_batch_id"]))["scope"] == PLACEHOLDER
     [document] = await alice.knowledge_documents(knowledge["id"])
@@ -459,20 +468,77 @@ async def test_text_escaped_as_unicode_escapes_is_found_and_redacted(workbench, 
 # ---- host threads: binary checkpoints, found by pan-check.sql, removed only with the thread ----
 
 
-def _put_thread(saver, thread_id: str, messages: list, *, title: str | None = None, writes: list | None = None) -> None:
+def _put_thread(saver, thread_id: str, messages: list, *, title: str | None = None, writes: list | None = None, metadata: dict | None = None) -> None:
     from langgraph.checkpoint.base import empty_checkpoint
 
     values = {"messages": messages, **({"title": title} if title is not None else {})}
     versions = dict.fromkeys(values, "1")
     checkpoint = {**empty_checkpoint(), "channel_values": values, "channel_versions": versions}
-    config = saver.put({"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}, checkpoint, {"source": "loop", "step": 1}, versions)
+    config = {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
+    config = saver.put(config, checkpoint, {"source": "loop", "step": 1, **(metadata or {})}, versions)
     if writes:
         saver.put_writes(config, writes, "task-1")
 
 
+# thread -> (owner, table the only hit is in). Every column the check reads has a thread whose only hit is there.
+HOST_THREADS = {
+    "thread-ckpt": ("alice", "checkpoints"),  # checkpoints.checkpoint: a string channel stays inline
+    "thread-ckpt-meta": ("alice", "checkpoints"),  # checkpoints.metadata
+    "thread-tool": ("alice", "checkpoint_blobs"),  # a tool output quoting a link, other case
+    "thread-json-newline": ("bob", "checkpoint_blobs"),  # the tool output's JSON writes the newline as backslash-n
+    "thread-real-newline": ("bob", "checkpoint_blobs"),  # a model answer with a real newline byte
+    "thread-write-ascii": (None, "checkpoint_writes"),  # a pending write, ensure_ascii; no threads_meta row
+    "thread-run-first": ("bob", "runs"),  # runs.first_human_message
+    "thread-run-last": ("bob", "runs"),  # runs.last_ai_message
+    "thread-run-kwargs": ("bob", "runs"),  # runs.kwargs_json
+    "thread-run-meta": ("bob", "runs"),  # runs.metadata_json
+    "thread-event-double": ("alice", "run_events"),  # run_events.content: a tool message holding JSON, serialized again
+    "thread-event-double-ascii": ("alice", "run_events"),  # the same with an ensure_ascii tool output: two backslashes before u
+    "thread-event-meta": ("alice", "run_events"),  # run_events.event_metadata
+    "thread-meta-name": ("bob", "threads_meta"),  # threads_meta.display_name
+    "thread-meta-json": ("bob", "threads_meta"),  # threads_meta.metadata_json
+    "thread-clean": ("alice", None),
+}
+
+
+async def _record_events(service, owners: dict[str, str]) -> None:
+    """Tool messages written the way the host's run journal persists them: message.model_dump() through the event store."""
+    from types import SimpleNamespace
+
+    from deerflow.runtime.events.store.db import DbRunEventStore
+    from deerflow.runtime.user_context import reset_current_user, set_current_user
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    store = DbRunEventStore(service.session_factory)
+    events = {
+        "thread-event-double": [(ToolMessage(json.dumps({"note": PASSWORD_NEWLINE}, ensure_ascii=False), tool_call_id="e1"), None)],
+        "thread-event-double-ascii": [(ToolMessage(json.dumps({"note": PASSWORD_NEWLINE}, ensure_ascii=True), tool_call_id="e2"), None)],
+        "thread-event-meta": [(AIMessage("好的"), {"note": "提取码 x7k2"})],
+        "thread-clean": [(AIMessage("《财富密码》在候选里。"), {"note": CLEAN_TITLE})],
+    }
+    for thread, messages in events.items():
+        token = set_current_user(SimpleNamespace(id=owners[thread]))
+        try:
+            for message, metadata in messages:
+                await store.put(
+                    thread_id=thread, run_id=f"run-{thread}", event_type="llm.message", category="message", content=message.model_dump(), metadata=metadata
+                )
+        finally:
+            reset_current_user(token)
+    [(content,)] = await _scalar_rows(service, "SELECT content FROM deerflow.run_events WHERE thread_id = 'thread-event-double'")
+    # Two layers of JSON: the newline is two backslashes and an n.
+    assert "密码" + chr(92) * 2 + "n：ab12" in content
+
+
+async def _scalar_rows(service, statement: str) -> list[tuple]:
+    from sqlalchemy import text
+
+    async with service.session_factory() as session:
+        return [tuple(row) for row in (await session.execute(text(statement))).all()]
+
+
 @pytest.mark.asyncio
-async def test_each_host_branch_finds_its_thread_until_the_thread_is_deleted(workbench, service):
-    from deerflow.persistence.models.run_event import RunEventRow
+async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(workbench, service):
     from deerflow.persistence.run.model import RunRow
     from deerflow.persistence.run.sql import RunRepository
     from deerflow.persistence.thread_meta.model import ThreadMetaRow
@@ -483,63 +549,44 @@ async def test_each_host_branch_finds_its_thread_until_the_thread_is_deleted(wor
     from langgraph.checkpoint.postgres import PostgresSaver
     from sqlalchemy import insert
 
-    alice, bob = str(uuid4()), str(uuid4())
-    owners = {
-        "thread-ckpt": alice,
-        "thread-tool": alice,
-        "thread-json-newline": bob,
-        "thread-real-newline": bob,
-        "thread-run": bob,
-        "thread-event": alice,
-        "thread-meta": bob,
-        "thread-clean": alice,
-    }
+    users = {"alice": str(uuid4()), "bob": str(uuid4())}
+    owners = {thread: users[owner] for thread, (owner, _) in HOST_THREADS.items() if owner}
     link = json.dumps({"items": [{"evidence": [{"note": "资源 PAN.Baidu.com/s/1x"}]}]}, ensure_ascii=False)
+    quiet = [HumanMessage("找剧")]
+    escaped = ToolMessage(json.dumps({"note": PASSWORD_TAB}, ensure_ascii=True), tool_call_id="c3")
+    special = {
+        "thread-ckpt": dict(messages=quiet, title="访问码 8k2p 的剧"),
+        "thread-ckpt-meta": dict(messages=quiet, metadata={"note": "提取码 x7k2"}),
+        "thread-tool": dict(messages=[*quiet, ToolMessage(link, tool_call_id="c1")]),
+        "thread-json-newline": dict(messages=[ToolMessage(json.dumps({"note": PASSWORD_NEWLINE}, ensure_ascii=False), tool_call_id="c2")]),
+        "thread-real-newline": dict(messages=[*quiet, AIMessage(PASSWORD_NEWLINE)]),
+        "thread-write-ascii": dict(messages=quiet, writes=[("messages", [escaped])]),
+        "thread-clean": dict(messages=[HumanMessage("有没有财富密码"), AIMessage("《财富密码》在候选里。")], title=CLEAN_TITLE),
+    }
     with PostgresSaver.from_conn_string(_libpq(workbench.url)) as saver:
-        # A string channel stays inline in the checkpoint's jsonb; messages go to blobs.
-        _put_thread(saver, "thread-ckpt", [HumanMessage("找剧")], title="访问码 8k2p 的剧")
-        _put_thread(saver, "thread-tool", [HumanMessage("找剧"), ToolMessage(link, tool_call_id="c1")])
-        # A tool output quoting the note: JSON writes the newline as backslash-n inside the blob.
-        _put_thread(saver, "thread-json-newline", [ToolMessage(json.dumps({"note": PASSWORD_NEWLINE}, ensure_ascii=False), tool_call_id="c2")])
-        # A model answer: a real newline byte.
-        _put_thread(saver, "thread-real-newline", [HumanMessage("找剧"), AIMessage(PASSWORD_NEWLINE)])
-        # A pending write of a tool output written with ensure_ascii, and no threads_meta row.
-        escaped = ToolMessage(json.dumps({"note": PASSWORD_TAB}, ensure_ascii=True), tool_call_id="c3")
-        _put_thread(saver, "thread-write-ascii", [HumanMessage("找剧")], writes=[("messages", [escaped])])
-        for thread in ("thread-run", "thread-event", "thread-meta"):
-            _put_thread(saver, thread, [HumanMessage("找剧")])
-        _put_thread(saver, "thread-clean", [HumanMessage("有没有财富密码"), AIMessage("《财富密码》在候选里。")], title=CLEAN_TITLE)
+        # One checkpoint per thread: a blob version is written once, a second put would keep the first one's messages.
+        for thread in HOST_THREADS:
+            _put_thread(saver, thread, **special.get(thread, dict(messages=quiet)))
     engine = service.session_factory.kw["bind"]
     async with engine.begin() as conn:
-        await conn.execute(insert(UserRow.__table__), [{"id": alice, "email": "alice@example.test"}, {"id": bob, "email": "bob@example.test"}])
-        titles = {"thread-meta": "访问码 8k2p", "thread-clean": CLEAN_TITLE}
+        await conn.execute(insert(UserRow.__table__), [{"id": users[name], "email": f"{name}@example.test"} for name in users])
+        names, meta = {"thread-meta-name": "访问码 8k2p", "thread-clean": CLEAN_TITLE}, {"thread-meta-json": {"note": "提取码 x7k2"}}
         await conn.execute(
-            insert(ThreadMetaRow.__table__), [{"thread_id": thread, "user_id": owner, "display_name": titles.get(thread)} for thread, owner in owners.items()]
+            insert(ThreadMetaRow.__table__),
+            [{"thread_id": t, "user_id": owner, "display_name": names.get(t), "metadata_json": meta.get(t, {})} for t, owner in owners.items()],
         )
-        answers = {"thread-run": PASSWORD_TAB, "thread-clean": "《财富密码》在候选里。"}
-        await conn.execute(
-            insert(RunRow.__table__),
-            [{"run_id": f"run-{thread}", "thread_id": thread, "user_id": owners[thread], "last_ai_message": text} for thread, text in answers.items()],
-        )
-        events = {"thread-event": "提取码 x7k2", "thread-clean": "财富密码"}
-        await conn.execute(
-            insert(RunEventRow.__table__),
-            [
-                {"thread_id": thread, "run_id": "r", "user_id": owners[thread], "event_type": "message", "category": "message", "content": text, "seq": 1}
-                for thread, text in events.items()
-            ],
-        )
+        runs = {
+            "thread-run-first": {"first_human_message": "密码：ab12 是这部剧的吗"},
+            "thread-run-last": {"last_ai_message": PASSWORD_TAB},
+            "thread-run-kwargs": {"kwargs_json": {"input": {"messages": [{"content": "提取码 x7k2"}]}}},
+            "thread-run-meta": {"metadata_json": {"note": "访问码 8k2p"}},
+            "thread-clean": {"first_human_message": "有没有财富密码", "last_ai_message": "《财富密码》在候选里。"},
+        }
+        for t, values in runs.items():  # one statement each: the rows set different columns
+            await conn.execute(insert(RunRow.__table__).values(run_id=f"run-{t}", thread_id=t, user_id=owners[t], **values))
+    await _record_events(service, owners)
 
-    listed = [
-        ("thread-ckpt", "alice@example.test", "checkpoints"),
-        ("thread-event", "alice@example.test", "run_events"),
-        ("thread-json-newline", "bob@example.test", "checkpoint_blobs"),
-        ("thread-meta", "bob@example.test", "threads_meta"),
-        ("thread-real-newline", "bob@example.test", "checkpoint_blobs"),
-        ("thread-run", "bob@example.test", "runs"),
-        ("thread-tool", "alice@example.test", "checkpoint_blobs"),
-        ("thread-write-ascii", NO_META, "checkpoint_writes"),
-    ]
+    listed = [(t, f"{owner}@example.test" if owner else NO_META, table) for t, (owner, table) in sorted(HOST_THREADS.items()) if table]
     assert workbench.check() == (NOTHING, listed)
     # pan-redact.sql never touches the host's tables.
     digest = workbench.checkpoint_digest()
@@ -548,12 +595,16 @@ async def test_each_host_branch_finds_its_thread_until_the_thread_is_deleted(wor
     assert workbench.check()[1] == listed
 
     # What the thread DELETE route does to each store, as each thread's owner.
-    runs, events_store, metas = RunRepository(service.session_factory), DbRunEventStore(service.session_factory), ThreadMetaRepository(service.session_factory)
+    runs_store, events_store, metas = (
+        RunRepository(service.session_factory),
+        DbRunEventStore(service.session_factory),
+        ThreadMetaRepository(service.session_factory),
+    )
     with PostgresSaver.from_conn_string(_libpq(workbench.url)) as saver:
         for thread, owner in owners.items():
             if thread != "thread-clean":
                 saver.delete_thread(thread)
-                await runs.delete_by_thread(thread, user_id=owner)
+                await runs_store.delete_by_thread(thread, user_id=owner)
                 await events_store.delete_by_thread(thread, user_id=owner)
                 await metas.delete(thread, user_id=owner)
     # Without a threads_meta row the route answers 404: the runbook stops there.
@@ -583,6 +634,11 @@ async def files_service(pick_db_url, tmp_path):
     await engine.dispose()
 
 
+def _upload(note: str, *, ensure_ascii: bool) -> bytes:
+    row = {"source": "synthetic", "source_id": "1", "language": "en", "title": "T", "signals": [{"kind": "r", "source_ref": "x", "note": note}]}
+    return json.dumps([row], ensure_ascii=ensure_ascii).encode()
+
+
 @pytest.mark.asyncio
 async def test_raw_files_with_a_hit_are_found_and_deleting_them_is_safe(files_service):
     from ggwork_pick.imports import Importer
@@ -591,25 +647,27 @@ async def test_raw_files_with_a_hit_are_found_and_deleting_them_is_safe(files_se
 
     if shutil.which("bash") is None or shutil.which("grep") is None:
         pytest.skip("needs bash and grep")
-    lines = _runbook_lines()
-    [listing] = {line for line in lines if line == 'grep -rliE "$PAN" /data/pick'}
-    [removal] = [line for line in lines if line.startswith('grep -rliE --null "$PAN" /data/pick')]
+    step_one = _runbook_steps()[1]
+    [listing] = {line.strip() for line in step_one.splitlines() if line.strip().startswith("grep -") and line.strip().endswith('"$PAN" /data/pick')}
+    [removal] = [line for line in _runbook_lines() if "| xargs -0r rm" in line]
     shared, alice = PickRepository.shared(files_service.session_factory), PickRepository(files_service.session_factory, "alice")
-    # The feed's only hit is a password whose newline the file holds as backslash-n.
-    first = await _sync(files_service, [feed_row(1, signals=[_signal(1, note=PASSWORD_NEWLINE)]), feed_row(4)])
-    # A manual upload written with ensure_ascii, stored as uploaded: its only hit is an escaped 提取码.
-    upload = json.dumps(
-        [{"source": "synthetic", "source_id": "1", "language": "en", "title": "T", "signals": [{"kind": "r", "source_ref": "x", "note": "提取码 x7k2"}]}]
-    )
-    assert "提取码" not in upload
-    manual = await Importer(alice, files_service.data_dir).catalog(upload.encode(), "json")
+    importer = Importer(alice, files_service.data_dir)
+    # Each file holds exactly one hit, each in a different form.
+    first = await _sync(files_service, [feed_row(1, signals=[_signal(1, note=PASSWORD_NEWLINE)]), feed_row(4)])  # backslash-n in the feed
+    escaped_code = await importer.catalog(_upload("提取码 x7k2", ensure_ascii=True), "json")  # 提取码 as escapes
+    escaped_nbsp = await importer.catalog(_upload(PASSWORD_NBSP, ensure_ascii=True), "json")  # keyword, U+00A0 and colon all escaped
+    vertical_tab = await importer.catalog(_upload(PASSWORD_VT, ensure_ascii=False), "json")  # U+000B, which JSON always escapes
+    csv = 'source,source_id,language,title\nsynthetic,2,en,"剧名 密码\n：ab12"\n'  # a quoted CSV field across two lines
+    across_lines = await importer.catalog(csv.encode(), "csv")
+    uploads = [first["catalog_batch_id"], escaped_code["id"], escaped_nbsp["id"], vertical_tab["id"], across_lines["id"]]
     fixed = [feed_row(1), feed_row(4)]
     second = await _sync(files_service, fixed)
     paths = {row["id"]: row["raw_blob_path"] for row in await alice.batches()}
-    assert _shell(files_service.data_dir, listing) == sorted([paths[first["catalog_batch_id"]], paths[manual["id"]]])
+    assert "提取码" not in Path(paths[escaped_code["id"]]).read_text(encoding="utf-8")
+    assert _shell(files_service.data_dir, listing) == sorted(paths[batch_id] for batch_id in uploads)
     _shell(files_service.data_dir, removal)
     assert _shell(files_service.data_dir, listing) == []
-    assert not any(Path(paths[batch_id]).exists() for batch_id in (first["catalog_batch_id"], manual["id"]))
+    assert not any(Path(paths[batch_id]).exists() for batch_id in uploads)
     # The next sync prunes the old batches, one of whose files is already gone.
     clean = await _sync(files_service, [*fixed, feed_row(5)], keep_batches=1)
     statuses = {row["id"]: row["status"] for row in await shared.batches()}
@@ -621,7 +679,6 @@ async def test_raw_files_with_a_hit_are_found_and_deleting_them_is_safe(files_se
     assert (await _sync(files_service, [*fixed, feed_row(5)]))["catalog_batch_id"] == clean["catalog_batch_id"] and blob.exists()
     # An overwritten file fails that same import, which is why the runbook deletes and never rewrites.
     blob.write_bytes(b"[]")
-    refused = await RealShortSync(files_service, base_url="https://realshort.test", token=TOKEN, transport=_transport([*fixed, feed_row(5)], scope="s")).run(
-        "manual"
-    )
+    transport = _transport([*fixed, feed_row(5)], scope="s")
+    refused = await RealShortSync(files_service, base_url="https://realshort.test", token=TOKEN, transport=transport).run("manual")
     assert refused["status"] == "failed" and "校验失败" in refused["error"]

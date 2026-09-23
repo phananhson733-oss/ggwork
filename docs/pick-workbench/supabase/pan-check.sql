@@ -4,21 +4,21 @@
 -- 输出两张表，只有条数、线程 id 和属主，不输出命中的文本：
 --   1. 工作台 11 个位置各有几行命中。前 9 个 pan-redact.sql 会清除；最后两个（知识正文、知识来源）脚本不改，命中时停下来另议。
 --   2. 宿主表里含命中的线程、属主邮箱和命中所在的表。checkpoint 是二进制，只能经线程的 DELETE 接口整段删掉。
--- 库里为 0 不代表磁盘上没有：导入先写原始文件、后写库。运行手册第 1 步同时 grep /data/pick。
--- 模式比 RealShort #67 的清洗正则宽，命中不一定是网盘信息，要人看。除了原文，它还认 JSON 的两种转义写法：
---   - 中文关键字与全角冒号按 ensure_ascii 写成的 \uXXXX（十六进制不分大小写）；
---   - 「密码」与分隔符之间的空白写成的 \n、\t、\r、\f（jsonb::text 与原始文件里就是这样两个字符）。
+-- 库里为 0 不代表磁盘上没有：导入先写原始文件、后写库。运行手册第 1 步同时 grep -z /data/pick。
+-- 模式比 RealShort #67 的清洗正则宽，命中不一定是网盘信息，要人看。除了原文，它认任意层 JSON 转义的写法（反斜杠一个或多个，
+-- 比如工具输出本身是 JSON、又被宿主的运行事件整个再转一次，换行就成了两个反斜杠加 n）：
+--   - 中文关键字与全角冒号写成 \uXXXX（ensure_ascii；十六进制不分大小写）；
+--   - 「密码」与分隔符之间的空白：原样的空白、U+00A0 与 U+3000（模式里那两个看不见的字符），或者 \n、\t 这类转义与任意 \uXXXX。
 -- 它与 pan-redact.sql、运行手册里的 PAN= 逐字相同（customizations/pick-workbench/tests/test_pan_runbook_sql.py 钉住），三处一起改。
 \set ON_ERROR_STOP on
-SELECT 'pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)([[:space:]]|\\[fnrt])*(=|:|：|\\uff1a)|\\u63d0\\u53d6\\u78(01|bc)|\\u8bbf\\u95ee\\u7801|\\u8a2a\\u554f\\u78bc|\\u5bc6\\u78(01|bc)([[:space:]]|\\[fnrt])*(=|:|：|\\uff1a)' AS pan \gset
+SELECT 'pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)([[:space:]]| |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)|\\+u63d0\\+u53d6\\+u78(01|bc)|\\+u8bbf\\+u95ee\\+u7801|\\+u8a2a\\+u554f\\+u78bc|\\+u5bc6\\+u78(01|bc)([[:space:]]| |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)' AS pan \gset
 -- checkpoint 的 blob 是 msgpack，字符串是原样的 UTF-8 字节。encode(blob, 'escape') 只把 0x00 和 0x80 以上的字节写成 \ooo、
--- 把反斜杠写成 \\，其余字节（含真实的换行、制表符）原样。所以匹配 blob 前把模式改写两处：
---   - 模式里表示一个反斜杠的 \\ 改成 \\\\：JSON 转义 \n、\uXXXX 在 blob 里是一个反斜杠，编码后是两个；
---   - 每个非 ASCII 字符换成它的 \ooo 字节序列。ASCII 部分照旧不分大小写。
+-- 把反斜杠写成 \\，其余字节（含真实的换行、制表符）原样。模式里的反斜杠都写成「一个或多个」，编码后翻倍的反斜杠照样匹配；
+-- 所以匹配 blob 前只需把每个非 ASCII 字符换成它的 \ooo 字节序列。ASCII 部分照旧不分大小写。
 SELECT string_agg(CASE WHEN ascii(c) > 127
                        THEN '(?:' || replace(encode(convert_to(c, 'UTF8'), 'escape'), '\', '\\') || ')'
                        ELSE c END, '' ORDER BY i) AS pan_bytes
-  FROM regexp_split_to_table(replace(:'pan', '\\', '\\\\'), '') WITH ORDINALITY AS s(c, i) \gset
+  FROM regexp_split_to_table(:'pan', '') WITH ORDINALITY AS s(c, i) \gset
 BEGIN READ ONLY;
 -- JSON 列先转 jsonb 再转文本，\uXXXX 转义的中文还原成字符再匹配；与 pan-redact.sql 选行的条件相同
 SELECT location, count AS rows FROM (

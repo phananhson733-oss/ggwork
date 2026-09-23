@@ -216,7 +216,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 
 **网盘片段核查（RealShort #67 上线前每周一次，结果写进第 12 节）。** v1 feed 的备注在 #67 合并前不经清洗，同步时原样入库（`pan_url`、`pan_pw` 这些字段本身从不同步），之后被复制到：同步留下的旧批次（最近 3 个，外加 30 天内有候选引用的）、候选快照、保存选择时的快照、回答核对、宿主 checkpoint 里的工具输出与模型回答，以及 `/data/pick` 下的原始 feed 文件。核查另外也看手工导入的知识文档的文件名、来源和正文。脚本：[supabase/pan-check.sql](supabase/pan-check.sql)（只读）和 [supabase/pan-redact.sql](supabase/pan-redact.sql)。
 
-模式沿用原来的宽模式，另补了 RealShort 清洗正则里的 `yun.baidu`、`115cdn`、`123684/123865/123912.com`、移动云盘的两个域名，以及后面（可隔空白）跟着 `=`、`:`、`：` 的「密码」「密碼」（不带分隔符的「密码」会误中「财富密码」这类剧名）。它还认 JSON 的两种转义写法：中文关键字和全角冒号按 ensure_ascii 写成的 `\uXXXX`（手工导入的原始文件原样存盘，可能就是这种写法），以及「密码」与分隔符之间写成 `\n`、`\t`、`\r`、`\f` 的空白。两个脚本和第 1 步的 `PAN=` 用同一个模式。`customizations/pick-workbench/tests/test_pan_runbook_sql.py` 钉住三处逐字相同；它在 PG 17 上用真实的同步、选剧和保存代码造出污染数据，以非超级用户的表属主替身按下面的顺序跑这两个脚本，并在临时目录里跑下面的 grep。
+模式沿用原来的宽模式，另补了 RealShort 清洗正则里的 `yun.baidu`、`115cdn`、`123684/123865/123912.com`、移动云盘的两个域名，以及后面（可隔空白）跟着 `=`、`:`、`：` 的「密码」「密碼」（不带分隔符的「密码」会误中「财富密码」这类剧名）。它还认任意层 JSON 转义的写法（反斜杠一个或多个：工具输出本身是 JSON，宿主的运行事件又把整条消息转一次，换行就成了两个反斜杠加 n）：中文关键字和全角冒号写成的 `\uXXXX`（ensure_ascii；手工导入的原始文件原样存盘，可能就是这种写法）；「密码」与分隔符之间的空白，可以是原样的空白、U+00A0、U+3000（`PAN=` 里那两个看不见的字符），也可以是 `\n`、`\t` 这类转义或任意 `\uXXXX`。两个脚本和第 1 步的 `PAN=` 用同一个模式。`customizations/pick-workbench/tests/test_pan_runbook_sql.py` 钉住三处逐字相同；它在 PG 17 上用真实的同步、选剧和保存代码造出污染数据，以非超级用户的表属主替身按下面的顺序跑这两个脚本，并在临时目录里跑下面的 grep。
 
 1. **核查：库和磁盘都查，每次都做。** 两个脚本都以表的属主 `deerflow_app` 执行，连法与 2.3 相同，密码在提示时粘贴：
 
@@ -227,11 +227,11 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 
    输出两张表，只有条数、线程和属主，没有命中的文本：工作台 11 个位置各有几行命中（前 9 个清除脚本会处理，最后两个是知识正文和知识来源）；宿主表里有命中的线程、属主邮箱、命中在哪几张表。
 
-   然后 `railway ssh -i ~/.ssh/railway_ggwork` 进 gateway 容器，列出 `/data/pick` 下含命中的原始文件。`PAN` 后面几步还要用，在同一个 ssh 会话里做；新开会话先重新设一次：
+   然后 `railway ssh -i ~/.ssh/railway_ggwork` 进 gateway 容器，列出 `/data/pick` 下含命中的原始文件。`PAN` 后面几步还要用，在同一个 ssh 会话里做；新开会话先重新设一次。`-z` 把整个文件当成一行：手工导入的 CSV 原样存盘，带引号的字段可以跨行，逐行找会漏掉「密码」换行「：ab12」：
 
    ```bash
-   PAN='pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)([[:space:]]|\\[fnrt])*(=|:|：|\\uff1a)|\\u63d0\\u53d6\\u78(01|bc)|\\u8bbf\\u95ee\\u7801|\\u8a2a\\u554f\\u78bc|\\u5bc6\\u78(01|bc)([[:space:]]|\\[fnrt])*(=|:|：|\\uff1a)'
-   grep -rliE "$PAN" /data/pick
+   PAN='pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)([[:space:]]| |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)|\\+u63d0\\+u53d6\\+u78(01|bc)|\\+u8bbf\\+u95ee\\+u7801|\\+u8a2a\\+u554f\\+u78bc|\\+u5bc6\\+u78(01|bc)([[:space:]]| |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)'
+   grep -rlziE "$PAN" /data/pick
    ```
 
    磁盘每次都要查：导入先写原始文件、后写库，导入中途失败，或者上次处置在删文件前中断，库里就是 0 而磁盘上仍有原文。11 个 0、线程表为空、grep 没有输出，才算没有命中，到此结束，结果记进第 12 节。
@@ -243,7 +243,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
      FROM deerflow.ggwp_drama_versions WHERE payload_json::jsonb::text ~* :'pan';
    ```
 
-   磁盘上的文件在容器里看：`grep -oiE ".{0,40}($PAN).{0,40}" <文件>`。看到的内容不贴进第 12 节，也不贴进任何对话。线程的原文没法在库里看，它的命中通常就是同一 `thread_id` 的候选快照里那条备注。全是误报时到此为止，第 12 节记下误报的位置（含文件路径）和原因。只有磁盘有真命中时，直接做第 7、8 步。
+   磁盘上的文件在容器里看：`grep -oziE ".{0,40}($PAN).{0,40}" <文件> | tr '\0' '\n'`。看到的内容不贴进第 12 节，也不贴进任何对话。线程的原文没法在库里看，它的命中通常就是同一 `thread_id` 的候选快照里那条备注。全是误报时到此为止，第 12 节记下误报的位置（含文件路径）和原因。只有磁盘有真命中时，直接做第 7、8 步。
 3. **源头改掉。** 在 RealShort 改掉那条备注，再手动同步一次：内容变了会发布新批次并成为当前批次。旧批次和它的行不会因此消失（见上），所以仍要做下一步。
 4. **清除工作台里的副本。** 先通知大家暂停使用工作台，或者挑没人用的时候做，并紧接着做第 5 步：清除提交后、重启前，已经读到旧数据的请求会把原文写回去，换一批写进新的候选快照，保存选择写进选择快照。
 
@@ -264,7 +264,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 7. **原始 feed 文件。** 每个批次的原文存成 `/data/pick/<属主哈希>/<内容哈希>`，只在导入时写。运行时没有代码读它，只有再次导入同样的内容时会读它核对哈希，文件不在就重写一份；清理旧批次时文件不在也不报错。所以直接删，不要改写：改写过的文件哈希对不上，同样的内容再导入会失败。在第 1 步设好 `PAN` 的 ssh 会话里，人看过列表再删：
 
    ```bash
-   grep -rliE --null "$PAN" /data/pick | xargs -0r rm -v --
+   grep -rlziE --null "$PAN" /data/pick | xargs -0r rm -v --
    ```
 
 8. **复查。** 再做一遍第 1 步，库和磁盘都查：11 个位置全为 0，线程表为空，grep 没有输出。
@@ -272,7 +272,9 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
    - 其余任何位置不为 0（剧目、候选快照、选择快照、回执……），都重做第 4、5 步再复查：多半是清除后、重启前有请求读到了旧数据。
    - 线程表不为空：还有会话没删（第 6 步）。grep 有输出：重做第 7 步。
 
-- 不在范围内：`/data/data/deerflow.db` 和 `/data/backup/` 下的 SQLite 文件（切换前的旧数据，第 11 节要求保留）。
+- 不在范围内：
+  - 用户自己写或上传的内容：选择的备注 `ggwp_selections.note`、反馈 `feedback.comment`、线程上传目录 `/data/users/<user>/threads/<thread>/user-data/uploads/`。硬规则针对的是从 RealShort 同步来的网盘片段；这几处是用户自己放进来的。
+  - `/data/data/deerflow.db` 和 `/data/backup/` 下的 SQLite 文件（切换前的旧数据，第 11 节要求保留）。
 - 2026-09-23 的基线：7,669 行剧目、12 份候选、2 条选择，全部为 0（当时用的是原来的模式，只查了剧目与候选快照两处）。
 
 ## 7. PG 兼容的现场检查（6.7）
