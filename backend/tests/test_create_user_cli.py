@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 from support import pg as support_pg
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -61,6 +62,16 @@ def run_cli(*args: str) -> int:
     return main(list(args))
 
 
+def rewrite_database(volume: Path, mode: str, **database) -> None:
+    """Start the gateway once on volume in mode, then overwrite fields of its runtime yaml's database section."""
+    from app.gateway.pick_entrypoint import prepare_config
+
+    runtime = prepare_config(volume, TEMPLATE, backend=mode)
+    config = yaml.safe_load(runtime.read_text())
+    config["database"] = {**config["database"], **database}
+    runtime.write_text(yaml.safe_dump(config))
+
+
 def test_new_email_gets_a_user_account_that_must_finish_setup(environ, home, capsys):
     from app.gateway.auth.password import verify_password
 
@@ -100,6 +111,26 @@ def test_duplicate_email_exits_nonzero_and_keeps_the_first_password(environ, hom
     assert verify_password(written_password(credentials), password_hash)
 
 
+def test_an_insert_racing_this_one_exits_nonzero_and_leaves_no_staged_password(environ, home, capsys, monkeypatch):
+    # The pre-check found nothing, then another insert won: the repository's own uniqueness error is the answer.
+    from app.gateway.auth.local_provider import LocalAuthProvider
+
+    environ["DEER_FLOW_HOME"] = str(home)
+    assert run_cli("--email", "race@example.com") == 0
+    credentials = home / "credentials"
+    first = (credentials / "race@example.com.txt").read_text()
+
+    async def not_found_yet(self, email):
+        return None
+
+    monkeypatch.setattr(LocalAuthProvider, "get_user_by_email", not_found_yet)
+    capsys.readouterr()
+    assert run_cli("--email", "race@example.com") != 0
+    assert "already" in capsys.readouterr().err
+    assert sorted(path.name for path in credentials.iterdir()) == ["race@example.com.txt"]
+    assert (credentials / "race@example.com.txt").read_text() == first
+
+
 def test_the_password_file_is_in_place_once_the_account_exists_even_if_closing_fails(environ, home, monkeypatch):
     # Rerunning only says "already exists", so a created account whose password stayed in the hidden staging file
     # would need someone to know to look for it.
@@ -120,6 +151,43 @@ def test_the_password_file_is_in_place_once_the_account_exists_even_if_closing_f
     assert [path.name for path in credentials.iterdir()] == ["closing@example.com.txt"]
     [(_, _, _, password_hash)] = users(home)
     assert verify_password(written_password(credentials / "closing@example.com.txt"), password_hash)
+
+
+def test_a_password_that_cannot_be_written_creates_no_account(environ, home, monkeypatch):
+    from app.gateway.auth import create_user
+
+    def disk_full(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    environ["DEER_FLOW_HOME"] = str(home)
+    monkeypatch.setattr(create_user, "_stage_credentials", disk_full)
+    with pytest.raises(OSError):
+        run_cli("--email", "disk@example.com")
+    assert not (home / "data" / "deerflow.db").exists() or users(home) == []
+
+
+def test_an_existing_credentials_directory_is_tightened_to_0700(environ, home):
+    credentials = home / "credentials"
+    credentials.mkdir(mode=0o755)
+    credentials.chmod(0o755)
+    environ["DEER_FLOW_HOME"] = str(home)
+    assert run_cli("--email", "perm@example.com") == 0
+    assert (credentials.stat().st_mode & 0o777) == 0o700
+
+
+def test_the_staged_password_never_follows_a_planted_file(environ, home, monkeypatch):
+    from app.gateway.auth import create_user
+
+    environ["DEER_FLOW_HOME"] = str(home)
+    monkeypatch.setattr(create_user.secrets, "token_hex", lambda n: "fixed")
+    credentials = home / "credentials"
+    credentials.mkdir(mode=0o700)
+    outside = home / "outside.txt"
+    outside.write_text("keep\n")
+    (credentials / ".planted@example.com.fixed.tmp").symlink_to(outside)
+    with pytest.raises(FileExistsError):
+        run_cli("--email", "planted@example.com")
+    assert outside.read_text() == "keep\n"
 
 
 @pytest.mark.parametrize("email", ["not-an-email", "a/b@example.com", "../x@example.com"])
@@ -147,6 +215,25 @@ def test_missing_runtime_config_exits_without_touching_the_database(environ, tmp
     assert "start the gateway" in err
     assert str(volume / "pick-runtime.yaml") in err
     assert list(volume.iterdir()) == []
+
+
+def test_an_invalid_database_section_is_reported_without_its_values(environ, tmp_path, capsys):
+    volume = tmp_path / "volume"
+    rewrite_database(volume, "postgres", pool_size="pool-value-not-a-number")
+    environ.update(DEER_FLOW_HOME=str(volume), PICK_DATABASE_URL="postgresql://u:pw-secret-123@db.invalid/db")
+    assert run_cli("--email", "x@example.com") != 0
+    err = capsys.readouterr().err
+    assert "is invalid" in err
+    assert "pool-value-not-a-number" not in err and "pw-secret-123" not in err
+
+
+def test_a_memory_backend_is_refused_before_anything_is_written(environ, tmp_path, capsys):
+    volume = tmp_path / "volume"
+    rewrite_database(volume, "sqlite", backend="memory")
+    environ["DEER_FLOW_HOME"] = str(volume)
+    assert run_cli("--email", "m@example.com") != 0
+    assert "memory backend" in capsys.readouterr().err
+    assert not (volume / "credentials").exists()
 
 
 def test_fills_the_same_defaults_as_the_entrypoint(environ, home, monkeypatch):

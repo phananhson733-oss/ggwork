@@ -294,6 +294,17 @@ def test_the_reader_logs_in_read_only_and_reaches_nothing_in_deerflow(bootstrapp
         conn.rollback()
 
 
+def test_the_reader_connects_where_public_cannot(stand_in):
+    # Both roles log in on the script's own CONNECT grants, not on PUBLIC's.
+    stand_in.admin(f"REVOKE CONNECT ON DATABASE {stand_in.database} FROM PUBLIC")
+    result = stand_in.run(stand_in.script())
+    assert result.returncode == 0 and "WARNING" not in result.stdout, result.stdout
+    stand_in.admin(*(f"ALTER ROLE {role} PASSWORD '{stand_in.password}'" for role in (stand_in.app, stand_in.reader)))
+    for role in (stand_in.app, stand_in.reader):
+        with stand_in.connect(role) as conn:
+            assert conn.execute("select 1").fetchone() == (1,)
+
+
 def test_without_the_set_grant_create_schema_authorization_fails(stand_in):
     script = stand_in.script(without=(GRANT_SET,))
     result = stand_in.run(script)

@@ -31,6 +31,18 @@ async def workspace(pick_db_url, tmp_path):
     await engine.dispose()
 
 
+@pytest_asyncio.fixture
+async def shared_repo(pick_db_url, tmp_path):
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.service import PickService
+
+    engine = host_engine(pick_db_url)
+    service = PickService(tmp_path / "files")
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    yield PickRepository.shared(service.session_factory)
+    await engine.dispose()
+
+
 def _drama(identity_length: int) -> dict:
     """A row whose identity is exactly identity_length characters.
 
@@ -135,3 +147,21 @@ async def test_request_ids_and_source_times_at_the_column_limits(app_client):
     assert (await shared.batch_info(batch["id"]))["source_as_of"] == "9" * 40
     with pytest.raises(ValueError, match="超过"):
         await shared.publish_import(kind="knowledge", content_hash="h2", raw_blob_path="/x", rows=[], source_as_of="9" * 41)
+
+
+@pytest.mark.asyncio
+async def test_publish_import_refuses_rows_longer_than_their_columns(shared_repo):
+    # The repository's own check, independent of DramaInput and the Importer's title cut.
+    with pytest.raises(ValueError, match="identity 超过 512"):
+        await shared_repo.publish_import(kind="catalog", content_hash="h1", raw_blob_path="/x", rows=[{"identity": "i" * 513, "title": "T"}])
+    knowledge = dict(document_id="d", content_hash="c", title="t" * 501, source_ref="r", text="x", metadata_json={})
+    with pytest.raises(ValueError, match="title 超过 500"):
+        await shared_repo.publish_import(kind="knowledge", content_hash="h2", raw_blob_path="/x", rows=[knowledge])
+    assert await shared_repo.batches() == []
+
+
+@pytest.mark.asyncio
+async def test_finish_sync_run_refuses_a_source_time_longer_than_its_column(shared_repo):
+    run = await shared_repo.start_sync_run("realshort", "manual")
+    with pytest.raises(ValueError, match="source_as_of 超过 40"):
+        await shared_repo.finish_sync_run(run["id"], status="success", source_as_of="9" * 41)

@@ -130,6 +130,22 @@ def test_main_requires_an_explicit_backend(environ, served, tmp_path, capsys, va
     assert not (tmp_path / "home").exists()
 
 
+@pytest.mark.parametrize("value", [None, "", "mysql", "SQLite", " postgres"])
+def test_main_requires_an_explicit_backend_even_with_a_database_url(environ, served, tmp_path, capsys, value):
+    # A URL alone does not pick PostgreSQL; the error names both accepted values.
+    from app.gateway.pick_entrypoint import main
+
+    environ.update(DEER_FLOW_HOME=str(tmp_path / "home"), PICK_DATABASE_URL=URL)
+    if value is not None:
+        environ["PICK_DB_BACKEND"] = value
+    with pytest.raises(SystemExit) as exited:
+        main()
+    assert exited.value.code not in (0, None)
+    assert "'sqlite' or 'postgres'" in capsys.readouterr().err
+    assert served == []
+    assert not (tmp_path / "home").exists()
+
+
 @pytest.mark.parametrize("url", [None, ""])
 def test_main_postgres_requires_the_url(environ, served, tmp_path, capsys, url):
     from app.gateway.pick_entrypoint import main
@@ -143,6 +159,15 @@ def test_main_postgres_requires_the_url(environ, served, tmp_path, capsys, url):
     assert "PICK_DATABASE_URL" in capsys.readouterr().err
     assert served == []
     assert not (tmp_path / "home").exists()
+
+
+def test_main_postgres_names_the_missing_url(environ, served, tmp_path, capsys):
+    from app.gateway.pick_entrypoint import main
+
+    environ.update(DEER_FLOW_HOME=str(tmp_path / "home"), PICK_DB_BACKEND="postgres")
+    with pytest.raises(SystemExit):
+        main()
+    assert "needs PICK_DATABASE_URL" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -261,6 +286,13 @@ def test_runtime_environment_fills_only_what_is_missing(tmp_path):
     assert runtime_environment(source) == explicit
     assert source == {**explicit, "UNRELATED": "1"}
     assert PROJECT_ROOT == Path(__file__).resolve().parents[2]
+
+
+def test_runtime_environment_resolves_a_relative_home(tmp_path, monkeypatch):
+    from app.gateway.pick_entrypoint import runtime_environment
+
+    monkeypatch.chdir(tmp_path)
+    assert runtime_environment({"DEER_FLOW_HOME": "vol"})["DEER_FLOW_HOME"] == str(tmp_path.resolve() / "vol")
 
 
 # What ``uvicorn.run("app.gateway.pick_asgi:app")`` does before serving: importing the module builds the app,

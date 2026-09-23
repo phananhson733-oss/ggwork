@@ -99,3 +99,11 @@ def test_import_matches_frontend_field_bounds_without_coercing_booleans(extra):
     row = {"source": "synthetic", "source_id": "1", "language": "en", "title": "Example", **extra}
     with pytest.raises(ValueError):
         parse_catalog(catalog_bytes([row]), "json")
+
+
+def test_identity_keeps_non_ascii_text_as_before():
+    # Stored drama versions and selections are keyed by it: escaping non-ASCII would give such a drama a new identity.
+    from ggwork_pick.imports import parse_catalog
+
+    rows = parse_catalog(catalog_bytes([{"source": "来源", "source_id": "剧-1", "language": "中文", "title": "T"}]), "json")
+    assert rows[0]["identity"] == '["来源","剧-1","中文"]'

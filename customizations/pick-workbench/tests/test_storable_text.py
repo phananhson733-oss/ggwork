@@ -21,6 +21,7 @@ LONE_SURROGATE = chr(0xD800)
 REPLACEMENT = chr(0xFFFD)
 UNSTORABLE = pytest.mark.parametrize("bad", [NUL, LONE_SURROGATE], ids=["nul", "lone-surrogate"])
 CATALOG = b'[{"source":"synthetic","source_id":"1","language":"en","title":"Example"}]'
+ALICE = {"test-owner": "alice"}
 
 
 @pytest_asyncio.fixture
@@ -187,3 +188,25 @@ def test_storable_replaces_keys_and_values_and_keeps_surrogate_pairs():
     value = {f"k{NUL}": [f"a{LONE_SURROGATE}", {"n": 1, "p": pair}], "t": (f"x{chr(0xDFFF)}",), "none": None}
     assert storable(value) == {f"k{REPLACEMENT}": [f"a{REPLACEMENT}", {"n": 1, "p": pair}], "t": (f"x{REPLACEMENT}",), "none": None}
     assert value[f"k{NUL}"][0] == f"a{LONE_SURROGATE}"
+
+
+# ---- keys of imported rows ----
+
+
+@pytest.mark.parametrize("key", ["x\\ud800", "x\\udfff", "x\\u0000"])
+@pytest.mark.asyncio
+async def test_unstorable_text_in_a_key_of_an_imported_row_is_a_422(app_client, key):
+    # A key holding unstorable text is refused like a value holding it, before anything is stored.
+    client, _ = app_client
+    content = '[{"source":"s","source_id":"1","language":"en","title":"T","' + key + '":"v"}]'
+    files = [("files", ("c.json", content, "application/json"))]
+    response = await client.post("/api/pick/imports", headers=ALICE, data={"kind": "catalog"}, files=files)
+    assert response.status_code == 422
+    assert (await client.get("/api/pick/imports", headers=ALICE)).json()["batches"] == []
+
+
+def test_the_error_path_never_repeats_the_unstorable_text():
+    from ggwork_pick.contracts import unstorable_path
+
+    assert unstorable_path({"ok": {f"b{LONE_SURROGATE}": 1}}) == "ok.b?"
+    assert unstorable_path({f"a{NUL}": 1}) == "a?"

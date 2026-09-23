@@ -2,7 +2,11 @@
 
 import asyncio
 import json
+from types import SimpleNamespace
 
+import pytest
+
+from app.gateway import json_body_sanitizer as sanitizer
 from app.gateway.json_body_sanitizer import JsonBodySanitizer, sanitize_json_body
 
 DISCONNECT = {"type": "http.disconnect"}
@@ -79,10 +83,26 @@ def test_lone_surrogate_escapes_are_replaced_and_a_valid_pair_is_kept():
     assert json.loads(body_of(seen)) == {"high": "x\ufffdy", "low": "\ufffd", "pair": "\U0001f600", "reversed": "\ufffd\ufffd"}
 
 
+@pytest.mark.parametrize("escape", [b"\\uD800", b"\\uDBFF", b"\\uDC00", b"\\udfff"])
+def test_each_lone_surrogate_escape_alone_is_replaced(escape):
+    # The byte test sees each on its own: either case, both halves, both ends of each half.
+    raw = b'{"content":"x' + escape + b'y"}'
+    seen, _ = run(http_scope(), [request(raw)])
+    assert json.loads(body_of(seen)) == {"content": "x\ufffdy"}
+
+
 def test_surrogates_encoded_directly_as_utf8_bytes_are_replaced():
     # json.loads decodes bytes with surrogatepass, so these reach a route as a lone surrogate too
     raw = b'{"content":"x\xed\xa0\x80y"}'
     assert json.loads(raw) == {"content": "x\ud800y"}
+    seen, _ = run(http_scope(), [request(raw)])
+    assert json.loads(body_of(seen)) == {"content": "x\ufffdy"}
+
+
+@pytest.mark.parametrize("encoded", [b"\xed\xa0\x80", b"\xed\xaf\xbf", b"\xed\xb0\x80", b"\xed\xbf\xbf"])
+def test_every_surrogate_encoded_directly_as_utf8_is_replaced(encoded):
+    # High halves are ED A0-AF, low halves ED B0-BF.
+    raw = b'{"content":"x' + encoded + b'y"}'
     seen, _ = run(http_scope(), [request(raw)])
     assert json.loads(body_of(seen)) == {"content": "x\ufffdy"}
 
@@ -167,6 +187,15 @@ def test_a_clean_body_is_the_same_bytes():
     assert sanitize_json_body(raw) is raw
 
 
+def test_a_clean_body_is_never_parsed(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a body without escapes or surrogate bytes was parsed")
+
+    monkeypatch.setattr(sanitizer, "json", SimpleNamespace(loads=forbidden, dumps=json.dumps, detect_encoding=json.detect_encoding))
+    raw = b'{"content":"\xe4\xbd\xa0\xe5\xa5\xbd \\u4f60\\n","n":1}'
+    assert sanitize_json_body(raw) is raw
+
+
 def test_a_body_in_chunks_is_joined_before_it_is_sanitized():
     raw = json.dumps({"content": "a\x00" + "b" * 100}).encode()
     chunks = [raw[:7], raw[7:12], raw[12:]]
@@ -182,6 +211,38 @@ def test_a_body_over_the_limit_passes_through_chunk_by_chunk():
     assert seen["received"] == chunks
     assert body_of(seen) == raw
     assert content_length(seen["scope"]) == str(len(raw)).encode()
+
+
+def test_reading_stops_once_the_limit_is_passed():
+    # The chunk that passes the limit is the last one buffered; the rest reach the app as the client sends them.
+    chunks = [request(b'{"a":"' + b"x" * 34, True), request(b"x" * 40, True), request(b"x" * 40, True), request(b'"}')]
+    delivered, seen = [], {}
+    incoming = iter(chunks)
+
+    async def receive():
+        message = next(incoming, DISCONNECT)
+        delivered.append(message)
+        return message
+
+    async def app(scope, inner_receive, send):
+        seen["read_before_app"] = len(delivered)
+        received = []
+        while True:
+            message = await inner_receive()
+            received.append(message)
+            if not message.get("more_body", False):
+                break
+        seen["received"] = received
+
+    asyncio.run(JsonBodySanitizer(app, max_bytes=50)(http_scope(), receive, None))
+    assert seen["read_before_app"] == 2
+    assert seen["received"] == chunks
+
+
+def test_a_body_over_the_limit_in_one_chunk_passes_through_untouched():
+    raw = json.dumps({"content": "a\x00" + "b" * 100}).encode()
+    seen, _ = run(http_scope(length=len(raw)), [request(raw)], max_bytes=50)
+    assert body_of(seen) == raw
 
 
 def test_a_client_that_disconnects_mid_body_is_handed_over_as_it_arrived():

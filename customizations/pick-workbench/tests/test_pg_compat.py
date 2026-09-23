@@ -8,7 +8,7 @@ import asyncio
 import json
 import random
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pg
@@ -337,6 +337,13 @@ def test_stored_timestamps_come_from_one_utc_clock():
         if clock.search(line)
     ]
     assert offenders == []
+
+
+def test_stamp_is_utc_whatever_the_zone_it_is_given():
+    from ggwork_pick.repository import stamp
+
+    moment = datetime(2026, 9, 23, 18, 0, tzinfo=timezone(timedelta(hours=8)))
+    assert stamp(moment) == "2026-09-23T10:00:00.000000+00:00"
 
 
 # ---- text ordering in the database ----
