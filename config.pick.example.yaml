@@ -37,6 +37,7 @@ sandbox:
 tools:
   - {name: pick_search_knowledge, group: pick, use: 'ggwork_pick.tools:search_knowledge_tool'}
   - {name: pick_query_candidates, group: pick, use: 'ggwork_pick.tools:query_candidates_tool'}
+  - {name: pick_count_candidates, group: pick, use: 'ggwork_pick.tools:count_candidates_tool'}
   - {name: pick_get_drama_detail, group: pick, use: 'ggwork_pick.tools:get_drama_detail_tool'}
   - {name: pick_prepare_selection, group: pick, use: 'ggwork_pick.tools:prepare_selection_tool'}
 tool_groups:
@@ -79,14 +80,14 @@ authorization:
       roles:
         admin:
           tools:
-            allow: [ask_clarification, pick_search_knowledge, pick_query_candidates, pick_get_drama_detail, pick_prepare_selection]
+            allow: [ask_clarification, pick_search_knowledge, pick_query_candidates, pick_count_candidates, pick_get_drama_detail, pick_prepare_selection]
           routes: {allow: '*'}
           models: {allow: [azure-pick]}
           sandbox: {allow: false}
           skills: {allow: [pick-drama]}
         user:
           tools:
-            allow: [ask_clarification, pick_search_knowledge, pick_query_candidates, pick_get_drama_detail, pick_prepare_selection]
+            allow: [ask_clarification, pick_search_knowledge, pick_query_candidates, pick_count_candidates, pick_get_drama_detail, pick_prepare_selection]
           routes: {allow: '*'}
           models: {allow: [azure-pick]}
           sandbox: {allow: false}

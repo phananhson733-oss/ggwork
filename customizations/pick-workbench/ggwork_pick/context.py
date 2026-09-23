@@ -22,6 +22,8 @@ class PickTask:
     selected_item_ids: list[str] = field(default_factory=list)
     reference_order: list[str] = field(default_factory=list)
     produced_result_ids: set[str] = field(default_factory=set)
+    known_titles: set[str] = field(default_factory=set)
+    posted_checked: bool = False
     versions_refreshed: bool = False
     execution_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     initialized: bool = False
@@ -59,6 +61,7 @@ class PickTask:
                     if not isinstance(ids, list) or len(ids) > 20 or any(not isinstance(item_id, str) or item_id not in order for item_id in ids):
                         raise ValueError("候选引用条目无效")
                     self.reference_order = order
+                    self.known_titles.update(item["title"] for item in parent["ordered_items_json"])
                     self.selected_item_ids = [item_id for item_id in order if item_id in ids]
                     self.reference_id = parent["id"]
                     self.catalog_id, self.knowledge_id = parent["catalog_batch_id"], parent["knowledge_batch_id"]

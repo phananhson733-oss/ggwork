@@ -9,24 +9,42 @@ from pydantic import Field
 
 from ggwork_pick.context import task_from_runtime
 from ggwork_pick.contracts import PickConditions
-from ggwork_pick.selection import SelectionService
+from ggwork_pick.selection import PostedDataUnavailable, SelectionService
 
 
-@tool("pick_query_candidates")
-async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_latest: bool = False) -> str:
-    """查询真实剧库。filters支持theater/language/channel/query/tags/limit(1-20)/exclude_selected/exclude_previous。
-    语种用en/ko等代码。默认排除已选和已下架；渠道明确可发要求规则允许。
-    exclude_previous=true表示在绑定的上一份候选之外换一批。use_latest=true仅用于用户明确要求最新资料。
-    返回持久化的result_id、有序items、依据、资料版本；不可自行重排编号。
-    """
-    task = task_from_runtime(runtime)
-    repo = await task.repository(runtime)
-    if use_latest and not task.versions_refreshed:
+def _posted_unavailable(exc: Exception) -> str:
+    return json.dumps({"status": "posted_unavailable", "notice": str(exc) + "。可以改为排除个人已选，或等数据同步带上发布记录后再查。"}, ensure_ascii=False)
+
+
+async def _data_as_of(repo, batch_id):
+    info = await repo.batch_info(batch_id)
+    if info is None:
+        return None
+    return {key: info[key] for key in ("source_as_of", "published_at", "freshness", "scope", "shared")}
+
+
+async def _pin_latest(task, repo):
+    if not task.versions_refreshed:
         catalog = await repo.current_batch("catalog")
         knowledge = await repo.current_batch("knowledge")
         task.catalog_id = catalog["id"] if catalog else None
         task.knowledge_id = knowledge["id"] if knowledge else None
         task.versions_refreshed = True
+
+
+@tool("pick_query_candidates")
+async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_latest: bool = False) -> str:
+    """查询真实剧库。filters支持theater/language/channel/query/tags/limit(1-20)/exclude_selected/exclude_previous/
+    signal_kind/sort/exclude_posted/posted_account。
+    语种用en/ko等代码。默认排除已选和已下架；渠道明确可发要求规则允许。
+    看某张榜单：signal_kind=榜单种类(如kd)，sort=rank按名次。团队没发过：exclude_posted=true；某账号没发过：posted_account=账号名。
+    exclude_previous=true表示在绑定的上一份候选之外换一批。use_latest=true仅用于用户明确要求最新资料。
+    返回持久化的result_id、有序items、matched_total(符合条件总数)、依据、data_as_of(数据时点)；不可自行重排编号。
+    """
+    task = task_from_runtime(runtime)
+    repo = await task.repository(runtime)
+    if use_latest:
+        await _pin_latest(task, repo)
     if task.catalog_id is None:
         return json.dumps(
             {
@@ -35,17 +53,42 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
             },
             ensure_ascii=False,
         )
-    result = await SelectionService(repo).query(
-        PickConditions.model_validate(filters).model_dump(exclude_unset=True),
-        thread_id=task.info.thread_id,
-        run_id=task.info.run_id,
-        call_id=runtime.tool_call_id,
-        parent_result_id=task.reference_id,
-        use_latest=task.versions_refreshed,
-        pinned_versions=(task.catalog_id, task.knowledge_id),
-    )
+    try:
+        result = await SelectionService(repo).query(
+            PickConditions.model_validate(filters).model_dump(exclude_unset=True),
+            thread_id=task.info.thread_id,
+            run_id=task.info.run_id,
+            call_id=runtime.tool_call_id,
+            parent_result_id=task.reference_id,
+            use_latest=task.versions_refreshed,
+            pinned_versions=(task.catalog_id, task.knowledge_id),
+        )
+    except PostedDataUnavailable as exc:
+        return _posted_unavailable(exc)
     task.produced_result_ids.add(result["id"])
-    return json.dumps(result, ensure_ascii=False)
+    task.known_titles.update(item["title"] for item in result["items"])
+    conditions = result["conditions"]
+    if conditions.get("exclude_posted") or conditions.get("posted_account"):
+        task.posted_checked = True
+    return json.dumps({**result, "data_as_of": await _data_as_of(repo, result["catalog_batch_id"])}, ensure_ascii=False)
+
+
+@tool("pick_count_candidates")
+async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> str:
+    """只统计符合条件的剧有多少部（按剧场、语种分组），不生成候选卡。用户问“有多少部/哪个剧场多”时使用。
+    filters与pick_query_candidates相同，limit无效。统计用本轮固定的资料版本。
+    """
+    task = task_from_runtime(runtime)
+    repo = await task.repository(runtime)
+    if task.catalog_id is None:
+        return json.dumps({"status": "catalog_unavailable", "notice": "当前工作空间尚未接入剧库。"}, ensure_ascii=False)
+    try:
+        counted = await SelectionService(repo).count(PickConditions.model_validate(filters).model_dump(exclude_unset=True), catalog_id=task.catalog_id)
+    except PostedDataUnavailable as exc:
+        return _posted_unavailable(exc)
+    if counted["conditions"].get("exclude_posted") or counted["conditions"].get("posted_account"):
+        task.posted_checked = True
+    return json.dumps({**counted, "data_as_of": await _data_as_of(repo, task.catalog_id)}, ensure_ascii=False)
 
 
 async def _owned_result(runtime, result_id):
@@ -62,8 +105,10 @@ async def _owned_result(runtime, result_id):
 @tool("pick_get_drama_detail")
 async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) -> str:
     """读取指定历史候选条目的依据与当时数据。使用查询返回的真实result_id与item_id，不猜编号或身份。"""
-    _, repo, _ = await _owned_result(runtime, result_id)
-    return json.dumps(await SelectionService(repo).detail(result_id, item_id), ensure_ascii=False)
+    task, repo, _ = await _owned_result(runtime, result_id)
+    detail = await SelectionService(repo).detail(result_id, item_id)
+    task.known_titles.add(detail["item"]["title"])
+    return json.dumps({**detail, "data_as_of": await _data_as_of(repo, detail["catalog_batch_id"])}, ensure_ascii=False)
 
 
 @tool("pick_prepare_selection")

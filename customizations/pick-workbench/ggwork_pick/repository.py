@@ -6,11 +6,15 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import insert, select, text, update
+from sqlalchemy import delete, insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from ggwork_pick.models import candidate_sets, drama_versions, import_batches, knowledge_versions, selection_commands, selections
+from ggwork_pick.models import candidate_sets, drama_versions, import_batches, knowledge_versions, selection_commands, selections, sync_runs
+
+# Batches published by the scheduled source sync. Every user can read them; nobody can log in as this owner
+# (host principals are UUIDs, and the constructor below refuses the value).
+SHARED_OWNER = "system:shared"
 
 
 class ConflictError(ValueError):
@@ -18,16 +22,43 @@ class ConflictError(ValueError):
 
 
 class PickRepository:
-    def __init__(self, session_factory: async_sessionmaker, owner_id: str):
+    def __init__(self, session_factory: async_sessionmaker, owner_id: str, *, _shared: bool = False):
         if not isinstance(owner_id, str) or not owner_id.strip() or owner_id == "default":
+            raise ValueError("authenticated owner is required")
+        if owner_id == SHARED_OWNER and not _shared:
             raise ValueError("authenticated owner is required")
         self.session_factory = session_factory
         self.owner_id = owner_id
 
+    @classmethod
+    def shared(cls, session_factory: async_sessionmaker) -> "PickRepository":
+        """The sync writer. Only server code constructs it; HTTP principals never map here."""
+        return cls(session_factory, SHARED_OWNER, _shared=True)
+
+    def _readable(self):
+        return or_(import_batches.c.owner_id == self.owner_id, import_batches.c.owner_id == SHARED_OWNER)
+
     async def batches(self) -> list[dict]:
         async with self.session_factory() as session:
-            rows = await session.execute(select(import_batches).where(import_batches.c.owner_id == self.owner_id).order_by(import_batches.c.created_at.desc()))
-            return [dict(row) for row in rows.mappings()]
+            rows = await session.execute(select(import_batches).where(self._readable()).order_by(import_batches.c.created_at.desc()).limit(200))
+            return [{**dict(row), "shared": row["owner_id"] == SHARED_OWNER} for row in rows.mappings()]
+
+    async def batch_info(self, batch_id: str | None) -> dict | None:
+        if not batch_id:
+            return None
+        async with self.session_factory() as session:
+            row = (await session.execute(select(import_batches).where(import_batches.c.id == batch_id, self._readable()))).mappings().first()
+            if row is None:
+                return None
+            return {
+                "id": row["id"],
+                "shared": row["owner_id"] == SHARED_OWNER,
+                "source_as_of": row["source_as_of"],
+                "published_at": row["published_at"],
+                "freshness": (row["validation_json"] or {}).get("freshness"),
+                "scope": (row["validation_json"] or {}).get("scope"),
+                "rows": (row["validation_json"] or {}).get("rows"),
+            }
 
     async def current_batch(self, kind: str) -> dict | None:
         async with self.session_factory() as session:
@@ -36,7 +67,7 @@ class PickRepository:
                     await session.execute(
                         select(import_batches)
                         .where(
-                            import_batches.c.owner_id == self.owner_id,
+                            self._readable(),
                             import_batches.c.kind == kind,
                             import_batches.c.status == "published",
                         )
@@ -55,7 +86,7 @@ class PickRepository:
                 await session.execute(
                     select(import_batches).where(
                         import_batches.c.id == batch_id,
-                        import_batches.c.owner_id == self.owner_id,
+                        self._readable(),
                         import_batches.c.kind == kind,
                         import_batches.c.status == "published",
                     )
@@ -80,7 +111,9 @@ class PickRepository:
             rows = await session.execute(select(knowledge_versions).where(knowledge_versions.c.batch_id == batch_id))
             return [dict(row) for row in rows.mappings()]
 
-    async def publish_import(self, *, kind: str, content_hash: str, raw_blob_path: str, rows: list[dict], source_as_of: str | None = None) -> dict:
+    async def publish_import(
+        self, *, kind: str, content_hash: str, raw_blob_path: str, rows: list[dict], source_as_of: str | None = None, meta: dict | None = None
+    ) -> dict:
         batch_id = uuid4().hex
         now = datetime.now(UTC).isoformat()
         batch = dict(
@@ -93,7 +126,7 @@ class PickRepository:
             source_as_of=source_as_of,
             created_at=now,
             published_at=now,
-            validation_json={"rows": len(rows)},
+            validation_json={**(meta or {}), "rows": len(rows)},
         )
         async with self.session_factory() as session:
             try:
@@ -300,3 +333,60 @@ class PickRepository:
             receipt = dict(request_id=request_id, id=selection_id, version=values["version"], state=state or old["state"])
             await self._receipt(session, request_id, digest, receipt)
             return receipt
+
+    # ---- shared source sync bookkeeping (called with the shared repository) ----
+
+    async def start_sync_run(self, source: str, trigger: str, stale_after_seconds: int = 900) -> dict:
+        now = datetime.now(UTC)
+        stale = datetime.fromtimestamp(now.timestamp() - stale_after_seconds, UTC).isoformat()
+        record = dict(id=uuid4().hex, source=source, trigger=trigger, status="running", started_at=now.isoformat())
+        async with self.session_factory() as session, session.begin():
+            # A run left "running" by a restarted process can never finish; close it instead of blocking forever.
+            await session.execute(
+                update(sync_runs)
+                .where(sync_runs.c.source == source, sync_runs.c.status == "running", sync_runs.c.started_at < stale)
+                .values(status="failed", finished_at=now.isoformat(), error="interrupted")
+            )
+            await session.execute(insert(sync_runs).values(**record))
+        return record
+
+    async def finish_sync_run(self, run_id: str, **values) -> dict:
+        values = {**values, "finished_at": datetime.now(UTC).isoformat()}
+        async with self.session_factory() as session, session.begin():
+            await session.execute(update(sync_runs).where(sync_runs.c.id == run_id).values(**values))
+            row = (await session.execute(select(sync_runs).where(sync_runs.c.id == run_id))).mappings().first()
+            return dict(row)
+
+    async def sync_runs(self, source: str = "realshort", limit: int = 10) -> list[dict]:
+        async with self.session_factory() as session:
+            rows = await session.execute(
+                select(sync_runs).where(sync_runs.c.source == source).order_by(sync_runs.c.started_at.desc(), sync_runs.c.id.desc()).limit(limit)
+            )
+            return [dict(row) for row in rows.mappings()]
+
+    async def prune_shared(self, kind: str, keep: int) -> list[str]:
+        """Drop rows of old shared batches that no candidate snapshot references; the batch row stays as history."""
+        async with self.session_factory() as session, session.begin():
+            batches = (
+                (
+                    await session.execute(
+                        select(import_batches.c.id)
+                        .where(import_batches.c.owner_id == SHARED_OWNER, import_batches.c.kind == kind, import_batches.c.status == "published")
+                        .order_by(import_batches.c.published_at.desc(), import_batches.c.id.desc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            column = candidate_sets.c.catalog_batch_id if kind == "catalog" else candidate_sets.c.knowledge_batch_id
+            referenced = set((await session.execute(select(column).distinct())).scalars())
+            victims = [batch_id for batch_id in batches[keep:] if batch_id not in referenced]
+            if victims:
+                table = drama_versions if kind == "catalog" else knowledge_versions
+                await session.execute(delete(table).where(table.c.batch_id.in_(victims)))
+                for batch_id in victims:
+                    # Free the content-hash slot so identical content can be published again later.
+                    await session.execute(
+                        update(import_batches).where(import_batches.c.id == batch_id).values(status="pruned", content_hash="pruned-" + batch_id)
+                    )
+            return victims

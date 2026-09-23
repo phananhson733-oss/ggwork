@@ -1,7 +1,9 @@
 """Authenticated UI operations. The Agent never receives this write authority."""
 
 import csv
+import hmac
 import io
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from deerflow_extension_api.auth import resolve_principal
@@ -11,8 +13,10 @@ from pydantic import Field, ValidationError
 
 from ggwork_pick.contracts import StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
-from ggwork_pick.repository import ConflictError, PickRepository
+from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import result_view
+
+MANUAL_SYNC_COOLDOWN = timedelta(minutes=5)
 
 
 class SaveInput(StrictInput):
@@ -57,7 +61,7 @@ def build_router(service):
 
     def repository(request: Request):
         principal = resolve_principal(request)
-        if principal is None or not principal.user_id.strip() or principal.user_id == "default":
+        if principal is None or not principal.user_id.strip() or principal.user_id in ("default", SHARED_OWNER):
             raise HTTPException(401, "请先登录")
         if service.session_factory is None:
             raise HTTPException(503, "选剧服务尚未就绪")
@@ -70,7 +74,53 @@ def build_router(service):
         status = run.status if run else "unknown"
         if status not in {"pending", "running", "success", "error", "timeout", "interrupted"}:
             status = "unknown"
-        return {**result_view(record), "run_status": status}
+        repo = PickRepository(service.session_factory, record["owner_id"])
+        info = await repo.batch_info(record["catalog_batch_id"])
+        data_as_of = {key: info[key] for key in ("source_as_of", "published_at", "freshness", "scope", "shared")} if info else None
+        return {**result_view(record), "run_status": status, "data_as_of": data_as_of}
+
+    @router.get("/sync")
+    async def sync_status(request: Request):
+        repo = repository(request)
+        current = await repo.current_batch("catalog")
+        info = await repo.batch_info(current["id"]) if current else None
+        runs = await PickRepository.shared(service.session_factory).sync_runs()
+        return {"configured": service.sync_settings.configured, "current": info, "runs": runs}
+
+    @router.post("/sync", status_code=202)
+    async def sync_now(request: Request):
+        repository(request)
+        sync = service.realshort_sync()
+        if sync is None:
+            raise HTTPException(503, "尚未配置 RealShort 数据接口")
+        if service.sync_lock.locked():
+            return {"status": "already_running"}
+        runs = await PickRepository.shared(service.session_factory).sync_runs(limit=1)
+        if runs and runs[0]["status"] in ("running", "success"):
+            started = datetime.fromisoformat(runs[0]["started_at"])
+            if datetime.now(UTC) - started < MANUAL_SYNC_COOLDOWN:
+                raise HTTPException(429, "刚同步过，5分钟内不重复拉取")
+        service.spawn(sync.run("manual"))
+        return {"status": "started"}
+
+    @router.post("/cron/sync", status_code=202)
+    async def cron_sync(request: Request):
+        # Only the host's internal-token caller (the Vercel cron route) plus the dedicated sync token.
+        # Extensions cannot mount under the host's auth-exempt prefixes, so the host checks identity first.
+        expected = service.sync_settings.trigger_token
+        sync = service.realshort_sync()
+        if not expected or sync is None:
+            raise HTTPException(404, "Not Found")
+        principal = resolve_principal(request)
+        supplied = request.headers.get("x-pick-sync-token", "")
+        if principal is None or not principal.is_internal or not hmac.compare_digest(supplied.encode(), expected.encode()):
+            raise HTTPException(401, "unauthorized")
+        if service.session_factory is None:
+            raise HTTPException(503, "选剧服务尚未就绪")
+        if service.sync_lock.locked():
+            return {"status": "already_running"}
+        service.spawn(sync.run("cron"))
+        return {"status": "started"}
 
     @router.get("/imports")
     async def list_imports(request: Request):

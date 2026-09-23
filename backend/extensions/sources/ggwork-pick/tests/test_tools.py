@@ -389,3 +389,55 @@ async def test_empty_catalog_status_does_not_generate_a_raw_error_followup():
     assert "尚未接入剧库" in response.result[0].content
     assert "ValueError" not in response.result[0].content
     assert task.model_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_final_answer_gets_verification_notes_but_tool_turns_do_not():
+    from langchain.agents.middleware.types import ModelRequest, ModelResponse
+    from langchain_core.messages import AIMessage
+
+    from ggwork_pick.context import PickTask
+    from ggwork_pick.middleware import PickModelGate
+
+    task = PickTask(service=None, info=TaskInfo("t", "r", "c", "lead"))
+    task.repository = AsyncMock()
+    task.known_titles = {"Real Drama"}
+    store = ExtensionData("t")
+    store.set(task)
+    request = ModelRequest(model=SimpleNamespace(), messages=[], runtime=SimpleNamespace(context={EXTENSION_TASK_STORE_KEY: store}), tools=[])
+    final = AsyncMock(return_value=ModelResponse(result=[AIMessage(content="推荐《Real Drama》和《Fake Drama》，都没发过。")]))
+    response = await PickModelGate().awrap_model_call(request, final)
+    text = response.result[-1].content
+    assert text.startswith("推荐《Real Drama》") and "《Fake Drama》不在本轮" in text and "发布记录" in text
+    tool_turn = AIMessage(content="《Fake Drama》", tool_calls=[{"name": "pick_query_candidates", "args": {}, "id": "x"}])
+    passthrough = await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[tool_turn])))
+    assert passthrough.result[-1] is tool_turn
+    task.posted_checked = True
+    clean = await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[AIMessage(content="《Real Drama》没发过。")])))
+    assert clean.result[-1].content == "《Real Drama》没发过。"
+
+
+@pytest.mark.asyncio
+async def test_count_tool_and_posted_filters_through_runtime(tmp_path):
+    from ggwork_pick.context import PickLifecycle
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import count_candidates_tool, query_candidates_tool
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    service = PickService(tmp_path / "files")
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    rows = [{"source": "s", "source_id": str(i), "language": "en", "title": f"T{i}"} for i in range(3)]
+    await Importer(PickRepository(service.session_factory, "alice"), service.data_dir).catalog(json.dumps(rows).encode(), "json")
+    store = ExtensionData("task1")
+    await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task1", "run1", "thread1", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="call1")
+    counted = json.loads(await count_candidates_tool.coroutine(filters={"language": "en"}, runtime=runtime))
+    assert counted["total"] == 3 and counted["data_as_of"]["shared"] is False
+    refused = json.loads(await query_candidates_tool.coroutine(filters={"exclude_posted": True}, runtime=runtime))
+    assert refused["status"] == "posted_unavailable"
+    task = store.get(__import__("ggwork_pick.context", fromlist=["PickTask"]).PickTask)
+    assert task.posted_checked is False
+    assert await PickRepository(service.session_factory, "alice").results("thread1") == []
+    await engine.dispose()

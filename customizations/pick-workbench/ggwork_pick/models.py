@@ -78,3 +78,18 @@ selection_commands = Table(
     Column("receipt_json", JSON, nullable=False),
     Column("created_at", String(40), nullable=False),
 )
+sync_runs = Table(
+    "ggwp_sync_runs",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("source", String(40), nullable=False),
+    Column("trigger", String(20), nullable=False),
+    Column("status", String(20), nullable=False),
+    Column("started_at", String(40), nullable=False),
+    Column("finished_at", String(40)),
+    Column("rows", Integer),
+    Column("catalog_batch_id", String(64)),
+    Column("knowledge_batch_id", String(64)),
+    Column("source_as_of", String(40)),
+    Column("error", Text),
+)

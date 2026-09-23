@@ -84,14 +84,14 @@ class Importer:
         self.repository = repository
         self.data_dir = data_dir
 
-    async def catalog(self, payload: bytes, format: str) -> dict:
+    async def catalog(self, payload: bytes, format: str, *, source_as_of: str | None = None, meta: dict | None = None) -> dict:
         rows = await asyncio.to_thread(parse_catalog, payload, format)
-        return await self._publish(payload, "catalog", rows)
+        return await self._publish(payload, "catalog", rows, source_as_of=source_as_of, meta=meta)
 
     async def knowledge(self, payload: bytes, filename: str, source_ref: str) -> dict:
         return await self.knowledge_bundle([(payload, filename, source_ref)])
 
-    async def knowledge_bundle(self, files: list[tuple[bytes, str, str]]) -> dict:
+    async def knowledge_bundle(self, files: list[tuple[bytes, str, str]], *, source_as_of: str | None = None, meta: dict | None = None) -> dict:
         if not files or len(files) > 50 or sum(len(payload) for payload, _, _ in files) > MAX_BYTES:
             raise ValueError("知识批次需1至50份文件，总量不超过25MB")
         documents = []
@@ -116,9 +116,9 @@ class Importer:
             )
         # The immutable original batch is a manifest of all original texts.
         manifest = json.dumps(documents, ensure_ascii=False, sort_keys=True).encode()
-        return await self._publish(manifest, "knowledge", documents)
+        return await self._publish(manifest, "knowledge", documents, source_as_of=source_as_of, meta=meta)
 
-    async def _publish(self, payload: bytes, kind: str, rows: list[dict]) -> dict:
+    async def _publish(self, payload: bytes, kind: str, rows: list[dict], *, source_as_of: str | None = None, meta: dict | None = None) -> dict:
         digest = hashlib.sha256(payload).hexdigest()
         path = await asyncio.to_thread(_write_blob, self.data_dir, self.repository.owner_id, digest, payload)
-        return await self.repository.publish_import(kind=kind, content_hash=digest, raw_blob_path=path, rows=rows)
+        return await self.repository.publish_import(kind=kind, content_hash=digest, raw_blob_path=path, rows=rows, source_as_of=source_as_of, meta=meta)
