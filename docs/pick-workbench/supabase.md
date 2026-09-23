@@ -2,7 +2,7 @@
 
 对应方案 [2026-09-23-supabase-pick-board-plan.md](../plans/2026-09-23-supabase-pick-board-plan.md) 第 6 节（6.1–6.10）与第 9 节。本文只写怎么做、看什么结果，原因与取舍看方案；两者冲突时以方案第 13、14 节为准。
 
-**状态（2026-09-23）：** 正式项目已建并实测（第 1 节）；bootstrap 脚本和测试已完成（P0-4）。演练（P0-5）已在临时项目上做完，全部通过，临时资源已删除，结果见第 12 节。**正式项目上还没有执行 bootstrap**，正式切换（P0-6）还没做。
+**状态（2026-09-23）：** 已切换。演练（P0-5）与正式切换（P0-6）都已完成，生产 gateway 从 2026-09-23 13:04 UTC 起跑在 Supabase 正式项目上，结果见第 12 节。48 小时内可以按第 11 节回滚到 SQLite。
 
 **凭据规则：**
 - 本文和仓库里只有占位符：`<ref>` 是项目 ref，`<pw>` 是对应角色的密码。真实值只在密码管理器里，不进 git，不贴进对话，不写在命令行参数里。
@@ -351,13 +351,13 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 
 | 项 | 结果 | 日期 |
 |---|---|---|
-| Enforce SSL | 待填 | |
-| Data API 关闭 / Exposed schemas 为空 | 待填 | |
-| Pool Size = 20 | 待填 | |
-| PITR | 待填（开或不开） | |
-| Spend cap | 待填（开或关） | |
+| Enforce SSL | 开（CLI：`supabase ssl-enforcement update --experimental … --enable-db-ssl-enforcement`） | 2026-09-23 |
+| Data API 关闭 / Exposed schemas 为空 | 已关闭（Integrations → Data API → Overview） | 2026-09-23 |
+| Pool Size = 20 | 20（Database → Settings → Connection pooling） | 2026-09-23 |
+| PITR | 不开（Add-ons 显示 Disabled），靠 Pro 自带的每日备份（保留 7 天） | 2026-09-23 |
+| Spend cap | 开（组织 Billing 显示 enabled） | 2026-09-23 |
 
-**bootstrap（第 2 节）：** 待执行。记：退出状态、`grep -c WARNING` 的输出、2.4 各查询的结果、两个角色的密码已设置并已登录验证。
+**bootstrap（第 2 节）：2026-09-23 完成。** 退出状态 0，`grep -c WARNING` 为 0，输出与 2.1 逐行一致；2.4 各查询结果与演练逐字相同（两个角色 `rolconnlimit=20`，schema 权限只有 `deerflow_app=UC` 与 `pick_board_reader=U`，库属主 postgres）。两个角色的密码用本机算好的 SCRAM 摘要设置，`deerflow_app` 经 5432 登录，search_path 为 `deerflow`；reader 经 6543 登录，默认只读事务为 on。
 
 **演练（第 10 节）：2026-09-23 完成，全部通过。** 临时项目 `ggwork-rehearsal`（us-east-1，Micro，PostgreSQL 17.6）与 Railway 临时环境 `rehearsal`（从 production 复制，镜像 81a518d），演练后都已删除。
 
@@ -386,6 +386,22 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 - 建管理员可以不起前端，直接 `POST /api/v1/auth/initialize`（JSON，含 email 和 password），这个路径免 CSRF。请求体从权限 600 的文件读。
 - pick 配置没有设置 `run_events`，运行事件走内存后端，所以 `deerflow.run_events` 为空是正常的；消息存在 checkpointer 的表里。
 
-**正式切换（第 8 节）：** 待执行。记：SQLite 备份文件名与 sha256、`integrity_check` 结果、切换时间、第 9 步各项结果、连接峰值。
+**正式切换（第 8 节）：2026-09-23 完成。** 镜像 add76ec，生产 gateway 13:04 UTC 以 `backend=postgres` 启动。
+
+| 项 | 结果 |
+|---|---|
+| SQLite 备份 | `/data/backup/deerflow-sqlite-20260923.db`，`integrity_check` 为 `('ok',)`，sha256 `5f00b41f6ae0edfe95a634e3dc7489932077d9326a154536b371e81f35ccc79a`。原文件 `/data/data/deerflow.db` 未动。旧库里有 2 个账号、22 个对话、2 条选择，按用户决定不迁移 |
+| 本机建管理员（第 3 步） | 建表前 `deerflow` 为 0 张表；本机 worktree（add76ec，无 `.env`）建表与 ggwp 0001–0004 完成，用原管理员邮箱 `POST /api/v1/auth/initialize` 返回 201，`needs_setup=false`；之后删掉 worktree 与 home |
+| Railway 变量（第 4 步） | `PICK_DB_BACKEND=postgres`、`PGSSLMODE=require`、`PICK_DATABASE_URL`（从 stdin 设置），都带 `--skip-deploys`，没有触发旧镜像重启 |
+| 部署与登录（第 5、6 步） | `/health/ready` 200；经 Vercel 入口用管理员登录 200，`/auth/me` 为 admin |
+| 补跑同步（第 7 步） | 13:05:03 启动补跑成功，7,669 行，约 12 秒；13:12 手动同步成功，约 12 秒 |
+| 重建账号（第 8 步） | `railway ssh` 会话里三个变量都可见；用原邮箱 `create_user` 重建 1 个普通账号（`needs_setup=t`），初始密码已取回本机交给用户，容器里的文件已删 |
+| 表与 SSL | 38 张表全在 `deerflow`，属主 `deerflow_app`，`public` 为 0；`deerflow_app` 的连接全部 TLSv1.3 |
+| 对话与 checkpoint | 选剧对话端到端跑通（含工具调用），`deerflow.checkpoints` 541 行 |
+| 保存与导出 | 保存 2 部成功，同一 request_id 重试回执相同，CSV 2 行；验收用的两条随后移出，清单为空 |
+| NUL 与孤立代理项 | 两条消息都 200，存下的消息里对应位置是 U+FFFD |
+| 10 题验收 | 经 Vercel 入口跑，对 13:06Z 拉取的 feed 用 `scripts/pick-acceptance-verify.py` 独立核对：8 张卡的顺序、条件与符合总数全部一致；Q5 英语剧 2,360 部与 8 个剧场分项一致；带 `pick_reference` 的 Q7 为 5 部新剧、同一批次，Q8 依据与卡片一致 |
+| 连接峰值 | 对话、保存与同步期间 `deerflow_app` 10 个，所有角色合计 25 个（`max_connections=60`） |
+| 整库大小 | 26 MB |
 
 **每周容量（第 6 节）：** 切换后开始记录。

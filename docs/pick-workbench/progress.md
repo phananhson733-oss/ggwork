@@ -11,7 +11,12 @@
   - 只有「换一批」沿用上一张卡的条件和数据版本。
   - 回答核对提示存进扩展表，显示在回答下方，不再改写模型消息。
   - 其余修复与遗留事项见 [acceptance.md](acceptance.md) 末节。
-- **仍未做**：多人账号与团队共享、SQLite 换 Postgres 的评估、飞书写入与排期、本机 Docker 构建（云端构建已替代）；RealShort 仍共用生产 Azure key。
+- **数据库已迁到 Supabase（2026-09-23 13:04 UTC）**：
+  - 工作台宿主和选剧扩展一起搬到独立的 Supabase 项目 `ggwork-workbench`，与 RealShort 没有交集。
+  - 旧 SQLite 整库备份，48 小时内可以回滚，旧对话按决定不迁移。
+  - 演练和切换后的验证（含 10 题独立核对）都通过，见 [supabase.md](supabase.md) 第 12 节。
+  - 选剧资料页镜像旧选剧台（P2 镜像写入、P3 资料页）还没做；RealShort 的导出接口在 realshort#67，还没合并。
+- **仍未做**：多人账号与团队共享、飞书写入与排期、本机 Docker 构建（云端构建已替代）；RealShort 仍共用生产 Azure key。
 
 ---
 
