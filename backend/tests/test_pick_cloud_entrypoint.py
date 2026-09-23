@@ -324,3 +324,13 @@ def test_the_laptop_cutover_step_starts_the_gateway_with_only_what_it_exports(tm
     result = subprocess.run([sys.executable, "-c", LAPTOP_START], cwd=BACKEND, env=env, capture_output=True, text=True, timeout=180)
     assert result.returncode == 0, result.stderr[-2000:]
     assert PASSWORD not in result.stdout + result.stderr
+
+
+def test_the_pick_image_and_compose_serve_the_sanitized_gateway_with_the_postgres_drivers():
+    # The workbench CI installs --extra postgres itself, so only these files show what the deployment gets.
+    dockerfile = (BACKEND.parent / "docker/Dockerfile.pick-gateway").read_text()
+    assert "uv sync --locked --no-dev --extra postgres" in dockerfile
+    assert 'CMD ["sh", "-c", "cd backend && python -m app.gateway.pick_entrypoint"]' in dockerfile
+    compose = yaml.safe_load((BACKEND.parent / "docker/docker-compose.pick.yaml").read_text())
+    command = " ".join(compose["services"]["gateway"]["command"])
+    assert "uvicorn app.gateway.pick_asgi:app " in command
