@@ -64,7 +64,8 @@ OLD_PATTERN = r"pan\.baidu|pan\.quark|aliyundrive|alipan|115\.com|123pan|lanzou|
 REALSHORT_HOSTS = [
     "pan.baidu.com", "yun.baidu.com", "pan.quark.cn", "aliyundrive.com", "alipan.com", "115.com", "115cdn.com", "123pan.com", "123pan.cn",
     "123684.com", "123865.com", "123912.com", "lanzou.com", "lanzoui.com", "drive.uc.cn", "cloud.189.cn", "pan.xunlei.com", "caiyun.139.com",
-    "yun.139.com", "weiyun.com", "jianguoyun.com", "mypikpak.com", "pan.wo.cn", "ctfile.com", "ilanzou.com", "feijipan.com",
+    "yun.139.com", "weiyun.com", "jianguoyun.com", "mypikpak.com", "pan.wo.cn", "ctfile.com", "ilanzou.com", "feijipan.com", "lanzn.com",
+    "wenshushu.cn", "cowtransfer.com", "yunpan.360.cn",
 ]
 # (table, key columns, JSON column): every JSON column of the ggwp tables, in the order of both scripts.
 JSON_COLUMNS = [
@@ -106,8 +107,8 @@ def test_the_scripts_and_the_runbook_use_one_pattern_that_keeps_the_old_one():
     assert runbook_pan() == f"PAN='{pattern}'"
     assert set(OLD_PATTERN.split("|")) <= set(pattern.split("|"))
     # Every share host RealShort scrubs is found by one of the host branches (grep -i and ~* ignore ASCII case). Only branches made of
-    # letters, digits and \. count: splitting on | also leaves bits of the 密码 group such as a lone ":".
-    hosts = [re.compile(alt, re.IGNORECASE) for alt in pattern.split("|") if re.fullmatch(r"(?:[A-Za-z0-9]|\\\.)+", alt)]
+    # letters, digits, \. and [a-z] count: splitting on | also leaves bits of the 密码 group such as a lone ":".
+    hosts = [re.compile(alt, re.IGNORECASE) for alt in pattern.split("|") if re.fullmatch(r"(?:[A-Za-z0-9]|\\\.|\[a-z\])+", alt)]
     for host in REALSHORT_HOSTS:
         assert any(p.search(f"share.{host.upper()}/s/1AbC") for p in hosts), host
     # Every backslash escape takes one or more backslashes, whatever the number of JSON layers.
