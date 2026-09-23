@@ -11,6 +11,7 @@ from sqlalchemy import delete, insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from ggwork_pick.contracts import storable
 from ggwork_pick.models import answer_checks, candidate_sets, drama_versions, import_batches, knowledge_versions, selection_commands, selections, sync_runs
 
 # Batches published by the scheduled source sync. Every user can read them; nobody can log in as this owner
@@ -188,6 +189,8 @@ class PickRepository:
     async def publish_import(
         self, *, kind: str, content_hash: str, raw_blob_path: str, rows: list[dict], source_as_of: str | None = None, meta: dict | None = None
     ) -> dict:
+        """Rows are validated by the Importer (DramaInput, strict UTF-8 knowledge); the feed's metadata is not."""
+        source_as_of, meta = storable(source_as_of), storable(meta)
         batch_id = uuid4().hex
         now = stamp()
         batch = dict(
@@ -257,6 +260,8 @@ class PickRepository:
         return {**existing, **values}
 
     async def result(self, result_id: str) -> dict:
+        # The model passes result ids too; one the drivers cannot send is simply not found.
+        result_id = storable(result_id)
         async with self.session_factory() as session:
             row = (
                 (await session.execute(select(candidate_sets).where(candidate_sets.c.id == result_id, candidate_sets.c.owner_id == self.owner_id)))
@@ -278,6 +283,8 @@ class PickRepository:
             return [dict(row) for row in rows.mappings()]
 
     async def result_for_call(self, run_id: str, call_id: str) -> dict | None:
+        # Tool call ids come from the model provider; add_result stores them the same way.
+        run_id, call_id = storable(run_id), storable(call_id)
         async with self.session_factory() as session:
             row = (
                 (
@@ -293,7 +300,7 @@ class PickRepository:
             return dict(row) if row else None
 
     async def add_result(self, record: dict) -> dict:
-        record = _fits(candidate_sets, {**record, "owner_id": self.owner_id})
+        record = _fits(candidate_sets, storable({**record, "owner_id": self.owner_id}))
         async with self.session_factory() as session:
             try:
                 async with session.begin():
@@ -445,7 +452,8 @@ class PickRepository:
         return record
 
     async def finish_sync_run(self, run_id: str, **values) -> dict:
-        values = _fits(sync_runs, {**values, "finished_at": stamp()})
+        # source_as_of is the feed's capture time as sent; errors quote the failure.
+        values = _fits(sync_runs, storable({**values, "finished_at": stamp()}))
         async with self.session_factory() as session, session.begin():
             await session.execute(update(sync_runs).where(sync_runs.c.id == run_id).values(**values))
             row = (await session.execute(select(sync_runs).where(sync_runs.c.id == run_id))).mappings().first()
@@ -508,16 +516,19 @@ class PickRepository:
     # ---- answer-check notes (per user) ----
 
     async def record_answer_check(self, *, thread_id: str, run_id: str, message_id: str | None, notes: list[str]) -> None:
+        # Notes quote titles from the model's answer, and the message id comes from the model provider.
         row = _fits(
             answer_checks,
-            dict(
-                id=uuid4().hex,
-                owner_id=self.owner_id,
-                thread_id=thread_id,
-                run_id=run_id,
-                message_id=message_id,
-                notes_json=list(notes),
-                created_at=stamp(),
+            storable(
+                dict(
+                    id=uuid4().hex,
+                    owner_id=self.owner_id,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    message_id=message_id,
+                    notes_json=list(notes),
+                    created_at=stamp(),
+                )
             ),
         )
         async with self.session_factory() as session:
@@ -525,7 +536,7 @@ class PickRepository:
                 async with session.begin():
                     await session.execute(insert(answer_checks).values(**row))
             except IntegrityError:
-                if message_id is None or not await self._answer_checked(message_id):
+                if row["message_id"] is None or not await self._answer_checked(row["message_id"]):
                     raise
                 # a retried model call already recorded this answer
 

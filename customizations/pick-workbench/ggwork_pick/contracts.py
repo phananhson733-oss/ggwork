@@ -8,9 +8,10 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 from pydantic_core import PydanticCustomError
 
-# NUL and lone surrogates. PostgreSQL text refuses NUL; asyncpg and psycopg encode strictly and cannot send
-# a lone surrogate, which is what Python's JSON decoder makes of an unpaired "\ud800" escape.
+# NUL and lone surrogates. PostgreSQL text refuses NUL; asyncpg, psycopg and sqlite3 encode strictly and cannot
+# send a lone surrogate, which is what Python's JSON decoder makes of an unpaired "\ud800" escape.
 UNSTORABLE_TEXT = re.compile("[\x00\ud800-\udfff]")
+REPLACEMENT_CHARACTER = "\ufffd"
 # ggwp_drama_versions.identity and ggwp_selections.identity are String(512).
 IDENTITY_MAX_LENGTH = 512
 
@@ -40,6 +41,21 @@ def unstorable_path(value) -> str | None:
     if found is None:
         return None
     return ".".join(UNSTORABLE_TEXT.sub("?", str(key)) for key in found) or "value"
+
+
+def storable(value):
+    """A copy of value with NUL and lone surrogates replaced by U+FFFD, dict keys included.
+
+    For text that reaches a table without passing StrictInput: feed metadata, ids from the model provider, notes
+    quoting the model's answer. Refusing those would lose a whole sync or an answer's notes over one character.
+    """
+    if isinstance(value, str):
+        return UNSTORABLE_TEXT.sub(REPLACEMENT_CHARACTER, value)
+    if isinstance(value, dict):
+        return {storable(key): storable(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return type(value)(storable(item) for item in value)
+    return value
 
 
 class StrictInput(BaseModel):

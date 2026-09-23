@@ -128,30 +128,35 @@ async def test_model_conditions_refuse_unstorable_text():
 
 @pytest.mark.asyncio
 async def test_json_columns_keep_escaped_nul(pick_db_url, tmp_path):
+    # Written past the repository, which replaces NUL in text that skipped StrictInput (test_storable_text):
+    # this is what the column itself accepts.
+    from ggwork_pick.models import candidate_sets, import_batches
+    from ggwork_pick.repository import stamp
+
     engine, _, repo = await _open(pick_db_url, tmp_path)
     try:
         odd = f"a{NUL}b"
-        batch = await repo.publish_import(kind="catalog", content_hash="h", raw_blob_path="/x", rows=[], meta={"scope": odd})
+        batch = dict(id="batch-1", owner_id="alice", kind="catalog", content_hash="h", raw_blob_path="/x", status="published", created_at=stamp())
         record = dict(
             id="result-1",
+            owner_id="alice",
             thread_id="t",
             run_id="r",
             tool_call_id="c",
-            request_hash=None,
-            parent_result_id=None,
-            catalog_batch_id=batch["id"],
-            knowledge_batch_id=None,
+            catalog_batch_id="batch-1",
             rule_version="v",
             ranking_version="v",
             conditions_json={"query": odd},
             ordered_items_json=[{"title": odd}],
-            created_at=datetime.now(UTC).isoformat(),
+            created_at=stamp(),
         )
-        await repo.add_result(record)
+        async with engine.begin() as conn:
+            await conn.execute(insert(import_batches).values(**batch, validation_json={"scope": odd}))
+            await conn.execute(insert(candidate_sets).values(**record))
         stored = await repo.result("result-1")
         assert stored["conditions_json"] == {"query": odd}
         assert stored["ordered_items_json"] == [{"title": odd}]
-        assert (await repo.batch_info(batch["id"]))["scope"] == odd
+        assert (await repo.batch_info("batch-1"))["scope"] == odd
         if engine.dialect.name == "postgresql":
             async with engine.connect() as conn:
                 types = await conn.execute(
