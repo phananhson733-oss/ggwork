@@ -87,6 +87,18 @@ def test_surrogates_encoded_directly_as_utf8_bytes_are_replaced():
     assert json.loads(body_of(seen)) == {"content": "x\ufffdy"}
 
 
+def test_utf16_and_utf32_bodies_are_sanitized_too():
+    # json.loads (and so FastAPI) detects UTF-16 and UTF-32 from the bytes, where the UTF-8 byte test never matches
+    for codec in ("utf-16", "utf-16-le", "utf-16-be", "utf-32", "utf-32-le"):
+        raw = json.dumps({"content": "a\x00b\ud800c"}).encode(codec)
+        seen, _ = run(http_scope(length=len(raw)), [request(raw)])
+        body = body_of(seen)
+        assert json.loads(body) == {"content": "a\ufffdb\ufffdc"}, codec
+        assert content_length(seen["scope"]) == str(len(body)).encode(), codec
+    clean = json.dumps({"content": "ok"}).encode("utf-16")
+    assert sanitize_json_body(clean) is clean
+
+
 def test_an_escaped_backslash_is_literal_text_and_the_body_is_untouched():
     raw = b'{"content":"C:\\\\u0000 and \\\\ud800"}'
     assert json.loads(raw) == {"content": "C:\\u0000 and \\ud800"}

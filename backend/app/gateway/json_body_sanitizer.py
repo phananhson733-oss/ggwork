@@ -47,7 +47,9 @@ def _storable(value: object) -> tuple[object, bool]:
 
 def sanitize_json_body(body: bytes) -> bytes:
     """The body with NUL and lone surrogates replaced; the same object when it has none or is not JSON."""
-    if not _MAYBE_UNSTORABLE.search(body):
+    # The byte test reads UTF-8 only. json.loads, and so every route, also accepts UTF-16 and UTF-32, which are
+    # always parsed; a changed body goes on as UTF-8.
+    if json.detect_encoding(body).startswith("utf-8") and not _MAYBE_UNSTORABLE.search(body):
         return body
     try:
         clean, changed = _storable(json.loads(body))
