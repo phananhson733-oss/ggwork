@@ -8,7 +8,7 @@
 
 **Tech Stack:** 固定版本 DeerFlow、Python/FastAPI/SQLAlchemy/Alembic、Next.js/React/TypeScript、单 Gateway worker + SQLite 持久卷；后续多人并发时再验证 PostgreSQL。模型沿用上游 provider 配置，只接一个提供方。
 
-**Status:** 已完成 ChatGPT Pro 独立审计与本地源码交叉核对，可作为实施基线；T0–T7 尚未执行。审计记录见 [协同审计结论](../reviews/2026-09-21-pick-workbench-pro-audit.md)。
+**Status:** 2026-09-23：T0–T7 个人 MVP 已落地并上线，T6 真实数据 10 题验收通过；数据改为 RealShort 只读接口定时同步（见 docs/pick-workbench/realshort-sync.md）。下文保留原始方案。
 
 ## 1. 已确认范围与工程基线
 

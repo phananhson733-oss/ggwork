@@ -1,5 +1,7 @@
 # RealShort 候选池快照接入（2026-09-21）
 
+> 2026-09-23 起由 [realshort-sync.md](realshort-sync.md) 的只读接口定时同步取代；本文保留作为首次人工快照的记录。
+
 截图中 Azure 已成功调用工具，但个人 workspace 没有任何 catalog batch，工具抛出 ValueError，模型又把内部错误复述到正文。并非 Azure 密钥失败。
 
 已从 RealShort `3e8a98a` 查询 facade 导出的 `unionRows`、`toRowWithFlags`、`loadSignalsFor` 只读提取候选。条件为 `has_signal AND off_on IS NULL`，包含剧场剧单和 ReelShort 正典候选；不调用 catalog-import、catalog-refresh，不修改源库。按 200 个行键分批读取信号以避免巨型参数查询。候选上限 10,000，超过就失败，不发布截断批次。
