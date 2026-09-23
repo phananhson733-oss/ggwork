@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -22,6 +23,63 @@ DATA_AS_OF_KEYS = ("source_as_of", "published_at", "freshness", "scope", "shared
 
 class ConflictError(ValueError):
     """A replay changed its payload or a client edited an obsolete version."""
+
+
+def stamp(moment: datetime | None = None) -> str:
+    """A stored timestamp; the tables keep them as ISO strings and compare them as text.
+
+    Always six fractional digits: isoformat() drops ".000000", and a linguistic collation (Supabase's
+    en_US.UTF-8) orders "." before "+", so "10:00:00+00:00" would sort after "10:00:00.500000+00:00".
+    """
+    return (moment or datetime.now(UTC)).astimezone(UTC).isoformat(timespec="microseconds")
+
+
+def _fits(table, values: dict) -> dict:
+    """SQLite ignores VARCHAR lengths and PostgreSQL fails the whole statement: refuse the same way on both."""
+    for key, value in values.items():
+        column = table.c.get(key)
+        length = getattr(column.type, "length", None) if column is not None else None
+        if length is not None and isinstance(value, str) and len(value) > length:
+            raise ValueError(f"{key} 超过 {length} 个字符")
+    return values
+
+
+class BatchRowCache:
+    """Catalog rows of the most recently used batches, per process.
+
+    A published batch's rows never change, and prune_shared evicts what it prunes. Read only after the
+    owner check has passed. Callers share the cached row dicts and must not modify them.
+    """
+
+    def __init__(self, max_batches: int = 2):
+        self.max_batches = max_batches
+        self._rows: OrderedDict[str, tuple[dict, ...]] = OrderedDict()
+
+    def __contains__(self, batch_id: str) -> bool:
+        return batch_id in self._rows
+
+    def get(self, batch_id: str) -> tuple[dict, ...] | None:
+        rows = self._rows.get(batch_id)
+        if rows is not None:
+            self._rows.move_to_end(batch_id)
+        return rows
+
+    def put(self, batch_id: str, rows: tuple[dict, ...]) -> None:
+        self._rows[batch_id] = rows
+        self._rows.move_to_end(batch_id)
+        while len(self._rows) > self.max_batches:
+            self._rows.popitem(last=False)
+
+    def evict(self, batch_ids) -> None:
+        for batch_id in batch_ids:
+            self._rows.pop(batch_id, None)
+
+    def clear(self) -> None:
+        self._rows.clear()
+
+
+# The shared catalog is about 5.4 MB of JSON; every tool call reads it, and over the network that is slow.
+CATALOG_CACHE = BatchRowCache()
 
 
 class PickRepository:
@@ -109,10 +167,17 @@ class PickRepository:
         return dict(row)
 
     async def catalog_rows(self, batch_id: str) -> list[dict]:
+        """A new list of the batch's rows. The row dicts are shared with the cache: never modify them."""
         async with self.session_factory() as session:
             await self._require_batch(session, batch_id, "catalog")
-            rows = await session.execute(select(drama_versions.c.payload_json).where(drama_versions.c.batch_id == batch_id).order_by(drama_versions.c.identity))
-            return list(rows.scalars())
+            rows = CATALOG_CACHE.get(batch_id)
+            if rows is None:
+                result = await session.execute(
+                    select(drama_versions.c.payload_json).where(drama_versions.c.batch_id == batch_id).order_by(drama_versions.c.identity)
+                )
+                rows = tuple(result.scalars())
+                CATALOG_CACHE.put(batch_id, rows)
+            return list(rows)
 
     async def knowledge_documents(self, batch_id: str) -> list[dict]:
         async with self.session_factory() as session:
@@ -124,7 +189,7 @@ class PickRepository:
         self, *, kind: str, content_hash: str, raw_blob_path: str, rows: list[dict], source_as_of: str | None = None, meta: dict | None = None
     ) -> dict:
         batch_id = uuid4().hex
-        now = datetime.now(UTC).isoformat()
+        now = stamp()
         batch = dict(
             id=batch_id,
             owner_id=self.owner_id,
@@ -137,6 +202,12 @@ class PickRepository:
             published_at=now,
             validation_json={**(meta or {}), "rows": len(rows)},
         )
+        _fits(import_batches, batch)
+        for row in rows:
+            if kind == "catalog":
+                _fits(drama_versions, {"identity": row["identity"]})
+            elif kind == "knowledge":
+                _fits(knowledge_versions, row)
         async with self.session_factory() as session:
             try:
                 async with session.begin():
@@ -174,7 +245,7 @@ class PickRepository:
         current = await self.current_batch(kind)
         values = {}
         if current is None or current["id"] != existing["id"]:
-            values["published_at"] = datetime.now(UTC).isoformat()
+            values["published_at"] = stamp()
         if source_as_of is not None:
             values["source_as_of"] = source_as_of
         if meta is not None:
@@ -182,7 +253,7 @@ class PickRepository:
         if not values:
             return existing
         async with self.session_factory() as session, session.begin():
-            await session.execute(update(import_batches).where(import_batches.c.id == existing["id"]).values(**values))
+            await session.execute(update(import_batches).where(import_batches.c.id == existing["id"]).values(**_fits(import_batches, values)))
         return {**existing, **values}
 
     async def result(self, result_id: str) -> dict:
@@ -222,7 +293,7 @@ class PickRepository:
             return dict(row) if row else None
 
     async def add_result(self, record: dict) -> dict:
-        record = {**record, "owner_id": self.owner_id}
+        record = _fits(candidate_sets, {**record, "owner_id": self.owner_id})
         async with self.session_factory() as session:
             try:
                 async with session.begin():
@@ -274,9 +345,7 @@ class PickRepository:
 
     async def _receipt(self, session, request_id: str, digest: str, receipt: dict):
         await session.execute(
-            insert(selection_commands).values(
-                owner_id=self.owner_id, request_id=request_id, payload_hash=digest, receipt_json=receipt, created_at=datetime.now(UTC).isoformat()
-            )
+            insert(selection_commands).values(owner_id=self.owner_id, request_id=request_id, payload_hash=digest, receipt_json=receipt, created_at=stamp())
         )
 
     async def command_receipt(self, request_id: str) -> dict | None:
@@ -310,7 +379,7 @@ class PickRepository:
             if len(items) != len(requested):
                 raise ValueError("保存条目不在候选结果中")
             saved = []
-            now = datetime.now(UTC).isoformat()
+            now = stamp()
             for item in items:
                 old = (
                     (await session.execute(select(selections).where(selections.c.owner_id == self.owner_id, selections.c.identity == item["identity"])))
@@ -349,7 +418,7 @@ class PickRepository:
                 raise LookupError("选剧记录不存在")
             if old["version"] != expected_version:
                 raise ConflictError("记录版本已变化，请刷新后重试")
-            values = dict(version=expected_version + 1, updated_at=datetime.now(UTC).isoformat())
+            values = dict(version=expected_version + 1, updated_at=stamp())
             if note is not None:
                 values["note"] = note
             if state is not None:
@@ -363,20 +432,20 @@ class PickRepository:
 
     async def start_sync_run(self, source: str, trigger: str, stale_after_seconds: int = 900) -> dict:
         now = datetime.now(UTC)
-        stale = datetime.fromtimestamp(now.timestamp() - stale_after_seconds, UTC).isoformat()
-        record = dict(id=uuid4().hex, source=source, trigger=trigger, status="running", started_at=now.isoformat())
+        stale = stamp(now - timedelta(seconds=stale_after_seconds))
+        record = dict(id=uuid4().hex, source=source, trigger=trigger, status="running", started_at=stamp(now))
         async with self.session_factory() as session, session.begin():
             # A run left "running" by a restarted process can never finish; close it instead of blocking forever.
             await session.execute(
                 update(sync_runs)
                 .where(sync_runs.c.source == source, sync_runs.c.status == "running", sync_runs.c.started_at < stale)
-                .values(status="failed", finished_at=now.isoformat(), error="interrupted")
+                .values(status="failed", finished_at=stamp(now), error="interrupted")
             )
             await session.execute(insert(sync_runs).values(**record))
         return record
 
     async def finish_sync_run(self, run_id: str, **values) -> dict:
-        values = {**values, "finished_at": datetime.now(UTC).isoformat()}
+        values = _fits(sync_runs, {**values, "finished_at": stamp()})
         async with self.session_factory() as session, session.begin():
             await session.execute(update(sync_runs).where(sync_runs.c.id == run_id).values(**values))
             row = (await session.execute(select(sync_runs).where(sync_runs.c.id == run_id))).mappings().first()
@@ -391,7 +460,7 @@ class PickRepository:
 
     async def close_interrupted_runs(self, source: str = "realshort") -> None:
         """At startup nothing can be running in this process; a "running" row is left over from a dead one."""
-        now = datetime.now(UTC).isoformat()
+        now = stamp()
         async with self.session_factory() as session, session.begin():
             await session.execute(
                 update(sync_runs)
@@ -404,7 +473,7 @@ class PickRepository:
 
         Returns the raw blob paths that no live batch uses any more, for the caller to delete.
         """
-        cutoff = (datetime.now(UTC) - referenced_within).isoformat()
+        cutoff = stamp(datetime.now(UTC) - referenced_within)
         column = candidate_sets.c.catalog_batch_id if kind == "catalog" else candidate_sets.c.knowledge_batch_id
         async with self.session_factory() as session, session.begin():
             batches = (
@@ -431,19 +500,25 @@ class PickRepository:
                     )
                 ).scalars()
             )
-            return sorted(paths - live)
+        # After the commit: a reader that passed the owner check before it may still put the rows back, but a
+        # pruned batch never passes that check again, and the cache holds two batches at most.
+        CATALOG_CACHE.evict(batch.id for batch in victims)
+        return sorted(paths - live)
 
     # ---- answer-check notes (per user) ----
 
     async def record_answer_check(self, *, thread_id: str, run_id: str, message_id: str | None, notes: list[str]) -> None:
-        row = dict(
-            id=uuid4().hex,
-            owner_id=self.owner_id,
-            thread_id=thread_id,
-            run_id=run_id,
-            message_id=message_id,
-            notes_json=list(notes),
-            created_at=datetime.now(UTC).isoformat(),
+        row = _fits(
+            answer_checks,
+            dict(
+                id=uuid4().hex,
+                owner_id=self.owner_id,
+                thread_id=thread_id,
+                run_id=run_id,
+                message_id=message_id,
+                notes_json=list(notes),
+                created_at=stamp(),
+            ),
         )
         async with self.session_factory() as session:
             try:

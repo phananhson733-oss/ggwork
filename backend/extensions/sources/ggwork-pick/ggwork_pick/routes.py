@@ -7,10 +7,12 @@ from typing import Literal
 
 from deerflow_extension_api.auth import resolve_principal
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, Response
+from fastapi.routing import APIRoute
 from pydantic import Field, ValidationError
 
-from ggwork_pick.contracts import StrictInput
+from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import result_view
@@ -57,8 +59,37 @@ def csv_cell(value):
     return "'" + value if value.lstrip().startswith(("=", "+", "-", "@")) or value.startswith(("\t", "\r", "\n")) else value
 
 
+def _printable(value):
+    return UNSTORABLE_TEXT.sub("?", value) if isinstance(value, str) else value
+
+
+class StorableTextRoute(APIRoute):
+    """Keep text PostgreSQL cannot store (NUL, lone surrogates) from turning into a 500.
+
+    Bodies are checked by StrictInput. Percent-decoding replaces invalid UTF-8, so NUL is the only such
+    character a path or query parameter can carry; PostgreSQL refuses it even as a WHERE value. FastAPI's
+    default 422 repeats every invalid input, and a lone surrogate there fails rendering the response
+    itself, so validation errors are answered here without the input.
+    """
+
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def storable(request: Request) -> Response:
+            params = [*request.path_params.values(), *(value for _, value in request.query_params.multi_items())]
+            if any(isinstance(value, str) and UNSTORABLE_TEXT.search(value) for value in params):
+                return JSONResponse({"detail": "请求参数含 NUL 字符"}, status_code=422)
+            try:
+                return await handler(request)
+            except RequestValidationError as exc:
+                errors = [{"type": e["type"], "loc": [_printable(part) for part in e["loc"]], "msg": _printable(e["msg"])} for e in exc.errors()]
+                return JSONResponse({"detail": errors}, status_code=422)
+
+        return storable
+
+
 def build_router(service):
-    router = APIRouter(prefix="/api/pick", tags=["pick-workbench"])
+    router = APIRouter(prefix="/api/pick", tags=["pick-workbench"], route_class=StorableTextRoute)
 
     def repository(request: Request):
         principal = resolve_principal(request)

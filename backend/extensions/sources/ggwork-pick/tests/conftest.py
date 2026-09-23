@@ -1,14 +1,47 @@
 import os
+import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+import httpx
 import pg
 import pytest
 import pytest_asyncio
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # Exercise the pinned host API source; production installs the workspace package.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "backend/packages/extension-api"))
+
+# Session-level settings outlive the transaction on a pooled connection (plan 6.7); only SET LOCAL is allowed.
+_SESSION_SETTING = re.compile(r"(?is)^\s*(SET\s+(?!LOCAL\b)|RESET\b)|\bset_config\s*\([^)]*,\s*(false|0)\s*\)")
+
+
+def _refuse_session_settings(conn, cursor, statement, parameters, context, executemany):
+    if _SESSION_SETTING.search(statement):
+        raise AssertionError(f"session-level setting on a pooled connection, use SET LOCAL: {statement[:200]}")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _transaction_scoped_settings_only():
+    """Every statement any test sends through SQLAlchemy, on either dialect."""
+    event.listen(Engine, "before_cursor_execute", _refuse_session_settings)
+    yield
+    event.remove(Engine, "before_cursor_execute", _refuse_session_settings)
+
+
+@pytest.fixture(autouse=True)
+def _empty_batch_cache():
+    """The catalog cache lives for the process; each test starts and ends without another test's batches."""
+    from ggwork_pick.repository import CATALOG_CACHE
+
+    CATALOG_CACHE.clear()
+    yield
+    CATALOG_CACHE.clear()
 
 
 @pytest.fixture(scope="session")
@@ -55,3 +88,31 @@ def pick_db_url(request, tmp_path):
     if request.param == "sqlite":
         return f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}"
     return request.getfixturevalue("pg_db_url")
+
+
+@pytest_asyncio.fixture
+async def app_client(pick_db_url, tmp_path):
+    """The extension's router on either dialect; the test-owner header names the signed-in user."""
+    from deerflow_extension_api.auth import EXTENSION_PRINCIPAL_RESOLVER_KEY, ExtensionPrincipal
+    from fastapi import FastAPI
+
+    from ggwork_pick.routes import build_router
+    from ggwork_pick.service import PickService
+
+    engine = create_async_engine(pick_db_url)
+    service = PickService(tmp_path / "files")
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    service.run_evidence_reader = SimpleNamespace(get_run_status=AsyncMock(return_value=SimpleNamespace(status="success")))
+    app = FastAPI()
+    # Test-only identity resolver, never installed by the business extension.
+    setattr(
+        app.state,
+        EXTENSION_PRINCIPAL_RESOLVER_KEY,
+        lambda request: (
+            ExtensionPrincipal(request.headers["test-owner"], is_internal="test-internal" in request.headers) if "test-owner" in request.headers else None
+        ),
+    )
+    app.include_router(build_router(service))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        yield client, service
+    await engine.dispose()

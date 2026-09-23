@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from ggwork_pick.contracts import DramaInput
+from ggwork_pick.contracts import UNSTORABLE_TEXT, DramaInput
 from ggwork_pick.repository import PickRepository
 
 MAX_BYTES = 25 * 1024 * 1024
@@ -48,8 +48,8 @@ def parse_catalog(payload: bytes, format: str, keep_original: bool = True) -> li
         raise ValueError("剧库必须是1至100000行的数组")
     rows, identities = [], set()
     for original in raw:
-        row = DramaInput.model_validate(original).model_dump(mode="json")
-        identity = json.dumps([row["source"], row["source_id"], row["language"]], ensure_ascii=False, separators=(",", ":"))
+        drama = DramaInput.model_validate(original)
+        row, identity = drama.model_dump(mode="json"), drama.identity
         if identity in identities:
             raise ValueError("同一批次存在重复的来源剧目ID和语种")
         identities.add(identity)
@@ -101,6 +101,8 @@ class Importer:
             text = decode_payload(payload)
             if not filename.endswith(".md") or not source_ref.strip() or len(source_ref) > 2048:
                 raise ValueError("知识必须是Markdown，并提供来源")
+            if UNSTORABLE_TEXT.search(filename) or UNSTORABLE_TEXT.search(source_ref):
+                raise ValueError("知识的文件名或来源含 NUL 字符或孤立代理项")
             document_id = hashlib.sha256(source_ref.encode()).hexdigest()
             if document_id in seen:
                 raise ValueError("知识批次中存在重复来源")

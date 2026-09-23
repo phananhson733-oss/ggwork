@@ -1,13 +1,58 @@
 """Typed business input, separate from prose and runtime authority."""
 
+import json
+import re
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
+from pydantic_core import PydanticCustomError
+
+# NUL and lone surrogates. PostgreSQL text refuses NUL; asyncpg and psycopg encode strictly and cannot send
+# a lone surrogate, which is what Python's JSON decoder makes of an unpaired "\ud800" escape.
+UNSTORABLE_TEXT = re.compile("[\x00\ud800-\udfff]")
+# ggwp_drama_versions.identity and ggwp_selections.identity are String(512).
+IDENTITY_MAX_LENGTH = 512
+
+
+def _unstorable_at(value) -> list | None:
+    """The key path to the first string holding unstorable text, or None. Dict keys are strings too."""
+    if isinstance(value, str):
+        return [] if UNSTORABLE_TEXT.search(value) else None
+    if isinstance(value, dict):
+        pairs = value.items()
+    elif isinstance(value, list | tuple):
+        pairs = enumerate(value)
+    else:
+        return None
+    for key, item in pairs:
+        if isinstance(key, str) and UNSTORABLE_TEXT.search(key):
+            return [key]
+        found = _unstorable_at(item)
+        if found is not None:
+            return [key, *found]
+    return None
+
+
+def unstorable_path(value) -> str | None:
+    """Where value holds NUL or a lone surrogate, printable in an error: the offending text itself is never echoed."""
+    found = _unstorable_at(value)
+    if found is None:
+        return None
+    return ".".join(UNSTORABLE_TEXT.sub("?", str(key)) for key in found) or "value"
 
 
 class StrictInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, allow_inf_nan=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _storable_text(cls, data):
+        # SQLite stores both characters; PostgreSQL would fail the write with a 500. Refuse them as input instead.
+        where = unstorable_path(data)
+        if where is not None:
+            raise PydanticCustomError("unstorable_text", "{where} 含 NUL 字符或孤立代理项，无法保存", {"where": where})
+        return data
 
 
 class SignalInput(StrictInput):
@@ -45,6 +90,17 @@ class DramaInput(StrictInput):
     channel_rules: dict[Literal["youtube", "tiktok", "facebook"], Literal["allowed", "denied", "unknown"]] = Field(default_factory=dict)
     detail_url: str | None = Field(default=None, max_length=2048)
     posted: PostedInput | None = None
+
+    @property
+    def identity(self) -> str:
+        return json.dumps([self.source, self.source_id, self.language], ensure_ascii=False, separators=(",", ":"))
+
+    @model_validator(mode="after")
+    def _identity_fits(self):
+        # Escaping can push an identity past the column (a quote in source_id counts twice); plain values stay under 410.
+        if len(self.identity) > IDENTITY_MAX_LENGTH:
+            raise PydanticCustomError("identity_too_long", "identity（来源、来源ID、语种）超过 {limit} 个字符", {"limit": IDENTITY_MAX_LENGTH})
+        return self
 
 
 class PickConditions(StrictInput):

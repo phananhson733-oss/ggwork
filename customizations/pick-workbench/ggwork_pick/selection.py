@@ -1,12 +1,12 @@
 """Deterministic filtering and immutable candidate snapshots."""
 
+import copy
 import hashlib
 import json
-from datetime import UTC, datetime
 from uuid import uuid4
 
 from ggwork_pick.contracts import PickConditions
-from ggwork_pick.repository import PickRepository
+from ggwork_pick.repository import PickRepository, stamp
 
 RULE_VERSION = "pick-rules-v1"
 RANKING_VERSION = "evidence-date-v1"
@@ -164,7 +164,8 @@ def candidate_item(row, conditions, matched_total: int | None = None):
     if row.get("detail_url"):
         item["detail_url"] = row["detail_url"]
     if row.get("posted") is not None:
-        item["posted"] = row["posted"]
+        # Rows are shared with the batch cache; an item must not alias any of their lists.
+        item["posted"] = copy.deepcopy(row["posted"])
     if matched_total is not None:
         item["matched_total"] = matched_total
     return item
@@ -256,7 +257,7 @@ class SelectionService:
                 ranking_version=RANK_RANKING_VERSION if effective.sort == "rank" else RANKING_VERSION,
                 conditions_json=effective.model_dump(),
                 ordered_items_json=items,
-                created_at=datetime.now(UTC).isoformat(),
+                created_at=stamp(),
             )
         )
         return result_view(record)

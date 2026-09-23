@@ -2,40 +2,10 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
-import httpx
 import pytest
-import pytest_asyncio
-from deerflow_extension_api.auth import EXTENSION_PRINCIPAL_RESOLVER_KEY, ExtensionPrincipal
-from fastapi import FastAPI
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, str(Path(__file__).parent))
-
-
-@pytest_asyncio.fixture
-async def app_client(pick_db_url, tmp_path):
-    from ggwork_pick.routes import build_router
-    from ggwork_pick.service import PickService
-
-    engine = create_async_engine(pick_db_url)
-    service = PickService(tmp_path / "files")
-    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
-    service.run_evidence_reader = SimpleNamespace(get_run_status=AsyncMock(return_value=SimpleNamespace(status="success")))
-    app = FastAPI()
-    # Test-only identity resolver, never installed by the business extension.
-    setattr(
-        app.state,
-        EXTENSION_PRINCIPAL_RESOLVER_KEY,
-        lambda request: (
-            ExtensionPrincipal(request.headers["test-owner"], is_internal="test-internal" in request.headers) if "test-owner" in request.headers else None
-        ),
-    )
-    app.include_router(build_router(service))
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-        yield client, service
-    await engine.dispose()
 
 
 @pytest.mark.asyncio
