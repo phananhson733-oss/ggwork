@@ -6,7 +6,7 @@
 
 沿用RealShort选剧问答的Azure Responses API语义：endpoint后接`/openai/v1/responses`、api-key头、store=false、encrypted reasoning、禁并行函数调用，不传temperature。DeerFlow使用已有langchain_openai.ChatOpenAI Responses模式，不嵌套RealShort的Azure问答循环。
 
-模型配置名azure-pick，真实deployment从AZURE_OPENAI_DEPLOYMENT读取；唯一活动模型不再包含Ollama。四个业务工具、保存确认、身份隔离及120秒执行期限保留。API密钥只配置在后端，不进入前端环境变量或Git。
+模型配置名azure-pick，真实deployment从AZURE_OPENAI_DEPLOYMENT读取；唯一活动模型不再包含Ollama。五个业务工具（2026-09-23 新增计数工具 pick_count_candidates）、保存确认、身份隔离及120秒执行期限保留。API密钥只配置在后端，不进入前端环境变量或Git。
 
 Vercel的RealShort生产环境确有AZURE_OPENAI_ENDPOINT/API_KEY/DEPLOYMENT，类型为sensitive不能回读。本次依用户授权复用RealShort本地同名环境配置；没有修改RealShort环境或密钥。真实部署名称为gpt-5.6-luna-2。
 
