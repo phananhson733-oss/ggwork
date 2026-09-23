@@ -99,6 +99,9 @@ async def _run(email: str, role: str, config_path: Path, credentials: Path) -> i
         except BaseException:
             staged.unlink(missing_ok=True)
             raise
+        # Before anything else can fail: once the account exists, its password must be where the output says.
+        target = credentials / f"{email}.txt"
+        staged.replace(target)
     except ValueError as exc:
         # The repository's own uniqueness check ("... already ..."), for an insert racing this one.
         print(f"Error: {exc}", file=sys.stderr)
@@ -106,8 +109,6 @@ async def _run(email: str, role: str, config_path: Path, credentials: Path) -> i
     finally:
         await close_engine()
 
-    target = credentials / f"{email}.txt"
-    staged.replace(target)
     print(f"Created {role} account: {email}")
     print(f"Credentials written to: {target} (mode 0600)")
     print("Next login will require setup.")

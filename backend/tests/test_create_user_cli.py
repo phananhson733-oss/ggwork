@@ -100,6 +100,28 @@ def test_duplicate_email_exits_nonzero_and_keeps_the_first_password(environ, hom
     assert verify_password(written_password(credentials), password_hash)
 
 
+def test_the_password_file_is_in_place_once_the_account_exists_even_if_closing_fails(environ, home, monkeypatch):
+    # Rerunning only says "already exists", so a created account whose password stayed in the hidden staging file
+    # would need someone to know to look for it.
+    from app.gateway.auth.password import verify_password
+    from deerflow.persistence import engine
+
+    close = engine.close_engine
+
+    async def failing_close():
+        await close()
+        raise RuntimeError("pool close failed")
+
+    monkeypatch.setattr(engine, "close_engine", failing_close)
+    environ["DEER_FLOW_HOME"] = str(home)
+    with pytest.raises(RuntimeError):
+        run_cli("--email", "closing@example.com")
+    credentials = home / "credentials"
+    assert [path.name for path in credentials.iterdir()] == ["closing@example.com.txt"]
+    [(_, _, _, password_hash)] = users(home)
+    assert verify_password(written_password(credentials / "closing@example.com.txt"), password_hash)
+
+
 @pytest.mark.parametrize("email", ["not-an-email", "a/b@example.com", "../x@example.com"])
 def test_bad_email_is_rejected_before_the_database(environ, home, capsys, email):
     environ["DEER_FLOW_HOME"] = str(home)
