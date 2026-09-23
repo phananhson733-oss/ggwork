@@ -9,6 +9,7 @@ location the check reports and every host branch holds a hit of its own, so disa
 PostgreSQL half skips when PICK_TEST_PG_URL is unset.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -24,13 +25,15 @@ import httpx
 import pg
 import pytest
 import pytest_asyncio
+import yaml
 from engines import HOST_JSON_SERIALIZER, host_engine
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_realshort_sync import RULES, TOKEN, feed_row
 
-DOCS = Path(__file__).resolve().parents[3] / "docs/pick-workbench"
+ROOT = Path(__file__).resolve().parents[3]
+DOCS = ROOT / "docs/pick-workbench"
 CHECK = DOCS / "supabase/pan-check.sql"
 REDACT = DOCS / "supabase/pan-redact.sql"
 RUNBOOK = DOCS / "supabase.md"
@@ -110,6 +113,12 @@ def _runbook_steps() -> dict[int, str]:
     return {int(number): body for number, body in zip(parts[1::2], parts[2::2], strict=True)}
 
 
+def _tool_results_line() -> str:
+    """Step 1's find over every thread's externalized tool outputs: the threads with a hit, comma-separated."""
+    [line] = [line.strip() for line in _runbook_steps()[1].split("\n") if line.strip().startswith("find /data ") and "/.tool-results/" in line]
+    return line
+
+
 def test_the_scripts_and_the_runbook_use_one_pattern_that_keeps_the_old_one():
     pattern = _pattern(CHECK.read_text(encoding="utf-8"))
     assert _pattern(REDACT.read_text(encoding="utf-8")) == pattern
@@ -133,6 +142,8 @@ def test_every_check_looks_at_the_database_and_the_disk():
     assert sorted(steps) == list(range(1, 9))
     assert "-f docs/pick-workbench/supabase/pan-check.sql" in steps[1] and "PAN='" in steps[1]
     assert 'grep -rlziE "$PAN" /data/pick' in steps[1]
+    # The host's externalized tool outputs: the threads found on disk go into the check with -v disk_threads.
+    assert _tool_results_line().endswith("| paste -sd, -") and "-v disk_threads=" in steps[1]
     assert "第 1 步" in steps[8] and "库和磁盘都查" in steps[8]
     # A leftover anywhere but the kept locations means redact and restart again, not only for candidate sets.
     assert "重做第 4、5 步" in steps[8] and "选择快照" in steps[8]
@@ -185,8 +196,8 @@ class Workbench:
         with psycopg.connect(_libpq(self.url)) as conn:
             return conn.execute(statement, params).fetchall()
 
-    def run(self, script: Path) -> str:
-        """psql -f, logged in as the owner; any error or warning fails the test."""
+    def call(self, script: Path, *options: str) -> subprocess.CompletedProcess:
+        """psql -f, logged in as the owner."""
         url = make_url(self.url)
         env = {key: value for key, value in os.environ.items() if not key.startswith("PG")} | {
             "PGHOST": url.host,
@@ -197,15 +208,19 @@ class Workbench:
             "PGCLIENTENCODING": "UTF8",
             "PGCONNECT_TIMEOUT": "10",
         }
-        command = [self.psql, "-X", "-w", "-A", "-F", "|", "-P", "footer=off", "-f", str(script)]
-        result = subprocess.run(command, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", timeout=120)
+        command = [self.psql, "-X", "-w", "-A", "-F", "|", "-P", "footer=off", *options, "-f", str(script)]
+        return subprocess.run(command, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", timeout=120)
+
+    def run(self, script: Path, *options: str) -> str:
+        """psql -f; any error or warning fails the test."""
+        result = self.call(script, *options)
         assert result.returncode == 0, result.stdout
         assert "ERROR" not in result.stdout and "WARNING" not in result.stdout, result.stdout
         return result.stdout
 
-    def check(self) -> tuple[dict[str, int], list[tuple[str, str, str]]]:
+    def check(self, disk_threads: str = "") -> tuple[dict[str, int], list[tuple[str, str, str]]]:
         """pan-check.sql's two tables: rows with a hit per location, and threads with a hit, their owner and where the hit is."""
-        lines = self.run(CHECK).splitlines()
+        lines = self.run(CHECK, "-v", f"disk_threads={disk_threads}").splitlines()
         assert lines[0] == "BEGIN" and lines[-1] == "COMMIT", lines
         header_counts, header_threads = lines.index("location|rows"), lines.index("thread_id|owner|found_in")
         counts = [line.split("|") for line in lines[header_counts + 1 : header_threads]]
@@ -647,12 +662,88 @@ async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(wor
     assert workbench.fetch("SELECT count(*) FROM deerflow.checkpoints WHERE thread_id = 'thread-clean'") == [(1,)]
 
 
+# ---- tool outputs the host keeps on disk: found in the container, listed by thread, removed with the thread ----
+
+
+@pytest.mark.asyncio
+async def test_tool_outputs_kept_on_disk_bring_their_threads_into_the_check_and_go_with_them(workbench, service, tmp_path, monkeypatch):
+    from deerflow.agents.middlewares.tool_output_budget_middleware import _budget_content
+    from deerflow.config.paths import Paths
+    from deerflow.config.tool_output_config import ToolOutputConfig
+    from deerflow.persistence.thread_meta.model import ThreadMetaRow
+    from deerflow.persistence.thread_meta.sql import ThreadMetaRepository
+    from deerflow.persistence.user.model import UserRow
+    from langchain_core.messages import HumanMessage, ToolMessage
+    from langgraph.checkpoint.postgres import PostgresSaver
+    from sqlalchemy import insert
+
+    if shutil.which("bash") is None:
+        pytest.skip("needs bash")
+    monkeypatch.syspath_prepend(str(ROOT / "backend"))
+    from app.gateway.routers.threads import _copy_branch_user_data_sync, _delete_thread_data
+
+    # The pick runtime keeps the host's defaults: a tool output over the threshold goes to .tool-results.
+    pick = yaml.safe_load((ROOT / "config.pick.example.yaml").read_text(encoding="utf-8"))
+    config = ToolOutputConfig(**(pick.get("tool_output") or {}))
+    assert config.enabled and config.storage_subdir == ".tool-results"
+    home, alice = tmp_path / "data", str(uuid4())
+    paths = Paths(home)
+    # A long candidate list with one note deep inside, externalized the way the host does it: the file holds the note, the
+    # preview that stays in the checkpoint does not.
+    items = [{"title": f"剧目{i}", "note": ""} for i in range(400)]
+    items[200]["note"] = CODE_NOTE
+    output = json.dumps({"items": items}, ensure_ascii=False)
+    outputs = str(paths.sandbox_outputs_dir("thread-big", user_id=alice))
+    preview, kind = _budget_content(output, tool_name="query_candidates", tool_call_id="c-big", outputs_path=outputs, config=config)
+    assert kind == "externalized" and CODE_NOTE not in preview
+    # Branching the conversation copies its user-data, externalized outputs included, to the new thread.
+    assert _copy_branch_user_data_sync(paths, "thread-big", "thread-big-branch", user_id=alice) == "current_thread_best_effort"
+    # A thread in the layout from before per-user directories, with no metadata row; its plain-text output breaks the line
+    # between 密码 and the colon, so only a grep that reads the whole file (-z) finds it.
+    legacy = home / "threads/thread-legacy/user-data/outputs/.tool-results/web_fetch-0123456789ab.log"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("\n".join([*(f"第{i}行" for i in range(2000)), PASSWORD_NEWLINE, "结束"]), encoding="utf-8")
+    threads = ("thread-big", "thread-big-branch")
+    with PostgresSaver.from_conn_string(_libpq(workbench.url)) as saver:
+        for thread in threads:
+            _put_thread(saver, thread, [HumanMessage("找剧"), ToolMessage(preview, tool_call_id="c-big")])
+    async with service.session_factory.kw["bind"].begin() as conn:
+        await conn.execute(insert(UserRow.__table__), [{"id": alice, "email": "alice@example.test"}])
+        await conn.execute(insert(ThreadMetaRow.__table__), [{"thread_id": t, "user_id": alice, "display_name": None, "metadata_json": {}} for t in threads])
+
+    # The database alone finds nothing. The find in the container names the threads; the check lists them with their owner.
+    assert workbench.check() == (NOTHING, [])
+    [found] = _shell(home, _tool_results_line())
+    assert found == "thread-big,thread-big-branch,thread-legacy"
+    owner = "alice@example.test"
+    listed = [("thread-big", owner, ".tool-results"), ("thread-big-branch", owner, ".tool-results"), ("thread-legacy", NO_META, ".tool-results")]
+    assert workbench.check(found) == (NOTHING, listed)
+    # Without the disk's threads the check refuses to run.
+    refused = workbench.call(CHECK)
+    assert refused.returncode == 3 and "缺 -v disk_threads" in refused.stdout
+
+    # Deleting a conversation, as its owner, removes its directory under the owner first, then its rows.
+    metas = ThreadMetaRepository(service.session_factory)
+    with PostgresSaver.from_conn_string(_libpq(workbench.url)) as saver:
+        for thread in threads:
+            assert _delete_thread_data(thread, paths=paths, user_id=alice).success
+            saver.delete_thread(thread)
+            await metas.delete(thread, user_id=alice)
+    assert _shell(home, _tool_results_line()) == ["thread-legacy"]
+    assert workbench.check("thread-legacy") == (NOTHING, [listed[2]])
+    # The route cannot reach that one: step 6 deletes its files directly.
+    [removal] = [line.strip() for line in _runbook_steps()[6].split("\n") if line.strip().startswith("find /data ") and "xargs -0r rm" in line]
+    _shell(home, removal.replace("<线程>", "thread-legacy"))
+    assert _shell(home, _tool_results_line()) == [] and workbench.check() == (NOTHING, [])
+    assert not legacy.exists()
+
+
 # ---- raw feed files: found with the runbook's grep, deleted, never overwritten ----
 
 
-def _shell(data_dir: Path, command: str, *, locale: str | None = None) -> list[str]:
-    """A runbook command after the runbook's PAN= line, pointed at a test data directory."""
-    script = _runbook_pan() + "\n" + command.replace("/data/pick", str(data_dir))
+def _shell(home: Path, command: str, *, locale: str | None = None) -> list[str]:
+    """A runbook command after the runbook's PAN= line, with a test directory standing in for the volume at /data."""
+    script = _runbook_pan() + "\n" + command.replace(" /data", f" {home}")
     env = os.environ | ({"LC_ALL": locale} if locale else {})
     result = subprocess.run(["bash", "-c", script], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", timeout=60)
     assert result.returncode in (0, 1), result.stdout  # grep exits 1 when nothing matches
@@ -685,7 +776,7 @@ async def test_raw_files_with_a_hit_are_found_and_deleting_them_is_safe(files_se
         pytest.skip("needs bash and grep")
     step_one = _runbook_steps()[1]
     [listing] = {line.strip() for line in step_one.split("\n") if line.strip().startswith("grep -") and line.strip().endswith('"$PAN" /data/pick')}
-    [removal] = [line for line in _runbook_lines() if "| xargs -0r rm" in line]
+    [removal] = [line for line in _runbook_lines() if line.startswith("grep ") and "| xargs -0r rm" in line]
     shared, alice = PickRepository.shared(files_service.session_factory), PickRepository(files_service.session_factory, "alice")
     importer = Importer(alice, files_service.data_dir)
     # Each file holds exactly one hit, each in a different form.
@@ -703,15 +794,15 @@ async def test_raw_files_with_a_hit_are_found_and_deleting_them_is_safe(files_se
     assert "提取码" not in Path(paths[escaped_code["id"]]).read_text(encoding="utf-8")
     # The same list whether the ssh session's grep compares characters (C.UTF-8) or bytes (C).
     for locale in LOCALES:
-        assert _shell(files_service.data_dir, listing, locale=locale) == sorted(paths[batch_id] for batch_id in uploads), locale
-    _shell(files_service.data_dir, removal, locale="C")
-    assert all(_shell(files_service.data_dir, listing, locale=locale) == [] for locale in LOCALES)
+        assert _shell(files_service.data_dir.parent, listing, locale=locale) == sorted(paths[batch_id] for batch_id in uploads), locale
+    _shell(files_service.data_dir.parent, removal, locale="C")
+    assert all(_shell(files_service.data_dir.parent, listing, locale=locale) == [] for locale in LOCALES)
     assert not any(Path(paths[batch_id]).exists() for batch_id in uploads)
     # The next sync prunes the old batches, one of whose files is already gone.
     clean = await _sync(files_service, [*fixed, feed_row(5)], keep_batches=1)
     statuses = {row["id"]: row["status"] for row in await shared.batches()}
     assert (statuses[first["catalog_batch_id"]], statuses[second["catalog_batch_id"]]) == ("pruned", "pruned")
-    assert _shell(files_service.data_dir, listing) == []
+    assert _shell(files_service.data_dir.parent, listing) == []
     # Nothing reads a raw file at runtime; only an import of the same content looks at it again, and rewrites a missing one.
     blob = Path((await shared.current_batch("catalog"))["raw_blob_path"])
     blob.unlink()
@@ -723,13 +814,16 @@ async def test_raw_files_with_a_hit_are_found_and_deleting_them_is_safe(files_se
     assert refused["status"] == "failed" and "校验失败" in refused["error"]
 
 
-def test_the_runbook_gives_the_byte_count_of_its_pan_line(tmp_path):
-    # Copied from a rendered page, the invisible whitespace characters can turn into spaces or line breaks; the count shows it.
-    if shutil.which("bash") is None:
-        pytest.skip("needs bash")
+def test_the_runbook_gives_the_sha256_of_its_pan_line(tmp_path):
+    # The image has no docs/, so PAN is pasted. Copied from a rendered page, an invisible whitespace character can turn into a
+    # space, a line break or another whitespace character of the same length; the digest shows any of them.
+    if shutil.which("bash") is None or shutil.which("sha256sum") is None:
+        pytest.skip("needs bash and sha256sum")
     step_one = _runbook_steps()[1]
-    [count] = [line.strip() for line in step_one.split("\n") if line.strip() == 'printf %s "$PAN" | wc -c']
-    [expected] = re.findall(r'`printf %s "\$PAN" \| wc -c` 应输出 (\d+)', step_one)
-    assert int(expected) == len(_pattern(CHECK.read_text(encoding="utf-8")).encode())
+    [command] = [line.strip() for line in step_one.split("\n") if line.strip() == 'printf %s "$PAN" | sha256sum']
+    [expected] = re.findall(r'`printf %s "\$PAN" \| sha256sum` 应输出 `([0-9a-f]{64})`', step_one)
+    pattern = _pattern(CHECK.read_text(encoding="utf-8"))
+    assert expected == hashlib.sha256(pattern.encode()).hexdigest()
+    assert expected != hashlib.sha256(pattern.replace(chr(0x2003), chr(0x2002)).encode()).hexdigest()
     for locale in LOCALES:
-        assert _shell(tmp_path, count, locale=locale) == [expected], locale
+        assert _shell(tmp_path, command, locale=locale) == sorted([expected, "-"]), locale
