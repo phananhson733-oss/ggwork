@@ -214,6 +214,20 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 - 超过时：经线程的 DELETE 接口删掉不再需要的旧会话，和/或在控制台扩磁盘。
 - 不要指望 `checkpoint_retention.py`：它没有生产触发点，也不剪长对话的主链；要接上它是另一项需要评审的任务。
 
+**网盘片段核查（RealShort #67 上线前每周一次，同样写进第 12 节）。** v1 feed 的备注在 #67 合并前不经清洗，工作台同步时原样入库（`pan_url`、`pan_pw` 这些字段本身从不同步）。只数条数，不看内容：
+
+```sql
+SELECT 'drama_versions' AS t, count(*) FROM deerflow.ggwp_drama_versions
+ WHERE payload_json::text ~* '(pan\.baidu|pan\.quark|aliyundrive|alipan|115\.com|123pan|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|提取码|提取碼|访问码|訪問碼|pwd=)'
+UNION ALL
+SELECT 'candidate_sets', count(*) FROM deerflow.ggwp_candidate_sets
+ WHERE ordered_items_json::text ~* '(pan\.baidu|pan\.quark|aliyundrive|alipan|115\.com|123pan|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|提取码|提取碼|访问码|訪問碼|pwd=)';
+```
+
+- 这是比清洗正则更宽的模式，非 0 不一定是网盘链接，但每一条都要人看一眼。
+- 确实是网盘信息时：先在 RealShort 源头改掉那条备注，再手动同步一次（同内容会复用批次，内容变了会发布新批次）；已经进了候选快照的，经线程的 DELETE 接口删掉那段会话。
+- 2026-09-23 的基线：7,669 行剧目、12 份候选、2 条选择，全部为 0。
+
 ## 7. PG 兼容的现场检查（6.7）
 
 扩展侧的 NUL、孤立代理项、VARCHAR 长度、时间戳排序、批次缓存都已在 P0-2 按两种方言测过。测试引擎与宿主用同一个 JSON 序列化器（`ensure_ascii=False`）；不经 `StrictInput` 的写入（feed 元数据、模型供应商给的 id、引用模型回答的核对提示）在写入边界换成 U+FFFD（`contracts.storable`）。
