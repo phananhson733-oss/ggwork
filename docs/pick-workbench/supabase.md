@@ -216,7 +216,11 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 
 ## 7. PG 兼容的现场检查（6.7）
 
-扩展侧的 NUL、孤立代理项、VARCHAR 长度、时间戳排序、批次缓存都已在 P0-2 按两种方言测过。只有宿主自己的 jsonb（消息、run events、checkpoint metadata）要在真实库上试：演练和切换后各发一条含 NUL、一条含孤立代理项（`\ud800` 转义）的消息，各走完一次选剧对话。任一失败，就在 pick 入口给 ASGI 应用包一层中间件，只对 JSON 请求体把 NUL 和孤立代理项替换为 U+FFFD，并补测试，然后再切换。
+扩展侧的 NUL、孤立代理项、VARCHAR 长度、时间戳排序、批次缓存都已在 P0-2 按两种方言测过。测试引擎与宿主用同一个 JSON 序列化器（`ensure_ascii=False`）；不经 `StrictInput` 的写入（feed 元数据、模型供应商给的 id、引用模型回答的核对提示）在写入边界换成 U+FFFD（`contracts.storable`）。
+
+宿主自己的表（消息、run events、checkpoint metadata）已在本机 PG 17 上用宿主的序列化器实测：原样的 NUL（字符串消息）和孤立代理项（字符串与字典消息）都写不进去，换成 U+FFFD 后都能写。所以 pick 入口服务的是 `app.gateway.pick_asgi:app`：网关外面包一层 `JsonBodySanitizer`，只对 JSON 请求体（`application/json` 与 `*+json`，8 MiB 以内）把 NUL 和孤立代理项替换为 U+FFFD。`\ud800` 这类转义和直接写成 UTF-8 字节的代理项都算；响应（含 SSE）和上传原样透传。模型输出不经过这一层，出现这类字符时那一轮的写入会失败，是已知限制。
+
+演练和切换后仍各发一条含 NUL、一条含孤立代理项（`\ud800` 转义）的消息，各走完一次选剧对话：预期都成功，消息里对应位置显示为 U+FFFD。失败就停下排查，不切换。
 
 ## 8. 正式切换（6.8，P0-6）
 

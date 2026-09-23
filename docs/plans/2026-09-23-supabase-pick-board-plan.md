@@ -963,7 +963,7 @@ v1 也要顺手修两处：
 | text 列里的 NUL | SQLite 能存；PG 的 text 拒收 `\x00` | `StrictInput` 加 `model_validator(mode="before")`，递归拒绝含 `\x00` 的字符串，覆盖 SaveInput、UpdateInput、PickConditions | PG 上带 NUL 的 note 返回 422，不再是 500 |
 | 孤立代理项 | Python 的 JSON 解码会把 `\ud800` 这类转义还原成孤立代理项；asyncpg 和 psycopg 按严格 UTF-8 编码参数，遇到它直接抛 `UnicodeEncodeError`（与 JS 驱动不同，JS 会悄悄换成 U+FFFD） | 同一个校验器拒绝；feed 路径已有 `errors="replace"` | 同上 |
 | JSON 列 | `sa.JSON` 在 PG 上是 `json` | 保持 `json`，它接受 JSON 转义形式的 NUL | 带转义 NUL 的 conditions 能写能读 |
-| 宿主表与宿主 JSONB（消息、run events、checkpoint metadata） | jsonb 拒收转义的 NUL；孤立代理项在驱动编码时就失败 | 演练时分别发一条含 NUL、一条含孤立代理项（`\ud800` 转义）的消息，各走完一次选剧对话 | 任一失败，就在 pick 入口给 ASGI 应用包一层中间件，只对 JSON 请求体把 NUL 和孤立代理项替换为 U+FFFD，并补测试 |
+| 宿主表与宿主 JSONB（消息、run events、checkpoint metadata） | jsonb 拒收转义的 NUL；孤立代理项在驱动编码时就失败。本机 PG 17 用宿主的序列化器实测：字符串消息里的 NUL、字符串与字典消息里的孤立代理项都写不进去，换成 U+FFFD 后都能写 | 条件已成立，P0 就做：pick 入口服务 `app.gateway.pick_asgi:app`，网关外包一层纯 ASGI 的 `JsonBodySanitizer`，只对 JSON 请求体把 NUL 和孤立代理项（转义与直接的 UTF-8 字节两种）替换为 U+FFFD；模型输出不经过这一层，是已知限制 | `backend/tests/test_json_body_sanitizer.py`；演练时仍发一条含 NUL、一条含孤立代理项的消息各走完一次选剧对话，预期都成功 |
 | 会话级设置残留 | ORM 连接放回池后仍保留会话级 `SET` 和 search_path | 代码里只用 `SET LOCAL`（3.6）；镜像写入不走 ORM 池（5.2） | 连接放回池再取出后，`SHOW lock_timeout` 是默认值，`SHOW search_path` 仍是 deerflow |
 | VARCHAR 长度 | SQLite 不检查，PG 检查 | 按 PG 限制做边界测试：String(64) thread_id、String(128) run_id 和 tool_call_id、String(256) message_id、String(512) identity、String(500) 知识标题。真实 id 可能超长时，在 0005 里放宽 | `test_pg_limits.py` |
 | 迁移 0001–0004 | `render_as_batch` 和 `has_table` 检查；约束有名字 | 在 PG 上原样执行，无需修改 | 从空库升级到 head，再升一次保持幂等 |
