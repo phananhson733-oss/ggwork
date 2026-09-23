@@ -13,6 +13,7 @@ import json
 import re
 
 from starlette.datastructures import Headers
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 # Larger bodies pass through untouched: chat messages and pick requests are far smaller, and buffering an
@@ -45,18 +46,31 @@ def _storable(value: object) -> tuple[object, bool]:
     return value, False
 
 
+class JsonTooDeep(ValueError):
+    """The body parses but is nested too deep to walk, so it cannot be checked."""
+
+
 def sanitize_json_body(body: bytes) -> bytes:
-    """The body with NUL and lone surrogates replaced; the same object when it has none or is not JSON."""
+    """The body with NUL and lone surrogates replaced; the same object when it has none or is not JSON.
+
+    Raises JsonTooDeep for a body json.loads accepts but the walk cannot finish: json.loads is C and parses
+    thousands of levels, the walk is Python and stops near the recursion limit, and passing such a body on
+    would let its text reach a route unchecked.
+    """
     # The byte test reads UTF-8 only. json.loads, and so every route, also accepts UTF-16 and UTF-32, which are
     # always parsed; a changed body goes on as UTF-8.
     if json.detect_encoding(body).startswith("utf-8") and not _MAYBE_UNSTORABLE.search(body):
         return body
     try:
-        clean, changed = _storable(json.loads(body))
+        data = json.loads(body)
     except (ValueError, RecursionError):
-        # Not JSON, not UTF-8, or nested too deep to walk: the route's own parser answers it.
+        # Not JSON, or too deep even for the parser: the route's own parser fails on it the same way.
         return body
-    return json.dumps(clean, ensure_ascii=False).encode() if changed else body
+    try:
+        clean, changed = _storable(data)
+        return json.dumps(clean, ensure_ascii=False).encode() if changed else body
+    except RecursionError:
+        raise JsonTooDeep from None
 
 
 def _with_content_length(headers: list[tuple[bytes, bytes]], length: int) -> list[tuple[bytes, bytes]]:
@@ -97,7 +111,11 @@ class JsonBodySanitizer:
         last = messages[-1]
         if last["type"] == "http.request" and not last.get("more_body", False) and size <= self.max_bytes:
             body = b"".join(message.get("body", b"") for message in messages)
-            clean = sanitize_json_body(body)
+            try:
+                clean = sanitize_json_body(body)
+            except JsonTooDeep:
+                await JSONResponse({"detail": "JSON 请求体嵌套过深"}, status_code=400)(scope, receive, send)
+                return
             if clean is not body:
                 scope = {**scope, "headers": _with_content_length(scope["headers"], len(clean))}
             messages = [{"type": "http.request", "body": clean, "more_body": False}]

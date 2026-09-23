@@ -134,9 +134,32 @@ def test_a_body_that_is_not_json_is_left_for_the_route_to_reject():
         assert body_of(seen) == raw
 
 
-def test_a_body_nested_too_deep_to_walk_is_left_for_the_route():
+def test_a_body_too_deep_even_to_parse_is_left_for_the_route():
     raw = b"[" * 100_000 + b'"\\u0000"' + b"]" * 100_000
     assert sanitize_json_body(raw) is raw
+
+
+def test_a_body_the_route_parses_but_too_deep_to_walk_is_refused():
+    # json.loads (C) parses thousands of levels; the replacement walk stops near the recursion limit
+    raw = b"[" * 2_000 + b'"\\u0000"' + b"]" * 2_000
+    assert json.loads(raw)
+    called = []
+
+    async def app(scope, receive, send):
+        called.append(scope)
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    async def receive():
+        return request(raw)
+
+    asyncio.run(JsonBodySanitizer(app)(http_scope(), receive, send))
+    assert called == []
+    assert sent[0]["type"] == "http.response.start" and sent[0]["status"] == 400
+    assert json.loads(sent[1]["body"]) == {"detail": "JSON 请求体嵌套过深"}
 
 
 def test_a_clean_body_is_the_same_bytes():
