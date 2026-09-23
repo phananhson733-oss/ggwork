@@ -9,6 +9,7 @@ location the check reports and every host branch holds a hit of its own, so disa
 PostgreSQL half skips when PICK_TEST_PG_URL is unset. The container's disk is test_pan_runbook_disk.py.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -59,6 +60,12 @@ PLACEHOLDER = "[网盘信息已移除]"
 NO_META = "(没有 threads_meta 行)"
 # The runbook's broad pattern before this change; the scripts must keep matching all of it.
 OLD_PATTERN = r"pan\.baidu|pan\.quark|aliyundrive|alipan|115\.com|123pan|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|提取码|提取碼|访问码|訪問碼|pwd="
+# One sample host per branch of RealShort #67's share-link list (its fixture's patterns.url); the check has to find them all.
+REALSHORT_HOSTS = [
+    "pan.baidu.com", "yun.baidu.com", "pan.quark.cn", "aliyundrive.com", "alipan.com", "115.com", "115cdn.com", "123pan.com", "123pan.cn",
+    "123684.com", "123865.com", "123912.com", "lanzou.com", "lanzoui.com", "drive.uc.cn", "cloud.189.cn", "pan.xunlei.com", "caiyun.139.com",
+    "yun.139.com", "weiyun.com", "jianguoyun.com", "mypikpak.com", "pan.wo.cn", "ctfile.com", "ilanzou.com", "feijipan.com",
+]
 # (table, key columns, JSON column): every JSON column of the ggwp tables, in the order of both scripts.
 JSON_COLUMNS = [
     ("ggwp_drama_versions", "batch_id, identity", "payload_json"),
@@ -98,6 +105,11 @@ def test_the_scripts_and_the_runbook_use_one_pattern_that_keeps_the_old_one():
     assert pattern_of(REDACT.read_text(encoding="utf-8")) == pattern
     assert runbook_pan() == f"PAN='{pattern}'"
     assert set(OLD_PATTERN.split("|")) <= set(pattern.split("|"))
+    # Every share host RealShort scrubs is found by one of the host branches (grep -i and ~* ignore ASCII case). Only branches made of
+    # letters, digits and \. count: splitting on | also leaves bits of the 密码 group such as a lone ":".
+    hosts = [re.compile(alt, re.IGNORECASE) for alt in pattern.split("|") if re.fullmatch(r"(?:[A-Za-z0-9]|\\\.)+", alt)]
+    for host in REALSHORT_HOSTS:
+        assert any(p.search(f"share.{host.upper()}/s/1AbC") for p in hosts), host
     # Every backslash escape takes one or more backslashes, whatever the number of JSON layers.
     backslash = chr(92)
     assert backslash * 2 + "u" not in pattern.replace(backslash * 2 + "+u", "") and backslash * 2 + "[" not in pattern
@@ -108,6 +120,8 @@ def test_the_scripts_and_the_runbook_use_one_pattern_that_keeps_the_old_one():
     # The old inline queries are gone: the runbook holds the pattern once, and every grep uses $PAN.
     runbook = RUNBOOK.read_text(encoding="utf-8")
     assert runbook.count(pattern) == 1 and OLD_PATTERN not in runbook
+    # The runbook's paste self-check is the hash of this very pattern.
+    assert f"`{hashlib.sha256(pattern.encode()).hexdigest()}`" in runbook
 
 
 def test_every_check_looks_at_the_database_and_the_disk():
