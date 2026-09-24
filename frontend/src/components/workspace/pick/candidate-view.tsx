@@ -7,7 +7,115 @@ import {
   evidenceLine,
   postedLine,
 } from "@/core/pick/format";
-import { pickRunStatusLabel, type PickResult } from "@/core/pick/types";
+import { itemCheckHref, replayLink } from "@/core/pick/links";
+import {
+  pickRunStatusLabel,
+  type PickItem,
+  type PickResult,
+} from "@/core/pick/types";
+
+/** Opens one row's evidence page in the pick board, in a new tab so the chat stays. */
+export function RowCheckLink({ href, title }: { href: string; title: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`在选剧资料核对：${title}`}
+      className="text-muted-foreground hover:text-foreground text-xs underline"
+    >
+      在选剧资料核对
+    </a>
+  );
+}
+
+function EvidenceDetails({ item }: { item: PickItem }) {
+  return (
+    <details className="mt-3 text-xs">
+      <summary className="text-muted-foreground cursor-pointer">
+        查看依据（{item.evidence.length}）
+      </summary>
+      {item.evidence.length === 0 ? (
+        <p className="mt-2">只有剧库收录记录，暂无额外信号。</p>
+      ) : (
+        <ul className="mt-2 space-y-3">
+          {item.evidence.map((evidence) => (
+            <li
+              key={evidence.citation_id}
+              className="border-l-2 pl-3 break-words"
+            >
+              <p>{evidenceLine(evidence)}</p>
+              <p className="text-muted-foreground">
+                {evidence.observed_at ?? "日期未知"} · {evidence.source_ref}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
+  );
+}
+
+function CandidateCard({
+  item,
+  index,
+  result,
+  selected,
+  onToggle,
+  busy,
+  readOnly,
+}: {
+  item: PickItem;
+  index: number;
+  result: PickResult;
+  selected: string[];
+  onToggle: (id: string) => void;
+  busy: boolean;
+  readOnly: boolean;
+}) {
+  const posted = postedLine(item.posted, result.conditions);
+  const checkHref = itemCheckHref(result.data_as_of, item.identity);
+  return (
+    <article className="bg-card rounded-xl border p-4">
+      <label className="flex cursor-pointer items-start gap-3">
+        {!readOnly && (
+          <input
+            type="checkbox"
+            className="mt-1 size-4 shrink-0"
+            aria-label={`选择${item.title}`}
+            checked={selected.includes(item.item_id)}
+            onChange={() => onToggle(item.item_id)}
+            disabled={busy}
+          />
+        )}
+        <span className="min-w-0">
+          <span className="font-medium">
+            {index + 1}. {item.title}
+          </span>
+          <span className="text-muted-foreground mt-1 block text-xs">
+            {item.theater || "剧场未注明"} · {item.language}
+          </span>
+        </span>
+      </label>
+      <p className="mt-3 text-sm leading-6">{item.reason}</p>
+      {posted && <p className="text-muted-foreground mt-1 text-xs">{posted}</p>}
+      {item.warnings.map((warning) => (
+        <p
+          key={warning}
+          className="mt-1 text-xs text-amber-700 dark:text-amber-400"
+        >
+          {warning}
+        </p>
+      ))}
+      {checkHref && (
+        <p className="mt-2">
+          <RowCheckLink href={checkHref} title={item.title} />
+        </p>
+      )}
+      <EvidenceDetails item={item} />
+    </article>
+  );
+}
 
 export function CandidateView({
   result,
@@ -24,6 +132,7 @@ export function CandidateView({
   busy: boolean;
   readOnly?: boolean;
 }) {
+  const replayHref = replayLink(result);
   return (
     <div className="space-y-4">
       <p role="status" className="text-sm">
@@ -59,71 +168,27 @@ export function CandidateView({
       >
         数据截至：{dataAsOfLine(result.data_as_of)}
       </p>
+      {replayHref && (
+        <a href={replayHref} className="text-xs underline">
+          回放这份候选
+        </a>
+      )}
       {result.items.length === 0 && (
         <p className="rounded-lg border border-dashed p-6 text-sm">
           没有符合这次条件的剧目，可以放宽条件后重新查询。
         </p>
       )}
       {result.items.map((item, index) => (
-        <article key={item.item_id} className="bg-card rounded-xl border p-4">
-          <label className="flex cursor-pointer items-start gap-3">
-            {!readOnly && (
-              <input
-                type="checkbox"
-                className="mt-1 size-4 shrink-0"
-                aria-label={`选择${item.title}`}
-                checked={selected.includes(item.item_id)}
-                onChange={() => onToggle(item.item_id)}
-                disabled={busy}
-              />
-            )}
-            <span className="min-w-0">
-              <span className="font-medium">
-                {index + 1}. {item.title}
-              </span>
-              <span className="text-muted-foreground mt-1 block text-xs">
-                {item.theater || "剧场未注明"} · {item.language}
-              </span>
-            </span>
-          </label>
-          <p className="mt-3 text-sm leading-6">{item.reason}</p>
-          {postedLine(item.posted, result.conditions) && (
-            <p className="text-muted-foreground mt-1 text-xs">
-              {postedLine(item.posted, result.conditions)}
-            </p>
-          )}
-          {item.warnings.map((warning) => (
-            <p
-              key={warning}
-              className="mt-1 text-xs text-amber-700 dark:text-amber-400"
-            >
-              {warning}
-            </p>
-          ))}
-          <details className="mt-3 text-xs">
-            <summary className="text-muted-foreground cursor-pointer">
-              查看依据（{item.evidence.length}）
-            </summary>
-            {item.evidence.length === 0 ? (
-              <p className="mt-2">只有剧库收录记录，暂无额外信号。</p>
-            ) : (
-              <ul className="mt-2 space-y-3">
-                {item.evidence.map((evidence) => (
-                  <li
-                    key={evidence.citation_id}
-                    className="border-l-2 pl-3 break-words"
-                  >
-                    <p>{evidenceLine(evidence)}</p>
-                    <p className="text-muted-foreground">
-                      {evidence.observed_at ?? "日期未知"} ·{" "}
-                      {evidence.source_ref}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </details>
-        </article>
+        <CandidateCard
+          key={item.item_id}
+          item={item}
+          index={index}
+          result={result}
+          selected={selected}
+          onToggle={onToggle}
+          busy={busy}
+          readOnly={readOnly}
+        />
       ))}
       <p className="text-muted-foreground text-xs">
         这是查询时的资料快照。推荐不代表已经发布或同步到外部系统。

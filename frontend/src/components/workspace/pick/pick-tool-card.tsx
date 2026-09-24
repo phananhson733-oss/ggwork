@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/core/auth/AuthProvider";
@@ -10,8 +10,10 @@ import {
   savePickSelection,
   type SaveCommand,
 } from "@/core/pick/api";
-import { pickRunStatusLabel } from "@/core/pick/types";
+import { itemCheckHref } from "@/core/pick/links";
+import { pickRunStatusLabel, type PickResult } from "@/core/pick/types";
 
+import { RowCheckLink } from "./candidate-view";
 import { usePickContext } from "./pick-context";
 
 function parseResult(raw: unknown): {
@@ -29,6 +31,32 @@ function parseResult(raw: unknown): {
   } catch {
     return null;
   }
+}
+
+/** The titles a save confirmation names, each with its pick-board check link when it has one. */
+function ConfirmTitles({
+  result,
+  itemIds,
+}: {
+  result: PickResult;
+  itemIds: string[];
+}) {
+  const items = result.items.filter((item) => itemIds.includes(item.item_id));
+  return items.map((item, index) => {
+    const href = itemCheckHref(result.data_as_of, item.identity);
+    return (
+      <Fragment key={item.item_id}>
+        {index > 0 && "、"}
+        <span>{item.title}</span>
+        {href && (
+          <>
+            {" "}
+            <RowCheckLink href={href} title={item.title} />
+          </>
+        )}
+      </Fragment>
+    );
+  });
 }
 
 export function PickToolCard({
@@ -130,12 +158,11 @@ export function PickToolCard({
       </p>
       {data && (
         <p className="text-muted-foreground mt-1 text-sm">
-          {payload?.requires_confirmation
-            ? data.items
-                .filter((item) => requested.includes(item.item_id))
-                .map((item) => item.title)
-                .join("、")
-            : `找到 ${data.items.length} 部，点击查看依据和保存。`}
+          {payload?.requires_confirmation ? (
+            <ConfirmTitles result={data} itemIds={requested} />
+          ) : (
+            `找到 ${data.items.length} 部，点击查看依据和保存。`
+          )}
         </p>
       )}
       {data && (

@@ -52,6 +52,11 @@ export const pickDataAsOfSchema = z
     freshness: z.record(z.string(), z.unknown()).nullable().optional(),
     scope: z.string().max(500).nullable().optional(),
     shared: z.boolean(),
+    /**
+     * The pick_mirror version this result was pinned to (P4-1). Absent while the
+     * backend switch is off; null when the sync published without a paired mirror.
+     */
+    mirror_version: z.number().int().positive().nullable().optional(),
   })
   .strict();
 
