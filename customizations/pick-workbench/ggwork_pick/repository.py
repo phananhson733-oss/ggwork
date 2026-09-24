@@ -442,6 +442,17 @@ class PickRepository:
             leftovers = list(ids)
         return await self.fail_staged(leftovers)
 
+    async def failed_blob_paths(self) -> list[str]:
+        """Raw blob paths of this owner's failed batches that no importing or published batch uses: a process that died
+        between failing a batch and deleting its blob left the file behind (the cleanup command deletes these)."""
+        async with self.session_factory() as session:
+            rows = await session.execute(
+                select(import_batches.c.raw_blob_path).where(import_batches.c.owner_id == self.owner_id, import_batches.c.status == "failed").distinct()
+            )
+            paths = set(rows.scalars())
+            live = await _live_blob_paths(session, paths) if paths else set()
+        return sorted(paths - live)
+
     async def current_pin(self):
         """The (catalog, knowledge, mirror version) a run works on and its data_as_of, read in one statement (U7)."""
         # pin.py builds on stamp() and SHARED_OWNER from this module, so it is imported where it is used.
