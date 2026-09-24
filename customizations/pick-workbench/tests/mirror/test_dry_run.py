@@ -723,9 +723,17 @@ def test_bad_base_url_is_a_usage_error(capsys, files, base):
     assert code == 2 and "base URL" in err and "Traceback" not in err
 
 
-@pytest.mark.parametrize("extra", [[], ["--scan"]], ids=["plain", "scan"])
-def test_dry_run_runs_without_db_or_config(tmp_path, files, extra):
-    """The real entry point in a clean process: python -m runs ggwork_pick/__init__.py first (critique 2, CLI entry)."""
+ENTRY_MODULES = ("ggwork_pick.mirror.client", "ggwork_pick.mirror.dry_run")
+
+
+@pytest.mark.parametrize(
+    ("module", "extra"),
+    [(ENTRY_MODULES[0], []), (ENTRY_MODULES[0], ["--scan"]), (ENTRY_MODULES[1], [])],
+    ids=["plain", "scan", "dry-run-module"],
+)
+def test_dry_run_runs_without_db_or_config(tmp_path, files, module, extra):
+    """The real entry point in a clean process: python -m runs ggwork_pick/__init__.py first (critique 2, CLI entry).
+    python -m ggwork_pick.mirror.dry_run is the same entry, not a silent exit 0."""
     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
     fake = FakeRealShort(bypass=BYPASS, series={yesterday: 2}, sizes={"catalog_rows": 3}, page_rows={"catalog_rows": 2}, compress=True)
     server, base = serve(fake)
@@ -738,7 +746,7 @@ def test_dry_run_runs_without_db_or_config(tmp_path, files, extra):
         "PYTHONPATH": os.pathsep.join([str(EXTENSION_ROOT), str(EXTENSION_API)]),
         "PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN,
     }
-    command = [sys.executable, "-m", "ggwork_pick.mirror.client", "--dry-run", "--base-url", base]
+    command = [sys.executable, "-m", module, "--dry-run", "--base-url", base]
     command = [*command, "--bypass-header-file", str(files["bypass"]), "--token-file", str(files["token"]), *extra]
     try:
         result = subprocess.run(command, cwd=work, env=env, capture_output=True, text=True, timeout=120)
@@ -758,3 +766,16 @@ def test_dry_run_runs_without_db_or_config(tmp_path, files, extra):
     assert "RuntimeWarning" not in result.stderr
     assert list(work.iterdir()) == []
     assert {c.headers.get("x-vercel-protection-bypass") for c in fake.calls} == {BYPASS}
+
+
+@pytest.mark.parametrize("module", ENTRY_MODULES)
+def test_either_module_without_arguments_is_a_usage_error(tmp_path, module):
+    """No arguments: exit 2 with the usage on stderr, never a silent exit 0, and nothing read or written."""
+    work = tmp_path / "cwd"
+    work.mkdir()
+    env = {"PATH": os.environ.get("PATH", ""), "HOME": str(tmp_path), "PYTHONPATH": os.pathsep.join([str(EXTENSION_ROOT), str(EXTENSION_API)])}
+    result = subprocess.run([sys.executable, "-m", module], cwd=work, env=env, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 2 and result.stdout == ""
+    assert "--dry-run" in result.stderr and "--base-url" in result.stderr
+    assert "Traceback" not in result.stderr and "RuntimeWarning" not in result.stderr
+    assert list(work.iterdir()) == []

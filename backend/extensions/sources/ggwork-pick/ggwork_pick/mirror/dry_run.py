@@ -623,3 +623,8 @@ def main(argv: Sequence[str] | None = None, *, env: Mapping[str, str] | None = N
     except (UsageError, ConfigError) as exc:  # ConfigError here comes from FeedClient(): a bad --base-url or secret text
         print(f"{PROG}: {exc}", file=sys.stderr)
         return EXIT_USAGE
+
+
+# The same entry as python -m ggwork_pick.mirror.client (PROG): run as a module, this one used to exit 0 silently.
+if __name__ == "__main__":
+    raise SystemExit(main())
