@@ -422,6 +422,27 @@ async def test_control_lock_holder_takes_only_the_three_holders(pg_db_url):
         await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_a_control_table_from_before_lock_holder_gets_it_when_0006_runs_again(pg_db_url):
+    # lock_holder was added by editing 0006 in place before any deployment. A local database migrated by the earlier
+    # 0006 and set back to 0005 by hand finds its control table already there: CREATE TABLE IF NOT EXISTS alone would
+    # leave it without the column, and every try_mirror_lock there would fail.
+    engine = host_engine(pg_db_url)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("alter table pick_mirror.control drop column lock_holder"))
+            await conn.execute(text("update ggwp_alembic_version set version_num = '0005'"))
+        await revisions.upgrade(engine)
+        assert await _scalar(engine, "select version_num from ggwp_alembic_version") == revisions.head()
+        assert await _scalar(engine, "select lock_holder from pick_mirror.control where id = 1") is None
+        await _refused(engine, "update pick_mirror.control set lock_holder = :h where id = 1", {"h": "admin"}, "pick_mirror_control_lock_holder")
+        async with engine.begin() as conn:
+            await conn.execute(text("update pick_mirror.control set lock_holder = 'sync' where id = 1"))
+        assert await _scalar(engine, "select lock_holder from pick_mirror.control where id = 1") == "sync"
+    finally:
+        await engine.dispose()
+
+
 def test_the_0006_lock_holders_are_the_ones_the_lock_takes():
     # The migration imports nothing from ggwork_pick, so the list is written twice; this keeps the two equal.
     from ggwork_pick.mirror.lock import LOCK_HOLDERS

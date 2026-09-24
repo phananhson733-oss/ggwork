@@ -76,17 +76,19 @@ CREATE = (
     # last_failure is the reason plan 5.7 shows (U12). lock_holder_since and lock_holder are when the current holder
     # took the mirror lock and which of the three it is: behind Supavisor the next client inherits the same backend, so
     # backend_start says nothing about the hold (U14).
-    f"""CREATE TABLE IF NOT EXISTS pick_mirror.control (
+    """CREATE TABLE IF NOT EXISTS pick_mirror.control (
         id smallint PRIMARY KEY CONSTRAINT pick_mirror_control_singleton CHECK (id = 1),
         accept_empty_once boolean NOT NULL DEFAULT false,
         accept_empty_set_at timestamptz,
         consecutive_failures integer NOT NULL DEFAULT 0,
         last_failure_at timestamptz,
         last_failure text,
-        lock_holder_since timestamptz,
-        lock_holder text,
-        CONSTRAINT pick_mirror_control_lock_holder CHECK (lock_holder IS NULL OR lock_holder IN ({_HOLDER_LIST}))
+        lock_holder_since timestamptz
     )""",
+    # lock_holder came into 0006 by an in-place edit before any deployment: added on its own, so a local database that
+    # ran the earlier 0006 and was set back to 0005 by hand gets it too. IF NOT EXISTS skips the constraint with it.
+    "ALTER TABLE pick_mirror.control ADD COLUMN IF NOT EXISTS lock_holder text"
+    f" CONSTRAINT pick_mirror_control_lock_holder CHECK (lock_holder IS NULL OR lock_holder IN ({_HOLDER_LIST}))",
     "INSERT INTO pick_mirror.series_state (id) VALUES (1) ON CONFLICT DO NOTHING",
     "INSERT INTO pick_mirror.control (id) VALUES (1) ON CONFLICT DO NOTHING",
 )
