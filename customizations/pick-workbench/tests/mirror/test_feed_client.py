@@ -573,6 +573,8 @@ def _meta_at(section, key, value):
         _row(lambda row: {**row, "version": "pick-export-v1"}),
         _row(lambda row: {**row, "latestSnapshot": "2026-09-22"}),
         _row(lambda row: {**row, "snapshotDays": list(reversed(row["snapshotDays"]))}),
+        # A day twice (latestSnapshot still the last): Manifest.snapshot_days would keep one entry and the wrong row cap.
+        _row(lambda row: {**row, "snapshotDays": [*row["snapshotDays"], {**row["snapshotDays"][-1], "rows": 1}]}),
         _row(lambda row: {**row, "snapshotDays": [{**row["snapshotDays"][0], "extra": 1}]}),
         _row(lambda row: {**row, "meta": {**row["meta"], "extra": 1}}),
         _row(lambda row: {**row, "meta": {**row["meta"], "scrub": {"rs_rows.title": "1"}}}),

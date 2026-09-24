@@ -229,6 +229,36 @@ def test_scan_runs_off_the_event_loop(capsys, files, monkeypatch):
     assert code == 0 and len(threads) == len(pages) and not any(threads)
 
 
+def test_scan_time_is_kept_out_of_run_ms(capsys, files, monkeypatch):
+    # run_ms measures RealShort for the run_time gate; the scan's worker-thread time is reported apart, as scan.elapsed_ms.
+    from ggwork_pick.mirror import pan
+
+    fake, clock = world()
+    _slow(fake, clock, 1, {"rs_ids"})
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    _, plain = summary_of(lines)
+    assert code == 0 and plain["run_ms"] == 1000.0
+
+    fake, clock = world()
+    _slow(fake, clock, 1, {"rs_ids"})
+    scanners = {name: getattr(pan, name) for name in ("scan_v2_page", "scan_manifest_meta")}
+
+    def slowed(name, seconds):
+        def scan(*args):
+            clock.advance(seconds)
+            return scanners[name](*args)
+
+        return scan
+
+    monkeypatch.setattr(pan, "scan_v2_page", slowed("scan_v2_page", 2))
+    monkeypatch.setattr(pan, "scan_manifest_meta", slowed("scan_manifest_meta", 3))
+    code, lines, _ = run(capsys, fake, clock, "--scan", files=files)
+    pages, summary = summary_of(lines)
+    v2_pages = len([p for p in pages if p["resource"] != "manifest"])
+    assert code == 0 and v2_pages > 1 and summary["scan"]["elapsed_ms"] == 3000.0 + 2000.0 * v2_pages
+    assert summary["run_ms"] == plain["run_ms"] and summary["gates"]["run_time"]["run_ms"] == 1000.0
+
+
 def test_row_count_mismatch_fails(capsys, files):
     fake, clock = world()
     fake.counts = {**{name: len(rows) for name, rows in fake.data.items()}, "rs_ids": 3}
@@ -424,6 +454,17 @@ def test_read_failed_retry_is_marked_on_its_line_and_counted(capsys, files):
     assert code == 0 and summary["ok"] is True
     assert [(p["status"], p["retried"]) for p in pages if p["resource"] == "rs_ids"] == [(503, False), (200, True)]
     assert (summary["retries"]["read_failed_503"], summary["retries"]["read_failed_retries"]) == (1, 1) and clock.sleeps == [5]
+
+
+def test_read_failed_twice_is_two_responses_one_retry_and_a_fetch_failure(capsys, files):
+    # read_failed_503 counts responses, read_failed_retries the repeated requests: they part when the retry fails too.
+    fake, clock = world(intercept=lambda call: v2_error(503, "read_failed") if call.resource == "rs_ids" else None)
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    pages, summary = summary_of(lines)
+    assert code == 3 and summary["ok"] is False and summary["error_type"] == "SourceReadError"
+    assert [(p["status"], p["retried"]) for p in pages if p["resource"] == "rs_ids"] == [(503, False), (503, True)]
+    assert (summary["retries"]["read_failed_503"], summary["retries"]["read_failed_retries"]) == (2, 1) and clock.sleeps == [5]
+    assert summary["retries"]["reruns"] == 0 and summary["retries"]["causes"] == []
 
 
 def test_rerun_causes_name_the_echo_and_the_side(capsys, files):
