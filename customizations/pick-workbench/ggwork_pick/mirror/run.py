@@ -88,12 +88,14 @@ __all__ = [
     "describe_db_error",
     "permission_refused",
     "sqlstate",
+    "sweep_leftovers",
     "tolerate_permission",
 ]
 
 logger = logging.getLogger(__name__)
 
 SYNC_HOLDER = "sync"
+CLEANUP_HOLDER = "cleanup"  # sweep_leftovers takes the lock as the cleanup command does
 ATTEMPTS = 2  # plan 5.1: a drift repeats the run once
 BUSY_WAIT_TOTAL = 1200
 RUN_DEADLINE = 900
@@ -182,6 +184,33 @@ async def clean_leftovers(conn, repo: PickRepository, *, data_dir: Path, clock: 
     blobs_error = f"leftover_blobs：PermissionError（{blobs['refused']} 个文件）" if blobs["refused"] else None
     errors = [error for error in (versions_error, batches_error, blobs_error) if error]
     return {"versions": report.details() if report is not None else None, "blobs_deleted": blobs["deleted"], "errors": errors}
+
+
+async def sweep_leftovers(dsn: str, repo: PickRepository, *, data_dir: Path, clock: Callable[[], datetime] = _utc_now) -> dict | None:
+    """clean_leftovers for a run that holds no mirror lock of its own (review flow-2): the v1 RealShortSync on PostgreSQL
+    (the switch rolled back to 0, or on without its token, U31) and MirrorSync's fallback when its dedicated connection
+    failed. A mirror run killed after staging leaves importing batches holding their content-hash slots, and the v1
+    import of the same content would stop on the unique constraint every time. The lock is taken as cleanup without
+    waiting, so a live mirror run elsewhere is never touched.
+
+    Never raises but on cancellation, and returns details_json's cleanup: None when there was nothing to clean,
+    {"skipped": "lock_busy"} when another holder has the lock, {"error": <class and SQLSTATE>} when it failed, else
+    clean_leftovers' report."""
+    try:
+        async with mirror_lock(dsn, holder=CLEANUP_HOLDER, clock=clock) as conn:
+            if conn is None:
+                return {"skipped": LOCK_BUSY}
+            cleanup = await clean_leftovers(conn, repo, data_dir=data_dir, clock=clock)
+    except Exception as exc:
+        logger.warning("[pick-mirror] the leftover sweep before a v1 pull failed (%s); the pull goes on", describe_db_error(exc), exc_info=True)
+        return {"error": describe_db_error(exc)}
+    return cleanup if _cleaned_anything(cleanup) else None
+
+
+def _cleaned_anything(cleanup: dict) -> bool:
+    versions = cleanup["versions"] or {}
+    touched = any(versions.get(key) for key in ("skipped", "failed_building", "dropped_schemas", "lock_busy"))
+    return touched or bool(cleanup["blobs_deleted"]) or bool(cleanup["errors"])
 
 
 def delete_unused(data_dir: Path, paths: Sequence[str]) -> dict[str, int]:
@@ -298,7 +327,8 @@ class MirrorSync:
                 return await self._held(conn, repo, run_id)
         except MirrorConnectionError as exc:
             logger.warning("[pick-mirror] the dedicated connection failed (%s); this run falls back to v1", exc)
-            return await self._fallback(repo, cause="connection", error=safe_error(exc))
+            # No lock was held, so nothing a dead run staged was cleaned: the sweep tries once more (review flow-2).
+            return await self._fallback(repo, cause="connection", error=safe_error(exc), sweep=True)
 
     async def _lock_busy(self) -> RunOutcome:
         """Held by the backfill or the cleanup command (or a stuck holder): failed with who holds it, not counted (U15, U46)."""
@@ -536,10 +566,14 @@ class MirrorSync:
         count = await repo.record_mirror_failure(reason=reason, t=self._clock())
         return failed(NOT_PUBLISHED, reason=reason, error=error, count=count, **details)
 
-    async def _fallback(self, repo: PickRepository, *, cause: str, error: str) -> RunOutcome:
+    async def _fallback(self, repo: PickRepository, *, cause: str, error: str, sweep: bool = False) -> RunOutcome:
         """v1 straight, without as_of (plan 5.5 "manifest 本身失败"): pull_v1, never RealShortSync.run, which would see the
-        sync_lock held and open a second run record. Published, it is a success counted as fallback_v1."""
+        sync_lock held and open a second run record. Published, it is a success counted as fallback_v1. sweep: no lock
+        was held, so leftovers are swept first (sweep_leftovers)."""
         details = {"fallback": {"cause": cause, "error": error}}
+        if sweep:
+            cleanup = await sweep_leftovers(self._dsn, repo, data_dir=self.service.data_dir, clock=self._clock)
+            details = {**details, "cleanup": cleanup} if cleanup is not None else details
         try:
             values = await pull_v1(
                 self.service,

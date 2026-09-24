@@ -29,7 +29,8 @@ from mirror_pairs import (
     version,
 )
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+
+from ggwork_pick.repository import StagedDuplicateError
 
 LATER_TEXT = "2026-09-24T15:38:00.000Z"
 
@@ -298,8 +299,11 @@ async def test_prune_deletes_blob_of_failed_batch(world):
 async def test_leftover_importing_blocks_stage_until_cleaned(world):
     engine, _, shared, importer = world
     leftover = await importer.catalog(catalog_payload("b"), "json", stage=True)
-    with pytest.raises(IntegrityError):
+    # The unique constraint holds; the error says what is in the way (review flow-2), for either kind of import.
+    with pytest.raises(StagedDuplicateError, match="mirror.admin cleanup"):
         await importer.catalog(catalog_payload("b"), "json", stage=True)
+    with pytest.raises(StagedDuplicateError):
+        await importer.catalog(catalog_payload("b"), "json")
     assert await shared.fail_leftover_staged() == [(await batch(engine, leftover["id"]))["raw_blob_path"]]
     assert (await batch(engine, leftover["id"]))["status"] == "failed"
     retried = await importer.catalog(catalog_payload("b"), "json", stage=True)

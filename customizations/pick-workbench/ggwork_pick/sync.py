@@ -15,7 +15,7 @@ import asyncio
 import json
 import re
 import shutil
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 
 import httpx
@@ -224,6 +224,11 @@ def pull_error(exc: Exception, deadline_seconds: float) -> str | None:
     return None
 
 
+def _extra(details: dict) -> dict:
+    """finish_sync_run's details_json keyword, left out when there is nothing to say (a v1 run's is usually None)."""
+    return {"details_json": details} if details else {}
+
+
 class RealShortSync:
     def __init__(
         self,
@@ -236,6 +241,7 @@ class RealShortSync:
         deadline_seconds: float = DEADLINE_SECONDS,
         min_free_bytes: int = MIN_FREE_BYTES,
         details: Mapping | None = None,
+        sweep: Callable[[PickRepository], Awaitable[dict | None]] | None = None,
     ):
         self.service = service
         self.base_url = base_url.rstrip("/")
@@ -246,6 +252,10 @@ class RealShortSync:
         self.min_free_bytes = min_free_bytes
         # details_json of every run, e.g. why the mirror is not running although switched on (U31); None: none.
         self.details = dict(details) if details else None
+        # PostgreSQL only (PickService.realshort_sync): what a dead mirror run staged is cleaned before the pull, under
+        # the mirror lock taken as cleanup without waiting (mirror.run.sweep_leftovers; review flow-2). It never raises
+        # but on cancellation; what it reports (None: nothing) goes into details_json.cleanup.
+        self.sweep = sweep
 
     @property
     def _lock(self) -> asyncio.Lock:
@@ -260,20 +270,22 @@ class RealShortSync:
         async with self._lock:
             repo = PickRepository.shared(self.service.session_factory)
             record = await repo.start_sync_run(SOURCE, trigger)
-            extra = {"details_json": dict(self.details)} if self.details else {}
+            details = dict(self.details or {})
             try:
+                cleanup = await self.sweep(repo) if self.sweep is not None else None
+                details = {**details, "cleanup": cleanup} if cleanup is not None else details
                 values = await self._pull(repo)
             except asyncio.CancelledError:
-                await asyncio.shield(repo.finish_sync_run(record["id"], status="failed", error="同步被中止（进程停止或取消）", **extra))
+                await asyncio.shield(repo.finish_sync_run(record["id"], status="failed", error="同步被中止（进程停止或取消）", **_extra(details)))
                 raise
             except Exception as exc:
                 error = pull_error(exc, self.deadline_seconds)
                 if error is None:
                     # Recorded, never swallowed silently.
-                    await repo.finish_sync_run(record["id"], status="failed", error=f"同步内部错误：{type(exc).__name__}", **extra)
+                    await repo.finish_sync_run(record["id"], status="failed", error=f"同步内部错误：{type(exc).__name__}", **_extra(details))
                     raise
-                return await repo.finish_sync_run(record["id"], status="failed", error=error, **extra)
-            return await repo.finish_sync_run(record["id"], status="success", **values, **extra)
+                return await repo.finish_sync_run(record["id"], status="failed", error=error, **_extra(details))
+            return await repo.finish_sync_run(record["id"], status="success", **values, **_extra(details))
 
     async def _pull(self, repo: PickRepository) -> dict:
         return await pull_v1(

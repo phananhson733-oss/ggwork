@@ -120,7 +120,21 @@ class PickService:
 
         disabled = settings.mirror_disabled(dialect)
         details = {"mirror_disabled": disabled} if disabled else None
-        return RealShortSync(self, base_url=settings.feed_url, token=settings.feed_token, transport=self.sync_transport, details=details)
+        sweep = self._leftover_sweep(engine) if dialect == "postgresql" else None
+        return RealShortSync(self, base_url=settings.feed_url, token=settings.feed_token, transport=self.sync_transport, details=details, sweep=sweep)
+
+    def _leftover_sweep(self, engine):
+        """What a dead mirror run staged, cleaned before a v1 pull on PostgreSQL (the switch rolled back, U31; review
+        flow-2). A closure, so no repr ever shows the DSN and its password."""
+        from ggwork_pick.mirror.connection import dsn_from_engine
+        from ggwork_pick.mirror.run import sweep_leftovers
+
+        dsn = dsn_from_engine(engine)
+
+        async def sweep(repo: PickRepository):
+            return await sweep_leftovers(dsn, repo, data_dir=self.data_dir)
+
+        return sweep
 
     def _mirror_sync(self, engine):
         # Imported here: the mirror's contracts and scrub rules load only where the mirror runs (PostgreSQL).
