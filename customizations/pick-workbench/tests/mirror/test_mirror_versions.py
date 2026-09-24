@@ -5,7 +5,7 @@ PostgreSQL only; skipped when PICK_TEST_PG_URL is unset.
 
 import asyncio
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -61,6 +61,35 @@ async def observer(dsn):
 async def _next_id(conn) -> int:
     last, called = await conn.fetchrow("select last_value, is_called from pick_mirror.versions_id_seq")
     return last + 1 if called else last
+
+
+class _CountsStatements:
+    """A connection that only counts the statements that reach it; each one fails."""
+
+    def __init__(self):
+        self.statements = 0
+
+    async def fetchval(self, *args, **kwargs):
+        self.statements += 1
+        raise RuntimeError("no database here")
+
+
+# 30 seconds east of UTC: its local minute is not the UTC minute RealShort's asOf is (format_as_of, the 0006 CHECK).
+HALF_MINUTE_EAST = timezone(timedelta(seconds=30))
+
+
+@pytest.mark.asyncio
+async def test_create_version_takes_the_utc_minute_as_the_whole_minute():
+    from ggwork_pick.mirror.versions import MirrorBuildError, create_version
+
+    off = _CountsStatements()
+    with pytest.raises(ValueError, match="整分钟"):  # 10:15:00 there is 10:14:30 UTC
+        await create_version(off, **version_args(as_of=AS_OF.replace(tzinfo=HALF_MINUTE_EAST)))
+    assert off.statements == 0
+    on = _CountsStatements()
+    with pytest.raises(MirrorBuildError):  # 10:15:30 there is AS_OF itself: past the checks, to the first statement
+        await create_version(on, **version_args(as_of=AS_OF.astimezone(HALF_MINUTE_EAST)))
+    assert on.statements == 1 and AS_OF.astimezone(HALF_MINUTE_EAST).second == 30
 
 
 @pytest.mark.asyncio

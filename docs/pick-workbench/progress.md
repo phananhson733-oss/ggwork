@@ -1,4 +1,4 @@
-# 当前状态（2026-09-23）
+# 当前状态（2026-09-24）
 
 入口 https://ggwork-deerflow.vercel.app ；代码在 `phananhson733-oss/ggwork` 的 main（本地 `work` 分支，浅克隆，所以推送的是快照根提交之后的增量）；基线标签 `pick-mvp-baseline-20260921`。
 
@@ -15,7 +15,12 @@
   - 工作台宿主和选剧扩展一起搬到独立的 Supabase 项目 `ggwork-workbench`，与 RealShort 没有交集。
   - 旧 SQLite 整库备份，48 小时内可以回滚，旧对话按决定不迁移。
   - 演练和切换后的验证（含 10 题独立核对）都通过，见 [supabase.md](supabase.md) 第 12 节。
-  - 选剧资料页镜像旧选剧台（P2 镜像写入、P3 资料页）还没做；RealShort 的导出接口在 realshort#67，还没合并。
+  - 选剧资料页镜像旧选剧台（P2 镜像写入、P3 资料页）还没做；RealShort 的导出接口 realshort#67 已于 09-24 合并（见下一条）。
+- **feed v2 实测与 realshort#67 合并（2026-09-24）**：
+  - P1-6：在 RealShort 读生产库的 Preview 上跑了两次 dry-run。默认页大小时 rs_rows 单页 2.6–25.4 秒、整次 228.8 秒；`--limit rs_rows=1000` 时单页 1.9–2.6 秒、整次 120.8 秒，所以 rs_rows 页大小定为 1000。八个资源和当天 rs_series_day 的行数全对，网盘扫描、标题清洗、漂移与 busy 都是 0。
+  - manifest 22–25 秒，超过每页 15 秒的门槛。决定先接受：manifest 单独门槛 45 秒，上线后看运行记录；RealShort 另开任务优化。
+  - #67 于 10:48 UTC 合并；生产 v2 不带 token 返回 404，v1 返回 401；10:50 UTC 手动同步成功，8,141 部。Production 还没配 `PICK_EXPORT_TOKEN`，镜像（P2）还没上线。
+  - 详见 [realshort-sync.md](realshort-sync.md) 的「feed v2（镜像用）」。
 - **仍未做**：多人账号与团队共享、飞书写入与排期、本机 Docker 构建（云端构建已替代）；RealShort 仍共用生产 Azure key。
 
 ---

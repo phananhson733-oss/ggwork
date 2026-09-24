@@ -14,7 +14,7 @@
 - **P1-6**：P2-2a 客户端合并之后、realshort#67 合并之前，在 RealShort `feat/pick-export-v2` 分支的 Preview 上跑。Preview 读生产库时，测到的数字就是生产的查询增量；读的是不是生产库，前提第 1 步要先核实。
 - 避开三个时段：RealShort 的 cron、Mac mini 的剧单导入、工作台 03:40 / 15:40 UTC 的定时同步。
 - 在哪台机器上跑：出口 IP 不能属于阿里云（AS45102）或腾讯云（AS132203）。RealShort 的防火墙按 ASN 拒绝这两家（`rs:src/lib/crawler-policy.ts`），响应是 `403`。挂着这两家的代理，或在这两家的云主机上跑，都会被挡。
-- **`--scan`（U52）**：能在 P1-6 这次一起跑就一起跑。没跑成的话，等 Production 配好正式 `PICK_EXPORT_TOKEN`、打开镜像之前，在 Production 上单独跑一次，同样避开 cron。Production 不需要 bypass。
+- **`--scan`（U52）**：能在 P1-6 这次一起跑就一起跑。没跑成的话，等 Production 配好正式 `PICK_EXPORT_TOKEN`、打开镜像之前，在 Production 上单独跑一次，同样避开 cron。Production 不需要 bypass。`--scan` 还会把 v2 每页（含 rs_series_day）和 manifest 过一遍镜像写入用的严格模型（门槛 `contract`），在生产上跑这一次，也就顺带验证了严格行模型接得住真实数据。
 
 ## 前提（RealShort 的 Vercel 项目）
 
@@ -92,8 +92,8 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 | `--bypass-header-file` | 只放 bypass 值的文件；不收命令行明文。Production 上不给 |
 | `--token-file` | v2 token 文件；不给就读环境变量 `PICK_REALSHORT_EXPORT_TOKEN` |
 | `--v1-token-file` | v1 token 文件；不给就读 `PICK_REALSHORT_FEED_TOKEN`；都没有就跳过 v1 |
-| `--scan` | 在内存里用 Python 网盘清洗扫描每一页，只报路径与次数。要连 v1 一起扫，所以同时要有 v1 token，否则 `pan_scan` 不通过 |
-| `--limit rs_rows=N` | 覆盖页大小，可以写多个：`--limit rs_rows=1000 rs_ids=5000`；取值 1 到该资源的服务端上限 |
+| `--scan` | 在内存里用 Python 网盘清洗扫描每一页，只报路径与次数；同时把 v2 每页（含 rs_series_day）和 manifest 过一遍严格模型，只报失败页数与字段路径。要连 v1 一起扫，所以同时要有 v1 token，否则 `pan_scan` 不通过 |
+| `--limit rs_rows=N` | 覆盖页大小，可以写多个：`--limit rs_rows=1000 rs_ids=5000`；取值 1 到该资源的服务端上限。不给时 rs_rows 按 1000（P1-6 定的），其余按服务端上限 |
 | `--series-days N` | 拉 `snapshotDays` 最后几天的 rs_series_day，0 到 93，缺省 1（只拉 latestSnapshot 那天） |
 
 - stdout 只有 JSON 行，不含 token、bypass 值和行内容，可以存在仓库外。唯一的例外是 `RowTooLargeError`：它的 `error` 带着那一行的主键（见「退出码」）。参数错误只写 stderr。
@@ -117,7 +117,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 每个 HTTP 响应一行，按发生顺序输出，409、503 和重试也各占一行。下面的数字只是示意：
 
 ```json
-{"attempt":1,"resource":"rs_rows","page":3,"status":200,"elapsed_ms":812.4,"bytes":1843221,"wire_bytes":402113,"rows":2000,"retry_after":null,"retried":false,"run":1}
+{"attempt":1,"resource":"rs_rows","page":3,"status":200,"elapsed_ms":812.4,"bytes":1843221,"wire_bytes":402113,"rows":1000,"retry_after":null,"retried":false,"run":1}
 ```
 
 | 字段 | 含义 |
@@ -151,7 +151,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 | `v1` | v1 的统计，字段同 `resources`，另有 `total`（v1 首页报的总数）和 `rows_match_total`（实收行数是否等于它）；没有 v1 token 时只有 `skipped` 与 `reason` |
 | `scrub` | manifest 的 `meta.scrub`，即 RealShort 自己清洗的命中，形如「资源.列 → 次数」 |
 | `warnings` | manifest `meta.warnings` 的 code 列表 |
-| `source_revision_null` | manifest 的 `sourceRevision` 是否为 null |
+| `source_revision_null` | manifest 的 `sourceRevision` 是否为 null；为 true 时 `gates.source_revision` 不通过 |
 | `retries` | 重试与漂移的计数，字段见下表 |
 | `scan` | 只在加了 `--scan` 时出现：`hits`（路径 → 次数，不含值；路径里不是字母、数字、下划线的键名写成 `<非常规键名>`，键名本身也可能带着网盘片段）、`total`（次数合计）、`elapsed_ms`（扫描线程耗时合计） |
 | `gates` | 每个门槛的判定，字段见下表 |
@@ -187,14 +187,17 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 
 | 门槛 | 字段 |
 |---|---|
-| `page_time` | `ok`、`limit_ms`、`worst_ms`、`worst`（最慢的是哪个：`manifest`、资源名，或 `rs_series_day@<日期>`） |
-| `page_bytes` | `ok`、`limit_bytes`、`worst_bytes`、`worst` |
+| `page_time` | `ok`、`limit_ms`、`worst_ms`、`worst`（最慢的行数据页是哪个：资源名，或 `rs_series_day@<日期>`） |
+| `manifest_time` | `ok`、`limit_ms`、`elapsed_ms`（manifest 这一请求的耗时） |
+| `page_bytes` | `ok`、`limit_bytes`、`worst_bytes`、`worst`（可能是 `manifest`） |
 | `run_time` | `ok`、`limit_ms`、`run_ms` |
 | `row_counts` | `ok`、`mismatched`（行数对不上的资源） |
 | `title_scrub` | `ok`、`hits`（六个标题字段上的 `meta.scrub` 命中）；有命中时另有 `blocks` |
+| `source_revision` | `ok`；`sourceRevision` 为 null 时另有 `reason`，`ok` 为 false |
 | `pan_scan` | 只在加了 `--scan` 时出现：`ok`、`paths`（有命中的路径数）、`hits`（命中次数合计）；没有 v1 token 时另有 `unscanned`（没扫到的 `v1.rows`、`v1.rules`）和 `reason`，`ok` 为 false |
+| `contract` | 只在加了 `--scan` 时出现：`ok`、`pages`（过了严格模型的页数，manifest 算 1 页）、`failures`（资源 → `failures` 没过的页数、`first_path` 第一个没过的字段路径，不含值；全部通过时为空） |
 
-`page_time` 和 `page_bytes` 覆盖 manifest 和所有 v2 页（含 rs_series_day），不含 v1。`run_time` 不同：`run_ms` 从 manifest 请求发出算到最后一页收完，中间的 v1 也在里面。
+`page_time` 只看行数据页：v2 八个资源和 rs_series_day，不含 manifest 和 v1。manifest 的耗时单独看 `manifest_time`。`page_bytes` 覆盖 manifest 和所有 v2 页，不含 v1。`run_time` 不同：`run_ms` 从 manifest 请求发出算到最后一页收完，中间的 v1 也在里面。
 
 ### 失败时的汇总
 
@@ -205,17 +208,22 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 
 | 要求 | 看哪里 | 不达标时 |
 |---|---|---|
-| 每页少于 15 秒 | `gates.page_time` | 退出码 1 |
-| 每页少于 3,000,000 字节（十进制，按解压后的 `bytes`） | `gates.page_bytes` | 退出码 1 |
+| 每个行数据页少于 15 秒（v2 八个资源与 rs_series_day） | `gates.page_time` | 退出码 1 |
+| manifest 少于 45 秒 | `gates.manifest_time` | 退出码 1 |
+| 每页少于 3,000,000 字节（十进制，按解压后的 `bytes`，含 manifest） | `gates.page_bytes` | 退出码 1 |
 | 整次少于 3 分钟 | `gates.run_time` | 退出码 1 |
 | 实收行数等于 `counts` | `gates.row_counts`；逐项看 `resources`、`series_days` 的 `rows_match` | 退出码 1 |
 | 六个标题字段的 `meta.scrub` 全为 0：`*.title`、`*.title_cn`、`*.description`、`rs_ids.title`、`catalog_posted.title`、`rs_bill_orders.book_title` | `gates.title_scrub` | 退出码 1，`blocks` 写「阻断 #67 合并」 |
 | `--scan` 所有路径为 0（含 `v1.rules`），且 v1 确实扫过 | `gates.pan_scan`、`scan.hits`；`gates.pan_scan.unscanned` 不应出现 | 退出码 1 |
-| `sourceRevision` 不为 null | `source_revision_null` 必须是 false | **不影响退出码，要人工看** |
+| `--scan` 时 v2 每页（含 rs_series_day）和 manifest 都过得了严格模型 | `gates.contract`，`failures` 为空 | 退出码 1 |
+| `sourceRevision` 不为 null | `gates.source_revision`（`source_revision_null` 为 false） | 退出码 1 |
 | 数据库时间少于 90 秒 | Neon Monitoring；各资源 `sum_elapsed_ms` 与 manifest 耗时之和可以当上限 | 人工看 |
 
+- manifest 单独一个门槛：P1-6（2026-09-24）实测 manifest 22.7–25.5 秒，超过方案给每页的 15 秒。用户决定先接受，manifest 单独门槛 45 秒；上线后看运行记录里的 manifest 耗时，RealShort 另开任务优化 manifest 的 13 个并行查询。
 - 标题字段有命中：不合并 #67，也不进入 P2 上线。v1 的 `title` 不在 RealShort 的豁免清单里，一合并，智能体看到的剧名就会被整串替换。按 RealShort 清洗正则的 bug 处理，在 PR 分支上修好后重测。
 - `--scan` 有命中：不打开镜像。先分清是 Python 多认了，还是 RealShort 漏清了。`scan.hits` 只给路径，要看值得去 RealShort 那边按路径查。
+- `contract` 有失败：不打开镜像。镜像写入按同一套严格模型读每一页，没过的页会让那次镜像失败。按 `failures` 里的资源和 `first_path` 去 RealShort 那边查是哪一边的约定不对，修好后重跑。拉取本身不会因为这一项中断，后面的门槛照常判。manifest 的严格检查客户端本来就做：manifest 不合约定时整次以退出码 3、`ContractError` 结束，走不到这一项。
+- `source_revision` 不通过：这个 RealShort 部署没有 `VERCEL_GIT_COMMIT_SHA`，fingerprint 里就没有构建版本，发版带来的漂移测不出来。换一个带 SHA 的部署重测。
 - 另外记下 `retries.drift_409`、`retries.busy_503`。Preview 的构建 SHA 是固定的，测不出生产频繁部署带来的漂移频率，那要上线后再统计。
 - v1 的页不进 `page_time`、`page_bytes`（它不是新接口），`v1` 里的数字只作记录；但 v1 的耗时算在 `run_ms` 里。`run_time` 没过时，先比 `v1.sum_elapsed_ms` 和各 v2 资源的 `sum_elapsed_ms`：慢的是 v1 的话，下面的 rs_rows 两级退路帮不上，记下数字交评审。
 
@@ -223,7 +231,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 
 | 退出码 | 含义 | 看什么 |
 |---|---|---|
-| 0 | 全部门槛通过 | `source_revision_null` 仍要人工看 |
+| 0 | 全部门槛通过 | 汇总里的数字，记进 realshort-sync.md（见「测完之后」） |
 | 1 | 拉取成功，但有门槛没过 | `failed_gates`、`gates` |
 | 2 | 用法错误：参数不对；token 或 bypass 文件读不了、是空的；没有 v2 token；`--base-url` 不是源站或主机名不合法，或 token、bypass 里有空白、控制字符或非 ASCII 字符 | 只在 stderr 写一行原因，没有汇总行 |
 | 3 | 拉取本身失败 | 汇总的 `error_type` 与 `error`，见下 |
@@ -242,9 +250,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 
 ## 超门槛时的两级退路
 
-1. 先用 `--limit rs_rows=1000` 复测（服务端上限 2000），RealShort 不用改。
-   - 通过的话，把 1000 写进 `customizations/pick-workbench/ggwork_pick/mirror/client.py` 的 `PAGE_LIMITS["rs_rows"]`（U47）。
-   - 同时改 `customizations/pick-workbench/tests/mirror/test_feed_client.py` 的 `test_page_limits_default_to_each_resources_server_maximum`：它现在断言缺省值等于服务端上限。
+1. 第 1 级已经用上：2026-09-24 的 P1-6 实测里，`--limit rs_rows=1000` 通过，1000 已写进 `customizations/pick-workbench/ggwork_pick/mirror/client.py` 的 `PAGE_LIMITS["rs_rows"]`（U47；服务端上限 2000），`customizations/pick-workbench/tests/mirror/test_feed_client.py` 的 `test_page_limits_are_the_server_maxima_but_rs_rows_1000` 钉住它。之后的 dry-run 不带 `--limit` 就按 1000 拉。
 2. 还是不过：把 rs_rows 改成每天只拉一次（plan:1496）。这要改 P2 的编排（5c），RealShort 仍然不用改。
 
 超门槛的若是别的资源，不在这两级预案里，记下数字交评审。
@@ -263,8 +269,8 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 
 ## 测完之后
 
-- 通过门槛的 rs_rows 页大小写成 `PAGE_LIMITS` 常量，见「超门槛时的两级退路」第 1 级。
-- 实测数字记进 [realshort-sync.md](realshort-sync.md) 的 v2 一节（P1 第 11 步补这一节），同时写进 [progress.md](progress.md)。要记的是：
+- 通过门槛的 rs_rows 页大小写成 `PAGE_LIMITS` 常量，见「超门槛时的两级退路」第 1 级（2026-09-24 已写成 1000）。
+- 实测数字记进 [realshort-sync.md](realshort-sync.md) 的「feed v2（镜像用）」一节，同时写进 [progress.md](progress.md)。2026-09-24 的 P1-6 已记在那里。之后再跑（比如 Production 上的 `--scan`），照同样的格式追加。要记的是：
   - 最慢页与最大页；
   - 整次 `run_ms`；
   - `drift_409`、`busy_503`；

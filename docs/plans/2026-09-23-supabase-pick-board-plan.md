@@ -346,7 +346,7 @@ ALTER ROLE pick_board_reader SET timezone = 'UTC';
 | `id` | bigserial PK | 即 URL 里的 `v` |
 | `schema_name` | text UNIQUE NOT NULL | `pickm_v%06d`，只由 id 生成 |
 | `status` | text CHECK IN (`building`,`published`,`failed`,`dropped`) | |
-| `as_of` | timestamptz NOT NULL | 采集时点 |
+| `as_of` | timestamptz NOT NULL | 采集时点，UTC 整分钟（CHECK `pick_mirror_versions_as_of`：`date_trunc('minute', as_of, 'UTC') = as_of`，三参数形式是 IMMUTABLE） |
 | `fingerprint` | jsonb | 见 4.3 |
 | `counts` | jsonb | 各表行数 |
 | `latest_snapshot` | date | 这一版对应的曲线最新日 |
@@ -493,7 +493,8 @@ UPDATE pick_mirror.versions SET status = 'published', published_at = :t
 
 **清理方式：**
 - 每个版本在自己的事务里执行：`BEGIN; SET LOCAL lock_timeout = '5s'; DROP SCHEMA pickm_vN CASCADE; UPDATE pick_mirror.versions SET status = 'dropped' …; COMMIT`。用 `SET LOCAL`，不用会话级 `SET`，否则设置会留在连接上。
-- 拿不到锁就回滚跳过，下次再试。
+- 实现（2026-09-24 第二轮对齐）：`lock_timeout` 与 `statement_timeout` 都 `SET LOCAL` 为 5 秒（`lock_timeout` 按每次等锁计时，DROP 每张表各等一次锁，限不住整条语句）；`dropped_at` 取注入的时钟，与 DROP 同一事务提交。构建失败时 `mark_failed` 的 DROP 走同一段代码（`versions.drop_in_transaction`）。
+- 拿不到锁就回滚跳过，下次再试：57014（语句超时）、55P03（等锁超时）、40P01（死锁）都按「被读者挡住」处理。
 - 用 DROP SCHEMA，就不会有 DELETE 留下的膨胀。
 
 ggwp 批次的保留规则不变（最新 3 份，加 30 天内被引用的）。所以旧卡片的批次可能还在、镜像版本却已清理。这种情况下资料页显示「该版本已清理」；回放的名单与顺序仍然可用（它读批次），行数据按 2.5 第 4 条改从当前版本取并注明。
@@ -823,7 +824,7 @@ v1 也要顺手修两处：
 常规折叠和回填都是对数组「读出、修改、写回」，所以两者都必须持有同一把 `ggwp:mirror-sync` advisory lock：常规折叠在同步的锁内执行（5.2 第 11 步）；回填命令自己开一条专用连接 `pg_try_advisory_lock`，拿不到就退出并提示「同步正在进行」。
 
 **首次回填：**
-- 用命令 `cd /app/backend && DEER_FLOW_HOME=/data python -m ggwork_pick.mirror.series --backfill 90`，经 `railway ssh` 在 gateway 容器里执行。执行前按 6.8 第 8 步先确认 ssh 会话里有 `PICK_DATABASE_URL` 和 `PGSSLMODE`（只看有没有，不打印值）。
+- 用命令 `cd /app/backend && DEER_FLOW_HOME=/data python -m ggwork_pick.mirror.series --backfill 92`（92 也是不写 N 时的缺省值，覆盖 snapshotDays 全部），经 `railway ssh` 在 gateway 容器里执行。执行前按 6.8 第 8 步先确认 ssh 会话里有 `PICK_DATABASE_URL` 和 `PGSSLMODE`（只看有没有，不打印值）。
 - 入口不依赖 cwd 和 `get_app_config` 的默认查找，缺变量时非零退出并说明缺哪个（6.5）；不打印 token。
 - 只开一条 asyncpg 连接，不初始化宿主 engine，连接预算见 6.4。
 
@@ -1488,7 +1489,7 @@ export function getDb() {
 5. 测完删掉临时配置的 token 和 bypass secret。
 
 **门槛：**
-- 每页少于 15 秒、少于 3 MB；
+- 每页少于 15 秒、少于 3 MB；manifest 单独门槛 45 s（2026-09-24 实测后用户决定）；
 - 整次少于 3 分钟；
 - 数据库时间少于 90 秒；
 - 首个真实 manifest 的 `meta.scrub` 按字段记下清洗次数：title、title_cn、description 上有任何命中，都当作正则 bug，修好之前不进入第 9 节第 6 步（不打开镜像）。

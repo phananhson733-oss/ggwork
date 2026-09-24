@@ -7,7 +7,10 @@ Everything runs on the dedicated asyncpg connection (connection.open_dedicated),
 the CREATE SCHEMA + CREATE TABLE step and the DROP SCHEMA step are transactions, and each commits before the call returns.
 The ORM's publish transaction runs GRANT with a 30-second command timeout; an uncommitted DDL here would hold it up. Every
 statement is given its own timeout, BEGIN and COMMIT included (sent here, not by asyncpg's transaction(), which gives
-them none), and the only setting ever sent is a SET LOCAL.
+them none), and the only settings ever sent are SET LOCAL.
+
+Every DROP of a version schema, here and in retention (P2-6), is drop_in_transaction: BEGIN; SET LOCAL lock_timeout and
+SET LOCAL statement_timeout to one budget; DROP SCHEMA IF EXISTS ... CASCADE; the versions row that records it; COMMIT.
 
 A schema name reaches SQL only after check_schema_name: nothing else is ever substituted into a statement. Error texts
 name the step, the exception class and the SQLSTATE, never a value (plan 5.5; sync._safe_error).
@@ -16,7 +19,7 @@ name the step, the exception class and the SQLSTATE, never a value (plan 5.5; sy
 import json
 import logging
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from importlib import resources
@@ -46,12 +49,13 @@ TABLE_COLUMNS = MappingProxyType({**{table: RESOURCE_COLUMNS[table] for table in
 STATEMENT_TIMEOUT = 30
 DDL_TIMEOUT = 60
 DROP_TIMEOUT = 60
-# The whole DROP SCHEMA's time, lock waits included, as SET LOCAL statement_timeout: readers queue behind it for at most
-# this long (U24; their own statement_timeout is 8 s). lock_timeout would not do: it limits each lock wait on its own,
-# and the DROP takes the nine tables' locks one after another.
+# A DROP's budget, sent as both SET LOCAL lock_timeout and SET LOCAL statement_timeout: readers queue behind it for at
+# most this long (U24; their own statement_timeout is 8 s). lock_timeout alone would not do: it limits each lock wait on
+# its own, and the DROP takes the nine tables' locks one after another; statement_timeout bounds the DROP as a whole.
 DROP_STATEMENT_TIMEOUT_MS = 5000
-# A DROP that gave up behind readers: statement_timeout (57014), or a lock_timeout the session had (55P03).
-_BLOCKED_SQLSTATES = frozenset({"57014", "55P03"})
+# A DROP that gave up behind readers, nothing dropped: its statement_timeout (57014), its lock_timeout (55P03), or a
+# deadlock with a reader whose one statement took two of the version's tables in the other order (40P01).
+DROP_BLOCKED_SQLSTATES = frozenset({"57014", "55P03", "40P01"})
 ERROR_MAX_LENGTH = 500
 
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}")
@@ -68,6 +72,9 @@ _FAIL = (
     " WHERE id = $1 AND status IN ('building', 'failed') AND dropped_at IS NULL RETURNING schema_name"
 )
 _DROPPED = "UPDATE pick_mirror.versions SET dropped_at = $2 WHERE id = $1 AND dropped_at IS NULL"
+
+
+Then = Callable[[], Awaitable[None]]
 
 
 class MirrorBuildError(RuntimeError):
@@ -141,16 +148,18 @@ def _plain(value: object) -> object:
     raise TypeError("not JSON")
 
 
-def _check_moment(moment: object) -> datetime:
-    """An aware datetime: asyncpg would store a naive one as if it were UTC."""
+def check_moment(moment: object) -> datetime:
+    """An aware datetime, as created_at and dropped_at take from the injected clock: asyncpg would store a naive one as if
+    it were UTC. ValueError otherwise."""
     if not isinstance(moment, datetime) or moment.utcoffset() is None:
         raise ValueError("时间必须是带时区的 datetime")
     return moment
 
 
 def _check_as_of(as_of: object) -> datetime:
-    _check_moment(as_of)
-    if as_of.second or as_of.microsecond:
+    """A whole UTC minute, as feed_shape.format_as_of and the 0006 CHECK take it: a zone's own minute may be off it."""
+    moment = check_moment(as_of).astimezone(UTC)
+    if moment.second or moment.microsecond:
         raise ValueError("as_of 必须是整分钟（与 RealShort 的 asOf 相同，U6）")
     return as_of
 
@@ -219,7 +228,7 @@ async def create_version(
     values = _version_values(
         as_of=as_of, fingerprint=fingerprint, counts=counts, latest_snapshot=latest_snapshot, freshness=freshness, warnings=warnings, sync_run_id=sync_run_id
     )
-    created_at = _check_moment(clock())
+    created_at = check_moment(clock())
     template = ddl_template()  # a packaging fault stops here, before a version row exists
     version = await _register(conn, values, created_at, timeout=timeout)
     try:
@@ -247,8 +256,9 @@ async def _create_tables(conn, schema_name: str, template: str) -> None:
     await _in_transaction(conn, (f"CREATE SCHEMA {name}", template.replace(SCHEMA_PLACEHOLDER, name)), timeout=DDL_TIMEOUT)
 
 
-async def _in_transaction(conn, statements: Sequence[str], *, timeout: float) -> None:
-    """BEGIN, the statements, COMMIT: every one sent with `timeout`. Any failure, cancellation too, rolls back first.
+async def _in_transaction(conn, statements: Sequence[str], *, timeout: float, then: Then | None = None) -> None:
+    """BEGIN, the statements, then(), COMMIT: every statement sent with `timeout`. Any failure, cancellation too, rolls
+    back first.
 
     A caller's open transaction is refused: BEGIN inside it would only warn, and this COMMIT would commit its work.
     """
@@ -258,6 +268,8 @@ async def _in_transaction(conn, statements: Sequence[str], *, timeout: float) ->
     try:
         for statement in statements:
             await conn.execute(statement, timeout=timeout)
+        if then is not None:
+            await then()
         await conn.execute("COMMIT", timeout=timeout)
     except BaseException:
         await _roll_back(conn, timeout=timeout)
@@ -281,7 +293,8 @@ async def _fail_on_the_way_out(conn, version_id: int, error: str, clock: Callabl
 
 
 async def mark_failed(conn, version_id: int, *, error: str, clock: Callable[[], datetime] = _utc_now, timeout: float = STATEMENT_TIMEOUT) -> bool:
-    """Record a building version as failed with `error` (safe text), drop its schema, then stamp dropped_at (P2-3, 5.5).
+    """Record a building version as failed with `error` (safe text), then drop its schema and stamp dropped_at in the
+    DROP's own transaction (P2-3, 5.5); dropped_at is the injected clock's, read before any statement.
 
     True when this call dropped the schema (or found it already gone). False when there was nothing to do: the version
     is published, dropped, unknown, or already cleaned up; or the connection is closed, in which case the next run's
@@ -293,26 +306,50 @@ async def mark_failed(conn, version_id: int, *, error: str, clock: Callable[[], 
     if isinstance(version_id, bool) or not isinstance(version_id, int):
         raise ValueError("镜像版本号必须是整数")
     text = safe_error_text(error)
+    dropped_at = check_moment(clock())
     if conn.is_closed():
         return False
     schema_name = await conn.fetchval(_FAIL, version_id, text, timeout=timeout)
     if schema_name is None:
         return False
-    await drop_version_schema(conn, schema_name)
-    await conn.execute(_DROPPED, version_id, _check_moment(clock()), timeout=timeout)
+
+    async def stamp_dropped() -> None:
+        await conn.execute(_DROPPED, version_id, dropped_at, timeout=timeout)
+
+    await drop_version_schema(conn, schema_name, then=stamp_dropped)
     return True
 
 
-async def drop_version_schema(conn, schema_name: str, *, timeout: float = DROP_TIMEOUT) -> None:
-    """DROP SCHEMA IF EXISTS ... CASCADE in its own short transaction, the whole statement held to 5 s (U24).
+def drop_blocked(exc: BaseException) -> bool:
+    """The DROP gave up behind readers (DROP_BLOCKED_SQLSTATES): nothing was dropped, a later try may succeed."""
+    return getattr(exc, "sqlstate", None) in DROP_BLOCKED_SQLSTATES
 
-    Giving up behind readers is MirrorDropBlocked, with nothing dropped; any other failure is MirrorBuildError. For
-    mark_failed here, and for retention (P2-6) and cleanup (P2-5c), which record the drop themselves.
+
+def drop_statements(schema_name: str, *, budget_ms: int) -> tuple[str, str, str]:
+    """SET LOCAL lock_timeout and statement_timeout to budget_ms, then the DROP; ValueError for a bad name or budget."""
+    name = check_schema_name(schema_name)
+    if isinstance(budget_ms, bool) or not isinstance(budget_ms, int) or budget_ms < 1:
+        raise ValueError("删除镜像版本的时限必须是至少 1 的整数毫秒")
+    return (f"SET LOCAL lock_timeout = {budget_ms}", f"SET LOCAL statement_timeout = {budget_ms}", f"DROP SCHEMA IF EXISTS {name} CASCADE")
+
+
+async def drop_in_transaction(conn, schema_name: str, *, budget_ms: int | None = None, then: Then | None = None, timeout: float = DROP_TIMEOUT) -> None:
+    """The one DROP of a version schema: BEGIN, drop_statements, then() (the versions row that records it), COMMIT.
+
+    budget_ms defaults to DROP_STATEMENT_TIMEOUT_MS (U24). Errors are raised as they came, after the ROLLBACK:
+    drop_blocked(exc) tells a reader in the way. SET LOCAL ends with the transaction; the connection keeps its settings.
+    """
+    budget = DROP_STATEMENT_TIMEOUT_MS if budget_ms is None else budget_ms
+    await _in_transaction(conn, drop_statements(schema_name, budget_ms=budget), timeout=timeout, then=then)
+
+
+async def drop_version_schema(conn, schema_name: str, *, then: Then | None = None, timeout: float = DROP_TIMEOUT) -> None:
+    """drop_in_transaction with the default budget, its errors as mirror errors: MirrorDropBlocked when readers were in
+    the way, with nothing dropped; any other failure (then()'s included) MirrorBuildError. The text holds no value.
     """
     name = check_schema_name(schema_name)
-    budget = int(DROP_STATEMENT_TIMEOUT_MS)  # an integer of milliseconds, never input
     try:
-        await _in_transaction(conn, (f"SET LOCAL statement_timeout = {budget}", f"DROP SCHEMA IF EXISTS {name} CASCADE"), timeout=timeout)
+        await drop_in_transaction(conn, name, then=then, timeout=timeout)
     except Exception as exc:
-        failure = MirrorDropBlocked if getattr(exc, "sqlstate", None) in _BLOCKED_SQLSTATES else MirrorBuildError
+        failure = MirrorDropBlocked if drop_blocked(exc) else MirrorBuildError
         raise failure(f"删除镜像版本 {name} 失败：{describe_error(exc)}") from None

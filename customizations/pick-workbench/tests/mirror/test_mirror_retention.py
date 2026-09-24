@@ -17,7 +17,7 @@ import pytest_asyncio
 
 T0 = datetime(2026, 9, 24, 3, 40, tzinfo=UTC)
 FINGERPRINT = "0123456789abcdef" * 4
-RETENTION_SOURCE = Path(__file__).resolve().parents[2] / "ggwork_pick" / "mirror" / "retention.py"
+MIRROR_SOURCE = Path(__file__).resolve().parents[2] / "ggwork_pick" / "mirror"
 MIRROR_SCHEMAS = "select nspname from pg_namespace where nspname like 'pickm%' order by nspname"
 VERSIONS = "select id, status, dropped_at, error from pick_mirror.versions order by id"
 # Session-level settings outlive the transaction on the connection; only SET LOCAL is allowed (0.3).
@@ -66,9 +66,9 @@ def _schema(n: int) -> str:
     return f"pickm_v{n:06d}"
 
 
-def _bounded_by(timeout: str) -> list[str]:
-    """What opens each DROP's transaction: the lock wait and the whole statement both bounded by `timeout` (U24)."""
-    return ["BEGIN", f"SET LOCAL lock_timeout = '{timeout}'", f"SET LOCAL statement_timeout = '{timeout}'"]
+def _bounded_by(budget_ms: int) -> list[str]:
+    """What opens each DROP's transaction: the lock wait and the whole statement both bounded by `budget_ms` (U24)."""
+    return ["BEGIN", f"SET LOCAL lock_timeout = {budget_ms}", f"SET LOCAL statement_timeout = {budget_ms}"]
 
 
 def _drop_heads(sent: list[str]) -> list[list[str]]:
@@ -367,7 +367,7 @@ async def test_every_setting_is_set_local_inside_its_own_transaction(sync_conn, 
     recorder = _Recorder(sync_conn)
     report = await _prune(recorder)
     assert report.dropped == (1, 2, 3)
-    assert _drop_heads(recorder.sent) == [_bounded_by("5000ms")] * 3
+    assert _drop_heads(recorder.sent) == [_bounded_by(5000)] * 3
     assert len([query for query in recorder.sent if re.match(r"(?i)\s*set\b", query)]) == 6
     assert not any(SESSION_SETTING.search(query) for query in recorder.sent)
     # Idle between steps and after: nothing uncommitted is left for the ORM's publish to wait on.
@@ -464,7 +464,7 @@ async def _blocker(observer, pid: int, *, among: dict, within: float = 3.0) -> i
     return None
 
 
-@pytest.mark.parametrize("options, timeout", [({}, "5000ms"), ({"lock_timeout": timedelta(milliseconds=200)}, "200ms")])
+@pytest.mark.parametrize("options, timeout", [({}, 5000), ({"lock_timeout": timedelta(milliseconds=200)}, 200)])
 @pytest.mark.asyncio
 async def test_the_cleanup_bounds_each_drop_by_the_timeout_it_is_given(sync_conn, observer, options, timeout):
     await _leftovers(observer)
@@ -522,10 +522,12 @@ def test_plan_retention_orders_what_it_is_given_by_itself():
     assert (plan.keep, tuple(v.id for v in plan.drop), plan.over_cap) == ((6, 4, 5), (1, 2, 3), 0)
 
 
-def test_the_module_never_sets_a_session_level_setting():
-    source = RETENTION_SOURCE.read_text()
-    assert "SET LOCAL lock_timeout" in source
-    assert [line for line in source.splitlines() if LITERAL_SETTING.search(line)] == []
+def test_the_modules_never_set_a_session_level_setting():
+    # Retention drops through versions.drop_in_transaction, which sends both settings as SET LOCAL.
+    retention, versions = ((MIRROR_SOURCE / name).read_text() for name in ("retention.py", "versions.py"))
+    assert "SET LOCAL lock_timeout" in versions and "SET LOCAL statement_timeout" in versions
+    assert not re.search(r"[\"']SET LOCAL", retention), "retention sends no setting of its own"
+    assert [line for source in (retention, versions) for line in source.splitlines() if LITERAL_SETTING.search(line)] == []
 
 
 @pytest.mark.asyncio
@@ -704,7 +706,7 @@ async def test_a_reader_on_an_orphan_skips_it_and_the_setting_does_not_stay(sync
 
 
 class _Recorder:
-    """The dedicated connection with every statement it is sent recorded; BEGIN marks each explicit transaction."""
+    """The dedicated connection with every statement it is sent recorded; each DROP's BEGIN and COMMIT are statements too."""
 
     def __init__(self, conn):
         self.conn = conn
@@ -713,25 +715,21 @@ class _Recorder:
     def __getattr__(self, name):
         return getattr(self.conn, name)
 
-    def transaction(self):
-        self.sent.append("BEGIN")
-        return self.conn.transaction()
-
-    async def execute(self, query, *args):
+    async def execute(self, query, *args, **kwargs):
         self.sent.append(query)
-        return await self.conn.execute(query, *args)
+        return await self.conn.execute(query, *args, **kwargs)
 
-    async def fetch(self, query, *args):
+    async def fetch(self, query, *args, **kwargs):
         self.sent.append(query)
-        return await self.conn.fetch(query, *args)
+        return await self.conn.fetch(query, *args, **kwargs)
 
-    async def fetchrow(self, query, *args):
+    async def fetchrow(self, query, *args, **kwargs):
         self.sent.append(query)
-        return await self.conn.fetchrow(query, *args)
+        return await self.conn.fetchrow(query, *args, **kwargs)
 
-    async def fetchval(self, query, *args):
+    async def fetchval(self, query, *args, **kwargs):
         self.sent.append(query)
-        return await self.conn.fetchval(query, *args)
+        return await self.conn.fetchval(query, *args, **kwargs)
 
 
 class _FailsDrop(_Recorder):
@@ -742,11 +740,11 @@ class _FailsDrop(_Recorder):
         self.schema = schema
         self.error = error
 
-    async def execute(self, query, *args):
+    async def execute(self, query, *args, **kwargs):
         if query.startswith("DROP SCHEMA") and self.schema in query:
             self.sent.append(query)
             raise self.error
-        return await super().execute(query, *args)
+        return await super().execute(query, *args, **kwargs)
 
 
 class _ChangesRowBeforeDrop(_Recorder):
@@ -757,7 +755,7 @@ class _ChangesRowBeforeDrop(_Recorder):
         self.observer = observer
         self.schema = schema
 
-    async def execute(self, query, *args):
+    async def execute(self, query, *args, **kwargs):
         if query.startswith("DROP SCHEMA") and self.schema in query:
             await self.observer.execute("update pick_mirror.versions set status = 'failed' where schema_name = $1", self.schema)
-        return await super().execute(query, *args)
+        return await super().execute(query, *args, **kwargs)

@@ -12,11 +12,11 @@ Two writers read, modify and write back the arrays, so both hold the mirror lock
   client stops at 25 (client.AS_OF_MAX_AGE): a day or page it refuses past that ends the fold the same way. A run that
   fell back to v1 or timed out on busy has no manifest and does not fold; a degraded run does (U29). A failure only
   lands in details_json.series: the published version never depends on the curve.
-- backfill_series, `python -m ggwork_pick.mirror.series --backfill N` (main below): every day in snapshotDays from the
-  first as_of day - N on, one transaction a day, so a run that is cut off resumes at the next day. as_of is chosen again
-  when it is 25 minutes old, on 400 reason=as_of and on 409, a page's or the manifest's (U30; RealShort judges each
-  request against its own now, rs:src/lib/pick/export-v2-page.ts:27-35); a fourth new as_of in a row with no day merged
-  ends the run.
+- backfill_series, `python -m ggwork_pick.mirror.series --backfill [N]` (main below; N is 92 when left out): every day
+  in snapshotDays from the first as_of day - N on, one transaction a day, so a run that is cut off resumes at the next
+  day. as_of is chosen again when it is 25 minutes old, on 400 reason=as_of and on 409, a page's or the manifest's (U30;
+  RealShort judges each request against its own now, rs:src/lib/pick/export-v2-page.ts:27-35); a fourth new as_of in a
+  row with no day merged ends the run.
 
 A day is fetched page by page into a session temp table, every statement committing on its own (no transaction spans an
 HTTP request: deerflow_app's idle_in_transaction_session_timeout is 5 minutes, bootstrap.sql:42), and is merged only when
@@ -33,9 +33,10 @@ Through railway ssh (plan 5.6; a dropped session ends the process, and a rerun r
 or, to let it finish on its own, with only days, row counts and seconds in the log:
     cd /app/backend && DEER_FLOW_HOME=/data nohup python -m ggwork_pick.mirror.series --backfill 92 \\
         > /data/pick/backfill-$(date -u +%Y%m%d).log 2>&1 &
-92 is all of snapshotDays (as_of day - 92 to as_of day, rs:src/lib/pick/export-v2.ts:440-447). RealShort keeps 91 dates,
-but prunes right after a UTC day's first snapshot (rs:src/lib/sync.ts:643-645): before it, as_of day - 91 is still
-there, and 90 would leave it out (trimmed_before then says so).
+92 (BACKFILL_DAYS) is the default and the recommended N: --backfill alone means it. It is all of snapshotDays (as_of day
+- 92 to as_of day, rs:src/lib/pick/export-v2.ts:440-447), every day RealShort keeps. RealShort keeps 91 dates, but
+prunes right after a UTC day's first snapshot (rs:src/lib/sync.ts:643-645): before it, as_of day - 91 is still there,
+and 90 would leave it out (trimmed_before then says so).
 It needs PICK_DATABASE_URL, PGSSLMODE, PICK_REALSHORT_FEED_URL and PICK_REALSHORT_EXPORT_TOKEN; not while a sync runs.
 """
 
@@ -54,18 +55,23 @@ from ggwork_pick.mirror.client import AS_OF_MAX_AGE, SERIES_RESOURCE, FeedClient
 from ggwork_pick.mirror.connection import MirrorConnectionError, dsn_from_env
 from ggwork_pick.mirror.contracts import parse_page
 from ggwork_pick.mirror.errors import AsOfExpiredError, ConfigError, ContractError, DriftError, FeedError
+from ggwork_pick.mirror.feed_shape import SERIES_DAY_SPAN
 from ggwork_pick.mirror.lock import lock_status, mirror_lock
 
 logger = logging.getLogger(__name__)
 
 FOLD_DAYS_PER_RUN = 3  # plan 5.6
-FOLD_DEADLINE = timedelta(minutes=27)  # U38: no new day is fetched after as_of + 27 minutes
+# U38: no new day is fetched after as_of + 27 minutes. What takes effect first is the client's own pre-check: FeedClient
+# sends nothing once as_of is 25 minutes old (client.AS_OF_MAX_AGE, 5 short of RealShort's 30), and a day or page it
+# refuses that way ends the fold as stopped="deadline" (_cut_short). The 27 minutes are only the backstop between days.
+FOLD_DEADLINE = timedelta(minutes=27)
 SERIES_DAYS = 90  # rs:src/lib/observe/metrics.ts:28: a version's window starts at its as_of day - 90
 MIN_KEPT_DAYS = 92  # plan 3.2: the cutoff is never later than through - 92, so 93 days are kept
 BACKFILL_AS_OF_RENEW = AS_OF_MAX_AGE  # 25 minutes, 5 short of RealShort's 30
 BACKFILL_MAX_RESTARTS = 3  # a fourth new as_of in a row with no day merged (400 as_of, 409, 25 minutes) ends the run
 DRIFT_BACKOFF_SECONDS = 90  # plan 5.2 step 3: RealShort is mid-deploy or a source is writing
 MAX_LOOKBACK_DAYS = 366
+BACKFILL_DAYS = SERIES_DAY_SPAN - 1  # 92: snapshotDays runs from the as_of day back 92 days, all RealShort keeps
 STATEMENT_TIMEOUT = 60.0
 COPY_TIMEOUT = 120.0
 MERGE_TIMEOUT = 300.0
@@ -74,7 +80,10 @@ ERROR_TEXT_MAX = 300
 SERIES_COLUMNS = ("drama_id", "revenue_cents", "promoters_cnt")
 EXIT_OK, EXIT_LOCKED, EXIT_USAGE, EXIT_FAILED, EXIT_INTERRUPTED = 0, 1, 2, 3, 130
 PROG = "python -m ggwork_pick.mirror.series"
-USAGE = f"用法：{PROG} --backfill N（N 是 1 到 {MAX_LOOKBACK_DAYS} 的整数：只回填 as_of 当天往前 N 天以内的日子；snapshotDays 最早到往前 92 天，92 即全部）"
+USAGE = (
+    f"用法：{PROG} --backfill [N]（N 是 1 到 {MAX_LOOKBACK_DAYS} 的整数：只回填 as_of 当天往前 N 天以内的日子；"
+    f"缺省 {BACKFILL_DAYS}，也是推荐值：snapshotDays 最早到往前 {BACKFILL_DAYS} 天，{BACKFILL_DAYS} 即全部）"
+)
 FEED_URL_ENV = "PICK_REALSHORT_FEED_URL"
 EXPORT_TOKEN_ENV = "PICK_REALSHORT_EXPORT_TOKEN"
 # Present, whatever its value: production sets require; the DSN never carries ssl* parameters (pick_entrypoint.py).
@@ -392,7 +401,7 @@ async def backfill_series(
     conn,
     *,
     client: FeedClient,
-    lookback_days: int,
+    lookback_days: int = BACKFILL_DAYS,
     clock: Callable[[], datetime] = _utc_now,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     report: Report | None = None,
@@ -509,7 +518,7 @@ async def run_backfill(
     *,
     dsn: str,
     client: FeedClient,
-    lookback_days: int,
+    lookback_days: int = BACKFILL_DAYS,
     clock: Callable[[], datetime] = _utc_now,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     out: TextIO | None = None,
@@ -552,7 +561,7 @@ class _Settings:
 
 def _lookback(argv: Sequence[str] | None) -> int:
     parser = _Parser(prog=PROG, description="回填选剧镜像的曲线（pick_mirror.series）", add_help=True)
-    parser.add_argument("--backfill", required=True, type=int, metavar="N", help=USAGE)
+    parser.add_argument("--backfill", required=True, nargs="?", const=BACKFILL_DAYS, type=int, metavar="N", help=USAGE)
     days = parser.parse_args(argv).backfill
     if not 1 <= days <= MAX_LOOKBACK_DAYS:
         raise UsageError(USAGE)
@@ -581,8 +590,9 @@ async def _command(settings: _Settings, lookback_days: int) -> int:
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
-    """`python -m ggwork_pick.mirror.series --backfill N`: 0 done, 1 the lock is taken, 2 usage or a missing variable,
-    3 the backfill stopped (rerun it: it resumes), 130 interrupted. Reads no app config and no DEER_FLOW_* (plan 6.5)."""
+    """`python -m ggwork_pick.mirror.series --backfill [N]` (N is 92 when left out): 0 done, 1 the lock is taken, 2 usage
+    or a missing variable, 3 the backfill stopped (rerun it: it resumes), 130 interrupted. Reads no app config and no
+    DEER_FLOW_* (plan 6.5)."""
     try:
         lookback_days = _lookback(argv)
         settings = _settings(os.environ if env is None else env)

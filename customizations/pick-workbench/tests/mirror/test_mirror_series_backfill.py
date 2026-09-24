@@ -440,12 +440,35 @@ async def test_an_unreachable_database_fails_without_echoing_the_url():
     assert code == EXIT_FAILED and "镜像专用连接失败" in err.getvalue() and "hunter2-secret" not in err.getvalue()
 
 
-@pytest.mark.parametrize("argv", [[], ["--backfill"], ["--backfill", "0"], ["--backfill", "x"], ["--backfill", "90", "--more"]])
+@pytest.mark.parametrize("argv", [[], ["--backfill", "0"], ["--backfill", "x"], ["--backfill", "90", "--more"]])
 def test_bad_arguments_are_usage_errors(capsys, argv):
     from ggwork_pick.mirror.series import EXIT_USAGE, main
 
     assert main(argv, env={}) == EXIT_USAGE
     assert "--backfill" in capsys.readouterr().err
+
+
+def test_backfill_defaults_to_92_days_all_of_snapshot_days():
+    # rs_series_day takes the as_of day back 92 days (SERIES_DAY_SPAN 93, export-v2.ts:440-447): 92 covers every day
+    # RealShort still keeps, as_of day - 91 included before its prune (sync.ts:643-645).
+    import inspect
+
+    from ggwork_pick.mirror.feed_shape import SERIES_DAY_SPAN
+    from ggwork_pick.mirror.series import BACKFILL_DAYS, USAGE, backfill_series, run_backfill
+
+    assert BACKFILL_DAYS == 92 == SERIES_DAY_SPAN - 1
+    assert inspect.signature(backfill_series).parameters["lookback_days"].default == BACKFILL_DAYS
+    assert inspect.signature(run_backfill).parameters["lookback_days"].default == BACKFILL_DAYS
+    assert "缺省 92" in USAGE
+
+
+def test_backfill_without_n_is_92_days(capsys):
+    # The flag alone goes past the command line (the missing variables stop it next), and asks for 92 days.
+    from ggwork_pick.mirror import series
+
+    assert series.main(["--backfill"], env={}) == series.EXIT_USAGE
+    assert "缺少环境变量" in capsys.readouterr().err
+    assert series._lookback(["--backfill"]) == 92 and series._lookback(["--backfill", "30"]) == 30
 
 
 def _run(env: dict[str, str], cwd: Path, *args: str) -> subprocess.CompletedProcess:

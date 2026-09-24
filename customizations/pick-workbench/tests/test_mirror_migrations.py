@@ -7,7 +7,7 @@ so the downgrade leaves it in place (U26, U27). The PostgreSQL halves skip when 
 
 import json
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pg
@@ -26,6 +26,8 @@ MIRROR_TABLES = {"versions", "series", "series_state", "control"}
 # control stays with the writer: the reader never needs the failure counters (U27).
 READABLE = {"versions", "series", "series_state"}
 FINGERPRINT = "0123456789abcdef" * 4
+# A version's as_of is a whole minute, like RealShort's asOf (U6).
+AS_OF = datetime(2026, 9, 24, 3, 38, tzinfo=UTC)
 CANDIDATE_ROW = {
     "id": "c1",
     "owner_id": "alice",
@@ -319,19 +321,18 @@ async def test_pick_mirror_tables_columns_and_indexes(pg_db_url):
         await engine.dispose()
 
 
-def _version(schema_name: str = "pickm_v000001", status: str = "building", fingerprint: str = FINGERPRINT) -> dict:
-    return {"schema_name": schema_name, "status": status, "fingerprint": fingerprint}
+def _version(schema_name: str = "pickm_v000001", status: str = "building", fingerprint: str = FINGERPRINT, as_of: datetime = AS_OF) -> dict:
+    return {"schema_name": schema_name, "status": status, "fingerprint": fingerprint, "as_of": as_of}
+
+
+INSERT_VERSION = text(
+    "insert into pick_mirror.versions (schema_name, status, as_of, fingerprint, created_at) values (:schema_name, :status, :as_of, :fingerprint, now())"
+)
 
 
 async def _insert_version(engine, version: dict) -> None:
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "insert into pick_mirror.versions (schema_name, status, as_of, fingerprint, created_at)"
-                " values (:schema_name, :status, now(), :fingerprint, now())"
-            ),
-            version,
-        )
+        await conn.execute(INSERT_VERSION, version)
 
 
 REFUSED_VERSIONS = {
@@ -344,6 +345,9 @@ REFUSED_VERSIONS = {
     "short fingerprint": (_version("pickm_v000004", fingerprint=FINGERPRINT[:-1]), "pick_mirror_versions_fingerprint"),
     # The plan's jsonb would have stored the string with its quotes (U1).
     "quoted fingerprint": (_version("pickm_v000005", fingerprint=f'"{FINGERPRINT[:62]}"'), "pick_mirror_versions_fingerprint"),
+    # as_of is RealShort's whole-minute asOf (U6); a second or a microsecond off is not a version's.
+    "as_of with seconds": (_version("pickm_v000006", as_of=AS_OF.replace(second=1)), "pick_mirror_versions_as_of"),
+    "as_of with microseconds": (_version("pickm_v000007", as_of=AS_OF.replace(microsecond=1)), "pick_mirror_versions_as_of"),
 }
 
 
@@ -441,6 +445,70 @@ async def test_a_control_table_from_before_lock_holder_gets_it_when_0006_runs_ag
         assert await _scalar(engine, "select lock_holder from pick_mirror.control where id = 1") == "sync"
     finally:
         await engine.dispose()
+
+
+# Session time zones 45 minutes off UTC, and 36 seconds off (SET TIME ZONE takes a number of hours: 0.01 h). The
+# two-argument date_trunc(text, timestamptz) truncates in the session's zone, so in the second one it would refuse a
+# whole UTC minute; the CHECK is the UTC minute whatever the session's zone.
+SESSION_ZONES = {"Asia/Kathmandu": "time zone 'Asia/Kathmandu'", "36 seconds off UTC": "time zone 0.01"}
+
+
+@pytest.mark.parametrize("zone", SESSION_ZONES.values(), ids=SESSION_ZONES.keys())
+@pytest.mark.asyncio
+async def test_the_as_of_check_is_the_utc_minute_in_any_session_time_zone(pg_db_url, zone):
+    engine = host_engine(pg_db_url)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(f"set local {zone}"))
+            await conn.execute(INSERT_VERSION, _version())
+        assert await _scalar(engine, "select as_of from pick_mirror.versions") == AS_OF
+        with pytest.raises(IntegrityError, match="pick_mirror_versions_as_of"):
+            async with engine.begin() as conn:
+                await conn.execute(text(f"set local {zone}"))
+                await conn.execute(INSERT_VERSION, _version("pickm_v000002", as_of=AS_OF.replace(second=30)))
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_the_as_of_check_calls_only_immutable_functions(pg_db_url):
+    # PostgreSQL takes a CHECK's expression to be immutable, and a restore checks every row again under the restoring
+    # session's settings. An index expression must call IMMUTABLE functions only (pg_depend records none of the built-in
+    # ones), so the CHECK's own expression, as the catalog holds it, goes into an index that is rolled back.
+    engine = host_engine(pg_db_url)
+    try:
+        definition = await _scalar(engine, "select pg_get_constraintdef(oid) from pg_constraint where conname = 'pick_mirror_versions_as_of'")
+        assert definition.startswith("CHECK (") and "date_trunc" in definition
+        async with engine.connect() as conn:
+            transaction = await conn.begin()
+            await conn.execute(text(f"create index pick_mirror_versions_as_of_immutable on pick_mirror.versions ({definition.removeprefix('CHECK ')})"))
+            await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_a_versions_table_from_before_the_as_of_check_gets_it_when_0006_runs_again(pg_db_url):
+    # The as_of CHECK came into 0006 by an in-place edit before any deployment, like lock_holder: a local database
+    # migrated by the earlier 0006 and set back to 0005 by hand gets it on the way forward, and running it twice is fine.
+    engine = host_engine(pg_db_url)
+    try:
+        for _ in range(2):
+            async with engine.begin() as conn:
+                await conn.execute(text("alter table pick_mirror.versions drop constraint if exists pick_mirror_versions_as_of"))
+                await conn.execute(text("update ggwp_alembic_version set version_num = '0005'"))
+            await revisions.upgrade(engine)
+            assert await _scalar(engine, "select version_num from ggwp_alembic_version") == revisions.head()
+        await _insert_version(engine, _version())
+        await _refused_version(engine, _version("pickm_v000002", as_of=AS_OF.replace(second=30)), "pick_mirror_versions_as_of")
+        assert await _scalar(engine, "select count(*) from pg_constraint where conname = 'pick_mirror_versions_as_of'") == 1
+    finally:
+        await engine.dispose()
+
+
+async def _refused_version(engine, version: dict, constraint: str) -> None:
+    with pytest.raises(IntegrityError, match=constraint):
+        await _insert_version(engine, version)
 
 
 def test_the_0006_lock_holders_are_the_ones_the_lock_takes():

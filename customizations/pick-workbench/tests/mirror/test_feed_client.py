@@ -335,18 +335,32 @@ def _rewrite_rows_page(fake, resource, change):
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
 
-def test_page_limits_default_to_each_resources_server_maximum():
+def test_page_limits_are_the_server_maxima_but_rs_rows_1000():
     # The brief's P2-2a: PAGE_LIMITS is a module constant, by default RealShort's maxLimit per resource (RESOURCE_SPECS,
-    # rs:src/lib/pick/export-v2-map.ts:130-191, also its default limit, export-v2-page.ts:107); rs_rows is P1-6's (U47).
+    # rs:src/lib/pick/export-v2-map.ts:130-191, also its default limit, export-v2-page.ts:107). rs_rows is P1-6's (U47):
+    # at 2000 RealShort's 3 MB cut gave about 1,250 rows a page at 2.6-25.4 s; at 1000, 1.9-2.6 s (2026-09-24).
     from ggwork_pick.mirror import client
 
     specs = json.loads((FIXTURES / "export_v2_contract.json").read_text(encoding="utf-8"))["resource_specs"]
     maxima = {resource: spec["maxLimit"] for resource, spec in specs.items()}
     assert dict(client.MAX_LIMITS) == maxima
-    assert list(client.PAGE_LIMITS) == list(maxima) and dict(client.PAGE_LIMITS) == maxima
-    assert all(1 <= client.PAGE_LIMITS[r] <= maxima[r] for r in maxima)
+    assert list(client.PAGE_LIMITS) == list(maxima) and dict(client.PAGE_LIMITS) == {**maxima, "rs_rows": 1000}
+    assert client.PAGE_LIMITS["rs_rows"] < maxima["rs_rows"]
     with pytest.raises(TypeError):
-        client.PAGE_LIMITS["rs_rows"] = 1000
+        client.PAGE_LIMITS["rs_rows"] = 2000
+
+
+@pytest.mark.asyncio
+async def test_rs_rows_asks_for_1000_rows_a_page_by_default():
+    # Below the server's maximum, the page size goes out as limit; the other resources send none.
+    fake, clock = world(sizes={"rs_rows": 1001, "rs_ids": 2})
+    async with make_client(fake, clock) as feed:
+        manifest = await feed.manifest_when_free()
+        pages = await collect(feed.pages("rs_rows", manifest=manifest))
+        await collect(feed.pages("rs_ids", manifest=manifest))
+    assert [p.metrics.rows for p in pages] == [1000, 1]
+    assert {c.params.get("limit") for c in only(fake.calls, "rs_rows")} == {"1000"}
+    assert all("limit" not in c.params for c in only(fake.calls, "rs_ids"))
 
 
 @pytest.mark.asyncio
