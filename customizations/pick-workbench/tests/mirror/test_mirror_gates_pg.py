@@ -92,9 +92,10 @@ async def test_forbidden_column(conn):
 async def test_counts_short_by_one(conn):
     world = baseline()
     version = await build(conn, world)
-    claimed = with_counts(world, rs_ids=4)
+    held = gw.COUNTS["rs_ids"]
+    claimed = with_counts(world, rs_ids=held + 1)
     outcome = await _run(conn, claimed, version)
-    assert _by_name(outcome)["row_counts"].detail == {"tables": {"rs_ids": {"manifest": 4, "mirror": 3}}, "total": 1}
+    assert _by_name(outcome)["row_counts"].detail == {"tables": {"rs_ids": {"manifest": held + 1, "mirror": held}}, "total": 1}
     assert outcome.first_failure == "row_counts"
 
 
@@ -107,7 +108,7 @@ async def test_counts_short_by_one(conn):
             ["catalog_signals", "c-9", "kd", 0],
         ),
         (
-            lambda w: with_counts(with_table(w, "rs_ids", w.tables["rs_ids"][:2]), rs_ids=2),
+            lambda w: with_counts(with_table(w, "rs_ids", [row for row in w.tables["rs_ids"] if row["id"] != "d-3"]), rs_ids=gw.COUNTS["rs_ids"] - 1),
             "rs_rows.drama_id",
             ["rs_rows", "reelshort-d-3"],
         ),
@@ -118,13 +119,33 @@ async def test_counts_short_by_one(conn):
             "rs_clicks14.drama_id",
             ["rs_clicks14", "d-9", "2026-09-22"],
         ),
+        # d-6 is in rs_ids (a sibling) but no canonical row: a click must have its rs row, not only an id (plan 787).
+        (
+            lambda w: with_counts(
+                with_table(w, "rs_clicks14", [*w.tables["rs_clicks14"], synthetic_row("rs_clicks14", 9, drama_id="d-6", day="2026-09-22")]), rs_clicks14=3
+            ),
+            "rs_clicks14.drama_id",
+            ["rs_clicks14", "d-6", "2026-09-22"],
+        ),
     ],
-    ids=["signal-without-row", "rs-row-without-id", "click-without-rs-row"],
+    ids=["signal-without-row", "rs-row-without-id", "click-without-rs-row", "click-on-a-sibling-id"],
 )
 @pytest.mark.asyncio
 async def test_referential_breaks(conn, change, path, row_id):
     result = _by_name(await _run(conn, change(baseline())))["references"]
     assert result.as_json() == {"ok": False, "consequence": "mirror", "paths": {path: 1}, "rows": [row_id], "total": 1}
+
+
+@pytest.mark.asyncio
+async def test_references_name_twenty_orphans_and_count_all(conn):
+    # U49: the first twenty by primary key, and the total over every orphan, not over the twenty read.
+    orphans = [gw.signal_row(n, f"x-{n:02d}", "kd", 0) for n in range(25)]
+    world = with_table(baseline(), "catalog_signals", [*baseline().tables["catalog_signals"], *orphans])
+    world = with_counts(world, catalog_signals=gw.COUNTS["catalog_signals"] + 25)
+    result = _by_name(await _run(conn, world))["references"]
+    assert result.detail["paths"] == {"catalog_signals.row_key": 25}
+    assert result.detail["total"] == 25
+    assert [list(row) for row in result.detail["rows"]] == [["catalog_signals", f"x-{n:02d}", "kd", 0] for n in range(20)]
 
 
 @pytest.mark.asyncio
@@ -153,7 +174,9 @@ async def test_control_total_off_by_one(conn):
         (("meta", "freshness", "importedAt"), gw.IMPORTED),
         (("meta", "freshness", "importedAt"), None),
         (("meta", "freshness", "importedAt"), "yesterday"),
+        (("meta", "freshness", "importedAt"), "2026-09-22T03:10:06.501Z"),  # a millisecond after IMPORTED_LAST
         (("meta", "control", "postedStats", "importedAt"), gw.POSTED_EARLIER),
+        (("meta", "control", "postedStats", "importedAt"), "2026-09-22T03:10:59.999Z"),  # a millisecond before POSTED_LAST
         (("meta", "control", "postedStats", "metricAt"), "2026-09-19"),
         (("meta", "control", "postedStats", "metricAt"), None),
         (("meta", "rsCounts", "gsc"), True),  # 1 as a boolean is not the count 1
@@ -179,6 +202,8 @@ async def test_rank_counts_missing_theater_kind(conn):
     version = await build(conn, world)
     totals = await gates.control_totals(conn, version.schema_name)
     rank = ("meta", "control", "rankCounts")
+    assert [key for key, kind, _ in gw.SIGNALS if kind == "kd"] == ["c-1", "c-4", "c-1"]  # three kd signals, two rows
+    assert totals.kinds["kd"] == 2
     assert "qc" not in world.manifest["meta"]["control"]["rankCounts"]
     assert gates.control_totals_gate(totals, gw.replaced(world.manifest, (*rank, "qc"), 0)).ok
     one_sided = gates.control_totals_gate(totals, gw.replaced(world.manifest, (*rank, "qc"), 1))
@@ -201,6 +226,20 @@ async def test_empty_posted_passes_g7_after_accept_empty(conn):
     outcome = await _run(conn, world)
     assert _by_name(outcome)["control_totals"].ok
     assert outcome.ok
+
+
+@pytest.mark.asyncio
+async def test_empty_ledger_passes_g7(conn):
+    # export-v2.ts:423-436 and observe/queries.ts:554: no bill rows is a ledger of 0 rows and 0 orders on RealShort's
+    # side; sum over no rows is NULL here, so control.ledger needs coalesce like postedStats (implementation note G7).
+    world = with_counts(with_table(baseline(), "rs_bill_orders", ()), rs_bill_orders=0)
+    world = with_manifest(world, ("meta", "rsCounts", "ledger"), 0)
+    world = with_manifest(world, ("meta", "control", "rankCounts", "rs_ledger"), 0)
+    world = with_manifest(world, ("meta", "control", "ledger"), {"rows": 0, "orders": 0})
+    parse_manifest(world.manifest)
+    outcome = await _run(conn, world)
+    assert _by_name(outcome)["control_totals"].as_json() == "pass"
+    assert outcome.ok, outcome.as_json()
 
 
 @pytest.mark.asyncio
@@ -236,7 +275,8 @@ async def test_signal_cut_at_50_consistent(conn):
     # Sorted by kind instead of ord, kd would come first and the set would differ; COPY order is neither.
     kinds = ["sm"] * 49 + ["kw"] + ["kd"] * 10
     signals = [gw.signal_row(n, "c-1", kind, n) for n, kind in reversed(list(enumerate(kinds)))]
-    world = with_counts(with_table(baseline(), "catalog_signals", [*signals, *baseline().tables["catalog_signals"][3:]]), catalog_signals=62)
+    others = [row for row in baseline().tables["catalog_signals"] if row["row_key"] != "c-1"]
+    world = with_counts(with_table(baseline(), "catalog_signals", [*signals, *others]), catalog_signals=len(signals) + len(others))
     world = with_v1(world, [v1_row("c-1", ("sm", "kw"), ("SD-1",)), *world.v1_rows[1:]])
     version = await build(conn, world)
     assert _by_name(await _run(conn, world, version))["v1_consistency"].ok
@@ -250,7 +290,7 @@ async def test_rs_flags_follow_the_signals_before_the_cut(conn):
     # feed-map.ts:303-323: clk, bill, gsc go after the signals, then the cut; 49 signals leave room for clk alone.
     extra = [gw.signal_row(n, "reelshort-d-1", "kd", n) for n in range(49)]
     world = with_table(baseline(), "catalog_signals", [*baseline().tables["catalog_signals"], *extra])
-    world = with_counts(world, catalog_signals=54)
+    world = with_counts(world, catalog_signals=gw.COUNTS["catalog_signals"] + len(extra))
     rows = [row if row["source_id"] != b64url("reelshort-d-1") else v1_row("reelshort-d-1", ("kd", "clk"), ("SD-2",)) for row in world.v1_rows]
     version = await build(conn, world)
     results = _by_name(await _run(conn, with_v1(world, rows), version))
@@ -299,7 +339,7 @@ async def test_empty_table_blocked_then_accepted(conn):
     assert _by_name(blocked)["empty_tables"].as_json() == {
         "ok": False,
         "consequence": "mirror",
-        "tables": {"catalog_posted": {"current": 3, "this_run": 0}},
+        "tables": {"catalog_posted": {"current": gw.COUNTS["catalog_posted"], "this_run": 0}},
         "total": 1,
         "accepted": False,
     }
@@ -322,6 +362,20 @@ async def test_accept_empty_not_used_when_nothing_emptied(conn):
     assert outcome.ok
     assert _by_name(outcome)["empty_tables"].as_json() == "pass"
     assert outcome.accept_empty == gates.AcceptEmpty(used=False, seen=T1)
+
+
+@pytest.mark.asyncio
+async def test_shrunk_table_is_not_an_emptied_one(conn):
+    # plan 790: G9 holds back a table that went from rows to none; one that only lost rows goes out, flag untouched.
+    earlier = await build(conn, baseline())
+    await _publish(conn, earlier, T1)
+    world = with_counts(with_table(baseline(), "catalog_accounts", baseline().tables["catalog_accounts"][:1]), catalog_accounts=1)
+    world = with_manifest(world, ("meta", "control", "postedStats", "accountCount"), 1)
+    outcome = await _run(conn, world)
+    assert outcome.measured["catalog_accounts"] == 1 < gw.COUNTS["catalog_accounts"]
+    assert _by_name(outcome)["empty_tables"].as_json() == "pass"
+    assert outcome.ok, outcome.as_json()
+    assert outcome.accept_empty == gates.AcceptEmpty(used=False, seen=None)
 
 
 @pytest.mark.asyncio

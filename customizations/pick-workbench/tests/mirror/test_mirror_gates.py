@@ -70,7 +70,7 @@ def test_v1_baseline_passes():
     world = baseline()
     scan = v1_scan(world)
     assert scan.pages == 2
-    assert len(scan.rows) == 4
+    assert len(scan.rows) == len(gw.V1_CANDIDATES)
     result = gates.v1_text_gate(scan)
     assert result.ok
     assert result.as_json() == "pass"
@@ -238,7 +238,7 @@ def test_mirror_text_needs_every_row_and_the_meta_scanned():
             scan = gates.scan_mirror_page(scan, table, list(world.tables[table]))
     result = gates.mirror_text_gate(scan, gw.COUNTS)
     assert not result.ok
-    assert result.detail == {"unscanned": {"rs_ids": {"manifest": 3, "scanned": 0}, "manifest.meta": {"manifest": 1, "scanned": 0}}}
+    assert result.detail == {"unscanned": {"rs_ids": {"manifest": gw.COUNTS["rs_ids"], "scanned": 0}, "manifest.meta": {"manifest": 1, "scanned": 0}}}
 
 
 def test_scans_return_new_objects():
@@ -294,7 +294,7 @@ def test_row_counts_gate_names_each_table_off():
     assert gates.row_counts_gate(gw.COUNTS, gw.COUNTS).ok
     # A count that is not a plain int is off, and never echoed.
     result = gates.row_counts_gate(gw.COUNTS, {**gw.COUNTS, "rs_ids": "3"})
-    assert result.detail["tables"] == {"rs_ids": {"manifest": None, "mirror": 3}}
+    assert result.detail["tables"] == {"rs_ids": {"manifest": None, "mirror": gw.COUNTS["rs_ids"]}}
 
 
 @pytest.mark.parametrize(
