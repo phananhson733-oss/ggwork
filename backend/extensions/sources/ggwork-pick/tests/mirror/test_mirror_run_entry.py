@@ -152,7 +152,14 @@ SECRETS = (EXPORT_TOKEN, FEED_TOKEN, PASSWORD, "pan.baidu.com", "提取码", "�
 
 
 def _with_password(dsn: str) -> str:
-    return make_url(dsn).set(password=PASSWORD).render_as_string(hide_password=False)
+    """The test cluster's own password when it checks one (CI), else a marker; either way the run must not show it."""
+    url = make_url(dsn)
+    return dsn if url.password else url.set(password=PASSWORD).render_as_string(hide_password=False)
+
+
+def _secrets(dsn: str) -> tuple[str, ...]:
+    password = make_url(dsn).password
+    return SECRETS + ((password,) if password and password != PASSWORD else ())
 
 
 DETAIL_CASES = {
@@ -168,12 +175,13 @@ DETAIL_CASES = {
 async def test_details_json_safe(harness, caplog, case):
     world, intercept, keys = DETAIL_CASES[case]
     caplog.set_level("DEBUG")
-    result, _ = await _run(harness, world(), intercept=intercept, dsn=_with_password(harness.dsn))
+    dsn = _with_password(harness.dsn)
+    result, _ = await _run(harness, world(), intercept=intercept, dsn=dsn)
     details = result["details_json"]
     assert result["status"] in RUN_STATUSES
     assert {"mode", "outcome", "reason", "consecutive_failures", "alert", "cleanup", "cpu_ms"} <= set(details) and set(keys) <= set(details)
     shown = json.dumps(details, ensure_ascii=False) + str(result.get("error")) + caplog.text
-    assert not [secret for secret in SECRETS if secret in shown]
+    assert not [secret for secret in _secrets(dsn) if secret in shown]
     runs = await fetch(harness.engine, "SELECT status FROM ggwp_sync_runs")
     assert {run["status"] for run in runs} <= RUN_STATUSES
 

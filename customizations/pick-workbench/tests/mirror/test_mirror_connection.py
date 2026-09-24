@@ -144,7 +144,9 @@ async def test_the_dedicated_connection_brings_its_own_search_path_and_name_and_
 async def test_a_failed_connection_names_the_error_class_never_the_password(pg_cluster):
     from ggwork_pick.mirror.connection import MirrorConnectionError, open_dedicated
 
-    base = pg_cluster.url.set(drivername="postgresql", password=SECRET)
+    # A cluster that checks passwords (CI) needs the real one to reach the database check; either way it must not show.
+    password = pg_cluster.url.password or SECRET
+    base = pg_cluster.url.set(drivername="postgresql", password=password)
     missing_database = base.set(database=pg.unique_name("absent")).render_as_string(hide_password=False)
     closed_port = base.set(host="127.0.0.1", port=1).render_as_string(hide_password=False)
     for dsn, expected in ((missing_database, "InvalidCatalogNameError"), (closed_port, "Error")):
@@ -152,7 +154,7 @@ async def test_a_failed_connection_names_the_error_class_never_the_password(pg_c
             await open_dedicated(dsn)
         message = str(failure.value)
         assert expected in message and type(failure.value.__context__).__name__ in message
-        assert SECRET not in message and SECRET not in repr(failure.value)
+        assert password not in message and password not in repr(failure.value)
         assert failure.value.__cause__ is None and failure.value.__suppress_context__
     # The server's own code rides along: it tells operators what went wrong without any value.
     with pytest.raises(MirrorConnectionError, match="3D000"):
