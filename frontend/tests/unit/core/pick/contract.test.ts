@@ -16,4 +16,24 @@ describe("backend result contract", () => {
     expect(parsed.items[0]?.posted?.matched).toBe(false);
     expect(parsed.conditions.posted_account).toBe("other");
   });
+
+  // P4-1: the fixture is written with PICK_EMIT_MIRROR_VERSION on (null: SQLite
+  // never pairs a mirror); switched off, the gateway leaves the key out.
+  it("parses data_as_of with the mirror_version switch on and off", () => {
+    expect(payload.data_as_of).toHaveProperty("mirror_version", null);
+    expect(pickResultSchema.parse(payload).data_as_of?.mirror_version).toBe(
+      null,
+    );
+    const switchedOff = Object.fromEntries(
+      Object.entries(payload.data_as_of).filter(
+        ([key]) => key !== "mirror_version",
+      ),
+    );
+    const parsed = pickResultSchema.parse({
+      ...payload,
+      data_as_of: switchedOff,
+    });
+    expect(parsed.data_as_of).not.toHaveProperty("mirror_version");
+    expect(parsed.data_as_of?.shared).toBe(true);
+  });
 });

@@ -120,8 +120,10 @@ def build_router(service):
         status = run.status if run else "unknown"
         if status not in {"pending", "running", "success", "error", "timeout", "interrupted"}:
             status = "unknown"
-        # The data_as_of the result froze; a later run reusing its batch does not move it (P2-8a).
-        data_as_of = await PickRepository(service.session_factory, record["owner_id"]).frozen_data_as_of(record)
+        # The data_as_of the result froze; a later run reusing its batch does not move it (P2-8a). With the P4-1 switch on,
+        # the mirror version the row recorded joins it after that value's key set was checked.
+        owner = PickRepository(service.session_factory, record["owner_id"])
+        data_as_of = await owner.result_data_as_of(record, emit_mirror_version=service.sync_settings.emits_mirror_version)
         return {**result_view(record), "run_status": status, "data_as_of": data_as_of}
 
     @router.get("/sync")

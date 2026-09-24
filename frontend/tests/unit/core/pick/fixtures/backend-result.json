@@ -1,12 +1,12 @@
 {
-  "id": "e0158824b34244e0b2f8c8da633b4dc6",
+  "id": "f7e6435010594b8bba9bee732dd22dd3",
   "thread_id": "t",
   "run_id": "r",
-  "catalog_batch_id": "b1bc6a19147b4493b6e3861f5e99f715",
-  "knowledge_batch_id": "1aeadf3eb20f457ba13cbf73e2928a95",
+  "catalog_batch_id": "54d3c7d3ffae4f04ad591280871dddb0",
+  "knowledge_batch_id": "baf2035df48a46dd8548f14d18305800",
   "rule_version": "pick-rules-v1",
   "ranking_version": "signal-rank-v1",
-  "created_at": "2026-09-23T03:17:34.200620+00:00",
+  "created_at": "2026-09-24T19:08:54.850187+00:00",
   "conditions": {
     "theater": null,
     "language": null,
@@ -24,7 +24,7 @@
   },
   "items": [
     {
-      "item_id": "75f6fa213ddb4b1bb0edd4e17df8b57a",
+      "item_id": "15dec151cf244dc49cdfd13053097f9a",
       "identity": "[\"realshort-pick\",\"row1\",\"en\"]",
       "title": "Feed Drama 1",
       "theater": "KalosTV",
@@ -37,7 +37,7 @@
       ],
       "evidence": [
         {
-          "citation_id": "75f6fa213ddb4b1bb0edd4e17df8b57a:1",
+          "citation_id": "15dec151cf244dc49cdfd13053097f9a:1",
           "kind": "kd",
           "source_ref": "ref:1",
           "observed_at": "2026-09-20",
@@ -60,7 +60,7 @@
       "matched_total": 2
     },
     {
-      "item_id": "cc6cb8598eee414c8e03ac5ea4ff7afa",
+      "item_id": "575db3f5992b4abc960064dca07399f8",
       "identity": "[\"realshort-pick\",\"row2\",\"en\"]",
       "title": "Feed Drama 2",
       "theater": "KalosTV",
@@ -72,7 +72,7 @@
       ],
       "evidence": [
         {
-          "citation_id": "cc6cb8598eee414c8e03ac5ea4ff7afa:1",
+          "citation_id": "575db3f5992b4abc960064dca07399f8:1",
           "kind": "kd",
           "source_ref": "ref:2",
           "observed_at": "2026-09-20",
@@ -103,12 +103,13 @@
   "run_status": "success",
   "data_as_of": {
     "source_as_of": "2026-09-23T03:00:00.000Z",
-    "published_at": "2026-09-23T03:17:34.190005+00:00",
+    "published_at": "2026-09-24T19:08:54.837067+00:00",
     "freshness": {
       "catalogImportedAt": "2026-09-22T03:19:21.327Z",
       "reelshortSyncedAt": "2026-09-23T00:05:56.475Z"
     },
     "scope": "test scope",
-    "shared": true
+    "shared": true,
+    "mirror_version": null
   }
 }

@@ -110,6 +110,12 @@ P2 镜像读 RealShort 的 feed v2（realshort#67：manifest 加八个行资源�
 - 18:32 手动同步：success、paired，版本 1（`pickm_v000001`，as_of 18:30）；整次 114 s（manifest 24.2 s、v1 10.3 s、v2 73.3 s、收尾 5.1 s）；八道闸门全过；网盘命中 v1、规则、镜像都是 0；`mirror.behind` 为 false，共享批次的 source_as_of 等于版本 as_of；`meta.scrub` 为空；reader 对新版本有 USAGE 和九张表的 SELECT；advisory 锁计数 0；库 188 MB。
 - 智能体 10 题验收：10 题都是 200，调用的工具与返回条数和 P0-6 切换那次逐题一致。
 
+## 候选卡的镜像版本号（P4-1）
+
+Railway 变量 `PICK_EMIT_MIRROR_VERSION` 决定结果接口（`/api/pick/results`）、查询与单条详情工具、统计工具的 `data_as_of` 里带不带 `mirror_version`：候选当时配对的镜像版本号，降级发布（没有配对版本）时为 null。值严格等于 `1` 才输出；不设、`0`、` 1`、`true` 都不输出这个键。候选卡上的「在选剧资料核对」链接靠它显示。
+
+上线顺序：先部署接受这个字段的前端（资料页与 P4-1 前端）；后端可以不设变量先部署。至少隔一天或在非工作时间，提前提醒大家刷新页面，再在 Railway 设 `PICK_EMIT_MIRROR_VERSION=1`。改变量会触发重新部署、打断进行中的运行，要避开 03:40 / 15:40 UTC 的同步。原因：前端按 strict 解析 `data_as_of`，前端上线前打开、之后没刷新的标签页见到新键会解析失败（候选卡报错，刷新即恢复，库里数据不受影响）。回滚：删掉变量或设为 `0`。
+
 ## 已知限制
 
 - 候选池以外的剧（没有信号的、已下架的）不在工作台里。

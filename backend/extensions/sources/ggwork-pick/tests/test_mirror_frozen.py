@@ -31,7 +31,7 @@ from mirror_pairs import (
     stage_pair,
 )
 from sqlalchemy import null, update
-from test_frontend_contract import FIXTURE, _shape
+from test_frontend_contract import _shape, fixture_payload
 
 ALICE = {"test-owner": "alice"}
 LATER = AS_OF.replace(hour=15)
@@ -152,8 +152,9 @@ async def test_an_old_result_keeps_its_frozen_data_as_of(world):
     # The frontend reads freshness under the v1 names (frontend/src/core/pick/format.ts:22-23); the keys stay DATA_AS_OF_KEYS.
     assert tuple(answers["result"]) == DATA_AS_OF_KEYS
     assert {"catalogImportedAt", "reelshortSyncedAt"} <= set(answers["result"]["freshness"])
-    # The payload keeps the fixture's keys and, freshness aside (a free-form record there), its data_as_of shape.
-    fixture = json.loads(FIXTURE.read_text())
+    # The payload keeps the fixture's keys and, freshness aside (a free-form record there), its data_as_of shape as the
+    # fixture reads with the P4-1 switch off, which it is here.
+    fixture = fixture_payload(emit_mirror_version=False)
     single = (await world.client.get(f"/api/pick/results/{record['id']}", headers=ALICE)).json()
     assert set(single) == set(fixture)
     assert _shape({**single["data_as_of"], "freshness": {}}) == _shape({**fixture["data_as_of"], "freshness": {}})
