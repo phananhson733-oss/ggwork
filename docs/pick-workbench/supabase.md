@@ -214,7 +214,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 - 超过时：经线程的 DELETE 接口删掉不再需要的旧会话，和/或在控制台扩磁盘。
 - 不要指望 `checkpoint_retention.py`：它没有生产触发点，也不剪长对话的主链；要接上它是另一项需要评审的任务。
 
-**网盘片段核查（RealShort #67 上线前每周一次，结果写进第 12 节）。** v1 feed 的备注在 #67 合并前不经清洗，同步时原样入库（`pan_url`、`pan_pw` 这些字段本身从不同步），之后被复制到：同步留下的旧批次（最近 3 个，外加 30 天内有候选引用的）、候选快照、保存选择时的快照、回答核对、宿主 checkpoint 里的工具输出与模型回答、宿主外置到线程目录下的大段工具输出（`.tool-results`），以及 `/data/pick` 下的原始 feed 文件。核查另外也看手工导入的知识文档的文件名、来源和正文。脚本：[supabase/pan-check.sql](supabase/pan-check.sql)（只读）和 [supabase/pan-redact.sql](supabase/pan-redact.sql)。
+**网盘片段核查（RealShort #67 上线前每周一次，结果写进第 12 节）。** v1 feed 的备注在 #67 合并前不经清洗，同步时原样入库（`pan_url`、`pan_pw` 这些字段本身从不同步），之后被复制到：同步留下的旧批次（最近 3 个，外加 30 天内有候选引用的）、候选快照、候选冻结的数据时点（`data_as_of_json`，含批次的范围说明）、保存选择时的快照、回答核对、宿主 checkpoint 里的工具输出与模型回答、宿主外置到线程目录下的大段工具输出（`.tool-results`），以及 `/data/pick` 下的原始 feed 文件。核查另外也看手工导入的知识文档的文件名、来源和正文，同步记录的详情（`details_json`），以及候选的排除集合（`excluded_json`，全是 identity）。脚本：[supabase/pan-check.sql](supabase/pan-check.sql)（只读）和 [supabase/pan-redact.sql](supabase/pan-redact.sql)。
 
 模式沿用原来的宽模式，另补了 RealShort 清洗正则里的 `yun.baidu`、`115cdn`、`123684/123865/123912.com`、移动云盘的两个域名、#67 第二十二、二十三轮补的微云、坚果云、PikPak、联通云盘、城通、小飞机网盘、蓝奏云短域名（`lanz` 加一个字母，蓝奏云优享 `ilanzou` 已被 `lanzou` 覆盖）、文叔叔、奶牛快传、360 安全云盘，第二十四轮按审计清单补的各家分享短域名与别名（UC、115、123 云盘、城通镜像、小飞机、文叔叔、奶牛、360 旧域名）与曲奇云盘、MuseTransfer、钛盘、AirPortal、轻松传、联想 Filez、新浪微盘、威盘及几家已停运服务，以及后面（可隔空白）跟着 `=`、`:`、`：` 的「密码」「密碼」（不带分隔符的「密码」会误中「财富密码」这类剧名）。它还认任意层 JSON 转义的写法（反斜杠一个或多个：工具输出本身是 JSON，宿主的运行事件又把整条消息转一次，换行就成了两个反斜杠加 n）：中文关键字和全角冒号写成的 `\uXXXX`（ensure_ascii；手工导入的原始文件原样存盘，可能就是这种写法）；「密码」与分隔符之间的空白，可以是原样的空白（Unicode White_Space 里的 19 个非 ASCII 字符，U+0085、U+00A0、U+1680、U+2000 到 U+200A、U+2028、U+2029、U+202F、U+205F、U+3000，逐个写成一条分支，原样写在 `PAN=` 里、看不见；不靠 `[[:space:]]`，它认不认这些字符随 locale 变，checkpoint 的二进制列按字节比时也碰不到它们），也可以是 `\n`、`\t` 这类转义或任意 `\uXXXX`。两个脚本和第 1 步的 `PAN=` 用同一个模式。`customizations/pick-workbench/tests/test_pan_runbook_sql.py` 钉住三处逐字相同；它在 PG 17 上用真实的同步、选剧和保存代码造出污染数据，以非超级用户的表属主替身按下面的顺序跑这两个脚本，并在临时目录里跑下面的 shell 命令。
 
@@ -250,9 +250,9 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
      -X -v disk_threads='<[线程] 下面那一行>' -f docs/pick-workbench/supabase/pan-check.sql
    ```
 
-   输出两张表，只有条数、线程和属主，没有命中的文本：工作台 11 个位置各有几行命中（前 9 个清除脚本会处理，最后两个是知识正文和知识来源）；有命中的线程、属主邮箱、命中在哪（宿主的表名，`.tool-results` 表示在线程目录的文件里）。
+   输出两张表，只有条数、线程和属主，没有命中的文本：工作台 14 个位置各有几行命中（前 11 个清除脚本会处理，最后三个是知识正文、知识来源和候选的排除集合；库还在迁移 0005 之前时，`data_as_of_json`、`details_json`、`excluded_json` 三列还不存在，照样列出、记 0，脚本不必换版本）；有命中的线程、属主邮箱、命中在哪（宿主的表名，`.tool-results` 表示在线程目录的文件里）。
 
-   磁盘每次都要查：导入先写原始文件、后写库，导入中途失败，或者上次处置在删文件前中断，库里就是 0 而磁盘上仍有原文；外置的工具输出在库里本来就只有预览。11 个 0、线程表为空、`pan_scan` 退出码 0 且两段都是空的，才算没有命中，到此结束，结果记进第 12 节。
+   磁盘每次都要查：导入先写原始文件、后写库，导入中途失败，或者上次处置在删文件前中断，库里就是 0 而磁盘上仍有原文；外置的工具输出在库里本来就只有预览。14 个 0、线程表为空、`pan_scan` 退出码 0 且两段都是空的，才算没有命中，到此结束，结果记进第 12 节。
 2. **逐条人看。** 模式比 #67 的清洗正则宽，误报是预期的。库里的命中：在交互式 psql 里先设好 `disk_threads` 再 `\i` 核查脚本，`:pan` 就设好了，再按位置看命中的片段，例如剧目（其他位置换表名和列名）：
 
    ```sql
@@ -262,7 +262,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
      FROM deerflow.ggwp_drama_versions WHERE payload_json::jsonb::text ~* :'pan';
    ```
 
-   磁盘上的文件在容器里看：`grep -oziE ".{0,40}($PAN).{0,40}" <文件> | tr '\0' '\n'`；某个线程外置的文件用 `find /data -type f -path '*/threads/<线程>/user-data/outputs/.tool-results/*'` 找。看到的内容不贴进第 12 节，也不贴进任何对话。线程在库里的原文没法看，它的命中通常就是同一 `thread_id` 的候选快照里那条备注。全是误报时到此为止，第 12 节记下误报的位置（含文件路径）和原因。有真命中，不管在库里还是只在磁盘上，都从第 3 步做起。库里 11 个位置都是 0 时可以跳过第 4、5 步：`.tool-results` 的线程做第 6 步，`/data/pick` 的文件做第 7 步，再做第 8、9 步。
+   磁盘上的文件在容器里看：`grep -oziE ".{0,40}($PAN).{0,40}" <文件> | tr '\0' '\n'`；某个线程外置的文件用 `find /data -type f -path '*/threads/<线程>/user-data/outputs/.tool-results/*'` 找。看到的内容不贴进第 12 节，也不贴进任何对话。线程在库里的原文没法看，它的命中通常就是同一 `thread_id` 的候选快照里那条备注。全是误报时到此为止，第 12 节记下误报的位置（含文件路径）和原因。有真命中，不管在库里还是只在磁盘上，都从第 3 步做起。库里 14 个位置都是 0 时可以跳过第 4、5 步：`.tool-results` 的线程做第 6 步，`/data/pick` 的文件做第 7 步，再做第 8、9 步。
 3. **源头改掉，然后暂停同步。** 任何真命中都先做这一步，只在磁盘上的也一样：导入先写原始文件、后发布，发布失败会留下没入库的原文；源头不改，下一次同步又会把原文写回磁盘和库。
    - 在 RealShort 改掉那条备注，再手动同步一次。成功后在第 2 步那个 psql 里确认，最近一次成功同步用的批次里没有命中，下面这句应为 0，不是 0 就是源头还没改干净：
 
@@ -289,10 +289,10 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
      -X -f docs/pick-workbench/supabase/pan-redact.sql
    ```
 
-   - 一个事务。8 个 JSON 列里，含命中的 JSON 字符串整串换成 `[网盘信息已移除]`，其余字节不动，JSON 仍然有效；知识文档的文件名（`title`，只用于显示和检索）命中时整个换掉。当前批次、旧批次、候选卡、换一批和已存选择照常能读能用。
-   - 输出逐行是 `BEGIN`、`CREATE FUNCTION`、9 行 `UPDATE n`、`DROP FUNCTION`、`COMMIT`，各行的 n 记进第 12 节。可以重复执行，第二次全是 `UPDATE 0`。
+   - 一个事务。10 个 JSON 列里，含命中的 JSON 字符串整串换成 `[网盘信息已移除]`，其余字节不动，JSON 仍然有效；知识文档的文件名（`title`，只用于显示和检索）命中时整个换掉。当前批次、旧批次、候选卡、换一批和已存选择照常能读能用。
+   - 输出逐行是 `BEGIN`、`CREATE FUNCTION`、11 行 `UPDATE n`（依次是 10 个 JSON 列和知识文件名，顺序与核查结果的前 11 行相同；库还在迁移 0005 之前时没有 `data_as_of_json`、`details_json` 这两行，只有 9 行）、`DROP FUNCTION`、`COMMIT`，各行的 n 记进第 12 节。可以重复执行，第二次全是 `UPDATE 0`。
    - 用的是与核查相同的模式，同一次会把误报一起换掉。
-   - 不改这几处，它们有命中时不算清除完成，停下来另议：主键和 identity 列；JSON 里 `identity`、`source_id`、`item_id`、`citation_id`、`request_id` 的值（改了剧目、快照、选择与回执就对不上）；知识来源 `source_ref`（`document_id` 是它的 sha256，属于文档身份）；知识正文（规则全文）；宿主的表。
+   - 不改这几处，它们有命中时不算清除完成，停下来另议：主键和 identity 列；JSON 里 `identity`、`source_id`、`item_id`、`citation_id`、`request_id` 的值（改了剧目、快照、选择与回执就对不上）；知识来源 `source_ref`（`document_id` 是它的 sha256，属于文档身份）；知识正文（规则全文）；候选的排除集合 `excluded_json`（整列是 identity，改了换一批的回放就对不上）；宿主的表。
 5. **立刻重启 gateway。** 在 Railway 控制台重启 gateway 服务，之后再恢复使用。进程内的批次缓存（最多两个批次）还留着清除前读进来的行，不重启的话，在旧候选卡上换一批会把原文再写进新的候选快照。
 6. **删会话。** 核查列出的每个线程，请属主在界面里删掉这段对话。前端删对话走的就是 `DELETE /api/threads/{thread_id}`，接口只认 `threads_meta` 里记的属主，管理员也删不了别人的。
    - 这会删掉整段对话：checkpoint、运行记录、线程元数据，以及属主目录下的线程目录 `/data/users/<属主>/threads/<线程>/`（外置的工具输出和上传都在它的 `user-data` 下；接口先删目录，再删库里的行），属主再也看不到它。只能整段删，是因为 checkpoint 是二进制（msgpack），没法像 JSON 列那样就地替换。
@@ -310,12 +310,12 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
    grep -rlziE --null "$PAN" /data/pick | xargs -0r rm -v --
    ```
 
-8. **复查。** 同步仍然暂停着，再做一遍第 1 步，库和磁盘都查：11 个位置全为 0，线程表为空，`pan_scan` 退出码 0 且两段都是空的。
-   - 知识来源、知识正文，或者 identity 等键的值里仍有命中：第 4 步不改这几处，不算清除完成，停下来另议。
+8. **复查。** 同步仍然暂停着，再做一遍第 1 步，库和磁盘都查：14 个位置全为 0，线程表为空，`pan_scan` 退出码 0 且两段都是空的。
+   - 知识来源、知识正文、候选的排除集合，或者 identity 等键的值里仍有命中：第 4 步不改这几处，不算清除完成，停下来另议。
    - 其余任何位置不为 0（剧目、候选快照、选择快照、回执……），都重做第 4、5 步再复查：多半是清除后、重启前有请求读到了旧数据。
    - 线程表不为空：还有会话没删，或者还留着外置的文件（第 6 步）。`[原始 feed 文件]` 不为空：重做第 7 步。`pan_scan` 退出码不是 0：按第 1 步处理后重扫。
    - 全部通过后做第 9 步。
-9. **恢复同步。** 在 Railway 把 `PICK_REALSHORT_FEED_URL` 的原值加回去并部署，再手动同步一次；新进程启动一分钟后如果离上次成功已超过 12 小时，它会先自己补拉，这时手动同步会提示正在同步或刚同步过，等它跑完即可。同步成功后再做一遍第 1 步：仍然 11 个 0、线程表为空、`pan_scan` 退出码 0 且两段都是空的，才算处置完成，结果记进第 12 节。又有命中，说明源头没改干净，回到第 3 步。
+9. **恢复同步。** 在 Railway 把 `PICK_REALSHORT_FEED_URL` 的原值加回去并部署，再手动同步一次；新进程启动一分钟后如果离上次成功已超过 12 小时，它会先自己补拉，这时手动同步会提示正在同步或刚同步过，等它跑完即可。同步成功后再做一遍第 1 步：仍然 14 个 0、线程表为空、`pan_scan` 退出码 0 且两段都是空的，才算处置完成，结果记进第 12 节。又有命中，说明源头没改干净，回到第 3 步。
 
 - 不在范围内：
   - 用户自己写或上传的内容：选择的备注 `ggwp_selections.note`、反馈 `feedback.comment`、线程上传目录 `/data/users/<user>/threads/<thread>/user-data/uploads/`。硬规则针对的是从 RealShort 同步来的网盘片段；这几处是用户自己放进来的。
@@ -362,7 +362,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
       .venv/bin/python -m app.gateway.pick_entrypoint
       ```
 
-      不设 feed token，不会触发同步。`DEER_FLOW_HOME` 必须显式设：缺省的 `/data` 在 macOS 上建不了。三个 `AZURE_OPENAI_*` 只是占位：运行时 yaml 从 `config.pick.example.yaml` 抄来模型段的 `$AZURE_OPENAI_*`，缺一个，gateway 启动时就报 `Environment variable AZURE_OPENAI_DEPLOYMENT not found`。开发机上 `app_config.py` 的 `load_dotenv()` 会往上找到仓库根被 git 忽略的 `.env`，把这个问题盖住；新 worktree 上面没有 `.env`。建管理员不调模型，真实密钥不必上本机。启动会完成宿主建表、checkpointer 与 store 建表、ggwp 迁移 0001–0004。入口监听 `0.0.0.0:8001`，建好管理员之前同一网络里的人也能调 `/api/v1/auth/initialize`，所以只在可信网络上做，并尽快走完下一步。
+      不设 feed token，不会触发同步。`DEER_FLOW_HOME` 必须显式设：缺省的 `/data` 在 macOS 上建不了。三个 `AZURE_OPENAI_*` 只是占位：运行时 yaml 从 `config.pick.example.yaml` 抄来模型段的 `$AZURE_OPENAI_*`，缺一个，gateway 启动时就报 `Environment variable AZURE_OPENAI_DEPLOYMENT not found`。开发机上 `app_config.py` 的 `load_dotenv()` 会往上找到仓库根被 git 忽略的 `.env`，把这个问题盖住；新 worktree 上面没有 `.env`。建管理员不调模型，真实密钥不必上本机。启动会完成宿主建表、checkpointer 与 store 建表，以及 ggwp 迁移到最新版本（当前是 0006，PostgreSQL 上会建 `pick_mirror` 的四张表）。入口监听 `0.0.0.0:8001`，建好管理员之前同一网络里的人也能调 `/api/v1/auth/initialize`，所以只在可信网络上做，并尽快走完下一步。
    4. 本机起前端（`pnpm dev`，`DEER_FLOW_INTERNAL_GATEWAY_BASE_URL=http://127.0.0.1:8001`），打开 `/setup` 建管理员。
    5. `GET /api/v1/auth/setup-status` 返回 `needs_setup=false` 后，停掉本机网关，删掉 worktree 和 `<scratch>/gw-cutover-home`（里面有 JWT 密钥文件）。
 4. **设置 Railway 变量。** 在控制台 Variables 的 Raw Editor 里粘贴，不走命令行参数：`PICK_DB_BACKEND=postgres`、`PICK_DATABASE_URL`、`PGSSLMODE=require`。
