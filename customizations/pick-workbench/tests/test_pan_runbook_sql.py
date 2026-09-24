@@ -130,7 +130,7 @@ REALSHORT_HOSTS = [
     "pan.sohu.net",
     "fhrl.wostore.cn",
 ]
-# (table, key columns, JSON column): every JSON column of the ggwp tables, in the order of both scripts.
+# (table, key columns, JSON column): every JSON column pan-redact.sql rewrites, in the order of both scripts.
 JSON_COLUMNS = [
     ("ggwp_drama_versions", "batch_id, identity", "payload_json"),
     ("ggwp_candidate_sets", "id", "ordered_items_json"),
@@ -140,10 +140,20 @@ JSON_COLUMNS = [
     ("ggwp_answer_checks", "id", "notes_json"),
     ("ggwp_import_batches", "id", "validation_json"),
     ("ggwp_knowledge_versions", "batch_id, document_id", "metadata_json"),
+    ("ggwp_candidate_sets", "id", "data_as_of_json"),
+    ("ggwp_sync_runs", "id", "details_json"),
 ]
-# pan-redact.sql clears the first nine; the last two it never changes (the runbook stops and discusses).
-LOCATIONS = [*(f"{table}.{column}" for table, _, column in JSON_COLUMNS), *(f"ggwp_knowledge_versions.{c}" for c in ("title", "text", "source_ref"))]
-REDACT_OUTPUT = ["BEGIN", "CREATE FUNCTION", *["UPDATE n"] * 9, "DROP FUNCTION", "COMMIT"]
+# Checked, never rewritten: the identities a query excluded, which 换一批 replays against.
+KEPT_JSON_COLUMNS = [("ggwp_candidate_sets", "id", "excluded_json")]
+# pan-redact.sql clears the first eleven; the last three it never changes (the runbook stops and discusses).
+LOCATIONS = [
+    *(f"{table}.{column}" for table, _, column in JSON_COLUMNS),
+    *(f"ggwp_knowledge_versions.{c}" for c in ("title", "text", "source_ref")),
+    *(f"{table}.{column}" for table, _, column in KEPT_JSON_COLUMNS),
+]
+# One UPDATE per rewritten JSON column, then the knowledge title.
+REDACTED_NONE = [0] * (len(JSON_COLUMNS) + 1)
+REDACT_OUTPUT = ["BEGIN", "CREATE FUNCTION", *["UPDATE n"] * len(REDACTED_NONE), "DROP FUNCTION", "COMMIT"]
 NOTHING = dict.fromkeys(LOCATIONS, 0)
 
 # A note quoting a link, with escaped quotes and backslashes in the same string; the strings next to it hold escapes too
@@ -286,10 +296,10 @@ class Workbench:
         return [int(line.split()[1]) for line in lines if line.startswith("UPDATE ")]
 
     def json_columns(self) -> dict[tuple, str]:
-        """Every ggwp JSON value as stored, byte for byte."""
+        """Every ggwp JSON value as stored, byte for byte; the columns added for the mirror are null on older rows."""
         stored = {}
-        for table, keys, column in JSON_COLUMNS:
-            for *key, text in self.fetch(f"SELECT {keys}, {column}::text FROM deerflow.{table}"):
+        for table, keys, column in [*JSON_COLUMNS, *KEPT_JSON_COLUMNS]:
+            for *key, text in self.fetch(f"SELECT {keys}, {column}::text FROM deerflow.{table} WHERE {column} IS NOT NULL"):
                 stored[(table, column, *key)] = text
         return stored
 
@@ -406,6 +416,21 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         " VALUES ('alice', 'req-synthetic', 'h', %s::json, '2026-09-24T00:00:00.000000+00:00') RETURNING request_id",
         synthetic,
     )
+    # The mirror's columns have no writer yet (P2-5, P2-8): each gets the kind of value it will hold. The card freezes its
+    # batch's data_as_of, scope included; the first run's details carry a free-text reason; the card excluded an identity.
+    frozen = {"source_as_of": first["source_as_of"], "published_at": None, "freshness": None, "scope": SCOPE, "shared": True}
+    excluded = [json.dumps(["synthetic", "k-pwd=1", "en"], separators=(",", ":"))]
+    workbench.fetch(
+        "UPDATE deerflow.ggwp_candidate_sets SET data_as_of_json = %s::json, excluded_json = %s::json WHERE id = %s RETURNING id",
+        json.dumps(frozen, ensure_ascii=False),
+        json.dumps(excluded, ensure_ascii=False),
+        card["id"],
+    )
+    workbench.fetch(
+        "UPDATE deerflow.ggwp_sync_runs SET details_json = %s::json WHERE catalog_batch_id = %s RETURNING id",
+        json.dumps({"mode": "mirror", "outcome": "degraded", "reason": "提取码 x7k2"}, ensure_ascii=False),
+        first["catalog_batch_id"],
+    )
     # The source is not fixed yet: batch B still carries the notes and becomes current; A stays, the card uses it.
     second = await pull(service, [*_contaminated_feed(), feed_row(5)])
     assert (await alice.current_batch("catalog"))["id"] == second["catalog_batch_id"] != first["catalog_batch_id"]
@@ -422,22 +447,31 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         "ggwp_answer_checks.notes_json": 1,
         "ggwp_import_batches.validation_json": 1,
         "ggwp_knowledge_versions.metadata_json": 1,
+        "ggwp_candidate_sets.data_as_of_json": 1,
+        "ggwp_sync_runs.details_json": 1,
         "ggwp_knowledge_versions.title": 1,
         "ggwp_knowledge_versions.text": 1,
         "ggwp_knowledge_versions.source_ref": 1,
+        "ggwp_candidate_sets.excluded_json": 1,
     }
     assert threads == []
 
     redacted = workbench.redact()
     after = workbench.json_columns()
-    # Left: the request id (an id), the knowledge source (the document's identity) and its text (the whole rules).
-    kept = {"ggwp_selection_commands.receipt_json": 1, "ggwp_knowledge_versions.text": 1, "ggwp_knowledge_versions.source_ref": 1}
+    # Left: the request id (an id), the knowledge source (the document's identity), its text (the whole rules) and the
+    # excluded identities.
+    kept = {
+        "ggwp_selection_commands.receipt_json": 1,
+        "ggwp_knowledge_versions.text": 1,
+        "ggwp_knowledge_versions.source_ref": 1,
+        "ggwp_candidate_sets.excluded_json": 1,
+    }
     assert workbench.check() == (NOTHING | kept, [])
-    assert redacted == [12, 1, 1, 1, 1, 1, 1, 1, 1]
+    assert redacted == [12, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
     hits = (LINK_NOTE, CODE_NOTE, PASSWORD_NEWLINE, PASSWORD_TAB, PASSWORD_VT, PASSWORD_NBSP, "pan.baidu", *answer_notes, SCOPE, "提取码 x7k2", KNOWLEDGE_FILE)
     assert after == {key: _redacted(text, *hits) for key, text in before.items()}
     changed = {key for key in before if after[key] != before[key]}
-    assert len(changed) == sum(redacted[:8])
+    assert len(changed) == sum(redacted[: len(JSON_COLUMNS)])
     for key, text in after.items():
         assert PLACEHOLDER in text or key not in changed
         json.loads(text)
@@ -453,6 +487,8 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         assert [_notes(rows[_identity(i)]) for i in (2, 6, 7, 8, 9)] == [[PLACEHOLDER]] * 5
         assert rows[_identity(3)]["title"] == CLEAN_TITLE and _notes(rows[_identity(3)]) == [CLEAN_NOTE]
     assert (await alice.batch_info(first["catalog_batch_id"]))["scope"] == PLACEHOLDER
+    assert (await alice.result(card["id"]))["data_as_of_json"]["scope"] == PLACEHOLDER
+    assert (await alice.result(card["id"]))["excluded_json"] == excluded
     [document] = await alice.knowledge_documents(knowledge["id"])
     assert (document["title"], document["metadata_json"]) == (PLACEHOLDER, {"filename": PLACEHOLDER})
     detail = await selection.detail(card["id"], linked["item_id"])
@@ -473,7 +509,7 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
 
     # Idempotent: a second run changes nothing.
     settled = workbench.json_columns()
-    assert workbench.redact() == [0] * 9
+    assert workbench.redact() == REDACTED_NONE
     assert workbench.json_columns() == settled
 
 
@@ -508,13 +544,13 @@ async def test_identity_values_are_left_alone_and_the_check_keeps_reporting_them
     ]
     batch = await Importer(alice, service.data_dir).catalog(json.dumps(rows).encode(), "json")
     [(identity,)] = workbench.fetch("SELECT identity FROM deerflow.ggwp_drama_versions")
-    assert workbench.redact() == [1, 0, 0, 0, 0, 0, 0, 0, 0]
+    assert workbench.redact() == [1, *REDACTED_NONE[1:]]
     [row] = await alice.catalog_rows(batch["id"])
     assert (row["identity"], row["source_id"], row["original"]["source_id"]) == (identity, "k-pwd=1", "k-pwd=1")
     assert _notes(row) == [PLACEHOLDER] and row["original"]["signals"][0]["note"] == PLACEHOLDER
     # The runbook stops here: a hit left in an identity is not the script's to change.
     assert workbench.check()[0]["ggwp_drama_versions.payload_json"] == 1
-    assert workbench.redact() == [0] * 9
+    assert workbench.redact() == REDACTED_NONE
 
 
 def test_the_scripts_cover_every_json_column_of_the_workbench(workbench):
@@ -523,7 +559,7 @@ def test_the_scripts_cover_every_json_column_of_the_workbench(workbench):
         "SELECT table_name, column_name, data_type FROM information_schema.columns"
         " WHERE table_schema = 'deerflow' AND table_name LIKE 'ggwp%%' AND data_type IN ('json', 'jsonb')"
     )
-    assert sorted(columns) == sorted((table, column, "json") for table, _, column in JSON_COLUMNS)
+    assert sorted(columns) == sorted((table, column, "json") for table, _, column in [*JSON_COLUMNS, *KEPT_JSON_COLUMNS])
 
 
 @pytest.mark.asyncio
@@ -537,7 +573,7 @@ async def test_text_escaped_as_unicode_escapes_is_found_and_redacted(workbench, 
         escaped,
     )
     assert workbench.check()[0]["ggwp_answer_checks.notes_json"] == 1
-    assert workbench.redact() == [0, 0, 0, 0, 0, 1, 0, 0, 0]
+    assert workbench.redact() == [0, 0, 0, 0, 0, 1, *REDACTED_NONE[6:]]
     assert workbench.check()[0]["ggwp_answer_checks.notes_json"] == 0
     [(stored,)] = workbench.fetch("SELECT notes_json::text FROM deerflow.ggwp_answer_checks")
     # The escaped strings are replaced whole; the clean one keeps its escapes byte for byte.
@@ -689,7 +725,7 @@ async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(wor
     assert workbench.check() == (NOTHING, listed)
     # pan-redact.sql never touches the host's tables.
     digest = workbench.checkpoint_digest()
-    assert workbench.redact() == [0] * 9
+    assert workbench.redact() == REDACTED_NONE
     assert workbench.checkpoint_digest() == digest
     assert workbench.check()[1] == listed
 

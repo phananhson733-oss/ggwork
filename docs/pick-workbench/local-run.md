@@ -96,7 +96,7 @@ DEER_FLOW_CONFIG_PATH="$PWD/../config.yaml" UV_EXTRAS=ollama \
 .venv/bin/deerflow extensions upgrade "$PWD/../customizations/pick-workbench" --yes
 ```
 
-更新后重启Gateway，并核对源码、托管副本与site-packages三处业务Python文件一致。独立迁移当前到0002，升级后的旧数据库历史查询/个人选择保留。
+更新后重启Gateway，并核对源码、托管副本与site-packages三处业务Python文件一致。独立迁移链（`ggwork_pick/migrations/versions/`，版本记在 `ggwp_alembic_version`）在启动时升级到最新版本，当前是0006：0005给两种方言的ggwp表加可空列，0006只在PostgreSQL上建 `pick_mirror` 的四张表，SQLite上什么也不做。升级后的旧数据库历史查询/个人选择保留。
 
 
 ## 策略中间件与候选引用

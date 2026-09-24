@@ -4,7 +4,7 @@
 -- 以 deerflow_app（ggwp_* 表与 deerflow schema 的属主）经 session pooler 连 postgres 库执行，密码在提示时粘贴：
 --   psql "postgresql://deerflow_app.<ref>@aws-0-us-east-1.pooler.supabase.com:5432/postgres" -X -f pan-redact.sql
 -- 做的事：
---   - ggwp_* 的 8 个 JSON 列里，凡是含命中的 JSON 字符串（整个字符串字面量，不是其中一段）都换成 "[网盘信息已移除]"，
+--   - ggwp_* 的 10 个 JSON 列里，凡是含命中的 JSON 字符串（整个字符串字面量，不是其中一段）都换成 "[网盘信息已移除]"，
 --     其余字节原样不动，JSON 仍然有效；没有命中的行不写。
 --   - ggwp_knowledge_versions.title（文件名，只用于显示和检索）命中时整个换成 [网盘信息已移除]。
 --   与 pan-check.sql 用同一个模式、同一个选行条件，所以误报也会一起换掉。
@@ -12,6 +12,7 @@
 --   - 任何主键与 identity 列；JSON 里 identity、source_id、item_id、citation_id、request_id 这几个键的值。改了会让剧目、快照、
 --     选择与回执彼此对不上。
 --   - ggwp_knowledge_versions.source_ref：document_id 是它的 sha256，是文档身份的一部分；text：规则全文，整篇换掉会丢规则。
+--   - ggwp_candidate_sets.excluded_json：整列都是查询排除掉的 identity，改了换一批的回放就对不上。
 --   - 宿主的任何表：checkpoint 是二进制，没法就地改，命中的线程只能经线程的 DELETE 接口删整段会话。
 --   这几处有命中时复查仍然报出来，不算清除完成，停下来另议。
 -- 整个脚本是一个事务，任何一句失败都整体回滚。辅助函数在事务里建、提交前删掉，库里不留东西。
@@ -59,6 +60,10 @@ UPDATE deerflow.ggwp_import_batches SET validation_json = deerflow.ggwp_pan_reda
  WHERE validation_json::jsonb::text ~* :'pan' AND deerflow.ggwp_pan_redact(validation_json, :'pan')::text <> validation_json::text;
 UPDATE deerflow.ggwp_knowledge_versions SET metadata_json = deerflow.ggwp_pan_redact(metadata_json, :'pan')
  WHERE metadata_json::jsonb::text ~* :'pan' AND deerflow.ggwp_pan_redact(metadata_json, :'pan')::text <> metadata_json::text;
+UPDATE deerflow.ggwp_candidate_sets SET data_as_of_json = deerflow.ggwp_pan_redact(data_as_of_json, :'pan')
+ WHERE data_as_of_json::jsonb::text ~* :'pan' AND deerflow.ggwp_pan_redact(data_as_of_json, :'pan')::text <> data_as_of_json::text;
+UPDATE deerflow.ggwp_sync_runs SET details_json = deerflow.ggwp_pan_redact(details_json, :'pan')
+ WHERE details_json::jsonb::text ~* :'pan' AND deerflow.ggwp_pan_redact(details_json, :'pan')::text <> details_json::text;
 UPDATE deerflow.ggwp_knowledge_versions SET title = '[网盘信息已移除]' WHERE title ~* :'pan';
 DROP FUNCTION deerflow.ggwp_pan_redact(json, text);
 COMMIT;
