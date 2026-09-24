@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from ggwork_pick.contracts import PickConditions
 from ggwork_pick.pin import Pin, as_pin
-from ggwork_pick.repository import PickRepository, stamp
+from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of
 
 RULE_VERSION = "pick-rules-v1"
 RANKING_VERSION = "evidence-date-v1"
@@ -251,13 +251,16 @@ class SelectionService:
         return parent
 
     async def _parent_versions(self, parent: dict) -> Pin:
-        """换一批 stays on the parent's data: its batches, its mirror version and the data_as_of it froze (None before P2)."""
+        """换一批 stays on the parent's data: its batches, its mirror version and the data_as_of it froze.
+
+        That value only in the shape its readers accept: None before P2 or in another shape, so the batch's is read.
+        """
         if parent["rule_version"] != RULE_VERSION or parent["ranking_version"] not in RANKING_VERSIONS:
             raise ValueError("历史规则版本仅供查看，重新选剧需明确使用最新规则")
         info = await self.repository.batch_info(parent["catalog_batch_id"])
         if info is None or info["status"] != "published":
             raise ValueError("这份候选用的数据版本已过保留期被清理，不能在它上面换一批；请直接重新查询")
-        return Pin(parent["catalog_batch_id"], parent["knowledge_batch_id"], parent.get("mirror_version"), parent.get("data_as_of_json"))
+        return Pin(parent["catalog_batch_id"], parent["knowledge_batch_id"], parent.get("mirror_version"), stored_data_as_of(parent))
 
     async def _current_versions(self, pinned_versions) -> Pin:
         """The run's pin when the tools pass one; otherwise one read of the current data (repository.current_pin)."""
