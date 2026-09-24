@@ -43,13 +43,10 @@ export function DataImports() {
     }
   };
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold">选剧资料</h1>
-        <p className="text-muted-foreground mt-2 text-sm">
-          剧库用于筛选，知识资料用于解释规则。每次导入保存独立版本。
-        </p>
-      </header>
+    <div className="space-y-6">
+      <p className="text-muted-foreground text-sm">
+        剧库用于筛选，知识资料用于解释规则。每次导入保存独立版本。
+      </p>
       <SyncStatus />
       <section className="space-y-4 rounded-xl border p-5">
         <label className="block text-sm">

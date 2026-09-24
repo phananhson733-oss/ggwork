@@ -7,6 +7,12 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { getPickSyncStatus, startPickSync } from "@/core/pick/api";
 import { dataAsOfLine } from "@/core/pick/format";
+import {
+  isMirrorReadError,
+  parseSyncTime,
+  type PickMirrorField,
+  type PickMirrorStatus,
+} from "@/core/pick/sync-schema";
 
 const STATUS_LABEL: Record<string, string> = {
   running: "同步中",
@@ -17,6 +23,62 @@ const TRIGGER_LABEL: Record<string, string> = {
   cron: "定时",
   manual: "手动",
 };
+
+/** A /sync moment as the pick data board prints it: UTC, to the minute. */
+function utc(value: string | null | undefined): string | null {
+  const moment = parseSyncTime(value);
+  return moment
+    ? `${moment.toISOString().slice(0, 16).replace("T", " ")} UTC`
+    : null;
+}
+
+function earlier(a: string | null, b: string | null): string | null {
+  if (a === null || b === null) return a ?? b;
+  return a < b ? a : b;
+}
+
+function versionPart(mirror: PickMirrorStatus): string {
+  const current = mirror.current;
+  if (!current) return "镜像还没有发布版本";
+  const curve = earlier(current.latest_snapshot, mirror.series_through);
+  return `镜像 v${current.id} 采集于 ${utc(current.as_of) ?? "时间未知"} · 曲线截至 ${curve ?? "日期未知"}`;
+}
+
+/** The mirror's line in the sync panel (P2-8b's /sync mirror key; ★U20). */
+function mirrorParts(mirror: PickMirrorStatus): string[] {
+  const parts = [versionPart(mirror)];
+  if (!mirror.enabled) parts.push("镜像同步已关闭");
+  if (mirror.consecutive_failures > 0) {
+    const last = [mirror.last_failure, utc(mirror.last_failure_at)]
+      .filter((part): part is string => Boolean(part))
+      .join("，");
+    parts.push(
+      `镜像连续失败 ${mirror.consecutive_failures} 次${last ? `（最近：${last}）` : ""}`,
+    );
+  }
+  const lock = mirror.lock_stuck;
+  if (lock)
+    parts.push(
+      `镜像同步锁被 ${lock.holder ?? "未知进程"} 占着，自 ${utc(lock.since) ?? "时间未知"} 起超过 60 分钟没释放（进程 ${lock.pid ?? "未知"}）`,
+    );
+  return parts;
+}
+
+function MirrorLine({
+  mirror,
+}: {
+  mirror: PickMirrorField | null | undefined;
+}) {
+  if (!mirror) return null;
+  const text = isMirrorReadError(mirror)
+    ? `暂时读不到镜像状态（${mirror.error}）`
+    : mirrorParts(mirror).join(" · ");
+  return (
+    <p className="text-sm" data-testid="pick-sync-mirror">
+      {text}
+    </p>
+  );
+}
 
 export function SyncStatus() {
   const { user } = useAuth();
@@ -98,6 +160,7 @@ export function SyncStatus() {
             : "当前没有可用剧库。"}
         </p>
       )}
+      <MirrorLine mirror={data?.mirror} />
       {data?.runs.length ? (
         <ul className="text-muted-foreground space-y-1 text-xs">
           {data.runs.slice(0, 5).map((run) => (
@@ -115,7 +178,7 @@ export function SyncStatus() {
       ) : null}
       <p className="text-muted-foreground text-xs">
         后端每天
-        11:40、23:40（北京时间）自动拉取有来源信号且未下架的候选池与发布记录。分页期间条数变化超过
+        11:40、23:40（北京时间）同步一次：智能体的候选池与本页的镜像版本同一次采集；镜像失败时智能体照常更新，本页显示落后横幅。分页期间条数变化超过
         max(20, 1%) 时整批放弃、继续用上一版；小幅变化照常发布并记录。
       </p>
       {message && (

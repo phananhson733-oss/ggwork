@@ -32,7 +32,7 @@ export function PickWelcome() {
         )}
       </div>
       <Link
-        href="/workspace/pick-data"
+        href="/workspace/pick-data?tab=imports"
         className="text-muted-foreground inline-block text-xs underline"
       >
         第一次使用？先导入剧库与知识资料

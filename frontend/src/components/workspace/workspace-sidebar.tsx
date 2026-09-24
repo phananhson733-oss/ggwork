@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 import {
   Sidebar,
@@ -10,6 +11,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 
 import { WorkspaceChannelsList } from "./channels/workspace-channels-list";
 import { ProjectsSection } from "./projects-section";
@@ -18,6 +20,35 @@ import { ThreadDeleteDialogProvider } from "./thread-delete-dialog";
 import { WorkspaceHeader } from "./workspace-header";
 import { WorkspaceNavChatList } from "./workspace-nav-chat-list";
 import { WorkspaceNavMenu } from "./workspace-nav-menu";
+
+const PICK_LINK = "hover:bg-accent block rounded-md px-2 py-2 text-sm";
+const PICK_DATA_PATH = "/workspace/pick-data";
+
+function onPickData(pathname: string | null): boolean {
+  return (
+    pathname === PICK_DATA_PATH ||
+    (pathname?.startsWith(`${PICK_DATA_PATH}/`) ?? false)
+  );
+}
+
+/** The two pick links; 选剧资料 is marked current on its own pages. */
+export function PickNav() {
+  const current = onPickData(usePathname());
+  return (
+    <nav aria-label="选剧工作台" className="space-y-1 px-3 py-2">
+      <Link className={PICK_LINK} href="/workspace/picks">
+        我的选剧
+      </Link>
+      <Link
+        className={cn(PICK_LINK, current && "bg-accent")}
+        aria-current={current ? "page" : undefined}
+        href={PICK_DATA_PATH}
+      >
+        选剧资料
+      </Link>
+    </nav>
+  );
+}
 
 export function WorkspaceSidebar({
   ...props
@@ -31,22 +62,7 @@ export function WorkspaceSidebar({
         </SidebarHeader>
         <SidebarContent>
           <WorkspaceNavChatList />
-          {isSidebarOpen && (
-            <nav aria-label="选剧工作台" className="space-y-1 px-3 py-2">
-              <Link
-                className="hover:bg-accent block rounded-md px-2 py-2 text-sm"
-                href="/workspace/picks"
-              >
-                我的选剧
-              </Link>
-              <Link
-                className="hover:bg-accent block rounded-md px-2 py-2 text-sm"
-                href="/workspace/pick-data"
-              >
-                选剧资料
-              </Link>
-            </nav>
-          )}
+          {isSidebarOpen && <PickNav />}
           <WorkspaceChannelsList />
           {isSidebarOpen && (
             <>
