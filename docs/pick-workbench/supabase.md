@@ -515,4 +515,4 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 
 **每周容量（第 6 节）：** 切换后开始记录。
 
-**网盘片段核查（第 6 节）：** 2026-09-23 只查了剧目与候选快照两处，都是 0；按第 1 步（容器里的 pan_scan 加 pan-check.sql）的第一次完整核查待补。
+**网盘片段核查（第 6 节）：** 2026-09-23 只查了剧目与候选快照两处，都是 0（原来的模式）。2026-09-24 03:53 UTC 按第 1 步做了第一次完整核查，模式是 24c74fe 的 `PAN=`（容器里 SHA-256 自检一致）：gateway 容器里 `pan_scan` 退出码 0，`[原始 feed 文件]` 与 `[线程]` 都是空的（railway ssh 进去是 bash，`/bin/sh` 是 dash，GNU grep 3.8，`/data/threads` 不存在）；本机以 `deerflow_app` 跑 `pan-check.sql`（`disk_threads=''`），11 个位置全是 0，线程表为空。覆盖 3 个批次 23,976 行剧目（含 03:40 UTC 那次成功同步的批次）、12 份候选、2 条选择、2 条回答核对、1 份知识文档。没有命中，第 2 步以后不用做。
