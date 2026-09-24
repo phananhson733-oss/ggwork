@@ -24,6 +24,7 @@ import httpx
 import pg
 import pytest
 import pytest_asyncio
+import revisions
 import yaml
 from engines import HOST_JSON_SERIALIZER, host_engine
 from pan_runbook import (
@@ -57,7 +58,6 @@ from test_realshort_sync import feed_row
 PLACEHOLDER = "[网盘信息已移除]"
 # pan-check.sql's owner for a thread the DELETE route cannot find (require_existing): the runbook stops there.
 NO_META = "(没有 threads_meta 行)"
-REDACT_OUTPUT = ["BEGIN", "CREATE FUNCTION", *["UPDATE n"] * len(REDACTED_NONE), "DROP FUNCTION", "COMMIT"]
 NOTHING = dict.fromkeys(LOCATIONS, 0)
 
 # A note quoting a link, with escaped quotes and backslashes in the same string; the strings next to it hold escapes too
@@ -151,10 +151,11 @@ class Workbench:
         assert [location for location, _ in counts] == LOCATIONS
         return {location: int(rows) for location, rows in counts}, threads
 
-    def redact(self) -> list[int]:
+    def redact(self, updates: int = len(REDACTED_NONE)) -> list[int]:
         """pan-redact.sql's UPDATE counts, in script order; the output is exactly what the runbook shows."""
         lines = self.run(REDACT).splitlines()
-        assert [re.sub(r"^UPDATE \d+$", "UPDATE n", line) for line in lines] == REDACT_OUTPUT, lines
+        expected = ["BEGIN", "CREATE FUNCTION", *["UPDATE n"] * updates, "DROP FUNCTION", "COMMIT"]
+        assert [re.sub(r"^UPDATE \d+$", "UPDATE n", line) for line in lines] == expected, lines
         return [int(line.split()[1]) for line in lines if line.startswith("UPDATE ")]
 
     def json_columns(self) -> dict[tuple, str]:
@@ -413,6 +414,31 @@ async def test_identity_values_are_left_alone_and_the_check_keeps_reporting_them
     # The runbook stops here: a hit left in an identity is not the script's to change.
     assert workbench.check()[0]["ggwp_drama_versions.payload_json"] == 1
     assert workbench.redact() == REDACTED_NONE
+
+
+@pytest.mark.asyncio
+async def test_both_scripts_still_run_on_a_database_at_0004(workbench):
+    # Production stays at 0004 until the mirror ships, while the checkout the weekly check runs from has these scripts
+    # already. The three columns 0005 adds count as 0 until they exist; their two UPDATEs are left out.
+    engine = host_engine(workbench.url)
+    try:
+        await revisions.downgrade(engine, "0004")
+    finally:
+        await engine.dispose()
+    assert workbench.fetch("SELECT version_num FROM deerflow.ggwp_alembic_version") == [("0004",)]
+    added = ["data_as_of_json", "details_json", "excluded_json"]
+    assert workbench.fetch("SELECT count(*) FROM information_schema.columns WHERE column_name = ANY(%s)", added) == [(0,)]
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_selection_commands (owner_id, request_id, payload_hash, receipt_json, created_at)"
+        " VALUES ('alice', 'req-old', 'h', %s::json, '2026-09-24T00:00:00.000000+00:00') RETURNING request_id",
+        json.dumps({"request_id": "req-old", "note": "提取码 x7k2"}, ensure_ascii=False),
+    )
+    assert workbench.check() == (NOTHING | {"ggwp_selection_commands.receipt_json": 1}, [])
+    assert workbench.redact(len(REDACTED_NONE) - 2) == [0, 0, 0, 0, 1, 0, 0, 0, 0]
+    assert workbench.check() == (NOTHING, [])
+    assert workbench.fetch("SELECT receipt_json::text FROM deerflow.ggwp_selection_commands") == [
+        (json.dumps({"request_id": "req-old", "note": PLACEHOLDER}, ensure_ascii=False),)
+    ]
 
 
 def test_the_scripts_cover_every_json_column_of_the_workbench(workbench):

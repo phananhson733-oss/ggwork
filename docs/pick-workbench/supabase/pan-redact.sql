@@ -7,6 +7,7 @@
 --   - ggwp_* 的 10 个 JSON 列里，凡是含命中的 JSON 字符串（整个字符串字面量，不是其中一段）都换成 "[网盘信息已移除]"，
 --     其余字节原样不动，JSON 仍然有效；没有命中的行不写。
 --   - ggwp_knowledge_versions.title（文件名，只用于显示和检索）命中时整个换成 [网盘信息已移除]。
+--   库还在迁移 0005 之前时，data_as_of_json、details_json 两列还不存在，这两条 UPDATE 跳过，输出少两行。
 --   与 pan-check.sql 用同一个模式、同一个选行条件，所以误报也会一起换掉。
 -- 不改：
 --   - 任何主键与 identity 列；JSON 里 identity、source_id、item_id、citation_id、request_id 这几个键的值。改了会让剧目、快照、
@@ -22,6 +23,9 @@
 \set ON_ERROR_STOP on
 SELECT 'pan\.baidu|yun\.baidu|pan\.quark|aliyundrive|alipan|115\.com|115cdn|123pan|123684\.com|123865\.com|123912\.com|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|caiyun\.139|yun\.139|weiyun\.com|jianguoyun\.com|mypikpak|pan\.wo\.cn|ctfile|feijipan|lanz[a-z]\.com|wenshushu|cowtransfer|yunpan\.360|fast\.uc\.cn|anxia\.com|123952\.com|400gb\.com|pipipan\.com|545c\.com|90pan\.com|089u\.com|474b\.com|t00y\.com|306t\.com|47ks\.com|4765\.com|77tj\.com|feijix\.com|fjpan\.com|wss\.cc|c-t\.work|yunpan\.cn|yunpan\.com|pan\.360\.cn|quqi\.com|musetransfer\.com|tmp\.link|airportal\.cn|airportal\.link|easychuan\.cn|filez\.com|box\.lenovo\.com|vdisk\.weibo\.com|v\.disk\.weibo\.com|vdisk\.cn|kuaipan\.cn|dbank\.com|dbank\.vmall\.com|pan\.sohu\.net|fhrl\.wostore\.cn|提取码|提取碼|访问码|訪問碼|pwd=|(密码|密碼)([[:space:]]|| | | | | | | | | | | | | | | | | |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)|\\+u63d0\\+u53d6\\+u78(01|bc)|\\+u8bbf\\+u95ee\\+u7801|\\+u8a2a\\+u554f\\+u78bc|\\+u5bc6\\+u78(01|bc)([[:space:]]|| | | | | | | | | | | | | | | | | |　|\\+[bfnrtv]|\\+u[0-9a-fA-F]{4})*(=|:|：|\\+uff1a)' AS pan \gset
 BEGIN;
+-- 迁移 0005 加的两列在 0004 的库上还不存在（生产在 P2 上线前停在 0004）：对应的两条 UPDATE 跳过
+SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_candidate_sets'::regclass AND attname = 'data_as_of_json' AND NOT attisdropped) AS has_data_as_of,
+       EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_sync_runs'::regclass AND attname = 'details_json' AND NOT attisdropped) AS has_details \gset
 -- 把 JSON 文本从头切成两种片段：字符串字面量（引号到引号，\" 与 \\ 这类转义算在串里），和两个串之间的其余字符。
 -- 合法 JSON 里每个引号都是某个串的开头或结尾，所以切出来的片段首尾相接、拼回去与原文逐字相同，一个片段不会跨两个串。
 -- 只对字符串片段按解码后的值判断命中，命中就把整个片段换掉。拼回去与原文不同（不该发生）时原样返回，不改这一行。
@@ -60,10 +64,14 @@ UPDATE deerflow.ggwp_import_batches SET validation_json = deerflow.ggwp_pan_reda
  WHERE validation_json::jsonb::text ~* :'pan' AND deerflow.ggwp_pan_redact(validation_json, :'pan')::text <> validation_json::text;
 UPDATE deerflow.ggwp_knowledge_versions SET metadata_json = deerflow.ggwp_pan_redact(metadata_json, :'pan')
  WHERE metadata_json::jsonb::text ~* :'pan' AND deerflow.ggwp_pan_redact(metadata_json, :'pan')::text <> metadata_json::text;
+\if :has_data_as_of
 UPDATE deerflow.ggwp_candidate_sets SET data_as_of_json = deerflow.ggwp_pan_redact(data_as_of_json, :'pan')
  WHERE data_as_of_json::jsonb::text ~* :'pan' AND deerflow.ggwp_pan_redact(data_as_of_json, :'pan')::text <> data_as_of_json::text;
+\endif
+\if :has_details
 UPDATE deerflow.ggwp_sync_runs SET details_json = deerflow.ggwp_pan_redact(details_json, :'pan')
  WHERE details_json::jsonb::text ~* :'pan' AND deerflow.ggwp_pan_redact(details_json, :'pan')::text <> details_json::text;
+\endif
 UPDATE deerflow.ggwp_knowledge_versions SET title = '[网盘信息已移除]' WHERE title ~* :'pan';
 DROP FUNCTION deerflow.ggwp_pan_redact(json, text);
 COMMIT;

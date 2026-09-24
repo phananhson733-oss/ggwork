@@ -4,7 +4,7 @@
 --   psql "postgresql://deerflow_app.<ref>@aws-0-us-east-1.pooler.supabase.com:5432/postgres" -X -v disk_threads='<线程>' -f pan-check.sql
 -- 输出两张表，只有条数、线程 id 和属主，不输出命中的文本：
 --   1. 工作台 14 个位置各有几行命中。前 11 个 pan-redact.sql 会清除；最后三个（知识正文、知识来源、候选的排除集合）脚本不改，
---      命中时停下来另议。
+--      命中时停下来另议。库还在迁移 0005 之前时，data_as_of_json、details_json、excluded_json 三列还不存在，照样列出、记 0。
 --   2. 含命中的线程、属主邮箱和命中所在：宿主的表，或者 .tool-results。宿主把超过阈值的工具输出整份写进线程目录下的
 --      user-data/outputs/.tool-results/，库里只留预览和文件引用，这些命中只能在容器里找到，由 disk_threads 带进来。
 --      checkpoint 是二进制，只能经线程的 DELETE 接口整段删掉。
@@ -32,6 +32,10 @@ SELECT string_agg(CASE WHEN ascii(c) > 127
                        ELSE c END, '' ORDER BY i) AS pan_bytes
   FROM regexp_split_to_table(:'pan', '') WITH ORDINALITY AS s(c, i) \gset
 BEGIN READ ONLY;
+-- 迁移 0005 加的三列在 0004 的库上还不存在（生产在 P2 上线前停在 0004）：这三个位置照样列出、记 0
+SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_candidate_sets'::regclass AND attname = 'data_as_of_json' AND NOT attisdropped) AS has_data_as_of,
+       EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_sync_runs'::regclass AND attname = 'details_json' AND NOT attisdropped) AS has_details,
+       EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_candidate_sets'::regclass AND attname = 'excluded_json' AND NOT attisdropped) AS has_excluded \gset
 -- JSON 列先转 jsonb 再转文本，\uXXXX 转义的中文还原成字符再匹配；与 pan-redact.sql 选行的条件相同
 SELECT location, count AS rows FROM (
             SELECT 1 AS n, 'ggwp_drama_versions.payload_json' AS location, count(*) FROM deerflow.ggwp_drama_versions WHERE payload_json::jsonb::text ~* :'pan'
@@ -42,12 +46,24 @@ SELECT location, count AS rows FROM (
   UNION ALL SELECT 6, 'ggwp_answer_checks.notes_json', count(*) FROM deerflow.ggwp_answer_checks WHERE notes_json::jsonb::text ~* :'pan'
   UNION ALL SELECT 7, 'ggwp_import_batches.validation_json', count(*) FROM deerflow.ggwp_import_batches WHERE validation_json::jsonb::text ~* :'pan'
   UNION ALL SELECT 8, 'ggwp_knowledge_versions.metadata_json', count(*) FROM deerflow.ggwp_knowledge_versions WHERE metadata_json::jsonb::text ~* :'pan'
+\if :has_data_as_of
   UNION ALL SELECT 9, 'ggwp_candidate_sets.data_as_of_json', count(*) FROM deerflow.ggwp_candidate_sets WHERE data_as_of_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 9, 'ggwp_candidate_sets.data_as_of_json', 0
+\endif
+\if :has_details
   UNION ALL SELECT 10, 'ggwp_sync_runs.details_json', count(*) FROM deerflow.ggwp_sync_runs WHERE details_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 10, 'ggwp_sync_runs.details_json', 0
+\endif
   UNION ALL SELECT 11, 'ggwp_knowledge_versions.title', count(*) FROM deerflow.ggwp_knowledge_versions WHERE title ~* :'pan'
   UNION ALL SELECT 12, 'ggwp_knowledge_versions.text', count(*) FROM deerflow.ggwp_knowledge_versions WHERE text ~* :'pan'
   UNION ALL SELECT 13, 'ggwp_knowledge_versions.source_ref', count(*) FROM deerflow.ggwp_knowledge_versions WHERE source_ref ~* :'pan'
+\if :has_excluded
   UNION ALL SELECT 14, 'ggwp_candidate_sets.excluded_json', count(*) FROM deerflow.ggwp_candidate_sets WHERE excluded_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 14, 'ggwp_candidate_sets.excluded_json', 0
+\endif
 ) AS located ORDER BY n;
 -- 线程的 DELETE 接口会删掉下面每张表里这个线程的行（runs 只删 operation_kind = 'run' 的）和属主目录下的线程目录，
 -- 但只认 threads_meta 里记的属主：没有 threads_meta 行、或者属主账号已经不存在时，接口删不掉；这一行没有属主时，

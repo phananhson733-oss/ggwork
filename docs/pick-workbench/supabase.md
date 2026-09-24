@@ -250,7 +250,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
      -X -v disk_threads='<[线程] 下面那一行>' -f docs/pick-workbench/supabase/pan-check.sql
    ```
 
-   输出两张表，只有条数、线程和属主，没有命中的文本：工作台 14 个位置各有几行命中（前 11 个清除脚本会处理，最后三个是知识正文、知识来源和候选的排除集合）；有命中的线程、属主邮箱、命中在哪（宿主的表名，`.tool-results` 表示在线程目录的文件里）。
+   输出两张表，只有条数、线程和属主，没有命中的文本：工作台 14 个位置各有几行命中（前 11 个清除脚本会处理，最后三个是知识正文、知识来源和候选的排除集合；库还在迁移 0005 之前时，`data_as_of_json`、`details_json`、`excluded_json` 三列还不存在，照样列出、记 0，脚本不必换版本）；有命中的线程、属主邮箱、命中在哪（宿主的表名，`.tool-results` 表示在线程目录的文件里）。
 
    磁盘每次都要查：导入先写原始文件、后写库，导入中途失败，或者上次处置在删文件前中断，库里就是 0 而磁盘上仍有原文；外置的工具输出在库里本来就只有预览。14 个 0、线程表为空、`pan_scan` 退出码 0 且两段都是空的，才算没有命中，到此结束，结果记进第 12 节。
 2. **逐条人看。** 模式比 #67 的清洗正则宽，误报是预期的。库里的命中：在交互式 psql 里先设好 `disk_threads` 再 `\i` 核查脚本，`:pan` 就设好了，再按位置看命中的片段，例如剧目（其他位置换表名和列名）：
@@ -290,7 +290,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
    ```
 
    - 一个事务。10 个 JSON 列里，含命中的 JSON 字符串整串换成 `[网盘信息已移除]`，其余字节不动，JSON 仍然有效；知识文档的文件名（`title`，只用于显示和检索）命中时整个换掉。当前批次、旧批次、候选卡、换一批和已存选择照常能读能用。
-   - 输出逐行是 `BEGIN`、`CREATE FUNCTION`、11 行 `UPDATE n`（依次是 10 个 JSON 列和知识文件名，顺序与核查结果的前 11 行相同）、`DROP FUNCTION`、`COMMIT`，各行的 n 记进第 12 节。可以重复执行，第二次全是 `UPDATE 0`。
+   - 输出逐行是 `BEGIN`、`CREATE FUNCTION`、11 行 `UPDATE n`（依次是 10 个 JSON 列和知识文件名，顺序与核查结果的前 11 行相同；库还在迁移 0005 之前时没有 `data_as_of_json`、`details_json` 这两行，只有 9 行）、`DROP FUNCTION`、`COMMIT`，各行的 n 记进第 12 节。可以重复执行，第二次全是 `UPDATE 0`。
    - 用的是与核查相同的模式，同一次会把误报一起换掉。
    - 不改这几处，它们有命中时不算清除完成，停下来另议：主键和 identity 列；JSON 里 `identity`、`source_id`、`item_id`、`citation_id`、`request_id` 的值（改了剧目、快照、选择与回执就对不上）；知识来源 `source_ref`（`document_id` 是它的 sha256，属于文档身份）；知识正文（规则全文）；候选的排除集合 `excluded_json`（整列是 identity，改了换一批的回放就对不上）；宿主的表。
 5. **立刻重启 gateway。** 在 Railway 控制台重启 gateway 服务，之后再恢复使用。进程内的批次缓存（最多两个批次）还留着清除前读进来的行，不重启的话，在旧候选卡上换一批会把原文再写进新的候选快照。
