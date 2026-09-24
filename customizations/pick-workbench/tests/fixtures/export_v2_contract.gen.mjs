@@ -1,6 +1,9 @@
 // Regenerates export_v2_contract.json from a RealShort checkout (read only). Run from that checkout, so tsx resolves its "@/" paths:
 //   cd <realshort> && node --import tsx <this file> "$PWD" > <workbench>/customizations/pick-workbench/tests/fixtures/export_v2_contract.json
 // Record the RealShort commit in the output's "commit" (the argument after the checkout path, default: unknown).
+// The output's manifest.meta.rules is RealShort's real buildRulesMeta(): its platform-rule and posted-pool Feishu links are
+// the business links feed v2 already exports, not secrets; manifestFixture's SECRET, token and SENTINELPV are dropped by
+// pickManifest and never reach the output.
 import path from "node:path";
 
 const root = process.argv[2];
