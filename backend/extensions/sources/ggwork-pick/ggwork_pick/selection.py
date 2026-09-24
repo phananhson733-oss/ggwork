@@ -1,21 +1,37 @@
 """Deterministic filtering and immutable candidate snapshots."""
 
+import asyncio
 import copy
 import hashlib
 import json
 from uuid import uuid4
 
 from ggwork_pick.contracts import PickConditions
-from ggwork_pick.repository import PickRepository, stamp
+from ggwork_pick.pin import Pin, as_pin
+from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of
 
 RULE_VERSION = "pick-rules-v1"
 RANKING_VERSION = "evidence-date-v1"
 RANK_RANKING_VERSION = "signal-rank-v1"
 RANKING_VERSIONS = frozenset({RANKING_VERSION, RANK_RANKING_VERSION})
+# The replay's ordered identity list stops here; total and truncated say how many there were (plan:1620).
+REPLAY_LIMIT = 2000
 
 
 class PostedDataUnavailable(ValueError):
     """The pinned catalog batch carries no publication records, so "not posted" cannot be checked."""
+
+
+class ReplayGone(Exception):
+    """The result's catalog batch no longer holds rows (pruned past retention): the replay answers 410."""
+
+
+class ReplayUnrunnable(Exception):
+    """This code cannot re-run the result's stored conditions any more: the replay answers 409."""
+
+
+def ranking_version_for(conditions: PickConditions) -> str:
+    return RANK_RANKING_VERSION if conditions.sort == "rank" else RANKING_VERSION
 
 
 def _matched_total(record: dict) -> int | None:
@@ -121,6 +137,51 @@ def matching_rows(rows, conditions: PickConditions, excluded: set[str]):
     return matches
 
 
+def unmappable_conditions(conditions: PickConditions) -> list[str]:
+    """The result's conditions the data page has no filter for (plan 2.5 item 4), in a fixed order.
+
+    query means title plus tags here and title or an exact key there; the exclusions come back through the replay
+    list itself. confirmed_eligible_only filters only with a channel.
+    """
+    present = (
+        ("tags", bool(conditions.tags)),
+        ("posted_account", bool(conditions.posted_account)),
+        ("channel", conditions.channel is not None),
+        ("confirmed_eligible_only", conditions.channel is not None and conditions.confirmed_eligible_only),
+        ("query", bool(conditions.query)),
+        ("exclude_selected", conditions.exclude_selected),
+        ("exclude_previous", conditions.exclude_previous),
+    )
+    return [name for name, active in present if active]
+
+
+def replay_view(record: dict, rows) -> dict:
+    """The stored result re-run on its own batch rows with the identities it excluded (plan 2.5 item 4).
+
+    Rule or ranking versions other than this code's are flagged, not refused (U36). Raises ValidationError or
+    ValueError when this code can no longer run the stored conditions. Pure and CPU-bound: run it off the loop.
+    """
+    conditions = PickConditions.model_validate(record["conditions_json"])
+    excluded = record.get("excluded_json")
+    identities = [row["identity"] for row in matching_rows(rows, conditions, frozenset(excluded or ()))]
+    return {
+        "result_id": record["id"],
+        "catalog_batch_id": record["catalog_batch_id"],
+        "knowledge_batch_id": record["knowledge_batch_id"],
+        # Null where the result had no paired version, and always on SQLite, which has no pick_mirror (U35).
+        "mirror_version": record.get("mirror_version"),
+        "limit": conditions.limit,
+        "total": len(identities),
+        "identities": identities[:REPLAY_LIMIT],
+        "truncated": len(identities) > REPLAY_LIMIT,
+        "shown": identities[: conditions.limit],
+        # Results from before P2 recorded no exclusions: exclude_selected and 换一批 cannot be redone for them.
+        "excluded_reproducible": excluded is not None,
+        "ranking_reproducible": record["rule_version"] == RULE_VERSION and record["ranking_version"] == ranking_version_for(conditions),
+        "unmappable": unmappable_conditions(conditions),
+    }
+
+
 def _posted_warnings(row, conditions) -> list[str]:
     posted = row.get("posted")
     if posted is None:
@@ -171,6 +232,12 @@ def candidate_item(row, conditions, matched_total: int | None = None):
     return item
 
 
+def _request_hash(conditions: PickConditions, parent_result_id: str | None, use_latest: bool) -> str:
+    """What a repeated tool call must repeat to get the first call's result back."""
+    request = {"conditions": conditions.model_dump(), "parent_result_id": parent_result_id, "use_latest": use_latest}
+    return hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
 class SelectionService:
     def __init__(self, repository: PickRepository):
         self.repository = repository
@@ -183,24 +250,29 @@ class SelectionService:
             raise LookupError("引用结果不属于当前对话")
         return parent
 
-    async def _parent_versions(self, parent: dict) -> tuple[str, str | None]:
+    async def _parent_versions(self, parent: dict) -> Pin:
+        """换一批 stays on the parent's data: its batches, its mirror version and the data_as_of it froze.
+
+        That value only in the shape its readers accept: None before P2 or in another shape, so the batch's is read.
+        """
         if parent["rule_version"] != RULE_VERSION or parent["ranking_version"] not in RANKING_VERSIONS:
             raise ValueError("历史规则版本仅供查看，重新选剧需明确使用最新规则")
         info = await self.repository.batch_info(parent["catalog_batch_id"])
         if info is None or info["status"] != "published":
             raise ValueError("这份候选用的数据版本已过保留期被清理，不能在它上面换一批；请直接重新查询")
-        return parent["catalog_batch_id"], parent["knowledge_batch_id"]
+        return Pin(parent["catalog_batch_id"], parent["knowledge_batch_id"], parent.get("mirror_version"), stored_data_as_of(parent))
 
-    async def _current_versions(self, pinned_versions) -> tuple[str, str | None]:
+    async def _current_versions(self, pinned_versions) -> Pin:
+        """The run's pin when the tools pass one; otherwise one read of the current data (repository.current_pin)."""
         if pinned_versions is not None:
-            if pinned_versions[0] is None:
+            pin = as_pin(pinned_versions)
+            if pin.catalog_id is None:
                 raise ValueError("本轮开始时尚未导入剧库，请导入后重新提问")
-            return pinned_versions
-        catalog = await self.repository.current_batch("catalog")
-        if catalog is None:
+            return pin
+        pin = await self.repository.current_pin()
+        if pin.catalog_id is None:
             raise ValueError("尚未导入剧库")
-        knowledge = await self.repository.current_batch("knowledge")
-        return catalog["id"], knowledge["id"] if knowledge else None
+        return pin
 
     async def _scope(self, filters: dict, parent: dict | None, *, use_latest: bool, pinned_versions):
         """Conditions, data versions and exclusions for one call.
@@ -212,10 +284,10 @@ class SelectionService:
         conditions = PickConditions.model_validate({**parent["conditions_json"], **filters} if derived else filters)
         if conditions.exclude_previous and not derived:
             raise ValueError("换一批需要明确引用上一份候选")
-        versions = await self._parent_versions(parent) if derived and not use_latest else await self._current_versions(pinned_versions)
+        pin = await self._parent_versions(parent) if derived and not use_latest else await self._current_versions(pinned_versions)
         selected = {r["identity"] for r in await self.repository.selections()} if conditions.exclude_selected else set()
         previous = {item["identity"] for item in parent["ordered_items_json"]} if derived else set()
-        return conditions, versions, frozenset(selected | previous)
+        return conditions, pin, frozenset(selected | previous)
 
     async def query(
         self,
@@ -226,21 +298,43 @@ class SelectionService:
         call_id: str,
         parent_result_id: str | None = None,
         use_latest: bool = False,
-        pinned_versions: tuple[str | None, str | None] | None = None,
-    ):
+        pinned_versions: Pin | tuple[str | None, str | None] | None = None,
+    ) -> dict:
+        """The result view alone; query_with_record also hands back the stored row."""
+        view, _ = await self.query_with_record(
+            filters,
+            thread_id=thread_id,
+            run_id=run_id,
+            call_id=call_id,
+            parent_result_id=parent_result_id,
+            use_latest=use_latest,
+            pinned_versions=pinned_versions,
+        )
+        return view
+
+    async def query_with_record(
+        self,
+        filters: dict,
+        *,
+        thread_id: str,
+        run_id: str,
+        call_id: str,
+        parent_result_id: str | None = None,
+        use_latest: bool = False,
+        pinned_versions: Pin | tuple[str | None, str | None] | None = None,
+    ) -> tuple[dict, dict]:
+        """(result view, stored row). The view cannot carry the frozen data_as_of: the frontend's result schema is
+        strict (U51). A repeated call returns the row the first call wrote, so the tool answers with what it froze.
+        """
         parent = await self._parent(parent_result_id, thread_id)
-        effective, (catalog_id, knowledge_id), excluded = await self._scope(filters, parent, use_latest=use_latest, pinned_versions=pinned_versions)
-        request_hash = hashlib.sha256(
-            json.dumps(
-                {"conditions": effective.model_dump(), "parent_result_id": parent_result_id, "use_latest": use_latest}, sort_keys=True, ensure_ascii=False
-            ).encode()
-        ).hexdigest()
+        effective, pin, excluded = await self._scope(filters, parent, use_latest=use_latest, pinned_versions=pinned_versions)
+        request_hash = _request_hash(effective, parent_result_id, use_latest)
         old = await self.repository.result_for_call(run_id, call_id)
         if old is not None:
             if old["thread_id"] != thread_id or old["request_hash"] != request_hash:
                 raise ValueError("重复工具调用的参数不同")
-            return result_view(old)
-        rows = await self.repository.catalog_rows(catalog_id)
+            return result_view(old), old
+        rows = await self.repository.catalog_rows(pin.catalog_id)
         matches = matching_rows(rows, effective, excluded)
         items = [candidate_item(row, effective, len(matches)) for row in matches[: effective.limit]]
         record = await self.repository.add_result(
@@ -251,32 +345,60 @@ class SelectionService:
                 tool_call_id=call_id,
                 request_hash=request_hash,
                 parent_result_id=parent_result_id,
-                catalog_batch_id=catalog_id,
-                knowledge_batch_id=knowledge_id,
+                catalog_batch_id=pin.catalog_id,
+                knowledge_batch_id=pin.knowledge_id,
                 rule_version=RULE_VERSION,
-                ranking_version=RANK_RANKING_VERSION if effective.sort == "rank" else RANKING_VERSION,
+                ranking_version=ranking_version_for(effective),
                 conditions_json=effective.model_dump(),
                 ordered_items_json=items,
                 created_at=stamp(),
+                # Frozen with the result (P2-5b): what it left out, for replay, and the data it stood on.
+                excluded_json=sorted(excluded),
+                mirror_version=pin.mirror_version,
+                data_as_of_json=pin.data_as_of,
             )
         )
-        return result_view(record)
+        return result_view(record), record
 
     async def count(self, filters: dict, *, parent: dict | None = None, pinned_versions=None) -> dict:
-        """Aggregate the same filter as a query, without persisting a candidate snapshot."""
-        conditions, (catalog_id, _), excluded = await self._scope(filters, parent, use_latest=False, pinned_versions=pinned_versions)
-        matches = matching_rows(await self.repository.catalog_rows(catalog_id), conditions, excluded)
+        """Aggregate the same filter as a query, without persisting a candidate snapshot.
+
+        data_as_of is the pin's: a derived count's pin is the parent's frozen value, and a pin without one (a parent
+        from before P2, or pinned_versions given as a bare pair) falls back to the catalog batch.
+        """
+        conditions, pin, excluded = await self._scope(filters, parent, use_latest=False, pinned_versions=pinned_versions)
+        matches = matching_rows(await self.repository.catalog_rows(pin.catalog_id), conditions, excluded)
         by_theater, by_language = {}, {}
         for row in matches:
             by_theater[row["theater"]] = by_theater.get(row["theater"], 0) + 1
             by_language[row["language"]] = by_language.get(row["language"], 0) + 1
         return {
-            "catalog_batch_id": catalog_id,
+            "catalog_batch_id": pin.catalog_id,
             "conditions": conditions.model_dump(),
             "total": len(matches),
             "by_theater": dict(sorted(by_theater.items(), key=lambda kv: (-kv[1], kv[0]))),
             "by_language": dict(sorted(by_language.items(), key=lambda kv: (-kv[1], kv[0]))),
+            "data_as_of": pin.data_as_of if pin.data_as_of is not None else await self.repository.data_as_of(pin.catalog_id),
         }
+
+    async def replay(self, result_id: str) -> dict:
+        """GET /api/pick/replay: the owner's result re-run on its own batch, with the data_as_of it froze.
+
+        LookupError when the owner has no such result; ReplayGone when its batch is no longer published (pruned);
+        ReplayUnrunnable when this code cannot run the stored conditions any more. Any other error propagates.
+        """
+        record = await self.repository.result(result_id)
+        try:
+            # catalog_rows reads only a readable, published batch (its _require_batch): a pruned one raises here.
+            rows = await self.repository.catalog_rows(record["catalog_batch_id"])
+        except LookupError:
+            raise ReplayGone("这份候选用的剧库批次已过保留期被清理，无法回放") from None
+        try:
+            view = await asyncio.to_thread(replay_view, record, rows)
+        except ValueError:
+            # Pydantic's ValidationError included; only the re-run's refusals are a 409, not a ValueError anywhere.
+            raise ReplayUnrunnable("这份候选的条件已不能按当前规则重跑，无法回放") from None
+        return {**view, "data_as_of": await self.repository.frozen_data_as_of(record)}
 
     async def detail(self, result_id: str, item_id: str):
         record = await self.repository.result(result_id)

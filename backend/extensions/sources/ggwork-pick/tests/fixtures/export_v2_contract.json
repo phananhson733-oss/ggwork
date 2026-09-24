@@ -1,0 +1,3654 @@
+{
+ "about": [
+  "Generated from RealShort feed v2 (src/lib/pick/export-v2-map.ts) by export_v2_contract.gen.mjs; do not edit by hand.",
+  "manifest is finalizeManifest(manifestFixture()) with manifestFixture copied from tests/pick-export-v2.test.ts; v2_rows[r].hits is toExportRow(r, input).hits; v1_row.hits is scrubAllText(v1_row.input).hits (feed-map.ts toFeedRow); manifest_meta_scan.hits is finalizeManifest(...).hits."
+ ],
+ "commit": "816ca2e",
+ "resource_specs": {
+  "catalog_rows": {
+   "key": [
+    "row_key"
+   ],
+   "maxLimit": 5000,
+   "columns": [
+    {
+     "name": "row_key",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "platform",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "source_table",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "title",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "title_cn",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "lang",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "kind",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "origin",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "tags",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "listed_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "episodes",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "pay_start",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "youtube",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "merged_rows",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "off_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "reoff_note",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "title_key",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "in_site_ids",
+     "type": "text[]",
+     "nullable": false
+    },
+    {
+     "name": "legacy_only",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "site_other",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "has_signal",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "latest_evidence_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "imported_at",
+     "type": "ts",
+     "nullable": false
+    },
+    {
+     "name": "has_pan",
+     "type": "bool",
+     "nullable": false
+    }
+   ]
+  },
+  "catalog_signals": {
+   "key": [
+    "row_key",
+    "kind",
+    "ord"
+   ],
+   "maxLimit": 5000,
+   "columns": [
+    {
+     "name": "row_key",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "kind",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "ord",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "evidence_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "rank",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "grade",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "note",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "payload",
+     "type": "json",
+     "nullable": false
+    }
+   ]
+  },
+  "catalog_posted": {
+   "key": [
+    "sd"
+   ],
+   "maxLimit": 1000,
+   "columns": [
+    {
+     "name": "sd",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "feishu_record",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "title",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "title_key",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "lang",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "platform",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "life",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "scheduled",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "online_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "why",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "note",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "archived",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "post_count",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "last_post_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "views_total",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "sources",
+     "type": "text[]",
+     "nullable": false
+    },
+    {
+     "name": "cats",
+     "type": "text[]",
+     "nullable": false
+    },
+    {
+     "name": "who",
+     "type": "text[]",
+     "nullable": false
+    },
+    {
+     "name": "accounts",
+     "type": "text[]",
+     "nullable": false
+    },
+    {
+     "name": "created_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "updated_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "first_post_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "metric_at",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "sched_count",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "views_count",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "posts",
+     "type": "json",
+     "nullable": false
+    },
+    {
+     "name": "row_keys",
+     "type": "text[]",
+     "nullable": false
+    },
+    {
+     "name": "drama_ids",
+     "type": "text[]",
+     "nullable": false
+    },
+    {
+     "name": "imported_at",
+     "type": "ts",
+     "nullable": false
+    }
+   ]
+  },
+  "catalog_accounts": {
+   "key": [
+    "id"
+   ],
+   "maxLimit": 1000,
+   "columns": [
+    {
+     "name": "id",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "name",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "url",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "grp",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "form",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "niche",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "status",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "fans",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "as_of",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "imported_at",
+     "type": "ts",
+     "nullable": false
+    }
+   ]
+  },
+  "rs_rows": {
+   "key": [
+    "drama_id"
+   ],
+   "maxLimit": 2000,
+   "columns": [
+    {
+     "name": "row_key",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "platform",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "source_table",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "title",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "title_cn",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "lang",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "kind",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "origin",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "tags",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "listed_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "episodes",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "pay_start",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "youtube",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "merged_rows",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "off_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "reoff_note",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "title_key",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "in_site_ids",
+     "type": "text[]",
+     "nullable": false
+    },
+    {
+     "name": "legacy_only",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "site_other",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "has_signal",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "latest_evidence_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "has_pan",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "rs_clk",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "rs_bill",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "rs_gsc",
+     "type": "bool",
+     "nullable": false
+    },
+    {
+     "name": "rs_clk_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "rs_bill_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "rs_gsc_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "drama_id",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "locale",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "slug",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "publish_at",
+     "type": "ts",
+     "nullable": true
+    },
+    {
+     "name": "chapter_count",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "pay_start_raw",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "rr",
+     "type": "float",
+     "nullable": false
+    },
+    {
+     "name": "promoters_cnt",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "metrics_valid",
+     "type": "bool",
+     "nullable": true
+    },
+    {
+     "name": "synced_at",
+     "type": "ts",
+     "nullable": true
+    },
+    {
+     "name": "search_impressions",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "search_data_at",
+     "type": "ts",
+     "nullable": true
+    },
+    {
+     "name": "detail_synced_at",
+     "type": "ts",
+     "nullable": true
+    },
+    {
+     "name": "tag_list",
+     "type": "text[]",
+     "nullable": false
+    },
+    {
+     "name": "description",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "baseline1_at",
+     "type": "ts",
+     "nullable": true
+    },
+    {
+     "name": "baseline7_at",
+     "type": "ts",
+     "nullable": true
+    },
+    {
+     "name": "baseline15_at",
+     "type": "ts",
+     "nullable": true
+    },
+    {
+     "name": "rr1",
+     "type": "float",
+     "nullable": true
+    },
+    {
+     "name": "p1",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "rr7",
+     "type": "float",
+     "nullable": true
+    },
+    {
+     "name": "p7",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "rr15",
+     "type": "float",
+     "nullable": true
+    },
+    {
+     "name": "p15",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "s1_rr",
+     "type": "float",
+     "nullable": true
+    },
+    {
+     "name": "s1_p",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "s7_rr",
+     "type": "float",
+     "nullable": true
+    },
+    {
+     "name": "s7_p",
+     "type": "int",
+     "nullable": true
+    },
+    {
+     "name": "clicks7",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "last_click_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "bill_orders",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "last_bill_on",
+     "type": "day",
+     "nullable": true
+    },
+    {
+     "name": "bill_rank",
+     "type": "int",
+     "nullable": true
+    }
+   ]
+  },
+  "rs_ids": {
+   "key": [
+    "id"
+   ],
+   "maxLimit": 10000,
+   "columns": [
+    {
+     "name": "id",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "canonical_id",
+     "type": "text",
+     "nullable": true
+    },
+    {
+     "name": "locale",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "slug",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "title",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "chapter_count",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "pay_start",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "is_public_canonical",
+     "type": "bool",
+     "nullable": false
+    }
+   ]
+  },
+  "rs_clicks14": {
+   "key": [
+    "drama_id",
+    "day"
+   ],
+   "maxLimit": 20000,
+   "columns": [
+    {
+     "name": "drama_id",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "day",
+     "type": "day",
+     "nullable": false
+    },
+    {
+     "name": "human",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "bot",
+     "type": "int",
+     "nullable": false
+    }
+   ]
+  },
+  "rs_bill_orders": {
+   "key": [
+    "bill_date",
+    "book_id",
+    "promotion_type"
+   ],
+   "maxLimit": 5000,
+   "columns": [
+    {
+     "name": "bill_date",
+     "type": "day",
+     "nullable": false
+    },
+    {
+     "name": "book_id",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "promotion_type",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "canonical_id",
+     "type": "text",
+     "nullable": true
+    },
+    {
+     "name": "book_title",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "order_cnt",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "source_rows",
+     "type": "int",
+     "nullable": false
+    },
+    {
+     "name": "same_day_clicks",
+     "type": "int",
+     "nullable": false
+    }
+   ]
+  },
+  "rs_series_day": {
+   "key": [
+    "drama_id"
+   ],
+   "maxLimit": 40000,
+   "columns": [
+    {
+     "name": "drama_id",
+     "type": "text",
+     "nullable": false
+    },
+    {
+     "name": "revenue_cents",
+     "type": "float",
+     "nullable": false
+    },
+    {
+     "name": "promoters_cnt",
+     "type": "int",
+     "nullable": false
+    }
+   ]
+  }
+ },
+ "signal_payload_keys": [
+  "d",
+  "w",
+  "weeks",
+  "best",
+  "days",
+  "first",
+  "h",
+  "qy",
+  "pid"
+ ],
+ "posted_post_keys": [
+  "d",
+  "acct",
+  "st",
+  "views",
+  "likes",
+  "favs",
+  "cmts",
+  "shares",
+  "md",
+  "url",
+  "note",
+  "how",
+  "pid"
+ ],
+ "forbidden_name": {
+  "source": "pan_|promotion_value|promotion_code|promotion_link|revenue_usd|bill_usd|usd",
+  "flags": "i"
+ },
+ "scrub_exempt_keys": [
+  "row_key",
+  "sd",
+  "feishu_record",
+  "id",
+  "drama_id",
+  "canonical_id",
+  "book_id",
+  "slug",
+  "title_key",
+  "in_site_ids",
+  "row_keys",
+  "drama_ids",
+  "source_id",
+  "detail_url",
+  "source_ref",
+  "listed_on",
+  "off_on",
+  "latest_evidence_on",
+  "imported_at",
+  "evidence_on",
+  "online_on",
+  "last_post_on",
+  "created_on",
+  "updated_on",
+  "first_post_on",
+  "metric_at",
+  "as_of",
+  "rs_clk_on",
+  "rs_bill_on",
+  "rs_gsc_on",
+  "publish_at",
+  "synced_at",
+  "search_data_at",
+  "detail_synced_at",
+  "baseline1_at",
+  "baseline7_at",
+  "baseline15_at",
+  "last_click_on",
+  "last_bill_on",
+  "day",
+  "bill_date",
+  "listed_at",
+  "observed_at"
+ ],
+ "scrub_exempt_paths": [
+  "signals[*].source_ref",
+  "signals[*].observed_at",
+  "posted.last_post_on"
+ ],
+ "replacement": "[网盘信息已移除]",
+ "enums": {
+  "platforms": [
+   "reelshort",
+   "dramabox",
+   "shortmax",
+   "flickreels",
+   "flareflow",
+   "kalos",
+   "starshort",
+   "goodshort",
+   "moboreels",
+   "touchshort"
+  ],
+  "bases": [
+   "kd",
+   "kw",
+   "qc",
+   "qr",
+   "sm",
+   "smd",
+   "mg",
+   "fh",
+   "sh",
+   "gh",
+   "gn",
+   "ghh",
+   "dbn",
+   "clk",
+   "bill",
+   "gsc"
+  ],
+  "ranks": [
+   "kd",
+   "kw",
+   "qc",
+   "qr",
+   "sm",
+   "smd",
+   "mg",
+   "fh",
+   "sh",
+   "gh",
+   "gn",
+   "ghh",
+   "dbn",
+   "rs_rr",
+   "rs_growth",
+   "rs_cand",
+   "rs_pc",
+   "rs_clk",
+   "rs_gsc",
+   "rs_bill",
+   "rs_ledger"
+  ],
+  "rs_ranks": [
+   "rs_rr",
+   "rs_growth",
+   "rs_cand",
+   "rs_pc",
+   "rs_clk",
+   "rs_gsc",
+   "rs_bill",
+   "rs_ledger"
+  ],
+  "rs_sorts": [
+   "rr",
+   "d1",
+   "d7",
+   "dp1",
+   "dp7",
+   "promoters",
+   "publish",
+   "bill",
+   "eff",
+   "gsc",
+   "clicks"
+  ],
+  "export_sources": [
+   "catalog",
+   "snapshot",
+   "bill",
+   "gsc",
+   "pick_catalog"
+  ],
+  "source_detail_keys": [
+   "startDate",
+   "endDate",
+   "timezone",
+   "dataState",
+   "rows",
+   "expectedRows",
+   "unresolvedPages",
+   "unmatchedQueries",
+   "pageRows",
+   "queryRows",
+   "truncated",
+   "partial",
+   "scope",
+   "ratio",
+   "billPeriod",
+   "termsFetchedAt"
+  ]
+ },
+ "manifest_shape": {
+  "kind": "object",
+  "fields": {
+   "version": {
+    "kind": "scalar"
+   },
+   "asOf": {
+    "kind": "scalar"
+   },
+   "fingerprint": {
+    "kind": "scalar"
+   },
+   "sourceRevision": {
+    "kind": "scalar"
+   },
+   "counts": {
+    "kind": "record",
+    "of": {
+     "kind": "scalar"
+    },
+    "keys": [
+     "catalog_rows",
+     "catalog_signals",
+     "catalog_posted",
+     "catalog_accounts",
+     "rs_rows",
+     "rs_ids",
+     "rs_clicks14",
+     "rs_bill_orders"
+    ]
+   },
+   "latestSnapshot": {
+    "kind": "scalar"
+   },
+   "snapshotDays": {
+    "kind": "array",
+    "of": {
+     "kind": "object",
+     "fields": {
+      "day": {
+       "kind": "scalar"
+      },
+      "rows": {
+       "kind": "scalar"
+      }
+     },
+     "partial": false
+    }
+   },
+   "meta": {
+    "kind": "object",
+    "fields": {
+     "freshness": {
+      "kind": "object",
+      "fields": {
+       "importedAt": {
+        "kind": "scalar"
+       },
+       "rows": {
+        "kind": "scalar"
+       },
+       "withSignal": {
+        "kind": "scalar"
+       },
+       "signals": {
+        "kind": "scalar"
+       },
+       "posted": {
+        "kind": "scalar"
+       },
+       "rsCanonical": {
+        "kind": "scalar"
+       },
+       "rsCandidates": {
+        "kind": "scalar"
+       },
+       "rsSyncedAt": {
+        "kind": "scalar"
+       }
+      },
+      "partial": false
+     },
+     "rsCounts": {
+      "kind": "object",
+      "fields": {
+       "all": {
+        "kind": "scalar"
+       },
+       "cand": {
+        "kind": "scalar"
+       },
+       "growthD1": {
+        "kind": "scalar"
+       },
+       "growthD7": {
+        "kind": "scalar"
+       },
+       "growthDp1": {
+        "kind": "scalar"
+       },
+       "growthDp7": {
+        "kind": "scalar"
+       },
+       "pc": {
+        "kind": "scalar"
+       },
+       "clk": {
+        "kind": "scalar"
+       },
+       "gsc": {
+        "kind": "scalar"
+       },
+       "bill": {
+        "kind": "scalar"
+       },
+       "ledger": {
+        "kind": "scalar"
+       }
+      },
+      "partial": false
+     },
+     "growthBaseline": {
+      "kind": "record",
+      "of": {
+       "kind": "object",
+       "fields": {
+        "baselineDay": {
+         "kind": "scalar"
+        },
+        "baselineSnapshot": {
+         "kind": "scalar"
+        },
+        "earliestVerifiedOn": {
+         "kind": "scalar"
+        }
+       },
+       "partial": false
+      },
+      "keys": [
+       "1",
+       "7"
+      ]
+     },
+     "sources": {
+      "kind": "record",
+      "of": {
+       "kind": "object",
+       "fields": {
+        "source": {
+         "kind": "scalar"
+        },
+        "status": {
+         "kind": "scalar"
+        },
+        "attemptedAt": {
+         "kind": "scalar"
+        },
+        "completedAt": {
+         "kind": "scalar"
+        },
+        "details": {
+         "kind": "object",
+         "fields": {
+          "startDate": {
+           "kind": "scalar"
+          },
+          "endDate": {
+           "kind": "scalar"
+          },
+          "timezone": {
+           "kind": "scalar"
+          },
+          "dataState": {
+           "kind": "scalar"
+          },
+          "rows": {
+           "kind": "scalar"
+          },
+          "expectedRows": {
+           "kind": "scalar"
+          },
+          "unresolvedPages": {
+           "kind": "scalar"
+          },
+          "unmatchedQueries": {
+           "kind": "scalar"
+          },
+          "pageRows": {
+           "kind": "scalar"
+          },
+          "queryRows": {
+           "kind": "scalar"
+          },
+          "truncated": {
+           "kind": "scalar"
+          },
+          "partial": {
+           "kind": "scalar"
+          },
+          "scope": {
+           "kind": "scalar"
+          },
+          "ratio": {
+           "kind": "scalar"
+          },
+          "billPeriod": {
+           "kind": "scalar"
+          },
+          "termsFetchedAt": {
+           "kind": "scalar"
+          }
+         },
+         "partial": true
+        }
+       },
+       "partial": false
+      },
+      "keys": [
+       "catalog",
+       "snapshot",
+       "bill",
+       "gsc",
+       "pick_catalog"
+      ]
+     },
+     "rules": {
+      "kind": "object",
+      "fields": {
+       "platformRules": {
+        "kind": "record",
+        "of": {
+         "kind": "object",
+         "fields": {
+          "key": {
+           "kind": "scalar"
+          },
+          "name": {
+           "kind": "scalar"
+          },
+          "doc": {
+           "kind": "scalar"
+          },
+          "updated": {
+           "kind": "scalar"
+          },
+          "back": {
+           "kind": "scalar"
+          },
+          "report": {
+           "kind": "scalar"
+          },
+          "yt": {
+           "kind": "scalar"
+          },
+          "ytNote": {
+           "kind": "scalar"
+          },
+          "tag": {
+           "kind": "scalar"
+          },
+          "unban": {
+           "kind": "scalar"
+          },
+          "material": {
+           "kind": "scalar"
+          },
+          "signals": {
+           "kind": "scalar"
+          }
+         },
+         "partial": false
+        },
+        "keys": [
+         "reelshort",
+         "dramabox",
+         "shortmax",
+         "flickreels",
+         "flareflow",
+         "kalos",
+         "starshort",
+         "goodshort",
+         "moboreels",
+         "touchshort"
+        ]
+       },
+       "inUse": {
+        "kind": "array",
+        "of": {
+         "kind": "scalar"
+        }
+       },
+       "basisLabels": {
+        "kind": "record",
+        "of": {
+         "kind": "scalar"
+        },
+        "keys": [
+         "kd",
+         "kw",
+         "qc",
+         "qr",
+         "sm",
+         "smd",
+         "mg",
+         "fh",
+         "sh",
+         "gh",
+         "gn",
+         "ghh",
+         "dbn",
+         "clk",
+         "bill",
+         "gsc"
+        ]
+       },
+       "basisDateLabels": {
+        "kind": "record",
+        "of": {
+         "kind": "scalar"
+        },
+        "keys": [
+         "kd",
+         "kw",
+         "qc",
+         "qr",
+         "sm",
+         "smd",
+         "mg",
+         "fh",
+         "sh",
+         "gh",
+         "gn",
+         "ghh",
+         "dbn",
+         "clk",
+         "bill",
+         "gsc"
+        ]
+       },
+       "rsRankLabels": {
+        "kind": "record",
+        "of": {
+         "kind": "scalar"
+        },
+        "keys": [
+         "rs_rr",
+         "rs_growth",
+         "rs_cand",
+         "rs_pc",
+         "rs_clk",
+         "rs_gsc",
+         "rs_bill",
+         "rs_ledger"
+        ]
+       },
+       "youtubeLabels": {
+        "kind": "record",
+        "of": {
+         "kind": "scalar"
+        },
+        "keys": [
+         "ok",
+         "only",
+         "warn",
+         "no"
+        ]
+       },
+       "glossary": {
+        "kind": "array",
+        "of": {
+         "kind": "object",
+         "fields": {
+          "g": {
+           "kind": "scalar"
+          },
+          "d": {
+           "kind": "scalar"
+          },
+          "items": {
+           "kind": "array",
+           "of": {
+            "kind": "object",
+            "fields": {
+             "t": {
+              "kind": "scalar"
+             },
+             "a": {
+              "kind": "scalar"
+             },
+             "ask": {
+              "kind": "scalar"
+             },
+             "d": {
+              "kind": "scalar"
+             },
+             "h": {
+              "kind": "scalar"
+             }
+            },
+            "partial": true
+           }
+          }
+         },
+         "partial": false
+        }
+       },
+       "ruleHints": {
+        "kind": "record",
+        "of": {
+         "kind": "scalar"
+        },
+        "keys": null
+       },
+       "langLoc": {
+        "kind": "record",
+        "of": {
+         "kind": "scalar"
+        },
+        "keys": null
+       },
+       "postedPoolUrl": {
+        "kind": "scalar"
+       },
+       "sortLabels": {
+        "kind": "record",
+        "of": {
+         "kind": "scalar"
+        },
+        "keys": [
+         "rr",
+         "d1",
+         "d7",
+         "dp1",
+         "dp7",
+         "promoters",
+         "publish",
+         "bill",
+         "eff",
+         "gsc",
+         "clicks"
+        ]
+       }
+      },
+      "partial": false
+     },
+     "control": {
+      "kind": "object",
+      "fields": {
+       "facetsPick": {
+        "kind": "object",
+        "fields": {
+         "platforms": {
+          "kind": "record",
+          "of": {
+           "kind": "scalar"
+          },
+          "keys": [
+           "reelshort",
+           "dramabox",
+           "shortmax",
+           "flickreels",
+           "flareflow",
+           "kalos",
+           "starshort",
+           "goodshort",
+           "moboreels",
+           "touchshort"
+          ]
+         },
+         "langs": {
+          "kind": "array",
+          "of": {
+           "kind": "object",
+           "fields": {
+            "lang": {
+             "kind": "scalar"
+            },
+            "n": {
+             "kind": "scalar"
+            }
+           },
+           "partial": false
+          }
+         },
+         "bases": {
+          "kind": "record",
+          "of": {
+           "kind": "scalar"
+          },
+          "keys": [
+           "kd",
+           "kw",
+           "qc",
+           "qr",
+           "sm",
+           "smd",
+           "mg",
+           "fh",
+           "sh",
+           "gh",
+           "gn",
+           "ghh",
+           "dbn",
+           "clk",
+           "bill",
+           "gsc"
+          ]
+         },
+         "posted": {
+          "kind": "object",
+          "fields": {
+           "pool": {
+            "kind": "scalar"
+           },
+           "yes": {
+            "kind": "scalar"
+           },
+           "no": {
+            "kind": "scalar"
+           }
+          },
+          "partial": false
+         }
+        },
+        "partial": false
+       },
+       "facetsAll": {
+        "kind": "object",
+        "fields": {
+         "platforms": {
+          "kind": "record",
+          "of": {
+           "kind": "scalar"
+          },
+          "keys": [
+           "reelshort",
+           "dramabox",
+           "shortmax",
+           "flickreels",
+           "flareflow",
+           "kalos",
+           "starshort",
+           "goodshort",
+           "moboreels",
+           "touchshort"
+          ]
+         },
+         "langs": {
+          "kind": "array",
+          "of": {
+           "kind": "object",
+           "fields": {
+            "lang": {
+             "kind": "scalar"
+            },
+            "n": {
+             "kind": "scalar"
+            }
+           },
+           "partial": false
+          }
+         },
+         "bases": {
+          "kind": "record",
+          "of": {
+           "kind": "scalar"
+          },
+          "keys": [
+           "kd",
+           "kw",
+           "qc",
+           "qr",
+           "sm",
+           "smd",
+           "mg",
+           "fh",
+           "sh",
+           "gh",
+           "gn",
+           "ghh",
+           "dbn",
+           "clk",
+           "bill",
+           "gsc"
+          ]
+         },
+         "posted": {
+          "kind": "object",
+          "fields": {
+           "pool": {
+            "kind": "scalar"
+           },
+           "yes": {
+            "kind": "scalar"
+           },
+           "no": {
+            "kind": "scalar"
+           }
+          },
+          "partial": false
+         }
+        },
+        "partial": false
+       },
+       "rankCounts": {
+        "kind": "record",
+        "of": {
+         "kind": "scalar"
+        },
+        "keys": [
+         "kd",
+         "kw",
+         "qc",
+         "qr",
+         "sm",
+         "smd",
+         "mg",
+         "fh",
+         "sh",
+         "gh",
+         "gn",
+         "ghh",
+         "dbn",
+         "rs_rr",
+         "rs_growth",
+         "rs_cand",
+         "rs_pc",
+         "rs_clk",
+         "rs_gsc",
+         "rs_bill",
+         "rs_ledger"
+        ]
+       },
+       "postedStats": {
+        "kind": "object",
+        "fields": {
+         "total": {
+          "kind": "scalar"
+         },
+         "pubCount": {
+          "kind": "scalar"
+         },
+         "postsSum": {
+          "kind": "scalar"
+         },
+         "viewsSum": {
+          "kind": "scalar"
+         },
+         "metricAt": {
+          "kind": "scalar"
+         },
+         "importedAt": {
+          "kind": "scalar"
+         },
+         "accountCount": {
+          "kind": "scalar"
+         }
+        },
+        "partial": false
+       },
+       "postedStates": {
+        "kind": "object",
+        "fields": {
+         "pub": {
+          "kind": "scalar"
+         },
+         "sched": {
+          "kind": "scalar"
+         },
+         "none": {
+          "kind": "scalar"
+         },
+         "nomatch": {
+          "kind": "scalar"
+         }
+        },
+        "partial": false
+       },
+       "ledger": {
+        "kind": "object",
+        "fields": {
+         "rows": {
+          "kind": "scalar"
+         },
+         "orders": {
+          "kind": "scalar"
+         }
+        },
+        "partial": false
+       }
+      },
+      "partial": false
+     },
+     "scrub": {
+      "kind": "record",
+      "of": {
+       "kind": "scalar"
+      },
+      "keys": null
+     },
+     "warnings": {
+      "kind": "array",
+      "of": {
+       "kind": "object",
+       "fields": {
+        "code": {
+         "kind": "scalar"
+        },
+        "source": {
+         "kind": "scalar"
+        },
+        "status": {
+         "kind": "scalar"
+        },
+        "attemptedAt": {
+         "kind": "scalar"
+        }
+       },
+       "partial": false
+      }
+     }
+    },
+    "partial": false
+   }
+  },
+  "partial": false
+ },
+ "manifest": {
+  "version": "pick-export-v2",
+  "asOf": "2026-09-23T10:15:00.000Z",
+  "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sourceRevision": null,
+  "counts": {
+   "catalog_rows": 1,
+   "catalog_signals": 1,
+   "catalog_posted": 1,
+   "catalog_accounts": 1,
+   "rs_rows": 1,
+   "rs_ids": 1,
+   "rs_clicks14": 1,
+   "rs_bill_orders": 1
+  },
+  "latestSnapshot": "2026-09-23",
+  "snapshotDays": [
+   {
+    "day": "2026-09-23",
+    "rows": 30000
+   }
+  ],
+  "meta": {
+   "freshness": {
+    "importedAt": "2026-09-22T03:10:05.000Z",
+    "rows": 41661,
+    "withSignal": 3000,
+    "signals": 3500,
+    "posted": 180,
+    "rsCanonical": 32000,
+    "rsCandidates": 900,
+    "rsSyncedAt": null
+   },
+   "rsCounts": {
+    "all": 1,
+    "cand": 1,
+    "growthD1": 1,
+    "growthD7": 1,
+    "growthDp1": 1,
+    "growthDp7": 1,
+    "pc": 1,
+    "clk": 1,
+    "gsc": 1,
+    "bill": 1,
+    "ledger": 2
+   },
+   "growthBaseline": {
+    "1": {
+     "baselineDay": "2026-09-22",
+     "baselineSnapshot": "verified",
+     "earliestVerifiedOn": "2026-09-10"
+    },
+    "7": {
+     "baselineDay": "2026-09-16",
+     "baselineSnapshot": "verified",
+     "earliestVerifiedOn": "2026-09-10"
+    }
+   },
+   "sources": {
+    "bill": {
+     "source": "bill",
+     "status": "success",
+     "attemptedAt": "2026-09-23T00:00:00.000Z",
+     "completedAt": "2026-09-23T00:01:00.000Z",
+     "details": {
+      "startDate": "2026-08-20",
+      "endDate": "2026-09-22",
+      "rows": 12,
+      "ratio": 50
+     }
+    }
+   },
+   "rules": {
+    "platformRules": {
+     "reelshort": {
+      "key": "reelshort",
+      "name": "ReelShort",
+      "doc": "/admin/pick?tab=rank&rk=rs_rr",
+      "updated": "2026-09-11",
+      "back": "月结 · 分成 50%",
+      "report": "自有 CPS 账号，无需报备",
+      "yt": "ok",
+      "ytNote": "导流走本站播放页付费墙，出站一律经 /api/go",
+      "tag": "—",
+      "unban": "—",
+      "material": "站内免费集可播；付费集在 App，不提供下载",
+      "signals": "30 天销售指标 · 推广人数 · 每日快照增量 · 预估分成 · GSC 搜索 · 7 天出站"
+     },
+     "kalos": {
+      "key": "kalos",
+      "name": "KalosTV",
+      "doc": "https://example.feishu.cn/wiki/placeholder1",
+      "updated": "2026-09-10",
+      "back": "未标注",
+      "report": "番茄版权需报备（白名单周期）；青榕版权后台直接加白",
+      "yt": "only",
+      "ytNote": "只能投 YouTube 剧单内的剧",
+      "tag": "#KalosTV",
+      "unban": "YouTube / Facebook 解封通道表单",
+      "material": "剧单内网盘",
+      "signals": "每日高转化 TOP10 · 周热门榜"
+     },
+     "shortmax": {
+      "key": "shortmax",
+      "name": "ShortMax",
+      "doc": "https://example.feishu.cn/base/placeholder2",
+      "updated": "2026-09-10",
+      "back": "订单及时 · 广告次日",
+      "report": "需账号报备",
+      "yt": "ok",
+      "ytNote": "油管不超过全集时长 50%，二创不少于 10%，禁纯原片",
+      "tag": "#ShortMax",
+      "unban": "每天 16:00 统一解禁，次日 11:00 前查结果",
+      "material": "网盘（免费剧集）",
+      "signals": "投放榜单评级 SS / S / A / B · 每日推荐"
+     },
+     "flickreels": {
+      "key": "flickreels",
+      "name": "FlickReels",
+      "doc": "https://example.feishu.cn/base/placeholder3",
+      "updated": "2026-09-10",
+      "back": "及时",
+      "report": "需账号报备（YouTube / TK）",
+      "yt": "ok",
+      "ytNote": "禁多剧拼接；时长在免费集总时长内，不足 40 分钟可放宽到 40 分钟",
+      "tag": "剧场 tag + 推广链接 / 口令",
+      "unban": "飞书表单",
+      "material": "百度网盘",
+      "signals": "爆款剧单 · 下架剧单"
+     },
+     "starshort": {
+      "key": "starshort",
+      "name": "StarShort",
+      "doc": "https://example.feishu.cn/wiki/placeholder4",
+      "updated": "2026-09-09",
+      "back": "实时",
+      "report": "需账号报备",
+      "yt": "only",
+      "ytNote": "走 YouTube 剧单：只有 YouTube 剧单表里的剧能发",
+      "tag": "剧场 tag",
+      "unban": "24 小时内解禁",
+      "material": "只能从剧单 + 网盘获取",
+      "signals": "高充值剧单"
+     },
+     "goodshort": {
+      "key": "goodshort",
+      "name": "GoodShort",
+      "doc": "https://example.feishu.cn/wiki/placeholder5",
+      "updated": "2026-09-09",
+      "back": "次日",
+      "report": "Facebook 百粉账号可专属报白",
+      "yt": "ok",
+      "ytNote": "油管不超过 30 分钟；发布前去掉原片 BGM",
+      "tag": "#GoodShort",
+      "unban": "钉钉反馈表",
+      "material": "剧单内（多数无网盘）",
+      "signals": "爆款 / 重点推荐 · 历史高充值"
+     },
+     "dramabox": {
+      "key": "dramabox",
+      "name": "DramaBox",
+      "doc": "https://example.feishu.cn/base/placeholder6",
+      "updated": "2026-08-31",
+      "back": "次日",
+      "report": "需账号报备（YouTube 粉丝不少于 100）",
+      "yt": "ok",
+      "ytNote": "需报备后发布",
+      "tag": "—",
+      "unban": "钉钉表单，当天 16 点前统一提报",
+      "material": "可二创素材 zip",
+      "signals": "运营备注（爆款 / 高优排期）"
+     },
+     "moboreels": {
+      "key": "moboreels",
+      "name": "MoboReels",
+      "doc": "https://example.feishu.cn/sheets/placeholder7",
+      "updated": "2026-08-21",
+      "back": "订单实时 · 广告次日",
+      "report": "需账号报备",
+      "yt": "no",
+      "ytNote": "不能在 YouTube 推广",
+      "tag": "剧场 tag + 视频加 logo",
+      "unban": "Facebook 二次报白表单",
+      "material": "网盘（约一成有）",
+      "signals": "评级（表里只有 11 行有）"
+     },
+     "flareflow": {
+      "key": "flareflow",
+      "name": "flareflow",
+      "doc": "https://example.feishu.cn/wiki/placeholder8",
+      "updated": "2026-08-28",
+      "back": "未标注",
+      "report": "—",
+      "yt": "no",
+      "ytNote": "禁止 YouTube 发布",
+      "tag": "#flareflow",
+      "unban": "不允许 YouTube",
+      "material": "百度网盘",
+      "signals": ""
+     },
+     "touchshort": {
+      "key": "touchshort",
+      "name": "TouchShort",
+      "doc": "https://example.feishu.cn/wiki/placeholder9",
+      "updated": "2025-12-24",
+      "back": "实时",
+      "report": "无需报备",
+      "yt": "warn",
+      "ytNote": "不推荐 YouTube 大批量发布",
+      "tag": "#touchshort",
+      "unban": "飞书表单，处理较慢",
+      "material": "分销素材（50% 集数）网盘，多语言",
+      "signals": ""
+     }
+    },
+    "inUse": [
+     "reelshort",
+     "dramabox",
+     "shortmax",
+     "flickreels",
+     "flareflow"
+    ],
+    "basisLabels": {
+     "kd": "KalosTV 日榜",
+     "kw": "KalosTV 周热门",
+     "qc": "鹊娱 7 日转化率 Top25",
+     "qr": "鹊娱 7 日总收入 Top25",
+     "sm": "ShortMax 评级",
+     "smd": "ShortMax 每日推荐",
+     "mg": "MoboReels 评级",
+     "fh": "FlickReels 爆款剧单",
+     "sh": "StarShort 高充值剧单",
+     "gh": "GoodShort 爆款推荐",
+     "gn": "GoodShort 重点推荐",
+     "ghh": "GoodShort 历史高充值",
+     "dbn": "DramaBox 运营备注",
+     "clk": "ReelShort 7 天有出站",
+     "bill": "ReelShort 有预估订单",
+     "gsc": "ReelShort 搜索匹配"
+    },
+    "basisDateLabels": {
+     "kd": "榜单日期",
+     "kw": "周起",
+     "qc": "榜单日期",
+     "qr": "榜单日期",
+     "sm": "",
+     "smd": "",
+     "mg": "",
+     "fh": "入榜日期",
+     "sh": "",
+     "gh": "推荐日期",
+     "gn": "推荐日期",
+     "ghh": "表内日期（含义未核）",
+     "dbn": "",
+     "clk": "最近过滤后出站",
+     "bill": "最近账单",
+     "gsc": "采集"
+    },
+    "rsRankLabels": {
+     "rs_rr": "ReelShort 30 天指标",
+     "rs_growth": "ReelShort 涨幅榜",
+     "rs_cand": "ReelShort 候选清单",
+     "rs_pc": "ReelShort 推广人数",
+     "rs_clk": "ReelShort 7 天出站",
+     "rs_gsc": "ReelShort 搜索需求",
+     "rs_bill": "ReelShort 预估分成",
+     "rs_ledger": "ReelShort 分成对账"
+    },
+    "youtubeLabels": {
+     "ok": "YouTube 可发",
+     "only": "YouTube 限剧单",
+     "warn": "YouTube 慎用",
+     "no": "禁 YouTube"
+    },
+    "glossary": [
+     {
+      "g": "剧场规则里的行话",
+      "d": "上面表格各列用到的分销与投放术语。规则本身来自各剧场文档，解释是本页的白话版。",
+      "items": [
+       {
+        "t": "剧场",
+        "d": "出品或运营短剧 App 的平台方，KalosTV、ShortMax、FlickReels 这些都是。本页把 ReelShort 也当作第十个剧场，它的数据来自本站自己的 CPS 账号而不是飞书剧单。"
+       },
+       {
+        "t": "CPS / 分销",
+        "a": "Cost Per Sale",
+        "d": "剧场不付固定费用，你带来的用户在 App 里充值之后按比例分成。ReelShort 给本站的比例是 50%，月结。",
+        "h": "所以「有出站、没分成」的剧对你来说是零收入，见 ReelShort 那组的「7 天出站」与「预估分成」。"
+       },
+       {
+        "t": "剧单",
+        "a": "达人分销剧单",
+        "d": "剧场开放给分销方剪辑投放的剧目清单，通常附素材、网盘和规则。不在剧单里的剧不能投。",
+        "h": "「文档」列写着那份文档最后核对的日期，TouchShort 那份 2025-12 就没动过。"
+       },
+       {
+        "t": "回传 / 结算",
+        "a": "数据回传",
+        "d": "剧场把你带来的订单或广告收益回传到你账户的时效。「订单及时 · 广告次日」是充值实时可见、广告分成次日到；「月结」是按月结算；「次日」是第二天才看得到。",
+        "h": "它决定你多久能知道一条剧到底有没有转化，回传慢的剧场要多给几天再判断。"
+       },
+       {
+        "t": "报备 / 报白 / 白名单",
+        "d": "投放前把你的 YouTube、TikTok 等账号登记给剧场，剧场把它加进版权系统的白名单。没报备的账号发出去会被判为侵权下架，或者充值不计给你。「白名单周期」是从提交到生效要等的时间。",
+        "h": "GoodShort 的「Facebook 百粉账号可专属报白」、DramaBox 的「YouTube 粉丝不少于 100」都是报备门槛。"
+       },
+       {
+        "t": "番茄版权 / 青榕版权",
+        "d": "KalosTV 剧单里剧的版权方分两家，报备流程不同：番茄的要走报备等白名单生效，青榕的在后台直接加白。",
+        "h": "投 KalosTV 之前先看这部剧是哪家的版权。"
+       },
+       {
+        "t": "必带 TAG",
+        "d": "发布视频时必须带的话题标签，例如 #KalosTV、#ShortMax。剧场靠它识别这条视频属于哪个分销活动，漏掉可能不计分成。MoboReels 还要求视频里加 logo。"
+       },
+       {
+        "t": "解禁 / 解封",
+        "d": "剧场对部分剧或部分平台设了发布限制（独家期、地区版权），要先通过表单申请解除限制才能发。",
+        "h": "ShortMax 每天 16:00 统一处理、次日 11:00 前查结果；DramaBox 当天 16 点前统一提报；StarShort 24 小时内。"
+       },
+       {
+        "t": "素材",
+        "d": "剧场提供给分销方的可剪辑视频文件。「网盘（免费剧集）」只给免费集，「分销素材（50% 集数）」给一半集数，「可二创素材 zip」是打包好的可再创作片段，「剧单内网盘」是链接就写在剧单那一行里。"
+       },
+       {
+        "t": "网盘 / 提取码 / 备用资源",
+        "ask": false,
+        "d": "素材多放百度网盘或夸克网盘，提取码是链接旁那串密码。本页把剧单里附的网盘叫「备用资源」，是鹊娱之外的第二取货口。",
+        "h": "表里「备用资源 · 限制」那一列：网盘链接旁边就是提取码，下面一行是这个剧场的 YouTube 条件与下架记录。"
+       },
+       {
+        "t": "二创 / 纯原片 / 拼接",
+        "d": "二创是加解说、字幕、重新剪辑的再创作；纯原片是直接搬运原片段，多数剧场禁止；多剧拼接是一个视频里剪进多部剧，FlickReels 禁止。「二创不少于 10%」指再创作内容至少占一成。"
+       },
+       {
+        "t": "油管不超过全集时长 50%",
+        "d": "在 YouTube 发的剪辑合计时长不能超过整部剧的一半，为的是不把整部剧免费放完。FlickReels 的口径是「时长在免费集总时长内，不足 40 分钟可放宽到 40 分钟」，GoodShort 是「不超过 30 分钟」。"
+       },
+       {
+        "t": "YouTube 限剧单 / 禁 YouTube",
+        "d": "「限剧单」是只允许投 YouTube 剧单里的剧（KalosTV、StarShort）；「禁 YouTube」是这个剧场根本不允许在 YouTube 推广（MoboReels、flareflow）；「慎用」是不推荐大批量发（TouchShort）。",
+        "h": "条件行的「YouTube 可发」会把禁 YouTube 的剧场去掉、限剧单的剧场只留在 YouTube 剧单上的行。"
+       },
+       {
+        "t": "推广链接 / 口令 / 锚点",
+        "d": "剧场发给你的归因载体。用户经你的链接进 App、或在 App 里输入你的口令后充值，分成才算你的；锚点是短视频平台里挂在视频上的应用入口。",
+        "h": "ReelShort 的深链只到剧级，用户从第 N 集点出去也只能落到这部剧的入口。"
+       },
+       {
+        "t": "剧场侧信号",
+        "d": "剧场自己给出的推荐或排序，全是定性标注、没有数值：KalosTV 的每日高转化 TOP10 与周热门、ShortMax 的投放榜评级与每日推荐、FlickReels 的爆款与下架、StarShort 与 GoodShort 的高充值、DramaBox 的运营备注。",
+        "h": "榜单 tab 按类型各开一页，选剧 / 全部剧库的「信号 · 依据」列把它们都挂在剧那一行上。"
+       },
+       {
+        "t": "爆款 / 高充值",
+        "d": "剧场标注的投放效果好、或历史充值表现好的剧。都是剧场侧的定性信号，不带数字，剧场也不说明口径。"
+       },
+       {
+        "t": "评级 SS / S / A / B",
+        "d": "ShortMax 投放榜单给剧的等级，SS 最高，本页也收了更低的 C、D。是剧场按自己的投放数据打的，不公开算法。"
+       },
+       {
+        "t": "日榜 / 周热门",
+        "d": "KalosTV 每天发的高转化 TOP10 和每周的热门榜。本页保留了完整历史，榜单 tab 里可以按天、按周切换。"
+       },
+       {
+        "t": "下架",
+        "d": "剧场已停止分销的剧（FlickReels 有单独的下架剧单）。投了不计分成，选剧 / 全部剧库默认隐藏，条件行的「含已下架」可以看；榜单 tab 一律含它们（那一天的榜是历史事实）。"
+       },
+       {
+        "t": "女频 / 男频",
+        "d": "剧单里标的目标观众：女频是面向女性观众的题材（霸总、甜宠、复仇），男频是面向男性观众的（战神、逆袭、赘婿）。"
+       },
+       {
+        "t": "鹊娱剧库",
+        "ask": false,
+        "d": "cps-distribution.zwnet.cn，把九个剧场的剧汇聚在一个库里（2026-09-10 共 41,660 部），每部剧的右侧抽屉有「下载全部」与逐集下载。它没有单剧直达地址。",
+        "h": "本页所有「复制剧名并打开鹊娱」都先把剧名复制到剪贴板再打开剧库，粘贴查询即可；装了配套 Tampermonkey 脚本会自动打开抽屉。"
+       }
+      ]
+     },
+     {
+      "g": "ReelShort 观测口径",
+      "d": "ReelShort 那一行与榜单里 ReelShort 各列的数字来自本站片库与每日快照（原观测台的口径，2026-09-11 并进本页）。上游只给「此刻是多少」，历史全靠本站每天留快照。",
+      "items": [
+       {
+        "t": "30 天销售指标",
+        "a": "recent_revenue",
+        "d": "上游给的原值，含义是全平台所有分销商在过去 30 天给这部剧带来的销售额。本页照抄不换算，单位与范围还在核验，它不是我方收入。",
+        "h": "只能横向比谁热，不能当金额读。"
+       },
+       {
+        "t": "推广人数",
+        "a": "promoters_cnt",
+        "d": "上游累计到现在有多少个分销方在推这部剧。越高说明竞争越激烈。",
+        "h": "「指标 / 人数」= 30 天指标 ÷ 推广人数，是人均份额，同样只能横向比。"
+       },
+       {
+        "t": "每日快照 / 较昨日 / 较 7 天前 / 较 15 天前",
+        "d": "本站每天给每部剧留一行快照，用今天的值减去 1、7 或 15 天前那一行得到净变化。缺快照显示「—」不是 0：0 是量过了没变，「—」是那天没有快照算不出来。它是 30 天滚动窗口的净变化，不是那几天的销售额；上游没有累计销售额，证据页那一格写「上游不给」。",
+        "h": "快照挂在每 6 小时那轮同步的开头（每个 UTC 日的第一轮写入）。较昨日 / 较 7 天前 / 较 15 天前要等基线那一天有已校验的快照才有数；涨幅榜空了会写明是哪一种原因（筛空了、基线快照还没攒到、那天没有快照）。"
+       },
+       {
+        "t": "推广人数新增（昨日 / 7 日 / 15 日）",
+        "d": "同一套快照差分套在 promoters_cnt 上：今天的累计推广人数减去 1、7 或 15 天前那一行。缺快照同样是「—」。",
+        "h": "上游只给累计值，所以「新增」全靠本站快照；和平台指标的三个净变化用同一批快照，缺快照的日子一起缺。"
+       },
+       {
+        "t": "预估分成 / 昨日 · 7 日 · 15 日 · 30 日 · 累计",
+        "a": "bill / app-estimate",
+        "d": "上游账单里给本账号的分成，美元，是我方口径的钱；「预估」是上游的说法，不是结算额。四个窗口按上游账单日切：昨日 = 昨天（UTC）那一个账单日，近 N 日 = 昨天往前数 N 个账单日的合计，都不含今天；累计 = 全部已落库的行（含今天已拉到的部分）。",
+        "h": "和 30 天指标是两个完全不同的口径，一个是全平台销售额、一个是我方分成，不能相加也不能相除。账单一天只拉一次（同步开头、UTC 零点那轮），今天那一行明天才拉得全，所以窗口不含今天；账号 2026-08-20 起才有账单。没有账单的窗口印 0，不是「—」——账单不是采样。"
+       },
+       {
+        "t": "GSC 搜索",
+        "a": "Search Console 展示",
+        "d": "Google Search Console 里这部剧的展示次数：每天的请求参数是按 UTC 算的前一天到当天两个日期（不是滚动 24 小时），网页与查询两个维度取较大者；只存最近一次，不留逐日历史。是需求侧信号，说明有人在搜，不是点击。"
+       },
+       {
+        "t": "7 天出站",
+        "a": "/api/go",
+        "d": "滚动 168 小时内，用户在本站播放页看完免费集、碰到付费墙后点「去 App」的次数，已排除已识别的爬虫。全站只有付费墙这一个出站口。",
+        "h": "它是离收入最近的动作，但不等于成交。出站与分成是两个口径，页面不替它们下归因结论。"
+       },
+       {
+        "t": "上线日期",
+        "a": "publish_at",
+        "d": "上游给的上线时间。本站 2026-09-08 才开始补写这一列，空着的不是老剧，是还没轮到补。"
+       },
+       {
+        "t": "涨幅榜",
+        "d": "ReelShort 全部行按「较昨日 / 较 7 天前 / 推广人数较昨日变化 / 推广人数 7 天变化」排的前 50，只有对应基线快照存在的剧才进榜。缺快照的不进，所以快照攒够之前榜单是空的，不代表没有涨的剧。",
+        "h": "空榜时页面会写明原因：筛空了、基线快照还没攒到，还是那天没有快照。"
+       },
+       {
+        "t": "候选清单",
+        "d": "和本站有过交集的 ReelShort 剧，三选一：已保存搜索匹配（GSC 展示 > 0）、近 7 天有出站（排除爬虫）、有预估订单（账单 order_cnt > 0）。",
+        "h": "这是「已经有人来过」的剧，先看它们的曲线和分成明细。选剧 tab 里的 ReelShort 行就是它们。"
+       },
+       {
+        "t": "分成对账",
+        "d": "上游账单里有订单的行逐条列出，加一列「站内同日有点击」= 同一部剧、同一 UTC 日、排除爬虫后站内出站至少一次。",
+        "h": "它是启发式不是归因：短链与口令是上游发给这个账号的，贴在哪里都是同一个值，上游分不出渠道。"
+       },
+       {
+        "t": "上线分桶",
+        "d": "按上线日期到今天的天数分五档：0–7 天、8–30 天、31–90 天、91 天–1 年、1 年以上。上线日期未知的剧不进任何一档。",
+        "h": "选了分桶等于只筛选已知日期的样本，不代表全部新剧。"
+       },
+       {
+        "t": "有效样本 n/90 天",
+        "d": "证据页曲线的 90 天日历上有几天有已校验的快照。断档处画虚线、不插值：那天没快照不等于数值没变。"
+       }
+      ]
+     },
+     {
+      "g": "本页自己的口径",
+      "d": "选剧台自己定义的 tab、列、标签与排序。这些任何来源都没有，只用来找剧和排序。",
+      "items": [
+       {
+        "t": "选剧 tab",
+        "d": "入选池 = 有任一剧场信号（日榜、周热门、评级、各剧场推荐清单、运营备注）或满足 ReelShort 候选条件（7 天有出站、有预估订单、有搜索匹配）的行。默认排除已下架。在用的五个剧场（ReelShort、DramaBox、ShortMax、FlickReels、flareflow）排在剧场 chips 前面，其他五个在「其他剧场」之后，「收起其他剧场」只看在用的五个。",
+        "h": "「含仅剧单收录的行」把没有任何信号、只是在剧单上的行也放进来（按剧单日期排）；「发布记录」chips 用来排除已经发过的剧。"
+       },
+       {
+        "t": "剧单收录（无榜单信号）",
+        "d": "这一行在某张剧单上，但剧场没有给它任何榜单、评级、推荐或备注。flareflow、MoboReels、TouchShort 的剧单整体如此。只在打开「含仅剧单收录的行」时进表，日期是剧单日期，没有就写日期未知。",
+        "h": "这不是证据，只是「有货」。要判断值不值得做，看它在别的剧场有没有同名行带信号，或者在发布记录里有没有发过。"
+       },
+       {
+        "t": "发布记录",
+        "a": "飞书选剧池 / 发布记录",
+        "d": "运营自己维护的飞书多维表格：选剧池是挑过的剧（剧ID、平台、来源、推荐理由、上线日期、是否已排期），发布记录是每条帖子（日期、账号、状态、播放 / 点赞 / 收藏 / 评论 / 转发、链接）。用户身份只读拉取，按剧名归一对到剧库行上。",
+        "h": "行上的「已发 N 条 · 播放 X · 最近日期」标签点进证据页看逐条帖子；「在选剧池 · 未排期」= 挑了还没发。同名不等于同剧，对上多条时逐条核。"
+       },
+       {
+        "t": "全部剧库 tab",
+        "ask": false,
+        "d": "十个剧场的全部行（ReelShort 是全部正典行），用来搜索与补查；信号格与选剧同一套，条件里有 ReelShort 同名线索、旧站收录线索。"
+       },
+       {
+        "t": "榜单 tab",
+        "ask": false,
+        "d": "逐榜浏览：ReelShort 按 30 天指标 / 推广人数 / 出站 / 搜索 / 分成各排一榜，加同口径的涨幅榜、候选清单（带语种、上线分桶）与分成对账；KalosTV 日榜按日期、周热门按周，ShortMax / MoboReels 按评级，各剧场清单按入榜日期。",
+        "h": "选剧 tab 是跨榜按证据时间排的合集，榜单 tab 是一次只看一张榜的原样。"
+       },
+       {
+        "t": "信号 · 依据",
+        "d": "信号 pill：日榜名次、周热门、评级、清单、备注、ReelShort 指标，旧站收录与本站在售。pill 下面那一行是最近一条证据和它自己的日期：日榜 / 周热门 / 各推荐清单是榜单或入榜日期，ReelShort 出站是近 7 天里最近一次过滤后出站的 UTC 日（排除已识别爬虫，不保证是真人），订单是最近账单日，搜索是 GSC 采集日。评级、StarShort 清单、DramaBox 备注没有日期，写「日期未知」，不拿剧单日期代填。",
+        "h": "一行有多条证据时按最近的一条排，证据页逐条全看。"
+       },
+       {
+        "t": "证据时间：最近在前",
+        "d": "默认排序。第一键是这一行所有信号里最近一条证据的日期（KalosTV 日榜 = 榜单日期、周热门 = 周起、FlickReels 爆款 = 入榜日期、GoodShort 推荐 = 推荐日期、历史高充值 = 表内日期；ReelShort = 最近过滤后出站 / 最近账单 / GSC 采集三者最近），新的在前；ShortMax / MoboReels 评级、StarShort 高充值、DramaBox 备注没有日期，不拿剧单日期代填，只有这几种信号的行排在全部有日期的行之后。同一天再按剧单日期（新在前）→ 剧名 → 剧场 → 行键稳定排。这只是浏览顺序，不是投放价值排序。",
+        "h": "另两种排序：「剧单日期」= 剧单里的推荐 / 上新日期（ReelShort 行用上线日期），没有的排最后，同日按剧名 → 行键；「剧名」= 字符序 A→Z（不是拼音），同名按剧场 → 行键。三条 chip 的 hover 里都写着。"
+       },
+       {
+        "t": "鹊娱榜（7 日转化率 / 7 日总收入 Top25）",
+        "d": "鹊娱汇聚台（cps-distribution.zwnet.cn）自己算的两张榜：它全体分销商在九个剧场的 7 日转化率与 7 日总收入前 25，跨剧场混排、只给名次不给数值、不能按剧场或语种筛，每日 10:30 更新。本站每天 10:45 采一次，历史从 2026-09-12 起。",
+        "h": "它是需求侧的真实成交信号，但不是我们自己的：与本站 ReelShort 分成无关，也不含 ReelShort（鹊娱没有这个剧场）。证据日期 = 榜单日期；同一部剧连续上榜会攒成上榜天数 / 最高名次。"
+       },
+       {
+        "t": "类型 · 频道",
+        "d": "剧单里的制作类型（译制剧 / 本土剧 / 配音剧 / AI 真人剧 / 动态漫……）与频道（只有 KalosTV 剧单给：国内短剧IP / 国内网文IP / 海外网文IP / 原创……）。ReelShort 上游没有这两个字段，一律「—」；剧单没填的也是「—」。",
+        "h": "不拿上游标签代填——标签是题材 / 属性词（女性、浪漫、复仇……），不是制作类型；它们印在剧名下面那行，证据页上是 chips。"
+       },
+       {
+        "t": "事实标签",
+        "d": "「剧场声明」= 证据是剧场自己给的定性标注；「上游指标字段已校验 · 单位待核」= ReelShort 原始字段校验通过但单位与范围没核过；「同名未核」= 剧名归一后对上了另一个剧场的行，还没人确认是同一部剧；「日期未知」= 最近的证据没有自己的日期。"
+       },
+       {
+        "t": "取货 / 备用资源 · 限制",
+        "ask": false,
+        "d": "取货 = 剧场行「复制剧名并打开鹊娱」、ReelShort 行「证据页」与「公开页」；备用资源 = 剧单附的网盘，下面一行是这个剧场的 YouTube 条件与下架记录。报备、必带 tag、解禁在证据页的「限制与资源」和剧场规则里。"
+       },
+       {
+        "t": "ReelShort 同名线索 / 旧站收录线索",
+        "a": "dramas.title_key / legacy_urls",
+        "d": "都是剧名归一后的同名匹配：前者对上 ReelShort 片库已拉详情的正典剧，后者对上旧域名 sitemap 收录过的 URL（旧站导入的 39,562 条）而 ReelShort 片库里没有同名行。都会误配，都不是需求证据。",
+        "h": "前者在剧场行的证据页里有对上的 ReelShort 行小表可直达；反过来 ReelShort 行的证据页末尾列出其他剧场的同名行。"
+       },
+       {
+        "t": "近 30 榜名次曲线",
+        "ask": false,
+        "d": "横轴是最近 30 个有榜单的日子，缺榜的日子不占位；纵轴 #1 在上。相邻两次上榜之间隔了别的榜单日就是掉过榜，用虚线跨过去。"
+       },
+       {
+        "t": "近 20 周上榜",
+        "ask": false,
+        "d": "每格一周，最近 20 个有周榜的周，缺榜的周不占位。实心格是上榜，折线是这段时间里的累计上榜周数。"
+       },
+       {
+        "t": "上榜天数 / 最高",
+        "d": "上榜天数是这部剧在全部日榜历史里累计出现的天数，不是连续天数；最高是历史最好名次。"
+       },
+       {
+        "t": "快照",
+        "d": "剧单与发布记录是 pnpm catalog-import 导入时的快照（页头写着导入时间，本地采集、一天最多一次）；ReelShort 指标随每 6 小时那轮同步更新，出站是实时的。"
+       }
+      ]
+     }
+    ],
+    "ruleHints": {
+     "剧单": "剧场开放给分销方投放的剧目清单，链接指向原文档；ReelShort 没有剧单，链接指向站内的 ReelShort 榜。",
+     "结算": "剧场把你带来的订单或广告收益回传到账户的时效；「订单及时 · 广告次日」= 充值实时可见、广告分成次日到，「月结」= 按月结算。",
+     "报备": "投放前把你的 YouTube / TikTok 等账号登记给剧场加进版权白名单，否则视频会被判侵权或不计分成。",
+     "必带 tag": "发布视频必须带的话题标签，剧场靠它识别这条视频属于哪个分销活动。",
+     "解禁": "剧场对部分剧或平台设了发布限制，要先走表单申请解除才能发。",
+     "素材": "剧场提供的可剪辑视频文件的存放位置与范围。",
+     "信号": "剧场自己给的推荐或排序，全是定性标注、没有数值；ReelShort 的是本站采集的数值。榜单 tab 按类型单独展示。"
+    },
+    "langLoc": {
+     "英语": "en",
+     "西班牙语": "es",
+     "日语": "ja",
+     "葡萄牙语": "pt",
+     "印尼语": "id",
+     "泰语": "th",
+     "繁体中文": "zh-hant",
+     "简体中文": "zh",
+     "法语": "fr",
+     "韩语": "ko",
+     "德语": "de",
+     "阿拉伯语": "ar",
+     "意大利语": "it",
+     "越南语": "vi",
+     "俄语": "ru",
+     "土耳其语": "tr",
+     "菲律宾语": "tl",
+     "马来语": "ms",
+     "波兰语": "pl",
+     "印地语": "hi",
+     "保加利亚语": "bg",
+     "捷克语": "cs",
+     "罗马尼亚语": "ro"
+    },
+    "postedPoolUrl": "https://example.feishu.cn/base/placeholder10",
+    "sortLabels": {
+     "rr": "30 天销售指标",
+     "d1": "较昨日净变化",
+     "d7": "较 7 天前净变化",
+     "dp1": "推广人数较昨日变化",
+     "dp7": "推广人数 7 天变化",
+     "promoters": "推广人数",
+     "publish": "上线日期",
+     "bill": "预估分成",
+     "eff": "销售指标 / 推广人数",
+     "gsc": "搜索需求信号",
+     "clicks": "7 天出站"
+    }
+   },
+   "control": {
+    "facetsPick": {
+     "platforms": {
+      "reelshort": 3,
+      "kalos": 2
+     },
+     "langs": [
+      {
+       "lang": "英语",
+       "n": 5
+      }
+     ],
+     "bases": {
+      "kd": 1,
+      "clk": 2
+     },
+     "posted": {
+      "pool": 1,
+      "yes": 2,
+      "no": 3
+     }
+    },
+    "facetsAll": {
+     "platforms": {
+      "reelshort": 3,
+      "kalos": 2
+     },
+     "langs": [
+      {
+       "lang": "英语",
+       "n": 5
+      }
+     ],
+     "bases": {
+      "kd": 1,
+      "clk": 2
+     },
+     "posted": {
+      "pool": 1,
+      "yes": 2,
+      "no": 3
+     }
+    },
+    "rankCounts": {
+     "kd": 10,
+     "rs_bill": 4,
+     "rs_ledger": 2
+    },
+    "postedStats": {
+     "total": 180,
+     "pubCount": 90,
+     "postsSum": 300,
+     "viewsSum": 12345,
+     "metricAt": "2026-09-20",
+     "importedAt": "2026-09-22T03:10:05.000Z",
+     "accountCount": 20
+    },
+    "postedStates": {
+     "pub": 90,
+     "sched": 10,
+     "none": 70,
+     "nomatch": 10
+    },
+    "ledger": {
+     "rows": 2,
+     "orders": 5
+    }
+   },
+   "scrub": {
+    "catalog_signals.payload.h[*][*]": 2
+   },
+   "warnings": [
+    {
+     "code": "catalog_import_incomplete",
+     "source": "pick_catalog",
+     "status": "failed",
+     "attemptedAt": "2026-09-23T00:00:00.000Z"
+    }
+   ]
+  }
+ },
+ "v2_rows": {
+  "catalog_rows": {
+   "input": {
+    "row_key": "goodshort-K10JEicNmxOWhQPwdg3zdw==",
+    "platform": "",
+    "source_table": "",
+    "title": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "title_cn": "Code Name Reaper II",
+    "lang": "",
+    "kind": "",
+    "origin": "",
+    "tags": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "listed_on": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "episodes": 80,
+    "pay_start": null,
+    "youtube": false,
+    "merged_rows": 0,
+    "off_on": null,
+    "reoff_note": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "title_key": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "in_site_ids": [
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    ],
+    "legacy_only": false,
+    "site_other": false,
+    "has_signal": false,
+    "latest_evidence_on": "2026-09-01",
+    "imported_at": "2026-09-01T00:00:00.000Z",
+    "has_pan": false
+   },
+   "output": {
+    "row_key": "goodshort-K10JEicNmxOWhQPwdg3zdw==",
+    "platform": "",
+    "source_table": "",
+    "title": "[网盘信息已移除]",
+    "title_cn": "Code Name Reaper II",
+    "lang": "",
+    "kind": "",
+    "origin": "",
+    "tags": "[网盘信息已移除]",
+    "listed_on": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "episodes": 80,
+    "pay_start": null,
+    "youtube": false,
+    "merged_rows": 0,
+    "off_on": null,
+    "reoff_note": "[网盘信息已移除]",
+    "title_key": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "in_site_ids": [
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    ],
+    "legacy_only": false,
+    "site_other": false,
+    "has_signal": false,
+    "latest_evidence_on": "2026-09-01",
+    "imported_at": "2026-09-01T00:00:00.000Z",
+    "has_pan": false
+   },
+   "hits": {
+    "catalog_rows.title": 1,
+    "catalog_rows.tags": 1,
+    "catalog_rows.reoff_note": 1
+   }
+  },
+  "catalog_signals": {
+   "input": {
+    "row_key": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "kind": "kd",
+    "ord": 2,
+    "evidence_on": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "rank": null,
+    "grade": "",
+    "note": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "payload": {
+     "d": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+     "h": [
+      [
+       "2026-09-01",
+       3,
+       "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+      ],
+      [
+       "2026-09-02",
+       4,
+       "提取码："
+      ]
+     ],
+     "best": 1,
+     "qy": 12,
+     "pid": "p-1"
+    }
+   },
+   "output": {
+    "row_key": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "kind": "kd",
+    "ord": 2,
+    "evidence_on": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "rank": null,
+    "grade": "",
+    "note": "[网盘信息已移除]",
+    "payload": {
+     "d": "[网盘信息已移除]",
+     "best": 1,
+     "h": [
+      [
+       "2026-09-01",
+       3,
+       "[网盘信息已移除]"
+      ],
+      [
+       "2026-09-02",
+       4,
+       "提取码："
+      ]
+     ],
+     "qy": 12,
+     "pid": "p-1"
+    }
+   },
+   "hits": {
+    "catalog_signals.note": 1,
+    "catalog_signals.payload.d": 1,
+    "catalog_signals.payload.h[*][*]": 1
+   }
+  },
+  "catalog_posted": {
+   "input": {
+    "sd": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "feishu_record": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "title": "secret code that opens",
+    "title_key": "",
+    "lang": "",
+    "platform": "",
+    "life": "",
+    "scheduled": false,
+    "online_on": null,
+    "why": "",
+    "note": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "archived": false,
+    "post_count": 0,
+    "last_post_on": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "views_total": 0,
+    "sources": [],
+    "cats": [],
+    "who": [
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+     "运营"
+    ],
+    "accounts": [
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    ],
+    "created_on": "2026-09-01",
+    "updated_on": "2026-09-01",
+    "first_post_on": "2026-09-01",
+    "metric_at": "2026-09-01",
+    "sched_count": 0,
+    "views_count": 0,
+    "posts": [
+     {
+      "d": "2026-09-01",
+      "acct": "a",
+      "url": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+      "md": {
+       "x": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+      },
+      "views": 10,
+      "how": "剧名",
+      "pid": "p1"
+     },
+     {
+      "note": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+      "likes": null
+     }
+    ],
+    "row_keys": [
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    ],
+    "drama_ids": [
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    ],
+    "imported_at": "2026-09-01T00:00:00.000Z"
+   },
+   "output": {
+    "sd": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "feishu_record": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "title": "secret code that opens",
+    "title_key": "",
+    "lang": "",
+    "platform": "",
+    "life": "",
+    "scheduled": false,
+    "online_on": null,
+    "why": "",
+    "note": "[网盘信息已移除]",
+    "archived": false,
+    "post_count": 0,
+    "last_post_on": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "views_total": 0,
+    "sources": [],
+    "cats": [],
+    "who": [
+     "[网盘信息已移除]",
+     "运营"
+    ],
+    "accounts": [
+     "[网盘信息已移除]"
+    ],
+    "created_on": "2026-09-01",
+    "updated_on": "2026-09-01",
+    "first_post_on": "2026-09-01",
+    "metric_at": "2026-09-01",
+    "sched_count": 0,
+    "views_count": 0,
+    "posts": [
+     {
+      "d": "2026-09-01",
+      "acct": "a",
+      "views": 10,
+      "md": {
+       "x": "[网盘信息已移除]"
+      },
+      "url": "[网盘信息已移除]",
+      "how": "剧名",
+      "pid": "p1"
+     },
+     {
+      "likes": null,
+      "note": "[网盘信息已移除]"
+     }
+    ],
+    "row_keys": [
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    ],
+    "drama_ids": [
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    ],
+    "imported_at": "2026-09-01T00:00:00.000Z"
+   },
+   "hits": {
+    "catalog_posted.note": 1,
+    "catalog_posted.who[*]": 1,
+    "catalog_posted.accounts[*]": 1,
+    "catalog_posted.posts[*].md.x": 1,
+    "catalog_posted.posts[*].url": 1,
+    "catalog_posted.posts[*].note": 1
+   }
+  },
+  "catalog_accounts": {
+   "input": {
+    "id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "name": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "url": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "grp": "",
+    "form": "",
+    "niche": "",
+    "status": "",
+    "fans": null,
+    "as_of": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "imported_at": "2026-09-01T00:00:00.000Z"
+   },
+   "output": {
+    "id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "name": "[网盘信息已移除]",
+    "url": "[网盘信息已移除]",
+    "grp": "",
+    "form": "",
+    "niche": "",
+    "status": "",
+    "fans": null,
+    "as_of": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "imported_at": "2026-09-01T00:00:00.000Z"
+   },
+   "hits": {
+    "catalog_accounts.name": 1,
+    "catalog_accounts.url": 1
+   }
+  },
+  "rs_rows": {
+   "input": {
+    "row_key": "reelshort-abc123",
+    "platform": "",
+    "source_table": "",
+    "title": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "title_cn": "",
+    "lang": "",
+    "kind": "",
+    "origin": "",
+    "tags": "",
+    "listed_on": "2026-09-01",
+    "episodes": 0,
+    "pay_start": 0,
+    "youtube": false,
+    "merged_rows": 0,
+    "off_on": "2026-09-01",
+    "reoff_note": "",
+    "title_key": "",
+    "in_site_ids": [],
+    "legacy_only": false,
+    "site_other": false,
+    "has_signal": false,
+    "latest_evidence_on": "2026-09-01",
+    "has_pan": false,
+    "rs_clk": false,
+    "rs_bill": false,
+    "rs_gsc": false,
+    "rs_clk_on": "2026-09-01",
+    "rs_bill_on": "2026-09-01",
+    "rs_gsc_on": "2026-09-01",
+    "drama_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "locale": "",
+    "slug": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "publish_at": null,
+    "chapter_count": 0,
+    "pay_start_raw": 0,
+    "rr": 1.5,
+    "promoters_cnt": 0,
+    "metrics_valid": null,
+    "synced_at": "2026-09-01T00:00:00.000Z",
+    "search_impressions": 0,
+    "search_data_at": "2026-09-01T00:00:00.000Z",
+    "detail_synced_at": "2026-09-01T00:00:00.000Z",
+    "tag_list": [
+     "Romance",
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    ],
+    "description": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "baseline1_at": "2026-09-01T00:00:00.000Z",
+    "baseline7_at": "2026-09-01T00:00:00.000Z",
+    "baseline15_at": "2026-09-01T00:00:00.000Z",
+    "rr1": 0,
+    "p1": 0,
+    "rr7": null,
+    "p7": 0,
+    "rr15": 0,
+    "p15": 0,
+    "s1_rr": 0,
+    "s1_p": 0,
+    "s7_rr": 0,
+    "s7_p": 0,
+    "clicks7": 0,
+    "last_click_on": "2026-09-01",
+    "bill_orders": 0,
+    "last_bill_on": "2026-09-01",
+    "bill_rank": 3
+   },
+   "output": {
+    "row_key": "reelshort-abc123",
+    "platform": "",
+    "source_table": "",
+    "title": "[网盘信息已移除]",
+    "title_cn": "",
+    "lang": "",
+    "kind": "",
+    "origin": "",
+    "tags": "",
+    "listed_on": "2026-09-01",
+    "episodes": 0,
+    "pay_start": 0,
+    "youtube": false,
+    "merged_rows": 0,
+    "off_on": "2026-09-01",
+    "reoff_note": "",
+    "title_key": "",
+    "in_site_ids": [],
+    "legacy_only": false,
+    "site_other": false,
+    "has_signal": false,
+    "latest_evidence_on": "2026-09-01",
+    "has_pan": false,
+    "rs_clk": false,
+    "rs_bill": false,
+    "rs_gsc": false,
+    "rs_clk_on": "2026-09-01",
+    "rs_bill_on": "2026-09-01",
+    "rs_gsc_on": "2026-09-01",
+    "drama_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "locale": "",
+    "slug": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "publish_at": null,
+    "chapter_count": 0,
+    "pay_start_raw": 0,
+    "rr": 1.5,
+    "promoters_cnt": 0,
+    "metrics_valid": null,
+    "synced_at": "2026-09-01T00:00:00.000Z",
+    "search_impressions": 0,
+    "search_data_at": "2026-09-01T00:00:00.000Z",
+    "detail_synced_at": "2026-09-01T00:00:00.000Z",
+    "tag_list": [
+     "Romance",
+     "[网盘信息已移除]"
+    ],
+    "description": "[网盘信息已移除]",
+    "baseline1_at": "2026-09-01T00:00:00.000Z",
+    "baseline7_at": "2026-09-01T00:00:00.000Z",
+    "baseline15_at": "2026-09-01T00:00:00.000Z",
+    "rr1": 0,
+    "p1": 0,
+    "rr7": null,
+    "p7": 0,
+    "rr15": 0,
+    "p15": 0,
+    "s1_rr": 0,
+    "s1_p": 0,
+    "s7_rr": 0,
+    "s7_p": 0,
+    "clicks7": 0,
+    "last_click_on": "2026-09-01",
+    "bill_orders": 0,
+    "last_bill_on": "2026-09-01",
+    "bill_rank": 3
+   },
+   "hits": {
+    "rs_rows.title": 1,
+    "rs_rows.tag_list[*]": 1,
+    "rs_rows.description": 1
+   }
+  },
+  "rs_ids": {
+   "input": {
+    "id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "canonical_id": null,
+    "locale": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "slug": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "title": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "chapter_count": 0,
+    "pay_start": 0,
+    "is_public_canonical": false
+   },
+   "output": {
+    "id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "canonical_id": null,
+    "locale": "[网盘信息已移除]",
+    "slug": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "title": "[网盘信息已移除]",
+    "chapter_count": 0,
+    "pay_start": 0,
+    "is_public_canonical": false
+   },
+   "hits": {
+    "rs_ids.locale": 1,
+    "rs_ids.title": 1
+   }
+  },
+  "rs_clicks14": {
+   "input": {
+    "drama_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "day": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "human": 5,
+    "bot": 1
+   },
+   "output": {
+    "drama_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "day": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "human": 5,
+    "bot": 1
+   },
+   "hits": {}
+  },
+  "rs_bill_orders": {
+   "input": {
+    "bill_date": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "book_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "promotion_type": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "canonical_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "book_title": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "order_cnt": 2,
+    "source_rows": 0,
+    "same_day_clicks": 0
+   },
+   "output": {
+    "bill_date": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "book_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "promotion_type": "[网盘信息已移除]",
+    "canonical_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "book_title": "[网盘信息已移除]",
+    "order_cnt": 2,
+    "source_rows": 0,
+    "same_day_clicks": 0
+   },
+   "hits": {
+    "rs_bill_orders.promotion_type": 1,
+    "rs_bill_orders.book_title": 1
+   }
+  },
+  "rs_series_day": {
+   "input": {
+    "drama_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "revenue_cents": 12.5,
+    "promoters_cnt": 3
+   },
+   "output": {
+    "drama_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "revenue_cents": 12.5,
+    "promoters_cnt": 3
+   },
+   "hits": {}
+  }
+ },
+ "v1_row": {
+  "input": {
+   "source": "realshort-pick",
+   "source_id": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+   "language": "英语",
+   "title": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+   "theater": "ShortMax",
+   "tags": [
+    "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "甜宠"
+   ],
+   "listed_at": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+   "availability": "unknown",
+   "signals": [
+    {
+     "kind": "kd",
+     "label": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+     "source_ref": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+     "observed_at": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+     "rank": null,
+     "grade": "",
+     "note": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    }
+   ],
+   "channel_rules": {
+    "youtube": "unknown"
+   },
+   "detail_url": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+   "posted": {
+    "matched": true,
+    "records": [
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    ],
+    "post_count": 1,
+    "sched_count": 0,
+    "last_post_on": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+    "accounts": [
+     "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    ]
+   }
+  },
+  "hits": {
+   "title": 1,
+   "tags[*]": 1,
+   "signals[*].label": 1,
+   "signals[*].note": 1,
+   "posted.records[*]": 1,
+   "posted.accounts[*]": 1
+  }
+ },
+ "manifest_meta_scan": {
+  "input": {
+   "freshness": {
+    "importedAt": "2026-09-22T03:10:05.000Z",
+    "rows": 41661,
+    "withSignal": 3000,
+    "signals": 3500,
+    "posted": 180,
+    "rsCanonical": 32000,
+    "rsCandidates": 900,
+    "rsSyncedAt": null
+   },
+   "rsCounts": {
+    "all": 1,
+    "cand": 1,
+    "growthD1": 1,
+    "growthD7": 1,
+    "growthDp1": 1,
+    "growthDp7": 1,
+    "pc": 1,
+    "clk": 1,
+    "gsc": 1,
+    "bill": 1,
+    "ledger": 2
+   },
+   "growthBaseline": {
+    "1": {
+     "baselineDay": "2026-09-22",
+     "baselineSnapshot": "verified",
+     "earliestVerifiedOn": "2026-09-10"
+    },
+    "7": {
+     "baselineDay": "2026-09-16",
+     "baselineSnapshot": "verified",
+     "earliestVerifiedOn": "2026-09-10"
+    }
+   },
+   "sources": {
+    "bill": {
+     "source": "bill",
+     "status": "success",
+     "attemptedAt": "2026-09-23T00:00:00.000Z",
+     "completedAt": "2026-09-23T00:01:00.000Z",
+     "details": {
+      "startDate": "2026-08-20",
+      "endDate": "2026-09-22",
+      "rows": 12,
+      "ratio": 50
+     }
+    }
+   },
+   "rules": {
+    "platformRules": {
+     "reelshort": {
+      "key": "reelshort",
+      "name": "ReelShort",
+      "doc": "/admin/pick?tab=rank&rk=rs_rr",
+      "updated": "2026-09-11",
+      "back": "月结 · 分成 50%",
+      "report": "自有 CPS 账号，无需报备",
+      "yt": "ok",
+      "ytNote": "导流走本站播放页付费墙，出站一律经 /api/go",
+      "tag": "—",
+      "unban": "—",
+      "material": "站内免费集可播；付费集在 App，不提供下载",
+      "signals": "30 天销售指标 · 推广人数 · 每日快照增量 · 预估分成 · GSC 搜索 · 7 天出站"
+     },
+     "kalos": {
+      "key": "kalos",
+      "name": "KalosTV",
+      "doc": "https://example.feishu.cn/wiki/placeholder1",
+      "updated": "2026-09-10",
+      "back": "未标注",
+      "report": "番茄版权需报备（白名单周期）；青榕版权后台直接加白",
+      "yt": "only",
+      "ytNote": "只能投 YouTube 剧单内的剧",
+      "tag": "#KalosTV",
+      "unban": "YouTube / Facebook 解封通道表单",
+      "material": "剧单内网盘",
+      "signals": "每日高转化 TOP10 · 周热门榜"
+     },
+     "shortmax": {
+      "key": "shortmax",
+      "name": "ShortMax",
+      "doc": "https://example.feishu.cn/base/placeholder2",
+      "updated": "2026-09-10",
+      "back": "订单及时 · 广告次日",
+      "report": "需账号报备",
+      "yt": "ok",
+      "ytNote": "油管不超过全集时长 50%，二创不少于 10%，禁纯原片",
+      "tag": "#ShortMax",
+      "unban": "每天 16:00 统一解禁，次日 11:00 前查结果",
+      "material": "网盘（免费剧集）",
+      "signals": "投放榜单评级 SS / S / A / B · 每日推荐"
+     },
+     "flickreels": {
+      "key": "flickreels",
+      "name": "FlickReels",
+      "doc": "https://example.feishu.cn/base/placeholder3",
+      "updated": "2026-09-10",
+      "back": "及时",
+      "report": "需账号报备（YouTube / TK）",
+      "yt": "ok",
+      "ytNote": "禁多剧拼接；时长在免费集总时长内，不足 40 分钟可放宽到 40 分钟",
+      "tag": "剧场 tag + 推广链接 / 口令",
+      "unban": "飞书表单",
+      "material": "百度网盘",
+      "signals": "爆款剧单 · 下架剧单"
+     },
+     "starshort": {
+      "key": "starshort",
+      "name": "StarShort",
+      "doc": "https://example.feishu.cn/wiki/placeholder4",
+      "updated": "2026-09-09",
+      "back": "实时",
+      "report": "需账号报备",
+      "yt": "only",
+      "ytNote": "走 YouTube 剧单：只有 YouTube 剧单表里的剧能发",
+      "tag": "剧场 tag",
+      "unban": "24 小时内解禁",
+      "material": "只能从剧单 + 网盘获取",
+      "signals": "高充值剧单"
+     },
+     "goodshort": {
+      "key": "goodshort",
+      "name": "GoodShort",
+      "doc": "https://example.feishu.cn/wiki/placeholder5",
+      "updated": "2026-09-09",
+      "back": "次日",
+      "report": "Facebook 百粉账号可专属报白",
+      "yt": "ok",
+      "ytNote": "油管不超过 30 分钟；发布前去掉原片 BGM",
+      "tag": "#GoodShort",
+      "unban": "钉钉反馈表",
+      "material": "剧单内（多数无网盘）",
+      "signals": "爆款 / 重点推荐 · 历史高充值"
+     },
+     "dramabox": {
+      "key": "dramabox",
+      "name": "DramaBox",
+      "doc": "https://example.feishu.cn/base/placeholder6",
+      "updated": "2026-08-31",
+      "back": "次日",
+      "report": "需账号报备（YouTube 粉丝不少于 100）",
+      "yt": "ok",
+      "ytNote": "需报备后发布",
+      "tag": "—",
+      "unban": "钉钉表单，当天 16 点前统一提报",
+      "material": "可二创素材 zip",
+      "signals": "运营备注（爆款 / 高优排期）"
+     },
+     "moboreels": {
+      "key": "moboreels",
+      "name": "MoboReels",
+      "doc": "https://example.feishu.cn/sheets/placeholder7",
+      "updated": "2026-08-21",
+      "back": "订单实时 · 广告次日",
+      "report": "需账号报备",
+      "yt": "no",
+      "ytNote": "不能在 YouTube 推广",
+      "tag": "剧场 tag + 视频加 logo",
+      "unban": "Facebook 二次报白表单",
+      "material": "网盘（约一成有）",
+      "signals": "评级（表里只有 11 行有）"
+     },
+     "flareflow": {
+      "key": "flareflow",
+      "name": "flareflow",
+      "doc": "https://example.feishu.cn/wiki/placeholder8",
+      "updated": "2026-08-28",
+      "back": "未标注",
+      "report": "—",
+      "yt": "no",
+      "ytNote": "禁止 YouTube 发布",
+      "tag": "#flareflow",
+      "unban": "不允许 YouTube",
+      "material": "百度网盘",
+      "signals": ""
+     },
+     "touchshort": {
+      "key": "touchshort",
+      "name": "TouchShort",
+      "doc": "https://example.feishu.cn/wiki/placeholder9",
+      "updated": "2025-12-24",
+      "back": "实时",
+      "report": "无需报备",
+      "yt": "warn",
+      "ytNote": "不推荐 YouTube 大批量发布",
+      "tag": "#touchshort",
+      "unban": "飞书表单，处理较慢",
+      "material": "分销素材（50% 集数）网盘，多语言",
+      "signals": ""
+     }
+    },
+    "inUse": [
+     "reelshort",
+     "dramabox",
+     "shortmax",
+     "flickreels",
+     "flareflow"
+    ],
+    "basisLabels": {
+     "kd": "KalosTV 日榜",
+     "kw": "KalosTV 周热门",
+     "qc": "鹊娱 7 日转化率 Top25",
+     "qr": "鹊娱 7 日总收入 Top25",
+     "sm": "ShortMax 评级",
+     "smd": "ShortMax 每日推荐",
+     "mg": "MoboReels 评级",
+     "fh": "FlickReels 爆款剧单",
+     "sh": "StarShort 高充值剧单",
+     "gh": "GoodShort 爆款推荐",
+     "gn": "GoodShort 重点推荐",
+     "ghh": "GoodShort 历史高充值",
+     "dbn": "DramaBox 运营备注",
+     "clk": "ReelShort 7 天有出站",
+     "bill": "ReelShort 有预估订单",
+     "gsc": "ReelShort 搜索匹配"
+    },
+    "basisDateLabels": {
+     "kd": "榜单日期",
+     "kw": "周起",
+     "qc": "榜单日期",
+     "qr": "榜单日期",
+     "sm": "",
+     "smd": "",
+     "mg": "",
+     "fh": "入榜日期",
+     "sh": "",
+     "gh": "推荐日期",
+     "gn": "推荐日期",
+     "ghh": "表内日期（含义未核）",
+     "dbn": "",
+     "clk": "最近过滤后出站",
+     "bill": "最近账单",
+     "gsc": "采集"
+    },
+    "rsRankLabels": {
+     "rs_rr": "ReelShort 30 天指标",
+     "rs_growth": "ReelShort 涨幅榜",
+     "rs_cand": "ReelShort 候选清单",
+     "rs_pc": "ReelShort 推广人数",
+     "rs_clk": "ReelShort 7 天出站",
+     "rs_gsc": "ReelShort 搜索需求",
+     "rs_bill": "ReelShort 预估分成",
+     "rs_ledger": "ReelShort 分成对账"
+    },
+    "youtubeLabels": {
+     "ok": "YouTube 可发",
+     "only": "YouTube 限剧单",
+     "warn": "YouTube 慎用",
+     "no": "禁 YouTube"
+    },
+    "glossary": [
+     {
+      "g": "剧场规则里的行话",
+      "d": "上面表格各列用到的分销与投放术语。规则本身来自各剧场文档，解释是本页的白话版。",
+      "items": [
+       {
+        "t": "剧场",
+        "d": "出品或运营短剧 App 的平台方，KalosTV、ShortMax、FlickReels 这些都是。本页把 ReelShort 也当作第十个剧场，它的数据来自本站自己的 CPS 账号而不是飞书剧单。"
+       },
+       {
+        "t": "CPS / 分销",
+        "a": "Cost Per Sale",
+        "d": "剧场不付固定费用，你带来的用户在 App 里充值之后按比例分成。ReelShort 给本站的比例是 50%，月结。",
+        "h": "所以「有出站、没分成」的剧对你来说是零收入，见 ReelShort 那组的「7 天出站」与「预估分成」。"
+       },
+       {
+        "t": "剧单",
+        "a": "达人分销剧单",
+        "d": "剧场开放给分销方剪辑投放的剧目清单，通常附素材、网盘和规则。不在剧单里的剧不能投。",
+        "h": "「文档」列写着那份文档最后核对的日期，TouchShort 那份 2025-12 就没动过。"
+       },
+       {
+        "t": "回传 / 结算",
+        "a": "数据回传",
+        "d": "剧场把你带来的订单或广告收益回传到你账户的时效。「订单及时 · 广告次日」是充值实时可见、广告分成次日到；「月结」是按月结算；「次日」是第二天才看得到。",
+        "h": "它决定你多久能知道一条剧到底有没有转化，回传慢的剧场要多给几天再判断。"
+       },
+       {
+        "t": "报备 / 报白 / 白名单",
+        "d": "投放前把你的 YouTube、TikTok 等账号登记给剧场，剧场把它加进版权系统的白名单。没报备的账号发出去会被判为侵权下架，或者充值不计给你。「白名单周期」是从提交到生效要等的时间。",
+        "h": "GoodShort 的「Facebook 百粉账号可专属报白」、DramaBox 的「YouTube 粉丝不少于 100」都是报备门槛。"
+       },
+       {
+        "t": "番茄版权 / 青榕版权",
+        "d": "KalosTV 剧单里剧的版权方分两家，报备流程不同：番茄的要走报备等白名单生效，青榕的在后台直接加白。",
+        "h": "投 KalosTV 之前先看这部剧是哪家的版权。"
+       },
+       {
+        "t": "必带 TAG",
+        "d": "发布视频时必须带的话题标签，例如 #KalosTV、#ShortMax。剧场靠它识别这条视频属于哪个分销活动，漏掉可能不计分成。MoboReels 还要求视频里加 logo。"
+       },
+       {
+        "t": "解禁 / 解封",
+        "d": "剧场对部分剧或部分平台设了发布限制（独家期、地区版权），要先通过表单申请解除限制才能发。",
+        "h": "ShortMax 每天 16:00 统一处理、次日 11:00 前查结果；DramaBox 当天 16 点前统一提报；StarShort 24 小时内。"
+       },
+       {
+        "t": "素材",
+        "d": "剧场提供给分销方的可剪辑视频文件。「网盘（免费剧集）」只给免费集，「分销素材（50% 集数）」给一半集数，「可二创素材 zip」是打包好的可再创作片段，「剧单内网盘」是链接就写在剧单那一行里。"
+       },
+       {
+        "t": "网盘 / 提取码 / 备用资源",
+        "ask": false,
+        "d": "素材多放百度网盘或夸克网盘，提取码是链接旁那串密码。本页把剧单里附的网盘叫「备用资源」，是鹊娱之外的第二取货口。",
+        "h": "表里「备用资源 · 限制」那一列：网盘链接旁边就是提取码，下面一行是这个剧场的 YouTube 条件与下架记录。"
+       },
+       {
+        "t": "二创 / 纯原片 / 拼接",
+        "d": "二创是加解说、字幕、重新剪辑的再创作；纯原片是直接搬运原片段，多数剧场禁止；多剧拼接是一个视频里剪进多部剧，FlickReels 禁止。「二创不少于 10%」指再创作内容至少占一成。"
+       },
+       {
+        "t": "油管不超过全集时长 50%",
+        "d": "在 YouTube 发的剪辑合计时长不能超过整部剧的一半，为的是不把整部剧免费放完。FlickReels 的口径是「时长在免费集总时长内，不足 40 分钟可放宽到 40 分钟」，GoodShort 是「不超过 30 分钟」。"
+       },
+       {
+        "t": "YouTube 限剧单 / 禁 YouTube",
+        "d": "「限剧单」是只允许投 YouTube 剧单里的剧（KalosTV、StarShort）；「禁 YouTube」是这个剧场根本不允许在 YouTube 推广（MoboReels、flareflow）；「慎用」是不推荐大批量发（TouchShort）。",
+        "h": "条件行的「YouTube 可发」会把禁 YouTube 的剧场去掉、限剧单的剧场只留在 YouTube 剧单上的行。"
+       },
+       {
+        "t": "推广链接 / 口令 / 锚点",
+        "d": "剧场发给你的归因载体。用户经你的链接进 App、或在 App 里输入你的口令后充值，分成才算你的；锚点是短视频平台里挂在视频上的应用入口。",
+        "h": "ReelShort 的深链只到剧级，用户从第 N 集点出去也只能落到这部剧的入口。"
+       },
+       {
+        "t": "剧场侧信号",
+        "d": "剧场自己给出的推荐或排序，全是定性标注、没有数值：KalosTV 的每日高转化 TOP10 与周热门、ShortMax 的投放榜评级与每日推荐、FlickReels 的爆款与下架、StarShort 与 GoodShort 的高充值、DramaBox 的运营备注。",
+        "h": "榜单 tab 按类型各开一页，选剧 / 全部剧库的「信号 · 依据」列把它们都挂在剧那一行上。"
+       },
+       {
+        "t": "爆款 / 高充值",
+        "d": "剧场标注的投放效果好、或历史充值表现好的剧。都是剧场侧的定性信号，不带数字，剧场也不说明口径。"
+       },
+       {
+        "t": "评级 SS / S / A / B",
+        "d": "ShortMax 投放榜单给剧的等级，SS 最高，本页也收了更低的 C、D。是剧场按自己的投放数据打的，不公开算法。"
+       },
+       {
+        "t": "日榜 / 周热门",
+        "d": "KalosTV 每天发的高转化 TOP10 和每周的热门榜。本页保留了完整历史，榜单 tab 里可以按天、按周切换。"
+       },
+       {
+        "t": "下架",
+        "d": "剧场已停止分销的剧（FlickReels 有单独的下架剧单）。投了不计分成，选剧 / 全部剧库默认隐藏，条件行的「含已下架」可以看；榜单 tab 一律含它们（那一天的榜是历史事实）。"
+       },
+       {
+        "t": "女频 / 男频",
+        "d": "剧单里标的目标观众：女频是面向女性观众的题材（霸总、甜宠、复仇），男频是面向男性观众的（战神、逆袭、赘婿）。"
+       },
+       {
+        "t": "鹊娱剧库",
+        "ask": false,
+        "d": "cps-distribution.zwnet.cn，把九个剧场的剧汇聚在一个库里（2026-09-10 共 41,660 部），每部剧的右侧抽屉有「下载全部」与逐集下载。它没有单剧直达地址。",
+        "h": "本页所有「复制剧名并打开鹊娱」都先把剧名复制到剪贴板再打开剧库，粘贴查询即可；装了配套 Tampermonkey 脚本会自动打开抽屉。"
+       }
+      ]
+     },
+     {
+      "g": "ReelShort 观测口径",
+      "d": "ReelShort 那一行与榜单里 ReelShort 各列的数字来自本站片库与每日快照（原观测台的口径，2026-09-11 并进本页）。上游只给「此刻是多少」，历史全靠本站每天留快照。",
+      "items": [
+       {
+        "t": "30 天销售指标",
+        "a": "recent_revenue",
+        "d": "上游给的原值，含义是全平台所有分销商在过去 30 天给这部剧带来的销售额。本页照抄不换算，单位与范围还在核验，它不是我方收入。",
+        "h": "只能横向比谁热，不能当金额读。"
+       },
+       {
+        "t": "推广人数",
+        "a": "promoters_cnt",
+        "d": "上游累计到现在有多少个分销方在推这部剧。越高说明竞争越激烈。",
+        "h": "「指标 / 人数」= 30 天指标 ÷ 推广人数，是人均份额，同样只能横向比。"
+       },
+       {
+        "t": "每日快照 / 较昨日 / 较 7 天前 / 较 15 天前",
+        "d": "本站每天给每部剧留一行快照，用今天的值减去 1、7 或 15 天前那一行得到净变化。缺快照显示「—」不是 0：0 是量过了没变，「—」是那天没有快照算不出来。它是 30 天滚动窗口的净变化，不是那几天的销售额；上游没有累计销售额，证据页那一格写「上游不给」。",
+        "h": "快照挂在每 6 小时那轮同步的开头（每个 UTC 日的第一轮写入）。较昨日 / 较 7 天前 / 较 15 天前要等基线那一天有已校验的快照才有数；涨幅榜空了会写明是哪一种原因（筛空了、基线快照还没攒到、那天没有快照）。"
+       },
+       {
+        "t": "推广人数新增（昨日 / 7 日 / 15 日）",
+        "d": "同一套快照差分套在 promoters_cnt 上：今天的累计推广人数减去 1、7 或 15 天前那一行。缺快照同样是「—」。",
+        "h": "上游只给累计值，所以「新增」全靠本站快照；和平台指标的三个净变化用同一批快照，缺快照的日子一起缺。"
+       },
+       {
+        "t": "预估分成 / 昨日 · 7 日 · 15 日 · 30 日 · 累计",
+        "a": "bill / app-estimate",
+        "d": "上游账单里给本账号的分成，美元，是我方口径的钱；「预估」是上游的说法，不是结算额。四个窗口按上游账单日切：昨日 = 昨天（UTC）那一个账单日，近 N 日 = 昨天往前数 N 个账单日的合计，都不含今天；累计 = 全部已落库的行（含今天已拉到的部分）。",
+        "h": "和 30 天指标是两个完全不同的口径，一个是全平台销售额、一个是我方分成，不能相加也不能相除。账单一天只拉一次（同步开头、UTC 零点那轮），今天那一行明天才拉得全，所以窗口不含今天；账号 2026-08-20 起才有账单。没有账单的窗口印 0，不是「—」——账单不是采样。"
+       },
+       {
+        "t": "GSC 搜索",
+        "a": "Search Console 展示",
+        "d": "Google Search Console 里这部剧的展示次数：每天的请求参数是按 UTC 算的前一天到当天两个日期（不是滚动 24 小时），网页与查询两个维度取较大者；只存最近一次，不留逐日历史。是需求侧信号，说明有人在搜，不是点击。"
+       },
+       {
+        "t": "7 天出站",
+        "a": "/api/go",
+        "d": "滚动 168 小时内，用户在本站播放页看完免费集、碰到付费墙后点「去 App」的次数，已排除已识别的爬虫。全站只有付费墙这一个出站口。",
+        "h": "它是离收入最近的动作，但不等于成交。出站与分成是两个口径，页面不替它们下归因结论。"
+       },
+       {
+        "t": "上线日期",
+        "a": "publish_at",
+        "d": "上游给的上线时间。本站 2026-09-08 才开始补写这一列，空着的不是老剧，是还没轮到补。"
+       },
+       {
+        "t": "涨幅榜",
+        "d": "ReelShort 全部行按「较昨日 / 较 7 天前 / 推广人数较昨日变化 / 推广人数 7 天变化」排的前 50，只有对应基线快照存在的剧才进榜。缺快照的不进，所以快照攒够之前榜单是空的，不代表没有涨的剧。",
+        "h": "空榜时页面会写明原因：筛空了、基线快照还没攒到，还是那天没有快照。"
+       },
+       {
+        "t": "候选清单",
+        "d": "和本站有过交集的 ReelShort 剧，三选一：已保存搜索匹配（GSC 展示 > 0）、近 7 天有出站（排除爬虫）、有预估订单（账单 order_cnt > 0）。",
+        "h": "这是「已经有人来过」的剧，先看它们的曲线和分成明细。选剧 tab 里的 ReelShort 行就是它们。"
+       },
+       {
+        "t": "分成对账",
+        "d": "上游账单里有订单的行逐条列出，加一列「站内同日有点击」= 同一部剧、同一 UTC 日、排除爬虫后站内出站至少一次。",
+        "h": "它是启发式不是归因：短链与口令是上游发给这个账号的，贴在哪里都是同一个值，上游分不出渠道。"
+       },
+       {
+        "t": "上线分桶",
+        "d": "按上线日期到今天的天数分五档：0–7 天、8–30 天、31–90 天、91 天–1 年、1 年以上。上线日期未知的剧不进任何一档。",
+        "h": "选了分桶等于只筛选已知日期的样本，不代表全部新剧。"
+       },
+       {
+        "t": "有效样本 n/90 天",
+        "d": "证据页曲线的 90 天日历上有几天有已校验的快照。断档处画虚线、不插值：那天没快照不等于数值没变。"
+       }
+      ]
+     },
+     {
+      "g": "本页自己的口径",
+      "d": "选剧台自己定义的 tab、列、标签与排序。这些任何来源都没有，只用来找剧和排序。",
+      "items": [
+       {
+        "t": "选剧 tab",
+        "d": "入选池 = 有任一剧场信号（日榜、周热门、评级、各剧场推荐清单、运营备注）或满足 ReelShort 候选条件（7 天有出站、有预估订单、有搜索匹配）的行。默认排除已下架。在用的五个剧场（ReelShort、DramaBox、ShortMax、FlickReels、flareflow）排在剧场 chips 前面，其他五个在「其他剧场」之后，「收起其他剧场」只看在用的五个。",
+        "h": "「含仅剧单收录的行」把没有任何信号、只是在剧单上的行也放进来（按剧单日期排）；「发布记录」chips 用来排除已经发过的剧。"
+       },
+       {
+        "t": "剧单收录（无榜单信号）",
+        "d": "这一行在某张剧单上，但剧场没有给它任何榜单、评级、推荐或备注。flareflow、MoboReels、TouchShort 的剧单整体如此。只在打开「含仅剧单收录的行」时进表，日期是剧单日期，没有就写日期未知。",
+        "h": "这不是证据，只是「有货」。要判断值不值得做，看它在别的剧场有没有同名行带信号，或者在发布记录里有没有发过。"
+       },
+       {
+        "t": "发布记录",
+        "a": "飞书选剧池 / 发布记录",
+        "d": "运营自己维护的飞书多维表格：选剧池是挑过的剧（剧ID、平台、来源、推荐理由、上线日期、是否已排期），发布记录是每条帖子（日期、账号、状态、播放 / 点赞 / 收藏 / 评论 / 转发、链接）。用户身份只读拉取，按剧名归一对到剧库行上。",
+        "h": "行上的「已发 N 条 · 播放 X · 最近日期」标签点进证据页看逐条帖子；「在选剧池 · 未排期」= 挑了还没发。同名不等于同剧，对上多条时逐条核。"
+       },
+       {
+        "t": "全部剧库 tab",
+        "ask": false,
+        "d": "十个剧场的全部行（ReelShort 是全部正典行），用来搜索与补查；信号格与选剧同一套，条件里有 ReelShort 同名线索、旧站收录线索。"
+       },
+       {
+        "t": "榜单 tab",
+        "ask": false,
+        "d": "逐榜浏览：ReelShort 按 30 天指标 / 推广人数 / 出站 / 搜索 / 分成各排一榜，加同口径的涨幅榜、候选清单（带语种、上线分桶）与分成对账；KalosTV 日榜按日期、周热门按周，ShortMax / MoboReels 按评级，各剧场清单按入榜日期。",
+        "h": "选剧 tab 是跨榜按证据时间排的合集，榜单 tab 是一次只看一张榜的原样。"
+       },
+       {
+        "t": "信号 · 依据",
+        "d": "信号 pill：日榜名次、周热门、评级、清单、备注、ReelShort 指标，旧站收录与本站在售。pill 下面那一行是最近一条证据和它自己的日期：日榜 / 周热门 / 各推荐清单是榜单或入榜日期，ReelShort 出站是近 7 天里最近一次过滤后出站的 UTC 日（排除已识别爬虫，不保证是真人），订单是最近账单日，搜索是 GSC 采集日。评级、StarShort 清单、DramaBox 备注没有日期，写「日期未知」，不拿剧单日期代填。",
+        "h": "一行有多条证据时按最近的一条排，证据页逐条全看。"
+       },
+       {
+        "t": "证据时间：最近在前",
+        "d": "默认排序。第一键是这一行所有信号里最近一条证据的日期（KalosTV 日榜 = 榜单日期、周热门 = 周起、FlickReels 爆款 = 入榜日期、GoodShort 推荐 = 推荐日期、历史高充值 = 表内日期；ReelShort = 最近过滤后出站 / 最近账单 / GSC 采集三者最近），新的在前；ShortMax / MoboReels 评级、StarShort 高充值、DramaBox 备注没有日期，不拿剧单日期代填，只有这几种信号的行排在全部有日期的行之后。同一天再按剧单日期（新在前）→ 剧名 → 剧场 → 行键稳定排。这只是浏览顺序，不是投放价值排序。",
+        "h": "另两种排序：「剧单日期」= 剧单里的推荐 / 上新日期（ReelShort 行用上线日期），没有的排最后，同日按剧名 → 行键；「剧名」= 字符序 A→Z（不是拼音），同名按剧场 → 行键。三条 chip 的 hover 里都写着。"
+       },
+       {
+        "t": "鹊娱榜（7 日转化率 / 7 日总收入 Top25）",
+        "d": "鹊娱汇聚台（cps-distribution.zwnet.cn）自己算的两张榜：它全体分销商在九个剧场的 7 日转化率与 7 日总收入前 25，跨剧场混排、只给名次不给数值、不能按剧场或语种筛，每日 10:30 更新。本站每天 10:45 采一次，历史从 2026-09-12 起。",
+        "h": "它是需求侧的真实成交信号，但不是我们自己的：与本站 ReelShort 分成无关，也不含 ReelShort（鹊娱没有这个剧场）。证据日期 = 榜单日期；同一部剧连续上榜会攒成上榜天数 / 最高名次。"
+       },
+       {
+        "t": "类型 · 频道",
+        "d": "剧单里的制作类型（译制剧 / 本土剧 / 配音剧 / AI 真人剧 / 动态漫……）与频道（只有 KalosTV 剧单给：国内短剧IP / 国内网文IP / 海外网文IP / 原创……）。ReelShort 上游没有这两个字段，一律「—」；剧单没填的也是「—」。",
+        "h": "不拿上游标签代填——标签是题材 / 属性词（女性、浪漫、复仇……），不是制作类型；它们印在剧名下面那行，证据页上是 chips。"
+       },
+       {
+        "t": "事实标签",
+        "d": "「剧场声明」= 证据是剧场自己给的定性标注；「上游指标字段已校验 · 单位待核」= ReelShort 原始字段校验通过但单位与范围没核过；「同名未核」= 剧名归一后对上了另一个剧场的行，还没人确认是同一部剧；「日期未知」= 最近的证据没有自己的日期。"
+       },
+       {
+        "t": "取货 / 备用资源 · 限制",
+        "ask": false,
+        "d": "取货 = 剧场行「复制剧名并打开鹊娱」、ReelShort 行「证据页」与「公开页」；备用资源 = 剧单附的网盘，下面一行是这个剧场的 YouTube 条件与下架记录。报备、必带 tag、解禁在证据页的「限制与资源」和剧场规则里。"
+       },
+       {
+        "t": "ReelShort 同名线索 / 旧站收录线索",
+        "a": "dramas.title_key / legacy_urls",
+        "d": "都是剧名归一后的同名匹配：前者对上 ReelShort 片库已拉详情的正典剧，后者对上旧域名 sitemap 收录过的 URL（旧站导入的 39,562 条）而 ReelShort 片库里没有同名行。都会误配，都不是需求证据。",
+        "h": "前者在剧场行的证据页里有对上的 ReelShort 行小表可直达；反过来 ReelShort 行的证据页末尾列出其他剧场的同名行。"
+       },
+       {
+        "t": "近 30 榜名次曲线",
+        "ask": false,
+        "d": "横轴是最近 30 个有榜单的日子，缺榜的日子不占位；纵轴 #1 在上。相邻两次上榜之间隔了别的榜单日就是掉过榜，用虚线跨过去。"
+       },
+       {
+        "t": "近 20 周上榜",
+        "ask": false,
+        "d": "每格一周，最近 20 个有周榜的周，缺榜的周不占位。实心格是上榜，折线是这段时间里的累计上榜周数。"
+       },
+       {
+        "t": "上榜天数 / 最高",
+        "d": "上榜天数是这部剧在全部日榜历史里累计出现的天数，不是连续天数；最高是历史最好名次。"
+       },
+       {
+        "t": "快照",
+        "d": "剧单与发布记录是 pnpm catalog-import 导入时的快照（页头写着导入时间，本地采集、一天最多一次）；ReelShort 指标随每 6 小时那轮同步更新，出站是实时的。"
+       }
+      ]
+     }
+    ],
+    "ruleHints": {
+     "剧单": "剧场开放给分销方投放的剧目清单，链接指向原文档；ReelShort 没有剧单，链接指向站内的 ReelShort 榜。",
+     "结算": "剧场把你带来的订单或广告收益回传到账户的时效；「订单及时 · 广告次日」= 充值实时可见、广告分成次日到，「月结」= 按月结算。",
+     "报备": "投放前把你的 YouTube / TikTok 等账号登记给剧场加进版权白名单，否则视频会被判侵权或不计分成。",
+     "必带 tag": "发布视频必须带的话题标签，剧场靠它识别这条视频属于哪个分销活动。",
+     "解禁": "剧场对部分剧或平台设了发布限制，要先走表单申请解除才能发。",
+     "素材": "剧场提供的可剪辑视频文件的存放位置与范围。",
+     "信号": "剧场自己给的推荐或排序，全是定性标注、没有数值；ReelShort 的是本站采集的数值。榜单 tab 按类型单独展示。"
+    },
+    "langLoc": {
+     "英语": "en",
+     "西班牙语": "es",
+     "日语": "ja",
+     "葡萄牙语": "pt",
+     "印尼语": "id",
+     "泰语": "th",
+     "繁体中文": "zh-hant",
+     "简体中文": "zh",
+     "法语": "fr",
+     "韩语": "ko",
+     "德语": "de",
+     "阿拉伯语": "ar",
+     "意大利语": "it",
+     "越南语": "vi",
+     "俄语": "ru",
+     "土耳其语": "tr",
+     "菲律宾语": "tl",
+     "马来语": "ms",
+     "波兰语": "pl",
+     "印地语": "hi",
+     "保加利亚语": "bg",
+     "捷克语": "cs",
+     "罗马尼亚语": "ro"
+    },
+    "postedPoolUrl": "https://example.feishu.cn/base/placeholder10",
+    "sortLabels": {
+     "rr": "30 天销售指标",
+     "d1": "较昨日净变化",
+     "d7": "较 7 天前净变化",
+     "dp1": "推广人数较昨日变化",
+     "dp7": "推广人数 7 天变化",
+     "promoters": "推广人数",
+     "publish": "上线日期",
+     "bill": "预估分成",
+     "eff": "销售指标 / 推广人数",
+     "gsc": "搜索需求信号",
+     "clicks": "7 天出站"
+    }
+   },
+   "control": {
+    "facetsPick": {
+     "platforms": {
+      "reelshort": 3,
+      "kalos": 2
+     },
+     "langs": [
+      {
+       "lang": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+       "n": 1
+      }
+     ],
+     "bases": {
+      "kd": 1,
+      "clk": 2
+     },
+     "posted": {
+      "pool": 1,
+      "yes": 2,
+      "no": 3
+     }
+    },
+    "facetsAll": {
+     "platforms": {
+      "reelshort": 3,
+      "kalos": 2
+     },
+     "langs": [
+      {
+       "lang": "英语",
+       "n": 5
+      }
+     ],
+     "bases": {
+      "kd": 1,
+      "clk": 2
+     },
+     "posted": {
+      "pool": 1,
+      "yes": 2,
+      "no": 3
+     }
+    },
+    "rankCounts": {
+     "kd": 10,
+     "rs_bill": 4,
+     "rs_ledger": 2
+    },
+    "postedStats": {
+     "total": 180,
+     "pubCount": 90,
+     "postsSum": 300,
+     "viewsSum": 12345,
+     "metricAt": "2026-09-20",
+     "importedAt": "2026-09-22T03:10:05.000Z",
+     "accountCount": 20
+    },
+    "postedStates": {
+     "pub": 90,
+     "sched": 10,
+     "none": 70,
+     "nomatch": 10
+    },
+    "ledger": {
+     "rows": 2,
+     "orders": 5
+    }
+   },
+   "scrub": {
+    "catalog_signals.payload.h[*][*]": 2
+   },
+   "warnings": [
+    {
+     "code": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12",
+     "source": "pick_catalog",
+     "status": "failed",
+     "attemptedAt": "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    }
+   ]
+  },
+  "hits": {
+   "manifest.meta.control.facetsPick.langs[*].lang": 1,
+   "manifest.meta.warnings[*].code": 1,
+   "manifest.meta.warnings[*].attemptedAt": 1
+  }
+ }
+}

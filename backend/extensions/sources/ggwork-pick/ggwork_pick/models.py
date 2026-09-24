@@ -53,6 +53,11 @@ candidate_sets = Table(
     Column("conditions_json", JSON, nullable=False),
     Column("ordered_items_json", JSON, nullable=False),
     Column("created_at", String(40), nullable=False),
+    # Migration 0005, null on rows from before the mirror: the identities the query left out (replay needs them), the
+    # mirror version paired with its batch, and the data_as_of it froze.
+    Column("excluded_json", JSON),
+    Column("mirror_version", Integer),
+    Column("data_as_of_json", JSON),
 )
 selections = Table(
     "ggwp_selections",
@@ -92,6 +97,9 @@ sync_runs = Table(
     Column("knowledge_batch_id", String(64)),
     Column("source_as_of", String(40)),
     Column("error", Text),
+    # Migration 0005: the mirror run's version, stage timings, gate results and fallback reason. Every signed-in user
+    # reads it through /api/pick/sync, so only what is safe to show goes in.
+    Column("details_json", JSON),
 )
 answer_checks = Table(
     "ggwp_answer_checks",

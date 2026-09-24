@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from deerflow.runtime.user_context import resolve_runtime_user_id
 from deerflow_extension_api import TaskInfo, task_store_from_runtime
 
+from ggwork_pick.pin import Pin
 from ggwork_pick.repository import PickRepository
 
 
@@ -18,6 +19,9 @@ class PickTask:
     owner_id: str | None = None
     catalog_id: str | None = None
     knowledge_id: str | None = None
+    # The mirror version paired with the two batches (None when there is none) and the data_as_of that goes with them.
+    mirror_version: int | None = None
+    data_as_of: dict | None = None
     reference_id: str | None = None
     selected_item_ids: list[str] = field(default_factory=list)
     reference_order: list[str] = field(default_factory=list)
@@ -30,6 +34,12 @@ class PickTask:
     model_calls: int = 0
     tool_calls: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    def pin(self) -> Pin:
+        return Pin(self.catalog_id, self.knowledge_id, self.mirror_version, self.data_as_of)
+
+    def repin(self, pin: Pin) -> None:
+        self.catalog_id, self.knowledge_id, self.mirror_version, self.data_as_of = pin
 
     def remaining(self):
         remaining = self.deadline - time.monotonic()
@@ -64,11 +74,8 @@ class PickTask:
                     self.known_titles.update(item["title"] for item in parent["ordered_items_json"])
                     self.selected_item_ids = [item_id for item_id in order if item_id in ids]
                     self.reference_id = parent["id"]
-                # Every run reads the current data; only 换一批 goes back to the bound card's version.
-                catalog = await repo.current_batch("catalog")
-                knowledge = await repo.current_batch("knowledge")
-                self.catalog_id = catalog["id"] if catalog else None
-                self.knowledge_id = knowledge["id"] if knowledge else None
+                # Every run reads the current data in one read; only 换一批 goes back to the bound card's version.
+                self.repin(await repo.current_pin())
                 self.initialized = True
             return repo
 

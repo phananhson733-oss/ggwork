@@ -96,6 +96,19 @@ def pg_db_url(pg_cluster, pg_template, pg_reader_role):
     pg_cluster.drop_database(name)
 
 
+@pytest.fixture
+def empty_pg_url(pg_cluster):
+    """A database with nothing but the empty SCHEMA, for the migrations themselves.
+
+    A test that also wants pg_reader_role names it first: set up before this database, it is torn down after it,
+    so DROP ROLE never meets the grants a migration gave it here.
+    """
+    name = pg.unique_name("m")
+    pg_cluster.create_database(name)
+    yield pg_cluster.async_url(name)
+    pg_cluster.drop_database(name)
+
+
 @pytest.fixture(params=["sqlite", "postgres"])
 def pick_db_url(request, tmp_path):
     """The same test on both dialects; the PostgreSQL half skips when PICK_TEST_PG_URL is unset."""

@@ -294,6 +294,28 @@ def test_the_reader_logs_in_read_only_and_reaches_nothing_in_deerflow(bootstrapp
         conn.rollback()
 
 
+@pytest.mark.asyncio
+async def test_migrating_as_deerflow_app_gives_the_reader_three_mirror_tables(bootstrapped, tmp_path, monkeypatch):
+    """Production migrates as deerflow_app, owner of pick_mirror; 0006's grants must take effect there, not merely not fail.
+
+    The other migration tests run as the cluster superuser, which passes every ownership check (plan 3.1, audit host-1).
+    """
+    import psycopg
+
+    monkeypatch.setenv(pg.READER_ROLE_ENV, bootstrapped.reader)
+    url = bootstrapped.cluster.url.set(
+        drivername="postgresql+asyncpg", username=bootstrapped.app, password=bootstrapped.password, database=bootstrapped.database
+    )
+    await pg.migrate(url.render_as_string(hide_password=False), tmp_path)
+    owners = bootstrapped.query("SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'pick_mirror'")
+    assert dict(owners) == {table: bootstrapped.app for table in ("versions", "series", "series_state", "control")}
+    with bootstrapped.connect(bootstrapped.reader) as conn:
+        counts = {table: conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in ("versions", "series", "series_state")}
+        assert counts == {"versions": 0, "series": 0, "series_state": 1}
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match="permission denied for table control"):
+            conn.execute("SELECT * FROM control")
+
+
 def test_the_reader_connects_where_public_cannot(stand_in):
     # Both roles log in on the script's own CONNECT grants, not on PUBLIC's.
     stand_in.admin(f"REVOKE CONNECT ON DATABASE {stand_in.database} FROM PUBLIC")

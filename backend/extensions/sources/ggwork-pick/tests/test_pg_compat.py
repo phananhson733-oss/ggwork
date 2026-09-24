@@ -1,7 +1,7 @@
 """What SQLite accepts and PostgreSQL refuses (plan 6.7), one test per row of the audit table.
 
 Tests take pick_db_url or app_client and run on both dialects; the PostgreSQL half skips when
-PICK_TEST_PG_URL is unset. Migrations 0001-0004 on PostgreSQL are covered by test_pg_migrations.
+PICK_TEST_PG_URL is unset. The migrations on PostgreSQL are covered by test_pg_migrations and test_mirror_migrations.
 """
 
 import asyncio
@@ -78,7 +78,14 @@ async def test_nul_in_a_path_or_query_parameter_is_a_422(app_client):
     # Percent-decoding replaces invalid UTF-8, so only NUL can reach a parameter; PostgreSQL rejects it even in a WHERE.
     client, service = app_client
     await _result(service)
-    for url in ("/api/pick/results/%00", "/api/pick/results?thread_id=%00", "/api/pick/answer-checks?thread_id=t%00", "/api/pick/commands/%00"):
+    urls = (
+        "/api/pick/results/%00",
+        "/api/pick/results?thread_id=%00",
+        "/api/pick/answer-checks?thread_id=t%00",
+        "/api/pick/commands/%00",
+        "/api/pick/replay?result_id=%00",
+    )
+    for url in urls:
         assert (await client.get(url, headers=ALICE)).status_code == 422, url
     edit = {"request_id": "edit-1", "expected_version": 1, "note": "x"}
     assert (await client.patch("/api/pick/selections/%00", **_json(edit))).status_code == 422
@@ -206,6 +213,8 @@ async def test_an_engine_that_serializes_json_differently_fails_the_suite(pick_d
 
 # ---- session settings on pooled connections ----
 
+ADVISORY_HERE = "select count(*) from pg_locks where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())"
+
 
 @pytest.mark.asyncio
 async def test_transaction_settings_do_not_follow_a_pooled_connection(pg_db_url, tmp_path):
@@ -230,7 +239,8 @@ async def test_transaction_settings_do_not_follow_a_pooled_connection(pg_db_url,
             assert (await conn.execute(text("select pg_backend_pid()"))).scalar_one() == pid
             assert (await conn.execute(text("show lock_timeout"))).scalar_one() == "0"
             assert (await conn.execute(text("show search_path"))).scalar_one() == pg.SCHEMA
-            assert (await conn.execute(text("select count(*) from pg_locks where locktype = 'advisory'"))).scalar_one() == 0
+            # pg_locks spans the whole cluster; other databases on a shared test server may hold advisory locks of their own.
+            assert (await conn.execute(text(ADVISORY_HERE))).scalar_one() == 0
     finally:
         await engine.dispose()
 

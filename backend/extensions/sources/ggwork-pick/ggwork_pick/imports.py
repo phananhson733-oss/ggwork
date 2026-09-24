@@ -85,14 +85,18 @@ class Importer:
         self.repository = repository
         self.data_dir = data_dir
 
-    async def catalog(self, payload: bytes, format: str, *, source_as_of: str | None = None, meta: dict | None = None, keep_original: bool = True) -> dict:
+    async def catalog(
+        self, payload: bytes, format: str, *, source_as_of: str | None = None, meta: dict | None = None, keep_original: bool = True, stage: bool = False
+    ) -> dict:
         rows = await asyncio.to_thread(parse_catalog, payload, format, keep_original)
-        return await self._publish(payload, "catalog", rows, source_as_of=source_as_of, meta=meta)
+        return await self._publish(payload, "catalog", rows, source_as_of=source_as_of, meta=meta, stage=stage)
 
     async def knowledge(self, payload: bytes, filename: str, source_ref: str) -> dict:
         return await self.knowledge_bundle([(payload, filename, source_ref)])
 
-    async def knowledge_bundle(self, files: list[tuple[bytes, str, str]], *, source_as_of: str | None = None, meta: dict | None = None) -> dict:
+    async def knowledge_bundle(
+        self, files: list[tuple[bytes, str, str]], *, source_as_of: str | None = None, meta: dict | None = None, stage: bool = False
+    ) -> dict:
         if not files or len(files) > 50 or sum(len(payload) for payload, _, _ in files) > MAX_BYTES:
             raise ValueError("知识批次需1至50份文件，总量不超过25MB")
         documents = []
@@ -119,9 +123,14 @@ class Importer:
             )
         # The immutable original batch is a manifest of all original texts.
         manifest = json.dumps(documents, ensure_ascii=False, sort_keys=True).encode()
-        return await self._publish(manifest, "knowledge", documents, source_as_of=source_as_of, meta=meta)
+        return await self._publish(manifest, "knowledge", documents, source_as_of=source_as_of, meta=meta, stage=stage)
 
-    async def _publish(self, payload: bytes, kind: str, rows: list[dict], *, source_as_of: str | None = None, meta: dict | None = None) -> dict:
+    async def _publish(
+        self, payload: bytes, kind: str, rows: list[dict], *, source_as_of: str | None = None, meta: dict | None = None, stage: bool = False
+    ) -> dict:
+        """stage=True leaves the batch importing for the mirror run to publish or fail (PickRepository.publish_import)."""
         digest = hashlib.sha256(payload).hexdigest()
         path = await asyncio.to_thread(_write_blob, self.data_dir, self.repository.owner_id, digest, payload)
-        return await self.repository.publish_import(kind=kind, content_hash=digest, raw_blob_path=path, rows=rows, source_as_of=source_as_of, meta=meta)
+        return await self.repository.publish_import(
+            kind=kind, content_hash=digest, raw_blob_path=path, rows=rows, source_as_of=source_as_of, meta=meta, stage=stage
+        )

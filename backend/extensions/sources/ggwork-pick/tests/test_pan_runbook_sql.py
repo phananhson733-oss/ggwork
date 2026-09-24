@@ -6,17 +6,16 @@ runbook's scripts run here as files from docs/, through psql, logged in as a sta
 of the deerflow schema and every table in it. The contaminated data is written by the real sync, import, selection and
 repository code; the host tables come from the host's own table definitions and langgraph's PostgresSaver.setup(). Every
 location the check reports and every host branch holds a hit of its own, so disabling any one of them turns a test red. The
-PostgreSQL half skips when PICK_TEST_PG_URL is unset. The container's disk is test_pan_runbook_disk.py.
+PostgreSQL half skips when PICK_TEST_PG_URL is unset. The container's disk is test_pan_runbook_disk.py; the pattern and the
+runbook's own text are test_pan_runbook_text.py.
 """
 
-import hashlib
 import json
 import os
 import re
 import secrets
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -25,27 +24,28 @@ import httpx
 import pg
 import pytest
 import pytest_asyncio
+import revisions
 import yaml
 from engines import HOST_JSON_SERIALIZER, host_engine
 from pan_runbook import (
     CHECK,
     CODE_NOTE,
+    JSON_COLUMNS,
+    KEPT_JSON_COLUMNS,
+    LOCATIONS,
     PASSWORD_NBSP,
     PASSWORD_NEWLINE,
     PASSWORD_TAB,
     PASSWORD_VT,
     REDACT,
+    REDACTED_NONE,
     ROOT,
-    RUNBOOK,
     Scan,
     clean_scan,
     feed_signal,
     feed_transport,
     password,
-    pattern_of,
     pull,
-    runbook_pan,
-    runbook_steps,
     scan,
     shell,
     step_lines,
@@ -58,92 +58,6 @@ from test_realshort_sync import feed_row
 PLACEHOLDER = "[网盘信息已移除]"
 # pan-check.sql's owner for a thread the DELETE route cannot find (require_existing): the runbook stops there.
 NO_META = "(没有 threads_meta 行)"
-# The runbook's broad pattern before this change; the scripts must keep matching all of it.
-OLD_PATTERN = r"pan\.baidu|pan\.quark|aliyundrive|alipan|115\.com|123pan|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|提取码|提取碼|访问码|訪問碼|pwd="
-# One sample host per branch of RealShort #67's share-link list (its fixture's patterns.url); the check has to find them all.
-REALSHORT_HOSTS = [
-    "pan.baidu.com",
-    "yun.baidu.com",
-    "pan.quark.cn",
-    "aliyundrive.com",
-    "alipan.com",
-    "115.com",
-    "115cdn.com",
-    "123pan.com",
-    "123pan.cn",
-    "123684.com",
-    "123865.com",
-    "123912.com",
-    "lanzou.com",
-    "lanzoui.com",
-    "drive.uc.cn",
-    "cloud.189.cn",
-    "pan.xunlei.com",
-    "caiyun.139.com",
-    "yun.139.com",
-    "weiyun.com",
-    "jianguoyun.com",
-    "mypikpak.com",
-    "pan.wo.cn",
-    "ctfile.com",
-    "ilanzou.com",
-    "feijipan.com",
-    "lanzn.com",
-    "wenshushu.cn",
-    "cowtransfer.com",
-    "yunpan.360.cn",
-    "fast.uc.cn",
-    "anxia.com",
-    "123952.com",
-    "400gb.com",
-    "pipipan.com",
-    "545c.com",
-    "90pan.com",
-    "089u.com",
-    "474b.com",
-    "t00y.com",
-    "306t.com",
-    "47ks.com",
-    "4765.com",
-    "77tj.com",
-    "feijix.com",
-    "fjpan.com",
-    "wss.cc",
-    "c-t.work",
-    "yunpan.cn",
-    "yunpan.com",
-    "pan.360.cn",
-    "quqi.com",
-    "musetransfer.com",
-    "tmp.link",
-    "airportal.cn",
-    "airportal.link",
-    "easychuan.cn",
-    "filez.com",
-    "box.lenovo.com",
-    "vdisk.weibo.com",
-    "v.disk.weibo.com",
-    "vdisk.cn",
-    "kuaipan.cn",
-    "dbank.com",
-    "dbank.vmall.com",
-    "pan.sohu.net",
-    "fhrl.wostore.cn",
-]
-# (table, key columns, JSON column): every JSON column of the ggwp tables, in the order of both scripts.
-JSON_COLUMNS = [
-    ("ggwp_drama_versions", "batch_id, identity", "payload_json"),
-    ("ggwp_candidate_sets", "id", "ordered_items_json"),
-    ("ggwp_candidate_sets", "id", "conditions_json"),
-    ("ggwp_selections", "id", "snapshot_json"),
-    ("ggwp_selection_commands", "owner_id, request_id", "receipt_json"),
-    ("ggwp_answer_checks", "id", "notes_json"),
-    ("ggwp_import_batches", "id", "validation_json"),
-    ("ggwp_knowledge_versions", "batch_id, document_id", "metadata_json"),
-]
-# pan-redact.sql clears the first nine; the last two it never changes (the runbook stops and discusses).
-LOCATIONS = [*(f"{table}.{column}" for table, _, column in JSON_COLUMNS), *(f"ggwp_knowledge_versions.{c}" for c in ("title", "text", "source_ref"))]
-REDACT_OUTPUT = ["BEGIN", "CREATE FUNCTION", *["UPDATE n"] * 9, "DROP FUNCTION", "COMMIT"]
 NOTHING = dict.fromkeys(LOCATIONS, 0)
 
 # A note quoting a link, with escaped quotes and backslashes in the same string; the strings next to it hold escapes too
@@ -157,48 +71,6 @@ KNOWLEDGE_TEXT = "# 规则\n\n素材的提取码在群公告里"
 # Near misses: 密码 without a separator is a common word in titles.
 CLEAN_TITLE = "财富密码"
 CLEAN_NOTE = "密码学入门，见 pan 字样也不算"
-# Every non-ASCII character Unicode counts as whitespace, from Python's own tables. The pattern writes each as a branch of its
-# own: a binary checkpoint column and a C-locale grep match them only as bytes, where [[:space:]] never sees them.
-WIDE_SPACES = [chr(c) for c in range(0x80, sys.maxunicode + 1) if chr(c).isspace()]
-# The pattern's other non-ASCII characters: the keywords and the full-width colon.
-KEYWORD_CHARS = "提取码碼访问訪問密："
-
-
-def test_the_scripts_and_the_runbook_use_one_pattern_that_keeps_the_old_one():
-    pattern = pattern_of(CHECK.read_text(encoding="utf-8"))
-    assert pattern_of(REDACT.read_text(encoding="utf-8")) == pattern
-    assert runbook_pan() == f"PAN='{pattern}'"
-    assert set(OLD_PATTERN.split("|")) <= set(pattern.split("|"))
-    # Every share host RealShort scrubs is found by one of the host branches (grep -i and ~* ignore ASCII case). Only branches made of
-    # letters, digits, -, \. and [a-z] count: splitting on | also leaves bits of the 密码 group such as a lone ":".
-    hosts = [re.compile(alt, re.IGNORECASE) for alt in pattern.split("|") if re.fullmatch(r"(?:[A-Za-z0-9-]|\\\.|\[a-z\])+", alt)]
-    for host in REALSHORT_HOSTS:
-        assert any(p.search(f"share.{host.upper()}/s/1AbC") for p in hosts), host
-    # Every backslash escape takes one or more backslashes, whatever the number of JSON layers.
-    backslash = chr(92)
-    assert backslash * 2 + "u" not in pattern.replace(backslash * 2 + "+u", "") and backslash * 2 + "[" not in pattern
-    # Both gaps after 密码: ASCII whitespace, each non-ASCII whitespace character as its own branch, then the escapes.
-    gap = "([[:space:]]|" + "|".join(WIDE_SPACES) + f"|{backslash * 2}+[bfnrtv]|{backslash * 2}+u[0-9a-fA-F]{{4}})*"
-    assert pattern.count(gap) == 2
-    assert {c for c in pattern if not c.isascii()} - set(KEYWORD_CHARS) == set(WIDE_SPACES)
-    # The old inline queries are gone: the runbook holds the pattern once, and every grep uses $PAN.
-    runbook = RUNBOOK.read_text(encoding="utf-8")
-    assert runbook.count(pattern) == 1 and OLD_PATTERN not in runbook
-    # The runbook's paste self-check is the hash of this very pattern.
-    assert f"`{hashlib.sha256(pattern.encode()).hexdigest()}`" in runbook
-
-
-def test_every_check_looks_at_the_database_and_the_disk():
-    # Imports write the raw file before the rows: the database can be clean while the disk is not.
-    steps = runbook_steps()
-    assert sorted(steps) == list(range(1, 10))
-    assert "-f docs/pick-workbench/supabase/pan-check.sql" in steps[1] and "PAN='" in steps[1]
-    # pan_scan covers the raw feed files and the host's externalized tool outputs; its threads go in with -v disk_threads.
-    assert 'pan_scan; echo "pan_scan 退出码 $?"' in steps[1] and "-v disk_threads=" in steps[1]
-    assert "第 1 步" in steps[8] and "库和磁盘都查" in steps[8] and "第 1 步" in steps[9]
-    # A leftover anywhere but the kept locations means redact and restart again, not only for candidate sets.
-    assert "重做第 4、5 步" in steps[8] and "选择快照" in steps[8]
-    assert "暂停使用" in steps[4]
 
 
 # ---- a database like production: ggwp tables at head, the host's tables, all owned by a deerflow_app stand-in ----
@@ -279,17 +151,18 @@ class Workbench:
         assert [location for location, _ in counts] == LOCATIONS
         return {location: int(rows) for location, rows in counts}, threads
 
-    def redact(self) -> list[int]:
+    def redact(self, updates: int = len(REDACTED_NONE)) -> list[int]:
         """pan-redact.sql's UPDATE counts, in script order; the output is exactly what the runbook shows."""
         lines = self.run(REDACT).splitlines()
-        assert [re.sub(r"^UPDATE \d+$", "UPDATE n", line) for line in lines] == REDACT_OUTPUT, lines
+        expected = ["BEGIN", "CREATE FUNCTION", *["UPDATE n"] * updates, "DROP FUNCTION", "COMMIT"]
+        assert [re.sub(r"^UPDATE \d+$", "UPDATE n", line) for line in lines] == expected, lines
         return [int(line.split()[1]) for line in lines if line.startswith("UPDATE ")]
 
     def json_columns(self) -> dict[tuple, str]:
-        """Every ggwp JSON value as stored, byte for byte."""
+        """Every ggwp JSON value as stored, byte for byte; the columns added for the mirror are null on older rows."""
         stored = {}
-        for table, keys, column in JSON_COLUMNS:
-            for *key, text in self.fetch(f"SELECT {keys}, {column}::text FROM deerflow.{table}"):
+        for table, keys, column in [*JSON_COLUMNS, *KEPT_JSON_COLUMNS]:
+            for *key, text in self.fetch(f"SELECT {keys}, {column}::text FROM deerflow.{table} WHERE {column} IS NOT NULL"):
                 stored[(table, column, *key)] = text
         return stored
 
@@ -406,6 +279,21 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         " VALUES ('alice', 'req-synthetic', 'h', %s::json, '2026-09-24T00:00:00.000000+00:00') RETURNING request_id",
         synthetic,
     )
+    # The mirror's columns. Every query now freezes its batch's data_as_of, scope included (P2-5b): the card and the empty
+    # query both carry A's. The run details have no writer yet (P2-5c), so the first run gets a free-text reason by hand,
+    # and the card an excluded identity holding a hit (the queries here excluded nothing).
+    assert [(await alice.result(result["id"]))["data_as_of_json"]["scope"] for result in (card, empty)] == [SCOPE, SCOPE]
+    excluded = [json.dumps(["synthetic", "k-pwd=1", "en"], separators=(",", ":"))]
+    workbench.fetch(
+        "UPDATE deerflow.ggwp_candidate_sets SET excluded_json = %s::json WHERE id = %s RETURNING id",
+        json.dumps(excluded, ensure_ascii=False),
+        card["id"],
+    )
+    workbench.fetch(
+        "UPDATE deerflow.ggwp_sync_runs SET details_json = %s::json WHERE catalog_batch_id = %s RETURNING id",
+        json.dumps({"mode": "mirror", "outcome": "degraded", "reason": "提取码 x7k2"}, ensure_ascii=False),
+        first["catalog_batch_id"],
+    )
     # The source is not fixed yet: batch B still carries the notes and becomes current; A stays, the card uses it.
     second = await pull(service, [*_contaminated_feed(), feed_row(5)])
     assert (await alice.current_batch("catalog"))["id"] == second["catalog_batch_id"] != first["catalog_batch_id"]
@@ -422,22 +310,31 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         "ggwp_answer_checks.notes_json": 1,
         "ggwp_import_batches.validation_json": 1,
         "ggwp_knowledge_versions.metadata_json": 1,
+        "ggwp_candidate_sets.data_as_of_json": 2,
+        "ggwp_sync_runs.details_json": 1,
         "ggwp_knowledge_versions.title": 1,
         "ggwp_knowledge_versions.text": 1,
         "ggwp_knowledge_versions.source_ref": 1,
+        "ggwp_candidate_sets.excluded_json": 1,
     }
     assert threads == []
 
     redacted = workbench.redact()
     after = workbench.json_columns()
-    # Left: the request id (an id), the knowledge source (the document's identity) and its text (the whole rules).
-    kept = {"ggwp_selection_commands.receipt_json": 1, "ggwp_knowledge_versions.text": 1, "ggwp_knowledge_versions.source_ref": 1}
+    # Left: the request id (an id), the knowledge source (the document's identity), its text (the whole rules) and the
+    # excluded identities.
+    kept = {
+        "ggwp_selection_commands.receipt_json": 1,
+        "ggwp_knowledge_versions.text": 1,
+        "ggwp_knowledge_versions.source_ref": 1,
+        "ggwp_candidate_sets.excluded_json": 1,
+    }
     assert workbench.check() == (NOTHING | kept, [])
-    assert redacted == [12, 1, 1, 1, 1, 1, 1, 1, 1]
+    assert redacted == [12, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1]
     hits = (LINK_NOTE, CODE_NOTE, PASSWORD_NEWLINE, PASSWORD_TAB, PASSWORD_VT, PASSWORD_NBSP, "pan.baidu", *answer_notes, SCOPE, "提取码 x7k2", KNOWLEDGE_FILE)
     assert after == {key: _redacted(text, *hits) for key, text in before.items()}
     changed = {key for key in before if after[key] != before[key]}
-    assert len(changed) == sum(redacted[:8])
+    assert len(changed) == sum(redacted[: len(JSON_COLUMNS)])
     for key, text in after.items():
         assert PLACEHOLDER in text or key not in changed
         json.loads(text)
@@ -453,6 +350,8 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         assert [_notes(rows[_identity(i)]) for i in (2, 6, 7, 8, 9)] == [[PLACEHOLDER]] * 5
         assert rows[_identity(3)]["title"] == CLEAN_TITLE and _notes(rows[_identity(3)]) == [CLEAN_NOTE]
     assert (await alice.batch_info(first["catalog_batch_id"]))["scope"] == PLACEHOLDER
+    assert (await alice.result(card["id"]))["data_as_of_json"]["scope"] == PLACEHOLDER
+    assert (await alice.result(card["id"]))["excluded_json"] == excluded
     [document] = await alice.knowledge_documents(knowledge["id"])
     assert (document["title"], document["metadata_json"]) == (PLACEHOLDER, {"filename": PLACEHOLDER})
     detail = await selection.detail(card["id"], linked["item_id"])
@@ -473,7 +372,7 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
 
     # Idempotent: a second run changes nothing.
     settled = workbench.json_columns()
-    assert workbench.redact() == [0] * 9
+    assert workbench.redact() == REDACTED_NONE
     assert workbench.json_columns() == settled
 
 
@@ -508,13 +407,38 @@ async def test_identity_values_are_left_alone_and_the_check_keeps_reporting_them
     ]
     batch = await Importer(alice, service.data_dir).catalog(json.dumps(rows).encode(), "json")
     [(identity,)] = workbench.fetch("SELECT identity FROM deerflow.ggwp_drama_versions")
-    assert workbench.redact() == [1, 0, 0, 0, 0, 0, 0, 0, 0]
+    assert workbench.redact() == [1, *REDACTED_NONE[1:]]
     [row] = await alice.catalog_rows(batch["id"])
     assert (row["identity"], row["source_id"], row["original"]["source_id"]) == (identity, "k-pwd=1", "k-pwd=1")
     assert _notes(row) == [PLACEHOLDER] and row["original"]["signals"][0]["note"] == PLACEHOLDER
     # The runbook stops here: a hit left in an identity is not the script's to change.
     assert workbench.check()[0]["ggwp_drama_versions.payload_json"] == 1
-    assert workbench.redact() == [0] * 9
+    assert workbench.redact() == REDACTED_NONE
+
+
+@pytest.mark.asyncio
+async def test_both_scripts_still_run_on_a_database_at_0004(workbench):
+    # Production stays at 0004 until the mirror ships, while the checkout the weekly check runs from has these scripts
+    # already. The three columns 0005 adds count as 0 until they exist; their two UPDATEs are left out.
+    engine = host_engine(workbench.url)
+    try:
+        await revisions.downgrade(engine, "0004")
+    finally:
+        await engine.dispose()
+    assert workbench.fetch("SELECT version_num FROM deerflow.ggwp_alembic_version") == [("0004",)]
+    added = ["data_as_of_json", "details_json", "excluded_json"]
+    assert workbench.fetch("SELECT count(*) FROM information_schema.columns WHERE column_name = ANY(%s)", added) == [(0,)]
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_selection_commands (owner_id, request_id, payload_hash, receipt_json, created_at)"
+        " VALUES ('alice', 'req-old', 'h', %s::json, '2026-09-24T00:00:00.000000+00:00') RETURNING request_id",
+        json.dumps({"request_id": "req-old", "note": "提取码 x7k2"}, ensure_ascii=False),
+    )
+    assert workbench.check() == (NOTHING | {"ggwp_selection_commands.receipt_json": 1}, [])
+    assert workbench.redact(len(REDACTED_NONE) - 2) == [0, 0, 0, 0, 1, 0, 0, 0, 0]
+    assert workbench.check() == (NOTHING, [])
+    assert workbench.fetch("SELECT receipt_json::text FROM deerflow.ggwp_selection_commands") == [
+        (json.dumps({"request_id": "req-old", "note": PLACEHOLDER}, ensure_ascii=False),)
+    ]
 
 
 def test_the_scripts_cover_every_json_column_of_the_workbench(workbench):
@@ -523,7 +447,7 @@ def test_the_scripts_cover_every_json_column_of_the_workbench(workbench):
         "SELECT table_name, column_name, data_type FROM information_schema.columns"
         " WHERE table_schema = 'deerflow' AND table_name LIKE 'ggwp%%' AND data_type IN ('json', 'jsonb')"
     )
-    assert sorted(columns) == sorted((table, column, "json") for table, _, column in JSON_COLUMNS)
+    assert sorted(columns) == sorted((table, column, "json") for table, _, column in [*JSON_COLUMNS, *KEPT_JSON_COLUMNS])
 
 
 @pytest.mark.asyncio
@@ -537,7 +461,7 @@ async def test_text_escaped_as_unicode_escapes_is_found_and_redacted(workbench, 
         escaped,
     )
     assert workbench.check()[0]["ggwp_answer_checks.notes_json"] == 1
-    assert workbench.redact() == [0, 0, 0, 0, 0, 1, 0, 0, 0]
+    assert workbench.redact() == [0, 0, 0, 0, 0, 1, *REDACTED_NONE[6:]]
     assert workbench.check()[0]["ggwp_answer_checks.notes_json"] == 0
     [(stored,)] = workbench.fetch("SELECT notes_json::text FROM deerflow.ggwp_answer_checks")
     # The escaped strings are replaced whole; the clean one keeps its escapes byte for byte.
@@ -689,7 +613,7 @@ async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(wor
     assert workbench.check() == (NOTHING, listed)
     # pan-redact.sql never touches the host's tables.
     digest = workbench.checkpoint_digest()
-    assert workbench.redact() == [0] * 9
+    assert workbench.redact() == REDACTED_NONE
     assert workbench.checkpoint_digest() == digest
     assert workbench.check()[1] == listed
 
