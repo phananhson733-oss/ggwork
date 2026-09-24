@@ -101,7 +101,8 @@ def version_args(**overrides) -> dict:
 class Recording:
     """An asyncpg connection that records each statement it forwards and the timeout it was given.
 
-    Only the calls the writer is meant to make are forwarded; anything else fails the test with AttributeError.
+    Only the calls the writer is meant to make are forwarded; anything else fails the test with AttributeError. There is
+    no transaction(): asyncpg's sends BEGIN and COMMIT without a timeout, so the writer sends its own.
     """
 
     def __init__(self, conn):
@@ -127,11 +128,11 @@ class Recording:
         self._record("copy", table_name, kwargs)
         return await self._conn.copy_records_to_table(table_name, **kwargs)
 
-    def transaction(self, **kwargs):
-        return self._conn.transaction(**kwargs)
-
     def is_closed(self) -> bool:
         return self._conn.is_closed()
+
+    def is_in_transaction(self) -> bool:
+        return self._conn.is_in_transaction()
 
 
 class FakeCopy:

@@ -301,6 +301,8 @@ async def test_every_statement_has_a_timeout_and_no_session_setting(mirror_conn)
     version = await _build(recording)
     await mark_failed(recording, version.id, error="G8", clock=lambda: T0)
     assert recording.calls
+    # The two transactions (the tables, the DROP) send BEGIN and COMMIT themselves, each with its timeout too.
+    assert [statement for _, statement, _ in recording.calls if statement in ("BEGIN", "COMMIT", "ROLLBACK")] == ["BEGIN", "COMMIT"] * 2
     assert [statement for _, statement, timeout in recording.calls if timeout is None or timeout <= 0] == []
     assert [statement for _, statement, _ in recording.calls if SESSION_SETTING.search(statement)] == []
     assert {method for method, _, _ in recording.calls} <= {"execute", "fetchval", "fetchrow", "copy"}

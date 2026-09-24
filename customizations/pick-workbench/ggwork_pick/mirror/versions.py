@@ -6,7 +6,8 @@ failure and drops the schema. Publishing (the GRANTs and the status flip) is P2-
 Everything runs on the dedicated asyncpg connection (connection.open_dedicated), one autocommitted step at a time: only
 the CREATE SCHEMA + CREATE TABLE step and the DROP SCHEMA step are transactions, and each commits before the call returns.
 The ORM's publish transaction runs GRANT with a 30-second command timeout; an uncommitted DDL here would hold it up. Every
-statement is given its own timeout, and the only setting ever sent is a SET LOCAL.
+statement is given its own timeout, BEGIN and COMMIT included (sent here, not by asyncpg's transaction(), which gives
+them none), and the only setting ever sent is a SET LOCAL.
 
 A schema name reaches SQL only after check_schema_name: nothing else is ever substituted into a statement. Error texts
 name the step, the exception class and the SQLSTATE, never a value (plan 5.5; sync._safe_error).
@@ -45,8 +46,12 @@ TABLE_COLUMNS = MappingProxyType({**{table: RESOURCE_COLUMNS[table] for table in
 STATEMENT_TIMEOUT = 30
 DDL_TIMEOUT = 60
 DROP_TIMEOUT = 60
-# How long a DROP SCHEMA may queue behind a reader before giving up (U24; the reader's statement_timeout is 8 s).
-DROP_LOCK_TIMEOUT_MS = 5000
+# The whole DROP SCHEMA's time, lock waits included, as SET LOCAL statement_timeout: readers queue behind it for at most
+# this long (U24; their own statement_timeout is 8 s). lock_timeout would not do: it limits each lock wait on its own,
+# and the DROP takes the nine tables' locks one after another.
+DROP_STATEMENT_TIMEOUT_MS = 5000
+# A DROP that gave up behind readers: statement_timeout (57014), or a lock_timeout the session had (55P03).
+_BLOCKED_SQLSTATES = frozenset({"57014", "55P03"})
 ERROR_MAX_LENGTH = 500
 
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}")
@@ -67,6 +72,10 @@ _DROPPED = "UPDATE pick_mirror.versions SET dropped_at = $2 WHERE id = $1 AND dr
 
 class MirrorBuildError(RuntimeError):
     """Building a version failed in the database; a mirror-side failure (plan 5.5). The text holds no value."""
+
+
+class MirrorDropBlocked(MirrorBuildError):
+    """DROP SCHEMA gave up behind readers after DROP_STATEMENT_TIMEOUT_MS: nothing dropped, a later try may succeed."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,17 +211,17 @@ async def create_version(
     """A new building version with its empty tables (P2-3 steps 1-3); the values are the manifest's (U1, U5, U6).
 
     1. the id from the versions sequence; 2. the row, status building, committed; 3. CREATE SCHEMA and ddl.sql in one
-    transaction. When step 3 fails, the version is marked failed on the way out; a cancellation leaves the building row
-    to the next run's cleanup, which drops the schema if it exists.
+    transaction. Any failure in the database is a MirrorBuildError. Before step 3 there is nothing to clean up; when
+    step 3 fails, the version is marked failed on the way out, which also drops a same-named schema no versions row
+    names (the cleanup's rule for orphans, P2-5c). A cancellation leaves the building row to the next run's cleanup,
+    which drops the schema if it exists.
     """
     values = _version_values(
         as_of=as_of, fingerprint=fingerprint, counts=counts, latest_snapshot=latest_snapshot, freshness=freshness, warnings=warnings, sync_run_id=sync_run_id
     )
     created_at = _check_moment(clock())
     template = ddl_template()  # a packaging fault stops here, before a version row exists
-    version_id = await conn.fetchval(_NEXT_ID, timeout=timeout)
-    version = MirrorVersion(id=version_id, schema_name=schema_for(version_id))
-    await conn.execute(_INSERT, version.id, version.schema_name, *values, created_at, timeout=timeout)
+    version = await _register(conn, values, created_at, timeout=timeout)
     try:
         await _create_tables(conn, version.schema_name, template)
     except Exception as exc:
@@ -222,12 +231,46 @@ async def create_version(
     return version
 
 
+async def _register(conn, values: tuple, created_at: datetime, *, timeout: float) -> MirrorVersion:
+    """Steps 1 and 2, each autocommitted: the id, then the building row. A failure is a MirrorBuildError like step 3's."""
+    try:
+        version_id = await conn.fetchval(_NEXT_ID, timeout=timeout)
+        version = MirrorVersion(id=version_id, schema_name=schema_for(version_id))
+        await conn.execute(_INSERT, version.id, version.schema_name, *values, created_at, timeout=timeout)
+    except Exception as exc:
+        raise MirrorBuildError(f"登记镜像版本失败：{describe_error(exc)}") from None
+    return version
+
+
 async def _create_tables(conn, schema_name: str, template: str) -> None:
     name = check_schema_name(schema_name)
-    script = template.replace(SCHEMA_PLACEHOLDER, name)
-    async with conn.transaction():
-        await conn.execute(f"CREATE SCHEMA {name}", timeout=DDL_TIMEOUT)
-        await conn.execute(script, timeout=DDL_TIMEOUT)
+    await _in_transaction(conn, (f"CREATE SCHEMA {name}", template.replace(SCHEMA_PLACEHOLDER, name)), timeout=DDL_TIMEOUT)
+
+
+async def _in_transaction(conn, statements: Sequence[str], *, timeout: float) -> None:
+    """BEGIN, the statements, COMMIT: every one sent with `timeout`. Any failure, cancellation too, rolls back first.
+
+    A caller's open transaction is refused: BEGIN inside it would only warn, and this COMMIT would commit its work.
+    """
+    if conn.is_in_transaction():
+        raise MirrorBuildError("镜像专用连接上还有未结束的事务")
+    await conn.execute("BEGIN", timeout=timeout)
+    try:
+        for statement in statements:
+            await conn.execute(statement, timeout=timeout)
+        await conn.execute("COMMIT", timeout=timeout)
+    except BaseException:
+        await _roll_back(conn, timeout=timeout)
+        raise
+
+
+async def _roll_back(conn, *, timeout: float) -> None:
+    if conn.is_closed() or not conn.is_in_transaction():
+        return
+    try:
+        await conn.execute("ROLLBACK", timeout=timeout)
+    except Exception:
+        logger.warning("[pick-mirror] ROLLBACK on the dedicated connection failed", exc_info=True)
 
 
 async def _fail_on_the_way_out(conn, version_id: int, error: str, clock: Callable[[], datetime]) -> None:
@@ -240,11 +283,12 @@ async def _fail_on_the_way_out(conn, version_id: int, error: str, clock: Callabl
 async def mark_failed(conn, version_id: int, *, error: str, clock: Callable[[], datetime] = _utc_now, timeout: float = STATEMENT_TIMEOUT) -> bool:
     """Record a building version as failed with `error` (safe text), drop its schema, then stamp dropped_at (P2-3, 5.5).
 
-    True when this call dropped the schema. False when there was nothing to do: the version is published, dropped,
-    unknown, or already cleaned up; or the connection is closed, in which case the next run's cleanup does it under the
-    lock (P2-5c). A caller whose statement was cancelled mid-flight must not call this on that connection. A DROP that
-    times out behind a reader raises MirrorBuildError and leaves the version failed with dropped_at NULL; calling again
-    finishes it.
+    True when this call dropped the schema (or found it already gone). False when there was nothing to do: the version
+    is published, dropped, unknown, or already cleaned up; or the connection is closed, in which case the next run's
+    cleanup does it under the lock (P2-5c). A statement cut short by asyncpg's timeout or by cancelling its task leaves
+    the connection usable, so the mirror deadline path (plan 5.5) calls this right after; only a closed connection, or
+    one known to be broken, is left to the next run. A DROP that gives up behind readers raises MirrorDropBlocked and
+    leaves the version failed with dropped_at NULL; calling again finishes it.
     """
     if isinstance(version_id, bool) or not isinstance(version_id, int):
         raise ValueError("镜像版本号必须是整数")
@@ -260,15 +304,15 @@ async def mark_failed(conn, version_id: int, *, error: str, clock: Callable[[], 
 
 
 async def drop_version_schema(conn, schema_name: str, *, timeout: float = DROP_TIMEOUT) -> None:
-    """DROP SCHEMA IF EXISTS ... CASCADE in its own short transaction, queueing behind readers for at most 5 s (U24).
+    """DROP SCHEMA IF EXISTS ... CASCADE in its own short transaction, the whole statement held to 5 s (U24).
 
-    For mark_failed here, and for retention (P2-6) and cleanup (P2-5c), which record the drop themselves.
+    Giving up behind readers is MirrorDropBlocked, with nothing dropped; any other failure is MirrorBuildError. For
+    mark_failed here, and for retention (P2-6) and cleanup (P2-5c), which record the drop themselves.
     """
     name = check_schema_name(schema_name)
-    lock_timeout = int(DROP_LOCK_TIMEOUT_MS)  # an integer of milliseconds, never input
+    budget = int(DROP_STATEMENT_TIMEOUT_MS)  # an integer of milliseconds, never input
     try:
-        async with conn.transaction():
-            await conn.execute(f"SET LOCAL lock_timeout = {lock_timeout}", timeout=timeout)
-            await conn.execute(f"DROP SCHEMA IF EXISTS {name} CASCADE", timeout=timeout)
+        await _in_transaction(conn, (f"SET LOCAL statement_timeout = {budget}", f"DROP SCHEMA IF EXISTS {name} CASCADE"), timeout=timeout)
     except Exception as exc:
-        raise MirrorBuildError(f"删除镜像版本 {name} 失败：{describe_error(exc)}") from None
+        failure = MirrorDropBlocked if getattr(exc, "sqlstate", None) in _BLOCKED_SQLSTATES else MirrorBuildError
+        raise failure(f"删除镜像版本 {name} 失败：{describe_error(exc)}") from None
