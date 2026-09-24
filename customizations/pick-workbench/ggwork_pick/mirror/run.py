@@ -18,7 +18,8 @@ fails what it built and staged under a shield, is recorded as failed and is not 
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections import Counter
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -67,7 +68,6 @@ from ggwork_pick.sync import (
     MIN_FREE_BYTES,
     SOURCE,
     check_disk,
-    delete_blobs,
     discard_staged,
     prune_batches,
     pull_error,
@@ -76,7 +76,18 @@ from ggwork_pick.sync import (
 )
 from ggwork_pick.sync import FeedError as V1FeedError
 
-__all__ = ["LOCK_STUCK_AFTER", "MirrorLimits", "MirrorSync", "clean_leftovers", "describe_db_error", "permission_refused", "sqlstate", "tolerate_permission"]
+__all__ = [
+    "BLOB_OUTCOMES",
+    "LOCK_STUCK_AFTER",
+    "MirrorLimits",
+    "MirrorSync",
+    "clean_leftovers",
+    "delete_unused",
+    "describe_db_error",
+    "permission_refused",
+    "sqlstate",
+    "tolerate_permission",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +105,7 @@ DEFAULT_DB_SIZE_CAP = 6 * 2**30  # PICK_DB_SIZE_CAP_BYTES when unset (SyncSettin
 # through the ORM; or a PermissionError on a blob) is recorded in details_json and the run goes on; anything else stops
 # the run.
 PERMISSION_SQLSTATES = frozenset({"42501"})
+BLOB_OUTCOMES = ("deleted", "missing", "refused", "outside")
 _DB_SIZE = "SELECT pg_database_size(current_database())"
 _PAIRED = (
     "SELECT coalesce(status = 'published' AND agent_catalog_batch_id = $2 AND agent_knowledge_batch_id = $3, false) FROM pick_mirror.versions WHERE id = $1"
@@ -158,15 +170,37 @@ async def clean_leftovers(conn, repo: PickRepository, *, data_dir: Path, clock: 
     """What a dead run left (U9, U41), under the mirror lock held on `conn` as sync or cleanup: building versions failed,
     pickm_v* schemas no building or published version claims dropped, the shared owner's importing batches failed and
     their unused blobs deleted. The admin cleanup command calls this too. A step refused for want of privilege is
-    recorded in errors and the next one still runs; any other error raises. Returns details_json's cleanup (safe)."""
+    recorded in errors and the next one still runs (a blob the file system refuses is counted there and the others
+    still go); any other error raises. Returns details_json's cleanup (safe): blobs_deleted counts files deleted."""
     if repo.owner_id != SHARED_OWNER:
         raise ValueError("遗留清理只处理共享属主的批次：传 PickRepository.shared(...)")
     report, versions_error = await tolerate_permission("leftover_versions", lambda: clean_leftover_versions(conn, clock=clock))
     found, batches_error = await tolerate_permission("leftover_batches", repo.fail_leftover_staged)
-    paths = found or []
-    _, blobs_error = await tolerate_permission("leftover_blobs", lambda: asyncio.to_thread(delete_blobs, data_dir, paths))
+    blobs = await asyncio.to_thread(delete_unused, data_dir, found or [])
+    blobs_error = f"leftover_blobs：PermissionError（{blobs['refused']} 个文件）" if blobs["refused"] else None
     errors = [error for error in (versions_error, batches_error, blobs_error) if error]
-    return {"versions": report.details() if report is not None else None, "blobs_deleted": 0 if blobs_error else len(paths), "errors": errors}
+    return {"versions": report.details() if report is not None else None, "blobs_deleted": blobs["deleted"], "errors": errors}
+
+
+def delete_unused(data_dir: Path, paths: Sequence[str]) -> dict[str, int]:
+    """Delete each blob under data_dir, one by one: counts of deleted, already gone (missing), refused by the file system
+    (PermissionError; the rest still go) and outside data_dir (never touched). Blocking: call it in a worker thread."""
+    root = data_dir.resolve()
+    counted = Counter(_delete_one(root, Path(raw)) for raw in paths)
+    return {outcome: counted.get(outcome, 0) for outcome in BLOB_OUTCOMES}
+
+
+def _delete_one(root: Path, path: Path) -> str:
+    resolved = path.resolve()
+    if not resolved.is_relative_to(root):
+        return "outside"
+    try:
+        resolved.unlink()
+    except FileNotFoundError:
+        return "missing"
+    except PermissionError:
+        return "refused"
+    return "deleted"
 
 
 def _failure_code(exc: BaseException) -> str:

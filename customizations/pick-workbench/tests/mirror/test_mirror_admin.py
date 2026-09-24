@@ -279,6 +279,39 @@ async def test_clean_leftovers_tolerates_a_refusal_through_the_orm(world, monkey
 
 
 @pytest.mark.asyncio
+async def test_clean_leftovers_counts_the_blobs_it_deleted(world):
+    """blobs_deleted is what was deleted: a leftover's blob already gone is not counted."""
+    from ggwork_pick.mirror.lock import mirror_lock
+    from ggwork_pick.mirror.run import clean_leftovers
+
+    staged = await stage_pair(world.importer, "counted")
+    blobs = await _blob_paths(world.engine, staged)
+    blobs[0].unlink()
+    async with mirror_lock(world.dsn, holder="cleanup") as conn:
+        report = await clean_leftovers(conn, world.shared, data_dir=world.service.data_dir)
+    assert (report["blobs_deleted"], report["errors"]) == (len(blobs) - 1, [])
+    assert await _statuses(world.engine, staged) == {"failed"} and not any(path.exists() for path in blobs)
+
+
+@pytest.mark.asyncio
+async def test_clean_leftovers_reports_the_blobs_it_may_not_delete(world):
+    from ggwork_pick.mirror.lock import mirror_lock
+    from ggwork_pick.mirror.run import clean_leftovers
+
+    staged = await stage_pair(world.importer, "refused")
+    blobs = await _blob_paths(world.engine, staged)
+    folder = blobs[0].parent
+    folder.chmod(0o500)
+    try:
+        async with mirror_lock(world.dsn, holder="cleanup") as conn:
+            report = await clean_leftovers(conn, world.shared, data_dir=world.service.data_dir)
+    finally:
+        folder.chmod(0o700)
+    assert (report["blobs_deleted"], report["errors"]) == (0, [f"leftover_blobs：PermissionError（{len(blobs)} 个文件）"])
+    assert await _statuses(world.engine, staged) == {"failed"} and all(path.exists() for path in blobs)
+
+
+@pytest.mark.asyncio
 async def test_clean_leftovers_still_fails_on_other_errors(world, monkeypatch):
     from sqlalchemy.exc import OperationalError
 

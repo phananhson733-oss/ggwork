@@ -30,7 +30,6 @@ import json
 import logging
 import os
 import sys
-from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -42,7 +41,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from ggwork_pick.mirror.connection import DATABASE_URL_ENV, SEARCH_PATH, MirrorConnectionError, dsn_from_env, open_dedicated
 from ggwork_pick.mirror.lock import lock_status, mirror_lock
-from ggwork_pick.mirror.run import clean_leftovers, describe_db_error, tolerate_permission
+from ggwork_pick.mirror.run import clean_leftovers, delete_unused, describe_db_error, tolerate_permission
 from ggwork_pick.repository import PickRepository, stamp
 
 logger = logging.getLogger(__name__)
@@ -59,7 +58,6 @@ CLEANUP_HOLDER = "cleanup"
 STATEMENT_TIMEOUT = 30.0
 CLOSE_TIMEOUT = 10
 APPLICATION_NAME = "ggwp-mirror-admin"
-BLOB_OUTCOMES = ("deleted", "missing", "refused", "outside")
 _ACCEPT_EMPTY = "UPDATE pick_mirror.control SET accept_empty_once = true, accept_empty_set_at = now() WHERE id = 1 RETURNING accept_empty_set_at"
 
 
@@ -130,27 +128,6 @@ def admin_session_factory(dsn: str):
         connect_args={"server_settings": {"search_path": SEARCH_PATH, "application_name": APPLICATION_NAME}, "command_timeout": STATEMENT_TIMEOUT},
     )
     return engine, async_sessionmaker(engine, expire_on_commit=False)
-
-
-def delete_unused(data_dir: Path, paths: Sequence[str]) -> dict[str, int]:
-    """Delete each blob under data_dir, one by one: counts of deleted, already gone (missing), refused by the file system
-    (PermissionError; the rest still go) and outside data_dir (never touched)."""
-    root = data_dir.resolve()
-    counted = Counter(_delete_one(root, Path(raw)) for raw in paths)
-    return {outcome: counted.get(outcome, 0) for outcome in BLOB_OUTCOMES}
-
-
-def _delete_one(root: Path, path: Path) -> str:
-    resolved = path.resolve()
-    if not resolved.is_relative_to(root):
-        return "outside"
-    try:
-        resolved.unlink()
-    except FileNotFoundError:
-        return "missing"
-    except PermissionError:
-        return "refused"
-    return "deleted"
 
 
 async def _failed_blobs(repo: PickRepository, data_dir: Path) -> dict:
