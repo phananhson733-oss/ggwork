@@ -346,7 +346,7 @@ ALTER ROLE pick_board_reader SET timezone = 'UTC';
 | `id` | bigserial PK | 即 URL 里的 `v` |
 | `schema_name` | text UNIQUE NOT NULL | `pickm_v%06d`，只由 id 生成 |
 | `status` | text CHECK IN (`building`,`published`,`failed`,`dropped`) | |
-| `as_of` | timestamptz NOT NULL | 采集时点 |
+| `as_of` | timestamptz NOT NULL | 采集时点，UTC 整分钟（CHECK `pick_mirror_versions_as_of`：`date_trunc('minute', as_of, 'UTC') = as_of`，三参数形式是 IMMUTABLE） |
 | `fingerprint` | jsonb | 见 4.3 |
 | `counts` | jsonb | 各表行数 |
 | `latest_snapshot` | date | 这一版对应的曲线最新日 |
@@ -493,7 +493,8 @@ UPDATE pick_mirror.versions SET status = 'published', published_at = :t
 
 **清理方式：**
 - 每个版本在自己的事务里执行：`BEGIN; SET LOCAL lock_timeout = '5s'; DROP SCHEMA pickm_vN CASCADE; UPDATE pick_mirror.versions SET status = 'dropped' …; COMMIT`。用 `SET LOCAL`，不用会话级 `SET`，否则设置会留在连接上。
-- 拿不到锁就回滚跳过，下次再试。
+- 实现（2026-09-24 第二轮对齐）：`lock_timeout` 与 `statement_timeout` 都 `SET LOCAL` 为 5 秒（`lock_timeout` 按每次等锁计时，DROP 每张表各等一次锁，限不住整条语句）；`dropped_at` 取注入的时钟，与 DROP 同一事务提交。构建失败时 `mark_failed` 的 DROP 走同一段代码（`versions.drop_in_transaction`）。
+- 拿不到锁就回滚跳过，下次再试：57014（语句超时）、55P03（等锁超时）、40P01（死锁）都按「被读者挡住」处理。
 - 用 DROP SCHEMA，就不会有 DELETE 留下的膨胀。
 
 ggwp 批次的保留规则不变（最新 3 份，加 30 天内被引用的）。所以旧卡片的批次可能还在、镜像版本却已清理。这种情况下资料页显示「该版本已清理」；回放的名单与顺序仍然可用（它读批次），行数据按 2.5 第 4 条改从当前版本取并注明。
