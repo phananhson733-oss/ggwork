@@ -147,8 +147,11 @@ async def test_pin_counts_only_published_versions(pg_world):
 
 @pytest.mark.asyncio
 async def test_pin_survives_a_version_off_the_minute(pg_world, caplog):
-    # Writers keep as_of on the minute (P2-3); one row that is not must not fail every user's turn.
+    # Writers keep as_of on the minute (P2-3) and 0006's CHECK refuses anything else; in a database without that CHECK,
+    # one row that is not on the minute must still not fail every user's turn.
     engine, service, shared, importer = pg_world
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE pick_mirror.versions DROP CONSTRAINT pick_mirror_versions_as_of"))
     staged = await stage_pair(importer, "a")
     version_id, schema = await building_version(engine, as_of=AS_OF.replace(second=30))
     await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)

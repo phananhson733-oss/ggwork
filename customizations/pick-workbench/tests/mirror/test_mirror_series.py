@@ -33,6 +33,8 @@ from series_world import (
     versions,
 )
 
+from ggwork_pick.mirror.client import select_as_of
+
 D = AS_OF_DAY
 AS_OF = datetime(2026, 9, 23, 12, 32, tzinfo=UTC)
 TEMP_TABLE = "SELECT to_regclass('pg_temp.series_new')"
@@ -163,7 +165,7 @@ async def test_a_version_referenced_six_days_ago_keeps_its_91_days_through_six_d
             everything = {**everything, **snapshots([today], one)}
             # RealShort keeps 91 days (rs:src/lib/observe/snapshot.ts:23).
             world.serve({day: rows for day, rows in everything.items() if date.fromisoformat(day) >= today - timedelta(days=90)})
-            await add_version(world.conn, 2 + run, world.clock() - timedelta(minutes=2), latest_snapshot=today)
+            await add_version(world.conn, 2 + run, select_as_of(world.clock()), latest_snapshot=today)
             outcome = await world.fold()
             assert (outcome.folded, outcome.error) == ((text(today),), None)
             world.clock.advance(86400)

@@ -189,7 +189,7 @@ async def _published_chain(observer, count: int) -> None:
             " values ($1, $2, 'published', $3, $4, $3, $5, $6)",
             n,
             f"pickm_v{n:06d}",
-            published - timedelta(minutes=5),
+            (published - timedelta(minutes=5)).replace(second=0, microsecond=0),  # as_of is on the minute (0006)
             FINGERPRINT,
             published,
             superseded,
