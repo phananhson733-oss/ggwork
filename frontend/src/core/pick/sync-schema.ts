@@ -5,9 +5,12 @@
  *
  * zod objects drop unknown keys, so `mirror` (P2-8b) is declared explicitly or
  * it would vanish. It is optional (a gateway from before P2-8b) and nullable
- * (SQLite never mirrors). A mirror object that does not match reads as absent:
- * no mirror banners, while the imports tab and the rest of /sync still parse.
- * mirrorStatusSchema itself stays strict, so no banner guesses at a field.
+ * (SQLite never mirrors). When the gateway cannot read the mirror state it
+ * answers `{ error: <class name> }` (routes.mirror_view) and the rest of /sync
+ * as usual: consumers tell it apart with `"error" in mirror`. A mirror object
+ * that matches neither reads as absent: no mirror banners, while the imports
+ * tab and the rest of /sync still parse. mirrorStatusSchema itself stays
+ * strict, so no banner guesses at a field.
  */
 import { z } from "zod";
 
@@ -58,6 +61,17 @@ export const mirrorStatusSchema = z.object({
   shared_source_as_of: z.string().nullable().optional(),
 });
 
+/** The gateway could not read pick_mirror: the error's class name, no text. */
+export const mirrorUnavailableSchema = z
+  .object({ error: z.string().max(200) })
+  .strict();
+
+/** /sync's mirror: its state, or why it could not be read. */
+export const mirrorFieldSchema = z.union([
+  mirrorStatusSchema,
+  mirrorUnavailableSchema,
+]);
+
 export const syncStatusSchema = z.object({
   configured: z.boolean(),
   current: z
@@ -72,9 +86,10 @@ export const syncStatusSchema = z.object({
     })
     .nullable(),
   runs: z.array(syncRunSchema),
-  mirror: mirrorStatusSchema.nullable().optional().catch(undefined),
+  mirror: mirrorFieldSchema.nullable().optional().catch(undefined),
 });
 
 export type PickSyncRun = z.infer<typeof syncRunSchema>;
 export type PickMirrorStatus = z.infer<typeof mirrorStatusSchema>;
+export type PickMirrorUnavailable = z.infer<typeof mirrorUnavailableSchema>;
 export type PickSyncStatus = z.infer<typeof syncStatusSchema>;
