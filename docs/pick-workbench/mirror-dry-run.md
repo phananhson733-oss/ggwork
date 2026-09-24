@@ -21,7 +21,7 @@
 
 1. 确认 Rolling Releases 已关闭。看 Preview 环境已有哪些变量：`vercel env ls preview` 只列名字，不显示值。
 2. 配临时 `PICK_EXPORT_TOKEN`：**只配 Preview，并限定 git 分支 `feat/pick-export-v2`**（生成与写入见下一节）。不配 Production，也不配 Development：配到 Development 会被 `vercel env pull` 拉到本机文件里。
-3. 要量 v1、而 Preview 上没有 `PICK_FEED_TOKEN` 时，另配一个临时值，作用域同上。**不要用生产的值。** 不量 v1 就不配，dry-run 会跳过 v1 并在汇总里注明。
+3. 要量 v1、而 Preview 上没有 `PICK_FEED_TOKEN` 时，另配一个临时值，作用域同上。**不要用生产的值。** 不量 v1 就不配，dry-run 会跳过 v1 并在汇总里注明。**加 `--scan` 就必须量 v1**：没有 v1 token 时 `pan_scan` 门槛直接判不通过（v1 行与 `v1.rules` 没扫，P1 第 7 步要求含 `v1.rules` 全为 0）。
 4. 打开 Deployment Protection 里的 Protection Bypass for Automation，拿到 bypass 值。**bypass 是项目级的，对这个项目的所有 Preview 部署都生效**，所以测完当天就撤。项目上原本就有 bypass 时，先问清用途再动。
 5. **Redeploy** 这个分支的 Preview：环境变量只对新部署生效，旧部署看不到新配的 token。
 
@@ -81,7 +81,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 | `--bypass-header-file` | 只放 bypass 值的文件；不收命令行明文。Production 上不给 |
 | `--token-file` | v2 token 文件；不给就读环境变量 `PICK_REALSHORT_EXPORT_TOKEN` |
 | `--v1-token-file` | v1 token 文件；不给就读 `PICK_REALSHORT_FEED_TOKEN`；都没有就跳过 v1 |
-| `--scan` | 在内存里用 Python 网盘清洗扫描每一页，只报路径与次数 |
+| `--scan` | 在内存里用 Python 网盘清洗扫描每一页，只报路径与次数。要连 v1 一起扫，所以同时要有 v1 token，否则 `pan_scan` 不通过 |
 | `--limit rs_rows=N` | 覆盖页大小，可以写多个：`--limit rs_rows=1000 rs_ids=5000`；取值 1 到该资源的服务端上限 |
 | `--series-days N` | 拉 `snapshotDays` 最后几天的 rs_series_day，0 到 93，缺省 1（只拉 latestSnapshot 那天） |
 
@@ -181,7 +181,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 | `run_time` | `ok`、`limit_ms`、`run_ms` |
 | `row_counts` | `ok`、`mismatched`（行数对不上的资源） |
 | `title_scrub` | `ok`、`hits`（六个标题字段上的 `meta.scrub` 命中）；有命中时另有 `blocks` |
-| `pan_scan` | 只在加了 `--scan` 时出现：`ok`、`paths`（有命中的路径数）、`hits`（命中次数合计） |
+| `pan_scan` | 只在加了 `--scan` 时出现：`ok`、`paths`（有命中的路径数）、`hits`（命中次数合计）；没有 v1 token 时另有 `unscanned`（没扫到的 `v1.rows`、`v1.rules`）和 `reason`，`ok` 为 false |
 
 `page_time` 和 `page_bytes` 覆盖 manifest 和所有 v2 页（含 rs_series_day），不含 v1。
 
@@ -199,7 +199,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 | 整次少于 3 分钟 | `gates.run_time` | 退出码 1 |
 | 实收行数等于 `counts` | `gates.row_counts`；逐项看 `resources`、`series_days` 的 `rows_match` | 退出码 1 |
 | 六个标题字段的 `meta.scrub` 全为 0：`*.title`、`*.title_cn`、`*.description`、`rs_ids.title`、`catalog_posted.title`、`rs_bill_orders.book_title` | `gates.title_scrub` | 退出码 1，`blocks` 写「阻断 #67 合并」 |
-| `--scan` 所有路径为 0（含 `v1.rules`） | `gates.pan_scan`、`scan.hits` | 退出码 1 |
+| `--scan` 所有路径为 0（含 `v1.rules`），且 v1 确实扫过 | `gates.pan_scan`、`scan.hits`；`gates.pan_scan.unscanned` 不应出现 | 退出码 1 |
 | `sourceRevision` 不为 null | `source_revision_null` 必须是 false | **不影响退出码，要人工看** |
 | 数据库时间少于 90 秒 | Neon Monitoring；各资源 `sum_elapsed_ms` 与 manifest 耗时之和可以当上限 | 人工看 |
 

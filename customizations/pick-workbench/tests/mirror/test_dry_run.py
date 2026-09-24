@@ -191,6 +191,30 @@ def test_dry_run_scan_without_hits_exits_0(capsys, files):
     assert summary["gates"]["pan_scan"] == {"ok": True, "paths": 0, "hits": 0}
 
 
+def test_scan_without_v1_fails_the_pan_scan_gate(capsys, files):
+    # P1 step 7 wants every path at 0, v1.rules included (U45): a --scan that never read v1 cannot vouch for it, so the
+    # gate fails and names what it did not scan, even when the v2 pages and manifest.meta are clean.
+    fake, clock = world()
+    code, lines, _ = run(capsys, fake, clock, "--scan", files=files)
+    _, summary = summary_of(lines)
+    assert code == 1 and summary["ok"] is False and summary["failed_gates"] == ["pan_scan"] and summary["v1"]["skipped"] is True
+    assert summary["scan"]["hits"] == {} and [c for c in fake.calls if c.resource == "v1"] == []
+    gate = summary["gates"]["pan_scan"]
+    assert gate["ok"] is False and gate["unscanned"] == ["v1.rows", "v1.rules"] and (gate["paths"], gate["hits"]) == (0, 0)
+    assert "--v1-token-file" in gate["reason"]
+
+
+def test_scan_without_v1_still_reports_what_it_found(capsys, files):
+    fake, clock = world()
+    _plant_pan(fake)
+    code, lines, text = run(capsys, fake, clock, "--scan", files=files)
+    _, summary = summary_of(lines)
+    assert code == 1 and summary["scan"]["hits"] == {"catalog_rows.reoff_note": 1, "manifest.meta.rules.postedPoolUrl": 1}
+    assert summary["gates"]["pan_scan"]["unscanned"] == ["v1.rows", "v1.rules"] and summary["gates"]["pan_scan"]["hits"] == 2
+    for piece in PAN_PIECES:
+        assert piece not in text
+
+
 def test_without_scan_nothing_is_scanned(capsys, files, monkeypatch):
     from ggwork_pick.mirror import pan
 
@@ -233,9 +257,10 @@ def test_scan_time_is_kept_out_of_run_ms(capsys, files, monkeypatch):
     # run_ms measures RealShort for the run_time gate; the scan's worker-thread time is reported apart, as scan.elapsed_ms.
     from ggwork_pick.mirror import pan
 
+    v1 = {"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}
     fake, clock = world()
     _slow(fake, clock, 1, {"rs_ids"})
-    code, lines, _ = run(capsys, fake, clock, files=files)
+    code, lines, _ = run(capsys, fake, clock, env=v1, files=files)
     _, plain = summary_of(lines)
     assert code == 0 and plain["run_ms"] == 1000.0
 
@@ -252,9 +277,9 @@ def test_scan_time_is_kept_out_of_run_ms(capsys, files, monkeypatch):
 
     monkeypatch.setattr(pan, "scan_v2_page", slowed("scan_v2_page", 2))
     monkeypatch.setattr(pan, "scan_manifest_meta", slowed("scan_manifest_meta", 3))
-    code, lines, _ = run(capsys, fake, clock, "--scan", files=files)
+    code, lines, _ = run(capsys, fake, clock, "--scan", env=v1, files=files)
     pages, summary = summary_of(lines)
-    v2_pages = len([p for p in pages if p["resource"] != "manifest"])
+    v2_pages = len([p for p in pages if p["resource"] not in ("manifest", "v1")])
     assert code == 0 and v2_pages > 1 and summary["scan"]["elapsed_ms"] == 3000.0 + 2000.0 * v2_pages
     assert summary["run_ms"] == plain["run_ms"] and summary["gates"]["run_time"]["run_ms"] == 1000.0
 

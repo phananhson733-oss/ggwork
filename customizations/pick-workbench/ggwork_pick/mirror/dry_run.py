@@ -10,7 +10,8 @@ or a shape no check caught; the summary names its class and the innermost frame,
 Page iteration (walk) and bookkeeping (Tally) are kept apart. --scan also runs the Python pan scrub (mirror/pan.py) over
 every page it reads, in a worker thread, and reports only paths and counts: v1 rows by v1's exemptions, the v1 rules
 Markdown as v1.rules (U45), each v2 row by its resource's exemptions, manifest.meta as finalizeManifest scrubs it. Any
-hit fails the pan_scan gate (U20, U52). Its thread time is kept out of run_ms, which measures RealShort.
+hit fails the pan_scan gate (U20, U52), and so does a --scan without a v1 token: P1 step 7 counts v1.rules too. Its
+thread time is kept out of run_ms, which measures RealShort.
 """
 
 import argparse
@@ -44,6 +45,9 @@ RUN_MS_LIMIT = 180_000
 # (toExportRow's hits); "*" stands for any one row resource, nothing deeper.
 TITLE_SCRUB_FIELDS = ("*.title", "*.title_cn", "*.description", "rs_ids.title", "catalog_posted.title", "rs_bill_orders.book_title")
 BLOCKS_67 = "阻断 #67 合并"
+# What --scan cannot vouch for without a v1 token (P1 step 7, U45): the pan_scan gate then fails and names them.
+V1_SCAN_PATHS = ("v1.rows", "v1.rules")
+V1_UNSCANNED = f"没有 v1 token，v1 行与 v1.rules 没扫；--scan 要连 v1 一起扫（--v1-token-file 或 {FEED_TOKEN_ENV}）"
 # RealShort redeploys often and the fingerprint carries the commit SHA (critique 1.3): the brief's P2-2a starts over
 # from the manifest at most twice, so a third drift ends the dry-run.
 RERUNS = 2
@@ -410,8 +414,9 @@ def _title_hits(scrub: Mapping[str, int]) -> dict[str, int]:
     return {path: count for path, count in scrub.items() if count > 0 and _title_field(path)}
 
 
-def evaluate_gates(pull: Pull, resources: Mapping[str, dict], series: Mapping[str, dict]) -> dict:
-    """Plan 1490-1496 on the v2 pages and the manifest; v1 is reported, not gated (it is not the new endpoint)."""
+def evaluate_gates(pull: Pull, resources: Mapping[str, dict], series: Mapping[str, dict], *, v1_enabled: bool) -> dict:
+    """Plan 1490-1496 on the v2 pages and the manifest; v1 is reported, not gated (it is not the new endpoint), except
+    that pan_scan needs v1 read: P1 step 7 wants every path at 0, v1.rules included."""
     manifest = pull.manifest.metrics
     measured = [("manifest", manifest.elapsed_ms, manifest.bytes)]
     measured = [*measured, *((_label(key), s.max_elapsed_ms, s.max_bytes) for key, s in pull.tally.stats.items() if key[0] != "v1")]
@@ -425,12 +430,13 @@ def evaluate_gates(pull: Pull, resources: Mapping[str, dict], series: Mapping[st
         "run_time": {"ok": pull.run_ms < RUN_MS_LIMIT, "limit_ms": RUN_MS_LIMIT, "run_ms": pull.run_ms},
         "row_counts": {"ok": not mismatched, "mismatched": mismatched},
         "title_scrub": {"ok": not hits, "hits": hits, **({"blocks": BLOCKS_67} if hits else {})},
-        **({"pan_scan": _scan_gate(pull.scan)} if pull.scan is not None else {}),
+        **({"pan_scan": _scan_gate(pull.scan, v1_scanned=v1_enabled)} if pull.scan is not None else {}),
     }
 
 
-def _scan_gate(scan: Scan) -> dict:
-    return {"ok": not scan.hits, "paths": len(scan.hits), "hits": sum(scan.hits.values())}
+def _scan_gate(scan: Scan, *, v1_scanned: bool) -> dict:
+    gate = {"ok": not scan.hits and v1_scanned, "paths": len(scan.hits), "hits": sum(scan.hits.values())}
+    return gate if v1_scanned else {**gate, "unscanned": list(V1_SCAN_PATHS), "reason": V1_UNSCANNED}
 
 
 def _scan_summary(scan: Scan | None) -> dict:
@@ -456,7 +462,7 @@ def summarize(outcome: Outcome, recorder: Recorder, *, v1_enabled: bool) -> dict
     manifest = pull.manifest
     resources = {name: _resource_summary(pull.tally.get((name, None)), manifest.counts[name]) for name in COUNTED_RESOURCES}
     series = {day: _resource_summary(pull.tally.get((SERIES_RESOURCE, day)), manifest.row_cap(SERIES_RESOURCE, day)) for day in pull.days}
-    gates = evaluate_gates(pull, resources, series)
+    gates = evaluate_gates(pull, resources, series, v1_enabled=v1_enabled)
     failed = [name for name, gate in gates.items() if not gate["ok"]]
     return {
         "summary": True,
