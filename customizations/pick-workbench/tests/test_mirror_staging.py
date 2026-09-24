@@ -182,6 +182,9 @@ async def test_pair_publish_refuses_bad_names_before_any_sql(pg_world):
         await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged[:1], t=now(), **NO_ACCEPT_EMPTY)
     with pytest.raises(ValueError, match="时区"):
         await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now().replace(tzinfo=None), **NO_ACCEPT_EMPTY)
+    # accept-empty is never implied: the run says whether G9 leaned on it and what G9 read (P2-4, P2-5c).
+    with pytest.raises(TypeError, match="accept_empty"):
+        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now())
     assert (await version(engine, version_id))["status"] == "building"
 
 
@@ -411,6 +414,34 @@ async def test_prune_keeps_batches_paired_with_published_versions(world):
     else:
         assert statuses == ["pruned", "pruned"]
         assert await row_count(engine, paired[0]["id"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_mirror_writes_only_through_the_shared_repository(world):
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.mirror.publish import MirrorPublishError
+    from ggwork_pick.repository import PickRepository
+
+    engine, service, shared, _ = world
+    alice = PickRepository(service.session_factory, "alice")
+    own = Importer(alice, service.data_dir)
+    mine = [
+        await own.catalog(catalog_payload("mine"), "json", stage=True),
+        await own.knowledge_bundle([(b"# mine", "realshort-rules.md", RULES_REF)], stage=True),
+    ]
+    # Shared writes go only through PickRepository.shared() (brief 0.3): a user's repository publishes and counts nothing.
+    with pytest.raises(RuntimeError, match="共享仓库"):
+        await alice.publish_mirror_pair(version_id=1, schema_name="pickm_v000001", batches=mine, t=now(), **NO_ACCEPT_EMPTY)
+    with pytest.raises(RuntimeError, match="共享仓库"):
+        await alice.publish_agent_only(batches=mine, reason="degraded:G5", t=now())
+    with pytest.raises(RuntimeError, match="共享仓库"):
+        await alice.record_mirror_failure(reason="busy", t=now())
+    # Nor does the shared repository publish a user's batch.
+    with pytest.raises(MirrorPublishError):
+        await shared.publish_agent_only(batches=mine, reason="degraded:G5", t=now())
+    assert [(await batch(engine, item["id"]))["status"] for item in mine] == ["importing", "importing"]
+    if _postgres(engine):
+        assert (await control(engine))["consecutive_failures"] == 0
 
 
 def _shared_owner_lock() -> int:

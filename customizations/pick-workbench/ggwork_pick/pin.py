@@ -7,8 +7,11 @@ both dialects. Only PostgreSQL has pick_mirror, so only there is the current ver
 
 A version counts only when its pair is exactly the batches read: a degraded run's newer batch, or a user's own
 import shadowing the shared one, leaves the run without a version, and data_as_of then comes from the batch.
+A paired version whose times cannot be read (an as_of off the minute) keeps its id, but data_as_of falls back to the
+catalog batch, which the paired publish stamped with the same capture: one bad row must not fail every user's turn.
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import NamedTuple
 
@@ -17,6 +20,8 @@ from sqlalchemy import JSON, literal_column, or_, select
 from ggwork_pick.mirror.feed_shape import format_as_of
 from ggwork_pick.models import import_batches
 from ggwork_pick.repository import DATA_AS_OF_KEYS, SHARED_OWNER, stamp
+
+logger = logging.getLogger(__name__)
 
 # The current version, as json. row_to_json is PostgreSQL's: the SQLite statement never carries this column.
 _VERSION = (
@@ -115,12 +120,20 @@ def _version_data_as_of(row, version: dict) -> dict:
     return {key: values[key] for key in DATA_AS_OF_KEYS}
 
 
+def _paired_data_as_of(row, version: dict) -> dict:
+    try:
+        return _version_data_as_of(row, version)
+    except (TypeError, ValueError):
+        logger.warning("[pick] mirror version %s has an unreadable as_of or published_at; data_as_of falls back to its catalog batch", version["id"])
+        return _batch_data_as_of(row)
+
+
 def pin_from_row(row) -> Pin:
     if row.catalog_id is None:
         return Pin(None, row.knowledge_id)
     version = getattr(row, "version", None)
     if version is not None and (version["agent_catalog_batch_id"], version["agent_knowledge_batch_id"]) == (row.catalog_id, row.knowledge_id):
-        return Pin(row.catalog_id, row.knowledge_id, version["id"], _version_data_as_of(row, version))
+        return Pin(row.catalog_id, row.knowledge_id, version["id"], _paired_data_as_of(row, version))
     return Pin(row.catalog_id, row.knowledge_id, None, _batch_data_as_of(row))
 
 

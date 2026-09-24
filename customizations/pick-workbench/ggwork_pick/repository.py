@@ -303,7 +303,12 @@ class PickRepository:
             await session.execute(update(import_batches).where(import_batches.c.id == existing["id"]).values(**_fits(import_batches, values)))
         return {**existing, **values}
 
-    # ---- the mirror run's publish (P2-5a; called with the shared repository) ----
+    # ---- the mirror run's publish (P2-5a; only the shared repository may call these) ----
+
+    def _require_shared(self) -> None:
+        """Shared writes go only through PickRepository.shared() (brief 0.3); a user's repository never touches the mirror."""
+        if self.owner_id != SHARED_OWNER:
+            raise RuntimeError("镜像发布与失败计数只能经共享仓库写入")
 
     async def publish_mirror_pair(
         self,
@@ -312,15 +317,18 @@ class PickRepository:
         schema_name: str,
         batches: list[dict],
         t: datetime,
+        accept_empty_used: bool,
+        accept_empty_seen: datetime | None,
         reader_role: str | None = None,
-        accept_empty_used: bool = False,
-        accept_empty_seen: datetime | None = None,
     ) -> dict:
         """Make the staged pair and the built version current in one transaction (plan 5.2 step 9).
 
         The caller has made sure its dedicated connection is idle: an uncommitted DDL there would hold the GRANT here
         until the ORM's statement timeout (brief 0.3). t is one instant: the batches store stamp(t), the version t.
+        accept_empty_used and accept_empty_seen have no default: the run passes whether G9 passed on accept-empty and the
+        accept_empty_set_at it read, so a one-time pass is never left unconsumed by omission.
         """
+        self._require_shared()
         catalog_id, knowledge_id = pairing.pair_ids(batches)
         pairing.check_schema_name(schema_name)
         role = pairing.reader_role(reader_role)
@@ -339,6 +347,7 @@ class PickRepository:
 
         Returns the new consecutive_failures; None on SQLite, which has no pick_mirror (U35).
         """
+        self._require_shared()
         pairing.check_reason(reason)
         updates = self._batch_updates(batches, pairing.check_moment(t))
         if not updates:
@@ -351,6 +360,7 @@ class PickRepository:
 
     async def record_mirror_failure(self, *, reason: str, t: datetime) -> int | None:
         """The one writer of the failure count besides publish_agent_only (U11); None on SQLite."""
+        self._require_shared()
         pairing.check_reason(reason)
         pairing.check_moment(t)
         async with self.session_factory() as session, session.begin():

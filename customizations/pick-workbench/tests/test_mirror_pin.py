@@ -5,6 +5,7 @@ Sources: plan:1576-1585 and brief section 2.5 items 1 and 5. The frontend reads 
 """
 
 import json
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -142,6 +143,20 @@ async def test_pin_counts_only_published_versions(pg_world):
         await conn.execute(text("UPDATE pick_mirror.versions SET status = 'dropped' WHERE id = :id"), {"id": version_b})
     pin = await _alice(service).current_pin()
     assert (pin.catalog_id, pin.mirror_version) == (pair_b[0]["id"], None)
+
+
+@pytest.mark.asyncio
+async def test_pin_survives_a_version_off_the_minute(pg_world, caplog):
+    # Writers keep as_of on the minute (P2-3); one row that is not must not fail every user's turn.
+    engine, service, shared, importer = pg_world
+    staged = await stage_pair(importer, "a")
+    version_id, schema = await building_version(engine, as_of=AS_OF.replace(second=30))
+    await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
+    with caplog.at_level(logging.WARNING, logger="ggwork_pick.pin"):
+        pin = await _alice(service).current_pin()
+    assert (pin.catalog_id, pin.mirror_version) == (staged[0]["id"], version_id)
+    assert pin.data_as_of == await _alice(service).data_as_of(staged[0]["id"])
+    assert any(str(version_id) in record.getMessage() for record in caplog.records)
 
 
 async def _old_card_then_new_pair(engine, service, shared, importer, *, degraded: bool):
