@@ -13,11 +13,14 @@ Over ten, only versions kept for a reference alone give way, oldest by published
 grace hour never do, even when that leaves more than ten (U23). A card whose version is dropped still names it.
 ggwp batches are not touched here: repository.prune_shared keeps the ones paired with published versions (U25).
 
-Every drop is its own transaction: BEGIN; SET LOCAL lock_timeout; DROP SCHEMA ... CASCADE; the versions row; COMMIT.
-A reader holding the schema makes the DROP wait at most the lock timeout, then that version is skipped until next time
-and the rest go on; readers arriving meanwhile queue behind the DROP for as long (U24, within the reader's 8-second
-statement_timeout). SET LOCAL ends with the transaction, so the connection keeps its default. Between drops the
-connection is idle: nothing uncommitted is left for the ORM's publish transaction to wait on.
+Every drop is its own transaction: BEGIN; SET LOCAL lock_timeout and statement_timeout; DROP SCHEMA ... CASCADE; the
+versions row; COMMIT. lock_timeout counts each lock on its own and the DROP takes one per table, so readers letting go
+of one table after another could hold it far longer; statement_timeout, set to the same, bounds the DROP as a whole.
+Whether the wait ends in the lock timeout (55P03), the statement timeout (57014) or a deadlock with a reader whose one
+statement joins two of the version's tables (40P01), a reader was in the way: that version is skipped until next time
+and the rest go on. Readers arriving meanwhile queue behind the DROP for as long (U24, within the reader's 8-second
+statement_timeout). Any other error is raised. SET LOCAL ends with the transaction, so the connection keeps its
+defaults. Between drops the connection is idle: nothing uncommitted is left for the ORM's publish transaction to wait on.
 
 Only names of the writer's own shape, pickm_v and six ASCII digits, are ever dropped; retention drops only schemas
 registered in versions, and the leftover cleanup only pickm_v* schemas no building or published version claims.
@@ -44,7 +47,10 @@ RETENTION_HOLDERS = ("sync",)
 CLEANUP_HOLDERS = ("sync", "cleanup")
 LOCK_NOT_HELD = "lock_not_held"
 LEFTOVER_ERROR = "遗留的 building 版本：上次运行没有收尾"
-_LOCK_NOT_AVAILABLE = "55P03"  # SQLSTATE lock_not_available: the lock_timeout ran out
+# SQLSTATEs that mean a reader was in the DROP's way: lock_not_available (the lock_timeout ran out), query_canceled
+# (the statement_timeout ran out), deadlock_detected (a reader's statement took the version's tables in the other order).
+_READER_IN_THE_WAY = frozenset({"55P03", "57014", "40P01"})
+_OLDEST = datetime.min.replace(tzinfo=UTC)
 # The writer's schema names, as migration 0006's CHECK has them. [0-9], not \d: Python's \d takes any Unicode digit.
 # P2-3 合并后改用 versions.py 的 schema 名校验。
 _VERSION_SCHEMA = re.compile(r"pickm_v[0-9]{6}")
@@ -123,15 +129,21 @@ def plan_retention(
     cap: int = VERSION_CAP,
     grace: timedelta = SUPERSEDED_GRACE,
 ) -> RetentionPlan:
-    """Which of `published` (newest first: published_at DESC, id DESC) stay, given the version numbers cards recorded."""
+    """Which of `published` stay, given the version numbers cards recorded.
+
+    `published` is put newest first here, published_at DESC, id DESC as the query orders it, a missing published_at
+    first as PostgreSQL's DESC has it.
+    """
     _require_aware(now)
-    protected = frozenset(v.id for v in published[:keep_latest]) | frozenset(v.id for v in published if _in_grace(v, now, grace))
-    cited_oldest_first = tuple(v.id for v in reversed(published) if v.id in referenced and v.id not in protected)
+    _require_limits(keep_latest=keep_latest, cap=cap, windows=(grace,))
+    ordered = tuple(sorted(published, key=_newest_first, reverse=True))
+    protected = frozenset(v.id for v in ordered[:keep_latest]) | frozenset(v.id for v in ordered if _in_grace(v, now, grace))
+    cited_oldest_first = tuple(v.id for v in reversed(ordered) if v.id in referenced and v.id not in protected)
     room = max(cap - len(protected), 0)
     evicted = frozenset(cited_oldest_first[: max(len(cited_oldest_first) - room, 0)])
     kept_ids = protected | (frozenset(cited_oldest_first) - evicted)
-    keep = tuple(v.id for v in published if v.id in kept_ids)
-    drop = tuple(v for v in reversed(published) if v.id not in kept_ids)
+    keep = tuple(v.id for v in ordered if v.id in kept_ids)
+    drop = tuple(v for v in reversed(ordered) if v.id not in kept_ids)
     return RetentionPlan(keep=keep, drop=drop, over_cap=max(len(keep) - cap, 0))
 
 
@@ -148,8 +160,8 @@ async def prune_versions(
     """Drop the published versions retention no longer keeps, each in its own transaction (plan 3.6).
 
     `conn` is the sync's dedicated asyncpg connection, outside any transaction and holding the mirror lock as sync;
-    otherwise nothing is read or dropped and the report says lock_not_held. A version whose schema a reader holds past
-    `lock_timeout` stays published and is listed in lock_busy.
+    otherwise nothing is read or dropped and the report says lock_not_held. A version whose DROP a reader held up past
+    `lock_timeout` (or deadlocked with) stays published and is listed in lock_busy.
     """
     now = clock()
     _require_aware(now)
@@ -220,15 +232,16 @@ async def _drop_leftover(conn, name: str, *, timeout_ms: int, clock: Callable[[]
 
 
 async def _drop_in_own_transaction(conn, quoted: str, *, timeout_ms: int, then: Callable[[], Awaitable[None]]) -> bool:
-    """DROP SCHEMA and `then` in one transaction; False, with both rolled back, when a lock wait ran out."""
+    """DROP SCHEMA and `then` in one transaction; False, with both rolled back, when a reader was in the way."""
     try:
         async with conn.transaction():
-            # SET LOCAL: gone at COMMIT or ROLLBACK, so the connection keeps its default lock_timeout.
+            # SET LOCAL: gone at COMMIT or ROLLBACK, so the connection keeps its defaults.
             await conn.execute(f"SET LOCAL lock_timeout = '{timeout_ms}ms'")
+            await conn.execute(f"SET LOCAL statement_timeout = '{timeout_ms}ms'")
             await conn.execute(f"DROP SCHEMA IF EXISTS {quoted} CASCADE")
             await then()
     except Exception as exc:
-        if getattr(exc, "sqlstate", None) == _LOCK_NOT_AVAILABLE:
+        if getattr(exc, "sqlstate", None) in _READER_IN_THE_WAY:
             return False
         raise
     return True
@@ -244,7 +257,7 @@ async def _holds_mirror_lock(conn, *, now: datetime, holders: tuple[str, ...]) -
 
 def _log_retention(report: RetentionReport, *, cap: int) -> None:
     if report.lock_busy:
-        logger.warning("[pick-mirror] retention kept versions %s for now: a reader held their schemas past the lock timeout", list(report.lock_busy))
+        logger.warning("[pick-mirror] retention kept versions %s for now: a reader was in the way of their DROP", list(report.lock_busy))
     if report.over_cap:
         logger.warning("[pick-mirror] retention keeps %d versions, %d over the cap of %d (U23)", len(report.kept), report.over_cap, cap)
 
@@ -254,6 +267,10 @@ def _quoted_schema(name: object) -> str:
     if not isinstance(name, str) or not _VERSION_SCHEMA.fullmatch(name):
         raise ValueError("版本 schema 名必须是 pickm_v 加 6 位数字")
     return f'"{name}"'
+
+
+def _newest_first(version: PublishedVersion) -> tuple[bool, datetime, int]:
+    return (version.published_at is None, version.published_at or _OLDEST, version.id)
 
 
 def _in_grace(version: PublishedVersion, now: datetime, grace: timedelta) -> bool:

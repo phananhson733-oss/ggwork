@@ -3,6 +3,7 @@
 PostgreSQL only: every test skips when PICK_TEST_PG_URL is unset.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -63,6 +64,15 @@ async def sync_conn(dedicated):
 
 def _schema(n: int) -> str:
     return f"pickm_v{n:06d}"
+
+
+def _bounded_by(timeout: str) -> list[str]:
+    """What opens each DROP's transaction: the lock wait and the whole statement both bounded by `timeout` (U24)."""
+    return ["BEGIN", f"SET LOCAL lock_timeout = '{timeout}'", f"SET LOCAL statement_timeout = '{timeout}'"]
+
+
+def _drop_heads(sent: list[str]) -> list[list[str]]:
+    return [sent[index - 3 : index] for index, query in enumerate(sent) if query.startswith("DROP SCHEMA")]
 
 
 async def _create_schema(observer, name: str) -> None:
@@ -357,9 +367,8 @@ async def test_every_setting_is_set_local_inside_its_own_transaction(sync_conn, 
     recorder = _Recorder(sync_conn)
     report = await _prune(recorder)
     assert report.dropped == (1, 2, 3)
-    settings = [(index, query) for index, query in enumerate(recorder.sent) if re.match(r"(?i)\s*set\b", query)]
-    assert len(settings) == 3 and all(re.match(r"(?i)\s*set\s+local\s+lock_timeout\b", query) for _, query in settings)
-    assert all(recorder.sent[index - 1] == "BEGIN" for index, _ in settings)
+    assert _drop_heads(recorder.sent) == [_bounded_by("5000ms")] * 3
+    assert len([query for query in recorder.sent if re.match(r"(?i)\s*set\b", query)]) == 6
     assert not any(SESSION_SETTING.search(query) for query in recorder.sent)
     # Idle between steps and after: nothing uncommitted is left for the ORM's publish to wait on.
     assert not sync_conn.is_in_transaction()
@@ -378,6 +387,22 @@ async def test_a_version_that_stops_being_published_midway_keeps_its_schema(sync
     assert await sync_conn.fetchval("show lock_timeout") == "0" and not sync_conn.is_in_transaction()
 
 
+# 55P03 the lock_timeout ran out; 40P01 a reader's one statement over two of its tables met the DROP from the other
+# end; 57014 the statement_timeout ended a DROP that waited on one table after another. All a reader in the way (U24).
+@pytest.mark.parametrize("error", ["LockNotAvailableError", "DeadlockDetectedError", "QueryCanceledError"])
+@pytest.mark.asyncio
+async def test_a_drop_a_reader_ended_is_skipped_however_the_wait_ended(sync_conn, observer, error):
+    import asyncpg
+
+    await _chain(observer, 6)
+    failing = _FailsDrop(sync_conn, schema=_schema(2), error=getattr(asyncpg.exceptions, error)("synthetic"))
+    report = await _prune(failing)
+    assert (report.dropped, report.lock_busy) == ((1, 3), (2,))
+    assert await _statuses(observer) == {1: "dropped", 2: "published", 3: "dropped", 4: "published", 5: "published", 6: "published"}
+    assert _schema(2) in await _schemas(observer)
+    assert await sync_conn.fetchval("show statement_timeout") == "0" and not sync_conn.is_in_transaction()
+
+
 @pytest.mark.parametrize("step", ["prune", "clean"])
 @pytest.mark.asyncio
 async def test_any_other_database_error_is_raised_not_taken_for_a_reader(sync_conn, observer, step):
@@ -392,6 +417,60 @@ async def test_any_other_database_error_is_raised_not_taken_for_a_reader(sync_co
         await (_prune if step == "prune" else _clean)(failing)
     assert await observer.fetchrow(row, target) == before and target in await _schemas(observer)
     assert await sync_conn.fetchval("show lock_timeout") == "0" and not sync_conn.is_in_transaction()
+
+
+@pytest.mark.asyncio
+async def test_the_whole_drop_waits_at_most_the_timeout_not_once_per_table(sync_conn, observer, dsn):
+    # lock_timeout counts each lock on its own, and DROP ... CASCADE takes one per table. Two readers, each on one table,
+    # letting go one after the other inside the timeout, would hold the DROP, and every reader queued behind it, for
+    # both waits together. The statement_timeout bounds the DROP as a whole (U24).
+    import asyncpg
+
+    await _chain(observer, 4)
+    await observer.execute(f'create table "{_schema(1)}".other (x int)')
+    readers = [await asyncpg.connect(dsn) for _ in range(2)]
+    try:
+        holding = {}
+        for reader, table in zip(readers, ("meta", "other"), strict=True):
+            transaction = reader.transaction()
+            await transaction.start()
+            await reader.fetchval(f'select count(*) from "{_schema(1)}".{table}')
+            holding[await reader.fetchval("select pg_backend_pid()")] = transaction
+        dropper = await sync_conn.fetchval("select pg_backend_pid()")
+        pruning = asyncio.create_task(_prune(sync_conn, lock_timeout=timedelta(seconds=1)))
+        for _ in range(2):
+            blocker = await _blocker(observer, dropper, among=holding)
+            if blocker is None:
+                break
+            await asyncio.sleep(0.6)
+            await holding.pop(blocker).rollback()
+        report = await pruning
+    finally:
+        for reader in readers:
+            await reader.close()
+    assert (report.dropped, report.lock_busy) == ((), (1,))
+    assert (await _statuses(observer))[1] == "published" and _schema(1) in await _schemas(observer)
+    assert await sync_conn.fetchval("show statement_timeout") == "0"
+
+
+async def _blocker(observer, pid: int, *, among: dict, within: float = 3.0) -> int | None:
+    """Which of `among` the backend `pid` is waiting on, once it waits; None if it never does within `within` seconds."""
+    deadline = time.monotonic() + within
+    while time.monotonic() < deadline:
+        blocking = [blocker for blocker in await observer.fetchval("select pg_blocking_pids($1)", pid) if blocker in among]
+        if blocking:
+            return blocking[0]
+        await asyncio.sleep(0.02)
+    return None
+
+
+@pytest.mark.parametrize("options, timeout", [({}, "5000ms"), ({"lock_timeout": timedelta(milliseconds=200)}, "200ms")])
+@pytest.mark.asyncio
+async def test_the_cleanup_bounds_each_drop_by_the_timeout_it_is_given(sync_conn, observer, options, timeout):
+    await _leftovers(observer)
+    recorder = _Recorder(sync_conn)
+    assert (await _clean(recorder, **options)).dropped_schemas == LEFTOVER_SCHEMAS + (_schema(99),)
+    assert _drop_heads(recorder.sent) == [_bounded_by(timeout)] * 6
 
 
 @pytest.mark.asyncio
@@ -417,6 +496,30 @@ async def test_keep_latest_and_the_cap_are_the_ones_passed_in(sync_conn, observe
         await _cite(observer, n, at=T0 - timedelta(days=1))
     report = await _prune(sync_conn, **options)
     assert (report.kept, report.dropped, report.over_cap) == (kept, dropped, 0)
+
+
+def _published(n: int, hours_ago: int | None) -> object:
+    from ggwork_pick.mirror.retention import PublishedVersion
+
+    published = None if hours_ago is None else T0 - timedelta(hours=hours_ago)
+    return PublishedVersion(id=n, schema_name=_schema(n), published_at=published, superseded_at=None)
+
+
+@pytest.mark.parametrize("options", [{"keep_latest": 0}, {"cap": 2}, {"grace": timedelta(seconds=-1)}, {"grace": 3600}])
+def test_plan_retention_refuses_bad_limits_by_itself(options):
+    from ggwork_pick.mirror.retention import plan_retention
+
+    with pytest.raises(ValueError):
+        plan_retention((_published(1, 3), _published(2, 2), _published(3, 1)), frozenset(), now=T0, **options)
+
+
+def test_plan_retention_orders_what_it_is_given_by_itself():
+    # published_at DESC, id DESC as the query has it, a missing published_at first (PostgreSQL's DESC puts NULL first).
+    from ggwork_pick.mirror.retention import plan_retention
+
+    shuffled = (_published(2, 8), _published(5, 4), _published(1, 10), _published(4, 2), _published(3, 8), _published(6, None))
+    plan = plan_retention(shuffled, frozenset(), now=T0)
+    assert (plan.keep, tuple(v.id for v in plan.drop), plan.over_cap) == ((6, 4, 5), (1, 2, 3), 0)
 
 
 def test_the_module_never_sets_a_session_level_setting():
