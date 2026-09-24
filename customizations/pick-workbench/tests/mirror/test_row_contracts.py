@@ -19,7 +19,10 @@ from ggwork_pick.mirror import contracts, errors
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 CONTRACT = json.loads((FIXTURES / "export_v2_contract.json").read_text(encoding="utf-8"))
-ROWS = {resource: sample["output"] for resource, sample in CONTRACT["v2_rows"].items()}
+# The generated rs_clicks14 sample puts a pan string in day to exercise the scrub exemption; RealShort's day there is
+# to_char(..., 'YYYY-MM-DD') (export-v2.ts:242), which the contract holds it to.
+REAL_DAYS = {"rs_clicks14": {"day": "2026-09-01"}}
+ROWS = {resource: {**sample["output"], **REAL_DAYS.get(resource, {})} for resource, sample in CONTRACT["v2_rows"].items()}
 MANIFEST = CONTRACT["manifest"]
 SECRET = "SECRETVALUE"
 
@@ -180,6 +183,10 @@ def test_payload_and_posts_keys_are_optional_and_values_loose():
         ("rs_rows", "rr", None),
         ("rs_rows", "rr", True),
         ("rs_clicks14", "day", None),
+        # rs_clicks14.day is SQL-formatted (export-v2.ts:242): a real YYYY-MM-DD in ASCII digits, nothing else.
+        ("rs_clicks14", "day", "2026-09-01 00:00"),
+        ("rs_clicks14", "day", "2026-02-30"),
+        ("rs_clicks14", "day", "２026-09-01"),
         ("rs_ids", "canonical_id", 7),
     ],
 )
@@ -210,6 +217,8 @@ def test_page_shape_is_checked():
 
 def test_manifest_model():
     manifest = contracts.parse_manifest(MANIFEST)
+    # Not "Manifest": that is the client's checked manifest (feed_shape.Manifest, P2-2a), a different object.
+    assert isinstance(manifest, contracts.ManifestModel) and not hasattr(contracts, "Manifest")
     assert manifest.counts.rs_rows == 1 and manifest.snapshotDays[0].rows == 30000
     assert manifest.meta.scrub == {"catalog_signals.payload.h[*][*]": 2}
     assert contracts.parse_page("manifest", page("manifest", [MANIFEST])) == (manifest,)
@@ -269,11 +278,21 @@ def test_manifest_refuses_a_missing_required_key(path):
 
 @pytest.mark.parametrize(
     ("path", "value"),
-    [("version", "pick-export-v3"), ("asOf", "2026-09-23T10:15:00Z"), ("fingerprint", "A" * 64), ("counts.rs_ids", -1), ("counts.rs_ids", "1")],
+    [
+        ("version", "pick-export-v3"),
+        ("asOf", "2026-09-23T10:15:00Z"),
+        ("fingerprint", "A" * 64),
+        ("counts.rs_ids", -1),
+        ("counts.rs_ids", "1"),
+        # snapshotDays days are what rs_series_day's day parameter must be (export-v2-page.ts:49-54), as P2-2a checks them.
+        ("snapshotDays.0.day", "2026-09-23T00:00"),
+        ("snapshotDays.0.day", "2026-02-30"),
+    ],
 )
 def test_manifest_identity_fields_are_typed(path, value):
-    with pytest.raises(contracts.PageContractError):
+    with pytest.raises(contracts.PageContractError) as caught:
         contracts.parse_manifest(_with(MANIFEST, path, value))
+    assert caught.value.path.startswith(path)
 
 
 def test_manifest_page_needs_exactly_one_row():
@@ -310,7 +329,7 @@ def _realshort_shape(shape):
 
 
 def test_manifest_shape_matches_realshort():
-    assert _shape_of(contracts.Manifest) == _realshort_shape(CONTRACT["manifest_shape"])
+    assert _shape_of(contracts.ManifestModel) == _realshort_shape(CONTRACT["manifest_shape"])
 
 
 def test_forbidden_name_matches_realshort():

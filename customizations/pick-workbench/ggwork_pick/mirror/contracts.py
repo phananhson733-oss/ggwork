@@ -16,7 +16,7 @@ import keyword
 import math
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import MappingProxyType
 from typing import Annotated, Any, ClassVar, Literal
 
@@ -138,6 +138,8 @@ SIGNAL_PAYLOAD_KEYS = ("d", "w", "weeks", "best", "days", "first", "h", "qy", "p
 POSTED_POST_KEYS = ("d", "acct", "st", "views", "likes", "favs", "cmts", "shares", "md", "url", "note", "how", "pid")
 
 # request.ts, observe/metrics.ts and observe/source-types.ts: the fixed keys of the manifest's records (export-v2-map.ts:853-897).
+# Closed on purpose, like RealShort's rec(of, keys): once RealShort adds a platform, basis, rank, sort or export source, every
+# manifest is refused (the error names the record and the new key) until these lists follow it.
 PLATFORMS = ("reelshort", "dramabox", "shortmax", "flickreels", "flareflow", "kalos", "starshort", "goodshort", "moboreels", "touchshort")
 THEATER_BASES = ("kd", "kw", "qc", "qr", "sm", "smd", "mg", "fh", "sh", "gh", "gn", "ghh", "dbn")
 BASES = (*THEATER_BASES, "clk", "bill", "gsc")
@@ -153,6 +155,7 @@ SOURCE_DETAIL_KEYS = (
 # Date.toISOString(): what RealShort's ts columns always are (export-v2-map.ts:709-712).
 TS_TEXT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z")
 TS_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
+DAY_TEXT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 MAX_SAFE_INTEGER = 2**53 - 1
 # Longest piece of a key path an error repeats: key names are not values, but nothing bounds their length.
 PATH_PART_MAX = 64
@@ -177,6 +180,20 @@ def _timestamp(value: str) -> str:
     if TS_TEXT.fullmatch(value) is None or _parse_ts(value) is None:
         raise PydanticCustomError("realshort_ts", "应是 RealShort 的毫秒 UTC 时间（YYYY-MM-DDTHH:MM:SS.sssZ）")
     return value
+
+
+def _real_day(value: str) -> str:
+    """A calendar day as YYYY-MM-DD in ASCII digits: what PG's to_char writes and rs_series_day's day parameter must be."""
+    if DAY_TEXT.fullmatch(value) is None or _parse_day(value) is None:
+        raise PydanticCustomError("realshort_day", "应是 YYYY-MM-DD 的真实日期")
+    return value
+
+
+def _parse_day(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _scalar(value):
@@ -204,6 +221,7 @@ def _json_value(value):
 
 
 Timestamp = Annotated[StrictStr, AfterValidator(_timestamp)]
+RealDay = Annotated[StrictStr, AfterValidator(_real_day)]
 Scalar = Annotated[Any, AfterValidator(_scalar)]
 JsonValue = Annotated[Any, AfterValidator(_json_value)]
 SafeInt = Annotated[StrictInt, Field(ge=-MAX_SAFE_INTEGER, le=MAX_SAFE_INTEGER)]
@@ -244,6 +262,10 @@ PostedPost = create_model("PostedPost", __base__=StrictContract, __module__=__na
 _BASE_TYPES = MappingProxyType(
     {"text": StrictStr, "day": StrictStr, "int": SafeInt, "float": StrictFloat, "bool": StrictBool, "ts": Timestamp, "text[]": list[StrictStr]}
 )
+# A day column is only a string to RealShort (normalizeValue, export-v2-map.ts:741-743), and most are text it never checks
+# (every day column is PG text there). The ones its SQL formats are held to a real YYYY-MM-DD: rs_clicks14.day is
+# to_char(..., 'YYYY-MM-DD') (export-v2.ts:242).
+_REAL_DAY_COLUMNS = frozenset({("rs_clicks14", "day")})
 # export-v2-map.ts:200-203: the only json columns, each with its key whitelist.
 _JSON_TYPES = MappingProxyType({("catalog_signals", "payload"): SignalPayload, ("catalog_posted", "posts"): list[PostedPost]})
 
@@ -259,6 +281,8 @@ def _column_type(resource: str, column: Column):
         if (resource, column.name) not in _JSON_TYPES:
             raise ValueError(f"export-v2 的 json 列 {resource}.{column.name} 没有登记键白名单")
         base = _JSON_TYPES[(resource, column.name)]
+    elif (resource, column.name) in _REAL_DAY_COLUMNS:
+        base = RealDay
     else:
         base = _BASE_TYPES[column.type]
     return base | None if column.nullable else base
@@ -277,7 +301,7 @@ ROW_MODELS = MappingProxyType({resource: _row_model(resource) for resource in RO
 # ---------------------------------------------------------------- manifest (export-v2-map.ts:853-909)
 
 Counts = create_model("Counts", __base__=StrictContract, __module__=__name__, **_fields(COUNTED_RESOURCES, Count, required=True))
-SnapshotDay = create_model("SnapshotDay", __base__=StrictContract, __module__=__name__, day=(StrictStr, ...), rows=(Count, ...))
+SnapshotDay = create_model("SnapshotDay", __base__=StrictContract, __module__=__name__, day=(RealDay, ...), rows=(Count, ...))
 Freshness = _flat("Freshness", ("importedAt", "rows", "withSignal", "signals", "posted", "rsCanonical", "rsCandidates", "rsSyncedAt"))
 RsCounts = _flat("RsCounts", ("all", "cand", "growthD1", "growthD7", "growthDp1", "growthDp7", "pc", "clk", "gsc", "bill", "ledger"))
 GrowthBaseline = _flat("GrowthBaseline", ("baselineDay", "baselineSnapshot", "earliestVerifiedOn"))
@@ -347,7 +371,9 @@ class Meta(StrictContract):
     warnings: list[ManifestWarning]
 
 
-class Manifest(StrictContract):
+class ManifestModel(StrictContract):
+    """The manifest's content as MANIFEST_SHAPE promises it (not the client's checked feed_shape.Manifest)."""
+
     version: Literal["pick-export-v2"]
     asOf: Timestamp
     fingerprint: Fingerprint
@@ -436,14 +462,14 @@ def _contract(resource: str, model: type[StrictContract], value, row: int | None
     raise PageContractError(resource, row, _path(first["loc"]), f"{first['type']}，共 {len(errors)} 处")
 
 
-def parse_manifest(manifest) -> Manifest:
+def parse_manifest(manifest) -> ManifestModel:
     """The manifest object (the one row of the manifest page), checked like a page and validated against MANIFEST_SHAPE."""
     _check_text_and_names(MANIFEST, manifest)
-    return _contract(MANIFEST, Manifest, manifest, row=None)
+    return _contract(MANIFEST, ManifestModel, manifest, row=None)
 
 
 def parse_page(resource: str, page) -> tuple[StrictContract, ...]:
-    """One decoded page body of feed v2 -> its rows as models (a manifest page -> a 1-tuple of Manifest).
+    """One decoded page body of feed v2 -> its rows as models (a manifest page -> a 1-tuple of ManifestModel).
 
     Only rows is read here; the envelope (ok, version, resource, asOf, fingerprint, nextCursor) is the client's to check.
     The whole page is refused on the first problem, with a PageContractError that holds no value.
@@ -457,7 +483,7 @@ def parse_page(resource: str, page) -> tuple[StrictContract, ...]:
     if resource == MANIFEST:
         if len(rows) != 1:
             raise PageContractError(resource, None, "rows", f"manifest 页应正好一行，实际 {len(rows)} 行")
-        return (_contract(resource, Manifest, rows[0], row=None),)
+        return (_contract(resource, ManifestModel, rows[0], row=None),)
     model = ROW_MODELS[resource]
     return tuple(_contract(resource, model, value, row=index) for index, value in enumerate(rows))
 
