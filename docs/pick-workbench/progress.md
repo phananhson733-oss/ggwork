@@ -1,4 +1,4 @@
-# 当前状态（2026-09-24）
+# 当前状态（2026-09-25）
 
 入口 https://ggwork-deerflow.vercel.app ；代码在 `phananhson733-oss/ggwork` 的 main（本地 `work` 分支，浅克隆，所以推送的是快照根提交之后的增量）；基线标签 `pick-mvp-baseline-20260921`。
 
@@ -15,7 +15,7 @@
   - 工作台宿主和选剧扩展一起搬到独立的 Supabase 项目 `ggwork-workbench`，与 RealShort 没有交集。
   - 旧 SQLite 整库备份，48 小时内可以回滚，旧对话按决定不迁移。
   - 演练和切换后的验证（含 10 题独立核对）都通过，见 [supabase.md](supabase.md) 第 12 节。
-  - 选剧资料页镜像旧选剧台（P2 镜像写入、P3 资料页）还没做；RealShort 的导出接口 realshort#67 已于 09-24 合并（见下一条）。
+  - 选剧资料页镜像旧选剧台：P2 镜像写入、P3 资料页、P4 一致性链接都已于 09-24 上线，见下文「镜像写入（P2）上线」与「资料页（P3）与一致性链接（P4）上线」。
 - **feed v2 实测与 realshort#67 合并（2026-09-24）**：
   - P1-6：在 RealShort 读生产库的 Preview 上跑了两次 dry-run。默认页大小时 rs_rows 单页 2.6–25.4 秒、整次 228.8 秒；`--limit rs_rows=1000` 时单页 1.9–2.6 秒、整次 120.8 秒，所以 rs_rows 页大小定为 1000。八个资源和当天 rs_series_day 的行数全对，网盘扫描、标题清洗、漂移与 busy 都是 0。
   - manifest 22–25 秒，超过每页 15 秒的门槛。决定先接受：manifest 单独门槛 45 秒，上线后看运行记录；RealShort 另开任务优化。
@@ -121,5 +121,24 @@
 - RealShort Production 配好 `PICK_EXPORT_TOKEN` 并重新部署；生产 dry-run `--scan` 全部门槛通过（整次 132.9 s，manifest 22.5 s，0 命中）。
 - ggwork main 1db08b6 部署到 Railway，迁移到 0006；回填曲线 15 天（RealShort 只保留到 2026-09-10）；打开 `PICK_MIRROR_ENABLED=1`。
 - 首次镜像同步 114 s，配对发布版本 1，八道闸门全过；智能体 10 题与 P0-6 逐题一致。数字见 [realshort-sync.md](realshort-sync.md)「镜像写入（P2）」，值守与回滚见 [mirror-runbook.md](mirror-runbook.md)。
-- 资料页（P3）还没上线：镜像已经有数据，页面上线前只能经 `/api/pick/sync` 的 `mirror` 字段看状态。
+- 资料页（P3）于同日 20:40 UTC 上线，见下一节。
+
+## 资料页（P3）与一致性链接（P4）上线（2026-09-24）
+
+- 前端 301b0ea 于 20:40 UTC 上线，从干净的 `git archive` 导出目录部署。未登录会被重定向，`RSC: 1` 请求里没有剧名；六个数据 tab 都读到镜像 v1。TLS 按 CA 校验。压测 20 并发 120 秒，1,634 个请求全部 200、0 错误；本机测得 p95 2.80 s，大部分是跨洋网络，服务端口径无法直接测。reader 在 20 并发时用满 Pool Size 20，排队不报错。数字见 [supabase.md](supabase.md)「资料页上线（P3-6）」。
+- 后端 301b0ea 于 20:45 UTC 部署，20:51 UTC 打开 `PICK_EMIT_MIRROR_VERSION=1`；候选卡的「在选剧资料核对」与回放链接都已实测，见 [realshort-sync.md](realshort-sync.md)「候选卡的镜像版本号（P4-1）」。
+- P4-4 验收：
+  1. 逐字段核对：镜像 v1 对 RealShort 快照（c45c520）跑了 79 个用例，没有数据差异。白名单外的 25 条都是 collation 造成的（RealShort C.UTF-8、镜像 en_US.UTF-8），逐条核过：1 条是账号顺序，已补进比对规则（0a0c5af）；24 条是分页边界的换行，核法写进了手册。
+  2. 漂移：基准 816ca2e 之后，移植的路径没有变化。
+  3. 逐 tab 对照旧页：用第 1 步的逐字段核对代替。它在同一次采集上逐字段比，比人工看结构和计数更严。
+  4. Playwright：本机 QA 实例（TLS PG、fixture、生产构建）上跑 301b0ea，`pick-data-board.spec.ts` 在个人导入前后各 6/6，`personal-selection.spec.ts` 3/3，没有 skip。
+  5. 真实候选卡：5 张卡、23 个条目，回放与核对都对得上。v2 发布后，这些卡仍按 v1 回放，并提示当前最新 v2。
+  - 详见 [pick-board-parity.md](pick-board-parity.md)「核对记录」。
+- 21:12 UTC 新后端的第一次同步配对发布了版本 2，保留 v1。
+- 后续：
+  - 分页边界换行的放行要回镜像库查缺行，现在是人工核，可以做进比对脚本。
+  - 选剧与全部剧库的 HTML 约 520 KB，可以瘦身。
+  - `@vercel/functions` 的 `attachDatabasePool` 没装：装它会改动 lockfile 里无关的条目。
+  - `perf:check` 有 10 项旧的超预算。
+  - RealShort 的 manifest 仍要 22–27 秒。
 

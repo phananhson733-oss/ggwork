@@ -517,3 +517,17 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 **每周容量（第 6 节）：** 切换后开始记录。
 
 **网盘片段核查（第 6 节）：** 2026-09-23 只查了剧目与候选快照两处，都是 0（原来的模式）。2026-09-24 03:53 UTC 按第 1 步做了第一次完整核查，模式是 24c74fe 的 `PAN=`（容器里 SHA-256 自检一致）：gateway 容器里 `pan_scan` 退出码 0，`[原始 feed 文件]` 与 `[线程]` 都是空的（railway ssh 进去是 bash，`/bin/sh` 是 dash，GNU grep 3.8，`/data/threads` 不存在）；本机以 `deerflow_app` 跑 `pan-check.sql`（`disk_threads=''`），11 个位置全是 0，线程表为空。覆盖 3 个批次 23,976 行剧目（含 03:40 UTC 那次成功同步的批次）、12 份候选、2 条选择、2 条回答核对、1 份知识文档。没有命中，第 2 步以后不用做。
+
+**资料页上线（P3-6）：2026-09-24 完成。** 前端 301b0ea 于 20:40 UTC 上线（`dpl_8oZPJ…`），别名 ggwork-deerflow.vercel.app 指向它。
+
+| 项 | 结果 |
+|---|---|
+| 部署来源 | 从 `git archive 301b0ea` 导出的干净目录部署，只带 `.vercel/project.json`。Vercel CLI 会上传工作区里 gitignore 的文件，所以不在工作区直接部署：09-22 至 09-23 的四个旧部署源码里带了 `.env`、`frontend/.env`、`config.yaml`、`extensions_config.json`、`backend/.deer-flow/.jwt_secret`（项目开了 SSO 保护，源码只有团队成员能看）。新部署的源码里没有这些文件 |
+| 变量 | Production 有 `PICK_MIRROR_READER_URL` 与 `PICK_MIRROR_CA_PEM`；Preview、Development 没有 |
+| TLS | 按 CA 校验通过，没有退回不校验：`db.ts` 固定 `rejectUnauthorized: true` 加 `PICK_MIRROR_CA_PEM`，缺 CA 时报 `MirrorMisconfigured`、不会回落到系统根证书；生产 6 个数据 tab 都读到镜像 |
+| 上线后验证 | 未登录请求被 307 到 `/login`；带 `RSC: 1` 的未登录请求 8 KB，40 个已知剧名 0 个出现；登录后 pick、all、rank、posted、rules 与单条证据页都是 200、页头显示「镜像 v1」、没有错误页；imports tab 不读镜像，版本号由浏览器端取 |
+| 运行时日志 | 上线后 30 分钟与压测期间没有 error / warning，没有 `[pick-board] query failed` 或 `outside a version scope` |
+| 压测 | 21:06:48 UTC 起 20 并发、120 秒，混合 5 个数据 tab、两个翻页与 5 个证据页：1,634 个请求全部 200，0 个连接错误、0 个错误页，13.6 请求/秒。本机（亚洲）测得 p50 1.31 s、p95 2.80 s、p99 3.69 s |
+| p95 的口径 | 目标 p95 < 2.5 s 是服务端口径；团队套餐没有 Observability，拿不到函数耗时。本机不加压逐个请求：TLS 握手 0.36 s，静态 favicon 首字节 0.95 s，各 tab 首字节 0.85–1.2 s，正文 160–520 KB 传输 0.35–1.0 s。页面首字节只比静态文件多 0.25 s 以内，所以 2.80 s 里大部分是跨洋往返和传输；服务端 p95 达标是估计，没有直接测到 |
+| reader 峰值 | 每 5 秒采样一次，压测期间 `pick_board_reader` 17–20 个，单次采样最高 22（连接开关的瞬间）；压测后仍是 20 个 Supavisor 空闲连接。20 并发时把 Pool Size 20 用满，客户端在 transaction 模式里排队，没有报错 |
+| 连接计数的读法 | Supavisor 在客户端断开后把服务端连接留在池里给同一角色复用，所以 `pg_stat_activity` 看到的是池子大小，不是同时在用的客户端。压测后 `deerflow_app` 18 个 idle、1 个 active（采样本身留下的），不挡 gateway |

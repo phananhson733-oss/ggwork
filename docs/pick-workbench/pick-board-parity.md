@@ -126,9 +126,9 @@ PICK_MIRROR_CA_PEM="$(cat "$SCRATCH/supabase-ca.pem")" \
 - **payload、posts 里白名单之外的键**：导出只保留 `SIGNAL_PAYLOAD_KEYS` 与 `POSTED_POST_KEYS`；单测钉住这两个列表与 `contracts.py` 一致。
 - **「分成」改名「订单」**：只在标签字段（`label`、`…Label`）上；剧名、备注这类数据里出现要照报。
 - **timestamptz 按毫秒比**：只在时间字段（`…At`、`…_at`）上。
-- **collation 不同时的剧名排序**：两边 `datcollate` 都知道并且不同时才放行。只看剧场行列表（选剧、全部剧库、剧场榜）与语种计数，先后对调的每一对都要同时满足：
-  - 主排序键相同：选剧与全部剧库是证据日期与剧单日期；日榜是名次；周榜是周数；评级榜是评级与剧单日期；其余剧场榜是证据日期与剧单日期；语种计数是条数；
-  - RealShort 的先后正是按 RealShort 的 collation 比剧名、平台、行键得出的先后（剧场榜不比平台，语种计数只比语种名），镜像的先后也正是按镜像的 collation 得出的。
+- **collation 不同时的剧名排序**：两边 `datcollate` 都知道并且不同时才放行。只看剧场行列表（选剧、全部剧库、剧场榜）、语种计数与账号列表，先后对调的每一对都要同时满足：
+  - 主排序键相同：选剧与全部剧库是证据日期与剧单日期；日榜是名次；周榜是周数；评级榜是评级与剧单日期；其余剧场榜是证据日期与剧单日期；语种计数是条数；账号列表没有主排序键；
+  - RealShort 的先后正是按 RealShort 的 collation 比剧名、平台、行键得出的先后（剧场榜不比平台，语种计数只比语种名，账号比分组、名字、id），镜像的先后也正是按镜像的 collation 得出的。
   - collation 的模型：`C`、`POSIX`、`C.UTF-8`、`ucs_basic` 按码点比，其余用 ICU（`Intl.Collator`）近似 glibc。近似不准时只会多报，这时在两边库上各用 `SELECT '甲' < '乙'` 核一下那一对。
 
 不在白名单里的：
@@ -136,6 +136,19 @@ PICK_MIRROR_CA_PEM="$(cat "$SCRATCH/supabase-ca.pem")" \
 - `clicks7` 的 0 与 null（批判 B16）。
 - ReelShort 预估分成榜（`rs_bill`，按 `bill_rank` 排）的顺序。
 - 同一行在榜单里出现两次时的先后。这种列表按下标比，不按行键比。
+
+### LIMIT 边界上的换行（collation 不同时，要人工核）
+
+快照和镜像都只留每个列表的前 50 行。两边 collation 不同时，第 50 行所在的那组并列行（主排序键相同）按剧名排的先后不一样，截到 50 行时两边会各有几行不同：parity 报成成对的「镜像少了这一项」「镜像多了这一项」。
+
+脚本不放行这种差异：只看快照判断不出镜像里缺的那一行数据是不是也变了。逐个用例人工核，四条都成立才算 collation 造成：
+
+1. 两边都是 50 行，少的条数等于多的条数。
+2. 镜像里缺的每一行，在镜像库里的剧名、主排序键与快照相同（选剧类列表查 `catalog_rows` / `rs_rows` 的 `latest_evidence_on`、`listed_on`；剧场榜查 `catalog_signals` 按 `row_key, ord` 取第一条的 `evidence_on`，再加 `listed_on`）。
+3. 少的、多的，连同快照末行那组并列行，主排序键全都相同。
+4. 在镜像库里把这组行放进 `VALUES`，按列表自己的 ORDER BY 尾部排序（选剧类是剧名、平台、行键，剧场榜是剧名、行键）：加 `COLLATE "C"` 时，前 n 个（n 是快照里这组的行数）正好是快照里的那几行；不加时正好是镜像列表里的那几行。
+
+第 4 条用的是镜像库自己的两种 collation，不是 ICU 近似。
 
 ## 5. 漂移检查
 
@@ -165,6 +178,18 @@ git -C "$RS_REPO" status --short     # 空
 ```
 
 结论记进 `docs/pick-workbench/progress.md`，只写版本号、用例数、差异条数与耗时，不贴数据。
+
+## 核对记录
+
+**2026-09-24（P4-4，镜像 v1，as_of 18:30 UTC，sourceRevision c45c520）**：
+
+- 在 20:50–21:00 UTC 之间拍快照：79 个用例，RealShort 那边 240.1 秒，开头和结尾的 fingerprint 核对都通过，清洗 0 格。本机 RealShort 检出有未提交的改动，所以没有 checkout，而是用 `git worktree add --detach` 在临时目录检出 c45c520，`node_modules` 用符号链接指到原检出，`.env.local` 用绝对路径传给 dotenv；跑完删掉 worktree。
+- 镜像这边耗时约 166 秒。collation：RealShort 是 C.UTF-8，镜像是 en_US.UTF-8。本地剧场键差集为空，`meta.scrub` 为空。
+- 第一次跑，白名单外有 25 条：
+  - 1 条是账号列表顺序。镜像用 `COLLATE "C"` 重排后，19 个账号与 RealShort 完全一致。比对规则随后补上账号列表（0a0c5af）。
+  - 24 条是分页边界上的换行，在 8 个用例里：pick、all、pick.basis.sm、pick.basis.gn、pick.inuse、pick.dated、pick.off、rank.gn。按上面「LIMIT 边界上的换行」逐个核过，四条全部成立。
+- 补规则后重跑：白名单外 24 条，全部是上面核过的边界换行；白名单内 7,961 处，其中 collation 18 处。结论：没有数据差异。
+- 漂移检查：基准 816ca2e 在 origin/main 上，移植路径没有变化，退出 0。
 
 ## 本机演练（合成数据）
 
