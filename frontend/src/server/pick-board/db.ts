@@ -7,6 +7,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { Pool, types, type CustomTypesConfig } from "pg";
 import { cache } from "react";
 
+import type { BoardRules } from "@/core/pick-board/rules";
+
 import {
   DEADLOCK_SQLSTATE,
   errorCode,
@@ -346,4 +348,4 @@ export const {
   getDb,
   controlDb,
   versionDb,
-} = makeScope(requestHolder, getPool);
+} = makeScope<BoardRules>(requestHolder, getPool);
