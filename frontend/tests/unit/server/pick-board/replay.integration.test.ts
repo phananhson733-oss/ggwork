@@ -12,6 +12,11 @@
  * the same board. That only shows the board reads one pair the way the agent
  * does. The guarantee for real data is P2's gate G8 (a version's candidates
  * are exactly the v1 rows of its pair) and P4-4's check of real cards.
+ *
+ * The plan's rank case (sort=rank on a daily board: the first N in the rank
+ * tab's latest-day order, delisted rows left out) is not here: gate_world's
+ * v1 rows carry no rank, and ranks written for this file would be the
+ * circular test B22 rules out. It is step 3 of P4-4, on a real card.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
