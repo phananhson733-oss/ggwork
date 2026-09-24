@@ -5,12 +5,15 @@ there are skipped or refused (U35).
 """
 
 import asyncio
+import hashlib
 from datetime import timedelta
 
 import pytest
 import pytest_asyncio
 from mirror_pairs import (
     AS_OF_TEXT,
+    NO_ACCEPT_EMPTY,
+    RULES_REF,
     batch,
     batch_meta,
     building_version,
@@ -27,6 +30,8 @@ from mirror_pairs import (
 )
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+
+LATER_TEXT = "2026-09-24T15:38:00.000Z"
 
 
 @pytest_asyncio.fixture
@@ -49,11 +54,19 @@ def _postgres(engine) -> bool:
 
 @pytest.mark.asyncio
 async def test_stage_is_invisible(world):
-    engine, _, shared, importer = world
+    from ggwork_pick.repository import PickRepository
+
+    engine, service, shared, importer = world
     current = await importer.catalog(catalog_payload("a"), "json")
+    rules = await importer.knowledge_bundle([(b"# a", "realshort-rules.md", RULES_REF)])
     staged = await importer.catalog(catalog_payload("b"), "json", source_as_of=AS_OF_TEXT, meta=batch_meta("b"), stage=True)
+    await importer.knowledge_bundle([(b"# b", "realshort-rules.md", RULES_REF)], stage=True)
     assert staged["staged"] is True and staged["deferred"] is None
     assert (await shared.current_batch("catalog"))["id"] == current["id"]
+    # Nor does the pin every agent turn reads: a staged batch has no published_at, and PostgreSQL sorts NULL first.
+    for repo in (shared, PickRepository(service.session_factory, "alice")):
+        pin = await repo.current_pin()
+        assert (pin.catalog_id, pin.knowledge_id) == (current["id"], rules["id"])
     row = await batch(engine, staged["id"])
     assert row["status"] == "importing" and row["published_at"] is None
     assert row["source_as_of"] == AS_OF_TEXT and row["validation_json"]["scope"] == "scope-b" and row["validation_json"]["rows"] == 3
@@ -82,7 +95,7 @@ async def test_pair_publish_atomic_visibility(pg_world):
     async with engine.connect() as holder:
         # Holding the control row stops the publish at its last statement, with everything before it done.
         await holder.execute(text("SELECT 1 FROM pick_mirror.control WHERE id = 1 FOR UPDATE"))
-        publishing = asyncio.create_task(shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now()))
+        publishing = asyncio.create_task(shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY))
         try:
             await _wait_for_a_lock_waiter(engine)
             assert await _current(engine, shared) == (old[0]["id"], old[1]["id"], old_version)
@@ -119,14 +132,18 @@ async def test_pair_publish_reuse_old_batch_becomes_current(pg_world):
     engine, _, shared, importer = pg_world
     _, first = await publish_pair(engine, shared, importer, "a")
     await publish_pair(engine, shared, importer, "b")
-    staged = await stage_pair(importer, "a")
+    # The same content again, captured later and described by this run's meta.
+    staged = await stage_pair(importer, "a", as_of_text=LATER_TEXT, meta=batch_meta("again"))
     assert [item["id"] for item in staged] == [item["id"] for item in first] and staged[0]["staged"] is False
     version_id, schema = await building_version(engine)
     t = now()
-    published = await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=t)
+    published = await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=t, **NO_ACCEPT_EMPTY)
     assert published["catalog_batch_id"] == first[0]["id"] and published["published_at"] == stamp(t)
-    row = await batch(engine, first[0]["id"])
-    assert row["published_at"] == stamp(t) and row["source_as_of"] == AS_OF_TEXT
+    # What the reuse deferred is written now (U10): this run's as_of and meta, the batch's own row count.
+    for item, rows in zip(first, (3, 1)):
+        row = await batch(engine, item["id"])
+        assert row["published_at"] == stamp(t) and row["source_as_of"] == LATER_TEXT
+        assert row["validation_json"] == {**batch_meta("again"), "rows": rows}
     assert await _current(engine, shared) == (first[0]["id"], first[1]["id"], version_id)
 
 
@@ -140,14 +157,14 @@ async def test_pair_publish_rowcount_guard(pg_world):
         await conn.execute(text("UPDATE pick_mirror.versions SET status = 'failed' WHERE id = :id"), {"id": version_id})
     staged = await stage_pair(importer, "a")
     with pytest.raises(MirrorPublishError):
-        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now())
+        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
     assert [(await batch(engine, item["id"]))["status"] for item in staged] == ["importing", "importing"]
     assert (await version(engine, version_id))["status"] == "failed"
     # A batch that is neither staged nor published stops the publish the same way.
     version_id, schema = await building_version(engine)
     await shared.fail_staged([staged[0]["id"]])
     with pytest.raises(MirrorPublishError):
-        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now())
+        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
     assert (await version(engine, version_id))["status"] == "building"
     assert (await batch(engine, staged[1]["id"]))["status"] == "importing"
 
@@ -158,13 +175,13 @@ async def test_pair_publish_refuses_bad_names_before_any_sql(pg_world):
     version_id, schema = await building_version(engine)
     staged = await stage_pair(importer, "a")
     with pytest.raises(ValueError, match="schema"):
-        await shared.publish_mirror_pair(version_id=version_id, schema_name="public", batches=staged, t=now())
+        await shared.publish_mirror_pair(version_id=version_id, schema_name="public", batches=staged, t=now(), **NO_ACCEPT_EMPTY)
     with pytest.raises(ValueError, match="PICK_MIRROR_READER_ROLE"):
-        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), reader_role='x"; DROP')
+        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), reader_role='x"; DROP', **NO_ACCEPT_EMPTY)
     with pytest.raises(ValueError, match="批次"):
-        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged[:1], t=now())
+        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged[:1], t=now(), **NO_ACCEPT_EMPTY)
     with pytest.raises(ValueError, match="时区"):
-        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now().replace(tzinfo=None))
+        await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now().replace(tzinfo=None), **NO_ACCEPT_EMPTY)
     assert (await version(engine, version_id))["status"] == "building"
 
 
@@ -173,7 +190,9 @@ async def test_grant_skipped_without_role(pg_world):
     engine, _, shared, importer = pg_world
     version_id, schema = await building_version(engine)
     staged = await stage_pair(importer, "a")
-    published = await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), reader_role="pick_board_reader_absent")
+    published = await shared.publish_mirror_pair(
+        version_id=version_id, schema_name=schema, batches=staged, t=now(), reader_role="pick_board_reader_absent", **NO_ACCEPT_EMPTY
+    )
     assert published["reader_granted"] is False
     assert (await version(engine, version_id))["status"] == "published"
 
@@ -184,7 +203,7 @@ async def test_grant_granted_with_role(pg_world, pg_reader_role):
     version_id, schema = await building_version(engine)
     staged = await stage_pair(importer, "a")
     assert await _privileges(engine, pg_reader_role, schema) == (False, False)
-    published = await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now())
+    published = await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
     assert published["reader_granted"] is True
     assert await _privileges(engine, pg_reader_role, schema) == (True, True)
 
@@ -226,13 +245,15 @@ async def test_fail_staged_only_own_importing(world):
     engine, _, shared, importer = world
     reused = await importer.catalog(catalog_payload("a"), "json")
     fresh = await importer.catalog(catalog_payload("b"), "json", stage=True)
+    rules = await importer.knowledge_bundle([(b"# b", "realshort-rules.md", RULES_REF)], stage=True)
     again = await importer.catalog(catalog_payload("a"), "json", stage=True)
     assert again["id"] == reused["id"] and again["staged"] is False
-    assert await row_count(engine, fresh["id"]) == 3
-    await shared.fail_staged([fresh["id"], again["id"]])
-    failed = await batch(engine, fresh["id"])
-    assert failed["status"] == "failed" and failed["content_hash"] == "failed-" + fresh["id"]
-    assert await row_count(engine, fresh["id"]) == 0
+    assert await row_count(engine, fresh["id"]) == 3 and await row_count(engine, rules["id"]) == 1
+    await shared.fail_staged([fresh["id"], rules["id"], again["id"]])
+    for item in (fresh, rules):
+        failed = await batch(engine, item["id"])
+        assert failed["status"] == "failed" and failed["content_hash"] == "failed-" + item["id"]
+        assert await row_count(engine, item["id"]) == 0
     kept = await batch(engine, reused["id"])
     assert kept["status"] == "published" and kept["content_hash"] == reused["content_hash"] and await row_count(engine, reused["id"]) == 3
 
@@ -318,6 +339,18 @@ async def test_accept_empty_consumed_when_seen(pg_world):
 
 
 @pytest.mark.asyncio
+async def test_accept_empty_consumed_when_never_stamped(pg_world):
+    # accept_empty_once set by hand, without accept_empty_set_at: the gate read NULL, and NULL matches NULL.
+    engine, _, shared, importer = pg_world
+    await _set_accept_empty(engine, None)
+    version_id, schema = await building_version(engine)
+    staged = await stage_pair(importer, "a")
+    await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), accept_empty_used=True, accept_empty_seen=None)
+    state = await control(engine)
+    assert state["accept_empty_once"] is False and state["accept_empty_set_at"] is None and state["consecutive_failures"] == 0
+
+
+@pytest.mark.asyncio
 async def test_accept_empty_untouched_when_not_used(pg_world):
     engine, _, shared, importer = pg_world
     seen = now() - timedelta(minutes=5)
@@ -354,7 +387,7 @@ async def test_pair_publish_is_postgres_only(tmp_path):
     try:
         staged = await stage_pair(importer, "a")
         with pytest.raises(RuntimeError, match="PostgreSQL"):
-            await shared.publish_mirror_pair(version_id=1, schema_name="pickm_v000001", batches=staged, t=now())
+            await shared.publish_mirror_pair(version_id=1, schema_name="pickm_v000001", batches=staged, t=now(), **NO_ACCEPT_EMPTY)
         assert [(await batch(engine, item["id"]))["status"] for item in staged] == ["importing", "importing"]
     finally:
         await engine.dispose()
@@ -378,3 +411,33 @@ async def test_prune_keeps_batches_paired_with_published_versions(world):
     else:
         assert statuses == ["pruned", "pruned"]
         assert await row_count(engine, paired[0]["id"]) == 0
+
+
+def _shared_owner_lock() -> int:
+    """The key PickRepository._write takes for the shared owner."""
+    from ggwork_pick.repository import SHARED_OWNER
+
+    return int.from_bytes(hashlib.sha256(("ggwp:" + SHARED_OWNER).encode()).digest()[:8], signed=True)
+
+
+@pytest.mark.asyncio
+async def test_publishes_queue_behind_the_shared_owner_lock(pg_world):
+    engine, _, shared, importer = pg_world
+    version_id, schema = await building_version(engine)
+    paired, degraded = await stage_pair(importer, "a"), await stage_pair(importer, "b")
+    publishes = (
+        lambda: shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=paired, t=now(), **NO_ACCEPT_EMPTY),
+        lambda: shared.publish_agent_only(batches=degraded, reason="degraded:G5", t=now()),
+    )
+    for publish in publishes:
+        async with engine.connect() as holder:
+            await holder.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _shared_owner_lock()})
+            publishing = asyncio.create_task(publish())
+            try:
+                await _wait_for_a_lock_waiter(engine)
+                assert not publishing.done()
+            finally:
+                await holder.rollback()
+        await asyncio.wait_for(publishing, 10)
+    assert (await version(engine, version_id))["status"] == "published"
+    assert [(await batch(engine, item["id"]))["status"] for item in paired + degraded] == ["published"] * 4

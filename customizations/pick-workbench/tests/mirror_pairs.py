@@ -34,6 +34,8 @@ V1_FRESHNESS = {
     "postedRecords": 40,
 }
 RULES_REF = "realshort:/api/pick-feed#rules"
+# publish_mirror_pair takes both on every call (P2-5c passes what G9 read); a run that did not lean on accept-empty.
+NO_ACCEPT_EMPTY = {"accept_empty_used": False, "accept_empty_seen": None}
 
 
 def now() -> datetime:
@@ -61,9 +63,9 @@ async def open_service(url: str, tmp_path):
     return engine, service, shared, Importer(shared, service.data_dir)
 
 
-async def stage_pair(importer, tag: str, *, rules: str | None = None, as_of_text: str = AS_OF_TEXT) -> list[dict]:
+async def stage_pair(importer, tag: str, *, rules: str | None = None, as_of_text: str = AS_OF_TEXT, meta: dict | None = None) -> list[dict]:
     """A mirror run's v1 half: the catalog and the rules staged, neither visible yet."""
-    meta = batch_meta(tag)
+    meta = meta if meta is not None else batch_meta(tag)
     catalog = await importer.catalog(catalog_payload(tag), "json", source_as_of=as_of_text, meta=meta, keep_original=False, stage=True)
     body = (rules or f"# 规则 {tag}").encode()
     knowledge = await importer.knowledge_bundle([(body, "realshort-rules.md", RULES_REF)], source_as_of=as_of_text, meta=meta, stage=True)
@@ -90,7 +92,7 @@ async def publish_pair(engine, shared, importer, tag: str, *, as_of: datetime = 
     """One whole paired run: stage both batches, build a version, publish the pair."""
     staged = await stage_pair(importer, tag, rules=rules, as_of_text=_as_of_text(as_of))
     version_id, schema = await building_version(engine, as_of=as_of)
-    await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now())
+    await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
     return version_id, staged
 
 

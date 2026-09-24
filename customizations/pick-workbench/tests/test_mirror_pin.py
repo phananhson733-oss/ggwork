@@ -12,6 +12,7 @@ import pytest_asyncio
 from mirror_pairs import (
     AS_OF,
     AS_OF_TEXT,
+    NO_ACCEPT_EMPTY,
     V1_FRESHNESS,
     batch,
     behind,
@@ -26,6 +27,7 @@ from mirror_pairs import (
     version,
 )
 from sqlalchemy import event, text
+from sqlalchemy.util import await_only
 
 
 @pytest_asyncio.fixture
@@ -43,9 +45,13 @@ async def world(pick_db_url, tmp_path):
 
 
 def _alice(service):
+    return _user(service, "alice")
+
+
+def _user(service, owner_id: str):
     from ggwork_pick.repository import PickRepository
 
-    return PickRepository(service.session_factory, "alice")
+    return PickRepository(service.session_factory, owner_id)
 
 
 async def _record(service, result_id: str) -> dict:
@@ -83,13 +89,19 @@ async def test_pin_none_for_personal_import(pg_world):
     from ggwork_pick.imports import Importer
 
     engine, service, shared, importer = pg_world
-    await publish_pair(engine, shared, importer, "a")
+    version_id, staged = await publish_pair(engine, shared, importer, "a")
     own = await Importer(_alice(service), service.data_dir).catalog(catalog_payload("mine"), "json")
     pin = await _alice(service).current_pin()
     assert pin.catalog_id == own["id"] and pin.mirror_version is None
     assert pin.data_as_of["shared"] is False
+    # Rules of one's own shadow the shared ones the same way, under the shared catalog.
+    bob = _user(service, "bob")
+    rules = await Importer(bob, service.data_dir).knowledge_bundle([(b"# bob", "rules.md", "bob")])
+    pin = await bob.current_pin()
+    assert (pin.catalog_id, pin.knowledge_id, pin.mirror_version) == (staged[0]["id"], rules["id"], None)
+    assert pin.data_as_of == await bob.data_as_of(staged[0]["id"])
     # Everyone else still reads the pair.
-    assert (await shared.current_pin()).mirror_version is not None
+    assert (await shared.current_pin()).mirror_version == version_id
 
 
 @pytest.mark.asyncio
@@ -103,11 +115,40 @@ async def test_pin_kept_when_degrade_dedupes_to_pair(pg_world):
     assert await behind(engine, shared) is False
 
 
+@pytest.mark.asyncio
+async def test_pin_none_when_only_rules_changed(pg_world):
+    engine, service, shared, importer = pg_world
+    version_id, pair = await publish_pair(engine, shared, importer, "a")
+    # A degraded run: the catalog dedupes to the pair's, the rules are new.
+    again = await degrade(shared, importer, "a", rules="# 规则 a 改过")
+    assert again[0]["id"] == pair[0]["id"] and again[1]["id"] != pair[1]["id"]
+    pin = await _alice(service).current_pin()
+    assert (pin.catalog_id, pin.knowledge_id, pin.mirror_version) == (pair[0]["id"], again[1]["id"], None)
+    assert pin.data_as_of == await _alice(service).data_as_of(pair[0]["id"])
+    assert await behind(engine, shared) is True
+    assert (await version(engine, version_id))["status"] == "published"
+
+
+@pytest.mark.asyncio
+async def test_pin_counts_only_published_versions(pg_world):
+    engine, service, shared, importer = pg_world
+    version_a, pair_a = await publish_pair(engine, shared, importer, "a")
+    # A version being built has no published_at, which PostgreSQL sorts first; it is not current.
+    await building_version(engine)
+    assert (await _alice(service).current_pin()).mirror_version == version_a
+    # Nor is a dropped one, however recent: the pair b batches are current, their version is gone.
+    version_b, pair_b = await publish_pair(engine, shared, importer, "b")
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE pick_mirror.versions SET status = 'dropped' WHERE id = :id"), {"id": version_b})
+    pin = await _alice(service).current_pin()
+    assert (pin.catalog_id, pin.mirror_version) == (pair_b[0]["id"], None)
+
+
 async def _old_card_then_new_pair(engine, service, shared, importer, *, degraded: bool):
     from ggwork_pick.selection import SelectionService
 
     version_a, pair_a = await publish_pair(engine, shared, importer, "a")
-    card = await SelectionService(_alice(service)).query({"limit": 1}, thread_id="t", run_id="r0", call_id="c0")
+    card = await SelectionService(_alice(service)).query({"limit": 2}, thread_id="t", run_id="r0", call_id="c0")
     if degraded:
         pair_b, version_b = await degrade(shared, importer, "b"), None
     else:
@@ -128,7 +169,7 @@ async def test_exclude_previous_use_latest_takes_new(pg_world):
     record = await _record(service, more["id"])
     assert (record["catalog_batch_id"], record["knowledge_batch_id"], record["mirror_version"]) == (pair_b[0]["id"], pair_b[1]["id"], version_b)
     assert record["data_as_of_json"] == (await _alice(service).current_pin()).data_as_of
-    assert record["excluded_json"] == sorted(item["identity"] for item in card["items"])
+    assert len(record["excluded_json"]) == 2 and record["excluded_json"] == sorted(item["identity"] for item in card["items"])
 
 
 @pytest.mark.asyncio
@@ -224,7 +265,7 @@ async def test_frozen_on_write(pg_world):
     # The same batches then pair with a new version: earlier results keep what they froze.
     staged = await stage_pair(importer, "a", as_of_text=later)
     version_2, schema = await building_version(engine, as_of=AS_OF.replace(hour=15))
-    await shared.publish_mirror_pair(version_id=version_2, schema_name=schema, batches=staged, t=now())
+    await shared.publish_mirror_pair(version_id=version_2, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
     assert await _record(service, c1["id"]) == c1 and await _record(service, c2["id"]) == c2
     c3 = await _record(service, (await service_alice.query({}, thread_id="t", run_id="r3", call_id="c3"))["id"])
     assert c3["mirror_version"] == version_2 and c3["data_as_of_json"]["source_as_of"] == later
@@ -251,24 +292,48 @@ async def test_sqlite_current_pin_runs(tmp_path):
 @pytest.mark.asyncio
 async def test_pin_single_statement(world):
     engine, service, shared, importer = world
-    if engine.dialect.name == "postgresql":
+    postgres = engine.dialect.name == "postgresql"
+    if postgres:
         version_id, staged = await publish_pair(engine, shared, importer, "a")
+        # The next pair is ready; on PostgreSQL it is published right after the pin's first statement.
+        pending, (pending_version, pending_schema) = await stage_pair(importer, "b"), await building_version(engine)
     else:
         staged, version_id = await degrade(shared, importer, "a"), None
     repo = _alice(service)
     await repo.current_pin()  # the first connection's dialect set-up is not the pin's business
     seen: list[str] = []
+    published: list[bool] = []
+    publishing: list[bool] = []
 
     def capture(conn, cursor, statement, parameters, context, executemany):
-        seen.append(statement)
+        if not publishing:
+            seen.append(statement)
+
+    def publish_between(conn, cursor, statement, parameters, context, executemany):
+        if not postgres or published:
+            return
+        published.append(True)
+        publishing.append(True)
+        try:
+            # Still inside the pin's greenlet: wait here for a whole paired publish to commit on other connections.
+            await_only(shared.publish_mirror_pair(version_id=pending_version, schema_name=pending_schema, batches=pending, t=now(), **NO_ACCEPT_EMPTY))
+        finally:
+            publishing.clear()
 
     event.listen(engine.sync_engine, "before_cursor_execute", capture)
+    event.listen(engine.sync_engine, "after_cursor_execute", publish_between)
     try:
         pin = await repo.current_pin()
     finally:
+        event.remove(engine.sync_engine, "after_cursor_execute", publish_between)
         event.remove(engine.sync_engine, "before_cursor_execute", capture)
     assert len(seen) == 1 and seen[0].lstrip().upper().startswith("SELECT") and "ggwp_import_batches" in seen[0]
+    # All of the old triple, none of the new one.
     assert (pin.catalog_id, pin.knowledge_id, pin.mirror_version) == (staged[0]["id"], staged[1]["id"], version_id)
+    if postgres:
+        assert published and pin.data_as_of["scope"] == "scope-a"
+        after = await repo.current_pin()
+        assert (after.catalog_id, after.knowledge_id, after.mirror_version) == (pending[0]["id"], pending[1]["id"], pending_version)
 
 
 @pytest.mark.asyncio
