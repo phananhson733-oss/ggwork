@@ -180,3 +180,41 @@ def test_without_scan_the_rows_are_not_parsed(capsys, files, monkeypatch):
     _break_rows(fake, "rs_rows", "title")
     code, _, summary, _ = _run(capsys, fake, clock, files, env=V1)
     assert code == 0 and "contract" not in summary["gates"] and "scan" not in summary
+
+
+def _break_by_page(fake, columns: dict[str, tuple[str, str]]) -> None:
+    """A resource's first page (no cursor) comes with its first row's columns[resource][0] a list, a later page with
+    columns[resource][1]: two pages out of contract at two different places."""
+    original = fake._rows
+
+    def broken(name, params, as_of):
+        status, headers, body = original(name, params, as_of)
+        if name not in columns:
+            return status, headers, body
+        page = json.loads(body)
+        page["rows"][0][columns[name]["cursor" in params]] = [PLANTED]
+        return status, headers, json.dumps(page).encode()
+
+    fake._rows = broken
+
+
+def test_contract_keeps_each_resources_first_failing_path(capsys, files):
+    # rs_rows fails at title on its first page and at slug on its second: the first path is the one kept, and the count
+    # goes on. catalog_rows fails on its one page. The failures come sorted by resource.
+    fake, clock = _world(sizes={"rs_rows": 3}, page_rows={"rs_rows": 2})
+    _break_by_page(fake, {"rs_rows": ("title", "slug"), "catalog_rows": ("title_cn", "title_cn")})
+    code, pages, summary, text = _run(capsys, fake, clock, files, "--scan", env=V1)
+    failures = summary["gates"]["contract"]["failures"]
+    assert code == dry_run.EXIT_GATES and summary["failed_gates"] == ["contract"]
+    assert failures == {"catalog_rows": {"failures": 1, "first_path": "title_cn"}, "rs_rows": {"failures": 2, "first_path": "title"}}
+    assert list(failures) == ["catalog_rows", "rs_rows"] and [line["resource"] for line in pages].count("rs_rows") == 2
+    assert PLANTED not in text and ROW_SENTINEL not in text
+
+
+def test_a_failure_at_a_rows_top_level_is_named_as_the_whole_record():
+    # A row that is not an object has no field path (PageContractError.path is empty). The client's transport check turns
+    # such a page away before --scan sees it, so this holds the fallback on its own.
+    found = dry_run.inspect_page(("rs_rows", None), {"rows": [[PLANTED]]})
+    assert (found.checked, found.miss) == ("rs_rows", dry_run.WHOLE_RECORD) == ("rs_rows", "整条记录")
+    assert dry_run.inspect_page(("v1", None), {"rows": [[PLANTED]]}).checked is None
+    assert dry_run.contract_miss(lambda: None) is None
