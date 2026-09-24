@@ -9,6 +9,7 @@ import json
 import os
 import stat
 from contextlib import closing
+from pathlib import Path
 
 import board_fixture as bf
 import pytest
@@ -45,7 +46,14 @@ def board(pg_cluster, tmp_path_factory):
         assert bf.main(["up", "--url-file", str(url_file), "--data-dir", str(work / "files")], out=out) == 0
     info = json.loads(out.getvalue())
     try:
-        yield {"info": info, "output": out.getvalue(), "url_file": url_file, "reader": url_file.read_text(encoding="utf-8"), "env_before": before}
+        yield {
+            "info": info,
+            "output": out.getvalue(),
+            "url_file": url_file,
+            "reader": url_file.read_text(encoding="utf-8"),
+            "env_before": before,
+            "data_dir": work / "files",
+        }
     finally:
         assert bf.main(["down", "--database", info["database"], "--role", info["role"]], out=io.StringIO()) == 0
 
@@ -140,3 +148,23 @@ def test_series_for_one_canonical_drama(board):
 def test_down_refuses_names_it_did_not_make():
     assert bf.main(["down", "--database", "postgres", "--role", "pick_board_reader_000000000000"], out=io.StringIO()) == 2
     assert bf.main(["down", "--database", "pick_board_000000000000", "--role", "postgres"], out=io.StringIO()) == 2
+
+
+def test_blobs_land_in_the_data_dir_itself_as_absolute_paths(pg_cluster, board):
+    """The gateway roots PickService at its data dir (ggwork_pick/__init__.py): the blobs go straight under it."""
+    info = board["info"]
+    assert info["data_dir"] == str(board["data_dir"].resolve())
+    paths = [row[0] for row in _rows(_admin_url(pg_cluster, info["database"]), "SELECT raw_blob_path FROM deerflow.ggwp_import_batches")]
+    assert paths
+    for path in map(Path, paths):
+        assert path.is_absolute() and path.parent.parent == Path(info["data_dir"]) and path.is_file()
+
+
+def test_the_data_dir_is_made_absolute(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert bf.gateway_data_dir(Path("gateway-data")) == tmp_path.resolve() / "gateway-data"
+    made = bf.gateway_data_dir(None)
+    try:
+        assert made.is_absolute() and made.is_dir() and made.name.startswith("pick-board-")
+    finally:
+        made.rmdir()

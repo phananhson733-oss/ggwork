@@ -18,7 +18,9 @@ From customizations/pick-workbench, with the backend venv's python and PICK_TEST
 a superuser (the same variable the backend tests use):
   python tests/mirror/board_fixture.py up --url-file PATH [--data-dir DIR]
   python tests/mirror/board_fixture.py down --database NAME --role NAME
-up prints the database, the role, the data directory and the version ids as JSON: names only. The reader's password is
+up prints the database, the role, the data directory and the version ids as JSON: names only. The data directory is
+the gateway's own (its PickService root: PICK data_dir, or DEER_FLOW_HOME/pick): the staged batches' blobs are written
+straight under it, and it is made absolute because raw_blob_path stores it. The reader's password is
 PICK_BOARD_READER_PASSWORD when set, else generated; it is written only into --url-file (mode 0600), as the reader URL
 for the frontend's PICK_BOARD_TEST_PG_URL. The role is created with a SCRAM verifier, so the password itself is never
 sent as SQL. Every value is synthetic.
@@ -253,16 +255,36 @@ def _grant_connect(cluster, database: str, role: str) -> None:
     cluster._execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(sql.Identifier(database), sql.Identifier(role)))
 
 
+async def _open_gateway(url: str, data_dir: Path):
+    """PickService rooted at data_dir itself, as the gateway roots it (ggwork_pick/__init__.py); mirror_pairs.open_service
+    roots it at data_dir / "files" instead. Its initialize is the gateway's startup migration (tests/pg.py migrate)."""
+    from engines import host_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.service import PickService
+
+    engine = host_engine(url)
+    service = PickService(data_dir)
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    shared = PickRepository.shared(service.session_factory)
+    return engine, shared, Importer(shared, service.data_dir)
+
+
+def gateway_data_dir(arg: Path | None) -> Path:
+    """--data-dir, or a new temporary directory, made absolute: raw_blob_path stores it, and the gateway reads those
+    paths from its own working directory."""
+    return (arg or Path(tempfile.mkdtemp(prefix="pick-board-"))).resolve()
+
+
 async def build_board(cluster, database: str, role: str, data_dir: Path) -> dict[str, int]:
     """Migrate `database` and publish the versions into it; the reader role exists already."""
-    from mirror_pairs import open_service
-
     from ggwork_pick.mirror.connection import dsn_from_url, open_dedicated
 
     url = cluster.async_url(database)
     with _reader_role_env(role):
-        # PickService.initialize is the gateway's startup migration (tests/pg.py migrate).
-        engine, _service, shared, importer = await open_service(url, data_dir)
+        engine, shared, importer = await _open_gateway(url, data_dir)
         conn = await open_dedicated(dsn_from_url(url))
         try:
             ids = await _versions(conn, shared, importer)
@@ -317,7 +339,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     build = commands.add_parser("up", help="create the reader role and the database, migrate, publish the versions")
     build.add_argument("--url-file", type=Path, required=True, help="where to write the reader URL (mode 0600)")
-    build.add_argument("--data-dir", type=Path, help="the gateway data directory for the staged batches (default: a new temporary one)")
+    build.add_argument("--data-dir", type=Path, help="the gateway's pick data directory, where the staged batches' blobs go (default: a new temporary one)")
     remove = commands.add_parser("down", help="drop a database and a reader role that up created")
     remove.add_argument("--database", required=True)
     remove.add_argument("--role", required=True)
@@ -341,7 +363,7 @@ def main(argv: Sequence[str] | None = None, *, out: TextIO = sys.stdout) -> int:
         down(cluster, database=args.database, role=args.role)
         return 0
     password = os.environ.get(PASSWORD_ENV) or secrets.token_urlsafe(24)
-    data_dir = args.data_dir or Path(tempfile.mkdtemp(prefix="pick-board-"))
+    data_dir = gateway_data_dir(args.data_dir)
     print(json.dumps(up(cluster, password=password, url_file=args.url_file, data_dir=data_dir), ensure_ascii=False), file=out)
     return 0
 
