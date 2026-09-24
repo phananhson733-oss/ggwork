@@ -1,9 +1,10 @@
 // Regenerates export_v2_contract.json from a RealShort checkout (read only). Run from that checkout, so tsx resolves its "@/" paths:
 //   cd <realshort> && node --import tsx <this file> "$PWD" > <workbench>/customizations/pick-workbench/tests/fixtures/export_v2_contract.json
 // Record the RealShort commit in the output's "commit" (the argument after the checkout path, default: unknown).
-// The output's manifest.meta.rules is RealShort's real buildRulesMeta(): its platform-rule and posted-pool Feishu links are
-// the business links feed v2 already exports, not secrets; manifestFixture's SECRET, token and SENTINELPV are dropped by
-// pickManifest and never reach the output.
+// The output's manifest.meta.rules is RealShort's real buildRulesMeta(). Its platform-rule and posted-pool Feishu links are
+// business links, so placeholderLinks() swaps each for https://example.feishu.cn/<kind>/placeholderN (numbered by first
+// appearance) before writing: business data stays out of this repository. manifestFixture's SECRET, token and SENTINELPV
+// are dropped by pickManifest and never reach the output.
 import path from "node:path";
 
 const root = process.argv[2];
@@ -146,4 +147,13 @@ function pickMeta(value) {
   return map.pickManifest(value).meta;
 }
 
-process.stdout.write(JSON.stringify(out, null, 1) + "\n");
+/** Business Feishu links become numbered placeholders; the kind (sheets/base/wiki) and the JSON shape stay. */
+function placeholderLinks(text) {
+  const seen = new Map();
+  return text.replace(/https:\/\/[a-z0-9.-]*feishu\.cn\/(sheets|base|wiki)\/[^\s"\\)]+/g, (url, kind) => {
+    if (!seen.has(url)) seen.set(url, `https://example.feishu.cn/${kind}/placeholder${seen.size + 1}`);
+    return seen.get(url);
+  });
+}
+
+process.stdout.write(placeholderLinks(JSON.stringify(out, null, 1)) + "\n");
