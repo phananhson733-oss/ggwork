@@ -5,365 +5,81 @@
  * (@/server/pick-board) is replaced by doubles that record their calls; the
  * views and the ported components render for real. The page is awaited
  * first and its element rendered after, as projects-page.dom.test does.
+ * The replay branch (P4-2) is in pick-data-page-replay.dom.test.tsx; both
+ * files share pick-data-page.support.tsx.
  */
 import { afterEach, beforeEach, describe, expect, it, rs } from "@rstest/core";
-import { cleanup, render, screen, within } from "@testing-library/react";
-import type { PropsWithChildren, ReactElement, ReactNode } from "react";
+import { cleanup, screen, within } from "@testing-library/react";
 
 import * as pageModule from "@/app/workspace/pick-data/page";
 import * as errors from "@/server/pick-board/errors";
-import type * as ErrorsModule from "@/server/pick-board/errors";
 
+import { boardRules } from "../components/workspace/pick-board/fixtures";
+
+import type * as Support from "./pick-data-page.support";
 import {
-  accounts,
-  billRow,
-  billTotals,
-  boardRules,
-  observeRow,
-  pickRow,
-  postedLinks,
-  postedRecord,
-  rankMeta,
-  rankRow,
-  reelshortDetail,
-  rowDetail,
-} from "../components/workspace/pick-board/fixtures";
+  AS_OF,
+  MIRROR,
+  NOW,
+  RESULT,
+  dataCallsOf,
+  readyBoard,
+  renderWith,
+  resetState,
+  syncWith,
+  tabLinks,
+  type Board,
+  type PageState,
+} from "./pick-data-page.support";
 
-const state = rs.hoisted(() => ({
-  calls: [] as string[],
-  nextPath: "",
-  access: { kind: "ok", user: { id: "u-1" } } as unknown,
-  resolved: null as unknown,
-  sync: null as unknown,
-  scope: null as unknown,
-  loaders: {} as Record<string, (...args: unknown[]) => unknown>,
-}));
+const state = rs.hoisted(
+  (): PageState => ({
+    calls: [],
+    nextPath: "",
+    access: null,
+    resolved: null,
+    sync: null,
+    scope: null,
+    loaders: {},
+  }),
+);
 
-rs.mock("@/server/pick-board", () => {
-  const errors = rs.requireActual<typeof ErrorsModule>(
-    "@/server/pick-board/errors",
-  );
-  const recorded =
-    (name: string) =>
-    async (...args: unknown[]) => {
-      state.calls.push(name);
-      const loader = state.loaders[name];
-      if (!loader) throw new Error(`unexpected call: ${name}`);
-      return loader(...args);
-    };
-  return {
-    ...errors,
-    PICK_DATA_PATH: "/workspace/pick-data",
-    pickDataNextPath: (raw: Record<string, string>) =>
-      `/workspace/pick-data?${new URLSearchParams(raw).toString()}`,
-    requireBoardUser: async (nextPath: string) => {
-      state.calls.push("requireBoardUser");
-      state.nextPath = nextPath;
-      if (state.access instanceof Error) throw state.access;
-      return state.access;
-    },
-    resolveBoard: async (v: number | null) => {
-      state.calls.push(`resolveBoard:${String(v)}`);
-      if (state.resolved instanceof Error) throw state.resolved;
-      return state.resolved;
-    },
-    getPickSync: async () => {
-      state.calls.push("getPickSync");
-      return state.sync;
-    },
-    setBoardScope: (scope: unknown) => {
-      state.calls.push("setBoardScope");
-      state.scope = scope;
-    },
-    freshnessOf: (raw: unknown) => raw,
-    sourcesOf: () => ({}),
-    loadCandidatePool: recorded("loadCandidatePool"),
-    loadPickRows: recorded("loadPickRows"),
-    loadFacets: recorded("loadFacets"),
-    loadRowDetail: recorded("loadRowDetail"),
-    loadRankMeta: recorded("loadRankMeta"),
-    loadRankRows: recorded("loadRankRows"),
-    loadRsRank: recorded("loadRsRank"),
-    loadGrowthDiagnosis: recorded("loadGrowthDiagnosis"),
-    loadPostedList: recorded("loadPostedList"),
-    loadPostedRecord: recorded("loadPostedRecord"),
-    loadPostedStats: recorded("loadPostedStats"),
-    loadAccounts: recorded("loadAccounts"),
-    loadReelshortDetail: recorded("loadReelshortDetail"),
-    loadReplay: recorded("loadReplay"),
-    loadRowsByKeys: recorded("loadRowsByKeys"),
-    loadMissingKeys: recorded("loadMissingKeys"),
-  };
-});
-
-rs.mock("next/navigation", () => ({
-  redirect: (url: string) => {
-    throw new Error(`NEXT_REDIRECT ${url}`);
-  },
-}));
-
-rs.mock("next/link", () => ({
-  default: ({
-    href,
-    children,
-    ...rest
-  }: PropsWithChildren<{ href: string }>) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}));
-
-rs.mock("@/components/workspace/workspace-container", () => ({
-  WorkspaceContainer: ({ children }: PropsWithChildren) => (
-    <div>{children}</div>
-  ),
-  WorkspaceHeader: () => <div />,
-  WorkspaceBody: ({ children }: PropsWithChildren) => <main>{children}</main>,
-}));
-
-rs.mock("@/components/ui/scroll-area", () => ({
-  ScrollArea: ({ children }: PropsWithChildren) => (
-    <div data-testid="scroll">{children}</div>
-  ),
-}));
-
-rs.mock("@/components/workspace/pick/data-imports", () => ({
-  DataImports: () => <div data-testid="data-imports" />,
-}));
+// Factories run while the imports above are evaluated, before this module's
+// own constants exist: each one reaches the support module itself.
+rs.mock("@/server/pick-board", () =>
+  rs
+    .requireActual<typeof Support>("./pick-data-page.support")
+    .pickBoardMock(state),
+);
+rs.mock("next/navigation", () =>
+  rs.requireActual<typeof Support>("./pick-data-page.support").navigationMock(),
+);
+rs.mock("next/link", () =>
+  rs.requireActual<typeof Support>("./pick-data-page.support").linkMock(),
+);
+rs.mock("@/components/workspace/workspace-container", () =>
+  rs
+    .requireActual<typeof Support>("./pick-data-page.support")
+    .workspaceContainerMock(),
+);
+rs.mock("@/components/ui/scroll-area", () =>
+  rs.requireActual<typeof Support>("./pick-data-page.support").scrollAreaMock(),
+);
+rs.mock("@/components/workspace/pick/data-imports", () =>
+  rs
+    .requireActual<typeof Support>("./pick-data-page.support")
+    .dataImportsMock(),
+);
 
 const PickDataPage = pageModule.default;
-
-const AS_OF = "2026-09-24T03:40:00+00:00";
-const NOW = new Date("2026-09-24T06:00:00Z");
-
-const FRESHNESS = {
-  importedAt: new Date("2026-09-24T01:00:00Z"),
-  rows: 120,
-  withSignal: 30,
-  signals: 44,
-  posted: 9,
-  rsCanonical: 500,
-  rsCandidates: 12,
-  rsSyncedAt: new Date("2026-09-24T02:00:00Z"),
-};
-
-type Board = Record<string, unknown>;
-
-function readyBoard(patch: Board = {}): Board {
-  return {
-    state: "ready",
-    scope: {
-      schema: "pickm_v000007",
-      asOf: AS_OF,
-      versionId: 7,
-      rules: boardRules(),
-    },
-    current: {
-      id: 7,
-      asOf: AS_OF,
-      publishedAt: "2026-09-24T03:52:00+00:00",
-      agentCatalogBatchId: "b-cat",
-      agentKnowledgeBatchId: "b-kn",
-    },
-    latestSnapshot: "2026-09-23",
-    freshness: FRESHNESS,
-    warnings: [],
-    sources: {},
-    series: { through: "2026-09-23", trimmedBefore: "2026-06-01" },
-    requestedV: null,
-    pinned: false,
-    pruned: false,
-    ignoredV: false,
-    unreadable: false,
-    ...patch,
-  };
-}
-
-const MIRROR = {
-  enabled: true,
-  current: {
-    id: 7,
-    as_of: "2026-09-24T03:40:00.000Z",
-    latest_snapshot: "2026-09-23",
-    published_at: "2026-09-24T03:52:00.000000+00:00",
-  },
-  series_through: "2026-09-23",
-  trimmed_before: "2026-06-01",
-  behind: false,
-  consecutive_failures: 0,
-  last_failure_at: null,
-  last_failure: null,
-  alert: false,
-  warnings: [],
-  lock_stuck: null,
-  shared_source_as_of: "2026-09-24T03:40:00.000Z",
-};
-
-function syncWith(patch: Record<string, unknown> = {}) {
-  return {
-    ok: true,
-    data: {
-      configured: true,
-      current: {
-        id: "b-cat",
-        shared: true,
-        source_as_of: "2026-09-24T03:40:00.000Z",
-        published_at: null,
-      },
-      runs: [],
-      mirror: MIRROR,
-      ...patch,
-    },
-  };
-}
-
-const RESULT = "0123456789abcdef0123456789abcdef";
-const DEMO_IDENTITY = JSON.stringify([
-  "realshort-pick",
-  Buffer.from("kalos-demo-1", "utf8").toString("base64url"),
-  "英语",
-]);
-const CONDITIONS = {
-  theater: null,
-  language: null,
-  channel: null,
-  query: null,
-  tags: [],
-  limit: 5,
-  exclude_selected: true,
-  confirmed_eligible_only: true,
-  exclude_previous: false,
-  signal_kind: null,
-  sort: "evidence_date",
-  exclude_posted: false,
-  posted_account: null,
-};
-
-function replayAnswer(patch: Record<string, unknown> = {}) {
-  return {
-    resultId: RESULT,
-    mirrorVersion: 7,
-    limit: 5,
-    total: 1,
-    identities: [DEMO_IDENTITY],
-    truncated: false,
-    excludedReproducible: true,
-    rankingReproducible: true,
-    unmappable: ["exclude_selected"],
-    sourceAsOf: "2026-09-24T03:40:00.000Z",
-    ...patch,
-  };
-}
-
-function boardAt(id: number, patch: Board = {}): Board {
-  return readyBoard({
-    scope: {
-      schema: `pickm_v${String(id).padStart(6, "0")}`,
-      asOf: AS_OF,
-      versionId: id,
-      rules: boardRules(),
-    },
-    ...patch,
-  });
-}
-
-const FACETS = {
-  platforms: { kalos: 1 },
-  langs: [{ lang: "英语", n: 1 }],
-  bases: { kd: 1 },
-  posted: { no: 1, yes: 0, pool: 0 },
-};
-
-function defaultLoaders(): Record<string, (...args: unknown[]) => unknown> {
-  return {
-    loadCandidatePool: () => 42,
-    loadPickRows: () => ({ rows: [pickRow()], total: 1, hasMore: false }),
-    loadFacets: () => FACETS,
-    loadRowDetail: () => rowDetail(),
-    loadRankMeta: () => rankMeta(),
-    loadRankRows: () => ({ rows: [rankRow()], total: 1, hasMore: false }),
-    loadRsRank: (_req: unknown, rank: unknown) =>
-      rank === "rs_ledger"
-        ? {
-            kind: "ledger",
-            rows: [billRow()],
-            totals: billTotals(),
-            source: undefined,
-          }
-        : {
-            kind: "rows",
-            rows: [observeRow()],
-            total: 1,
-            hasMore: false,
-            sort: "rr",
-          },
-    loadGrowthDiagnosis: () => null,
-    loadPostedList: () => ({
-      rows: [postedRecord()],
-      total: 1,
-      hasMore: false,
-      counts: { "": 1, pub: 1, sched: 0, none: 0, nomatch: 0 },
-      links: postedLinks(),
-    }),
-    loadPostedRecord: () => ({
-      record: postedRecord(),
-      links: postedLinks(),
-    }),
-    loadPostedStats: () => ({
-      total: 1,
-      pubCount: 1,
-      postsSum: 2,
-      viewsSum: 30,
-      metricAt: "2026-09-22",
-      importedAt: new Date("2026-09-23T00:00:00Z"),
-      accountCount: 2,
-    }),
-    loadAccounts: () => accounts(),
-    loadReelshortDetail: () => reelshortDetail(),
-    loadReplay: () => ({
-      kind: "ok",
-      answer: replayAnswer(),
-      conditions: CONDITIONS,
-    }),
-    loadRowsByKeys: () => [pickRow()],
-    loadMissingKeys: () => [],
-  };
-}
-
-async function renderPage(
-  params: Record<string, string> = {},
-): Promise<HTMLElement> {
-  const element: ReactElement = await PickDataPage({
-    searchParams: Promise.resolve(params),
-  });
-  return render(element as ReactNode as ReactElement).container;
-}
-
-const dataCalls = () =>
-  state.calls.filter(
-    (name) =>
-      name.startsWith("load") ||
-      name.startsWith("resolveBoard") ||
-      name === "getPickSync",
-  );
-
-function tabLinks(root: HTMLElement): HTMLAnchorElement[] {
-  const nav = root.querySelector('[data-board-tabs="true"]');
-  if (!nav) throw new Error("no tab bar");
-  return Array.from(nav.querySelectorAll("a"));
-}
+const renderPage = (params: Record<string, string> = {}) =>
+  renderWith(PickDataPage, params);
+const dataCalls = () => dataCallsOf(state);
 
 beforeEach(() => {
   rs.useFakeTimers({ toFake: ["Date"] });
   rs.setSystemTime(NOW);
-  state.calls = [];
-  state.nextPath = "";
-  state.access = { kind: "ok", user: { id: "u-1" } };
-  state.resolved = readyBoard();
-  state.sync = syncWith();
-  state.scope = null;
-  state.loaders = defaultLoaders();
+  resetState(state);
 });
 
 afterEach(() => {
@@ -866,183 +582,5 @@ describe("the visitor", () => {
       PickDataPage({ searchParams: Promise.resolve({ tab: "pick" }) }),
     ).rejects.toThrow("NEXT_REDIRECT");
     expect(state.calls).toEqual(["requireBoardUser"]);
-  });
-});
-
-describe("replay: tab=pick&result= (P4-2)", () => {
-  const replayOf =
-    (patch: Record<string, unknown> = {}, conditions = CONDITIONS) =>
-    () => ({ kind: "ok", answer: replayAnswer(patch), conditions });
-  const texts = (role: "status" | "alert") =>
-    screen.queryAllByRole(role).map((n) => n.textContent ?? "");
-
-  it("asks the gateway first, then pins the result's version, then reads only this page's rows", async () => {
-    state.loaders.loadReplay = replayOf({ mirrorVersion: 5 });
-    state.resolved = boardAt(5, { pinned: true, requestedV: 5 });
-    await renderPage({ result: RESULT });
-    expect(dataCalls()).toEqual([
-      "loadReplay",
-      "getPickSync",
-      "resolveBoard:5",
-      "loadCandidatePool",
-      "loadRowsByKeys",
-      "loadMissingKeys",
-    ]);
-    const scopeAt = state.calls.indexOf("setBoardScope");
-    expect(scopeAt).toBeGreaterThan(state.calls.indexOf("resolveBoard:5"));
-    expect(scopeAt).toBeLessThan(state.calls.indexOf("loadRowsByKeys"));
-    expect(screen.getByText("回放智能体候选")).toBeTruthy();
-    expect(screen.getAllByText("Demo Bride").length).toBeGreaterThan(0);
-    expect(texts("status").join("\n")).toContain(
-      "按这份候选配对的镜像版本 v5 回放",
-    );
-    // The page's own pinned banner (and its "switch" link back into the replay) is not shown.
-    expect(texts("status").join("\n")).not.toContain(
-      "正在看智能体当时用的版本",
-    );
-  });
-
-  it("B10: the page's keys to loadRowsByKeys, the whole list to loadMissingKeys", async () => {
-    const list = Array.from({ length: 30 }, (_, n) =>
-      JSON.stringify([
-        "realshort-pick",
-        Buffer.from(`k-${n + 1}`, "utf8").toString("base64url"),
-        "英语",
-      ]),
-    );
-    const seen: unknown[][] = [];
-    state.loaders.loadReplay = replayOf({ identities: list, total: 30 });
-    state.loaders.loadRowsByKeys = (keys: unknown) => {
-      seen.push(["rows", keys]);
-      return [];
-    };
-    state.loaders.loadMissingKeys = (keys: unknown) => {
-      seen.push(["missing", keys]);
-      return [];
-    };
-    await renderPage({ result: RESULT, page: "2", size: "20" });
-    const keys = (from: number, to: number) =>
-      Array.from({ length: to - from + 1 }, (_, n) => `k-${n + from}`);
-    expect(seen).toEqual([
-      ["rows", keys(21, 30)],
-      ["missing", keys(1, 30)],
-    ]);
-  });
-
-  it("B11: the result's paired version wins over the link's v, with a banner", async () => {
-    state.loaders.loadReplay = replayOf({ mirrorVersion: 5 });
-    state.resolved = boardAt(5, { pinned: true, requestedV: 5 });
-    await renderPage({ result: RESULT, v: "9" });
-    expect(dataCalls()).toContain("resolveBoard:5");
-    expect(texts("status")).toContain(
-      "链接里的版本 v9 与这份候选配对的版本 v5 不一致，已按配对的版本回放",
-    );
-  });
-
-  it("B11: no paired version reads the current version and says so", async () => {
-    state.loaders.loadReplay = replayOf({ mirrorVersion: null });
-    await renderPage({ result: RESULT });
-    expect(dataCalls()).toContain("resolveBoard:null");
-    expect(texts("status")).toContain(
-      "这份候选当时没有配对的镜像版本，行数据取自当前版本 v7",
-    );
-  });
-
-  it("the paired version pruned: current rows, the fallback banner, missing rows listed", async () => {
-    state.loaders.loadReplay = replayOf({ mirrorVersion: 5 });
-    state.resolved = readyBoard({ pruned: true, requestedV: 5 });
-    state.loaders.loadMissingKeys = () => ["kalos-demo-1"];
-    state.loaders.loadRowsByKeys = () => [];
-    await renderPage({ result: RESULT });
-    expect(texts("status")).toContain(
-      "镜像 v5 已清理：名单与顺序按智能体当时的批次，行数据取自当前版本 v7，可能与当时不同",
-    );
-    expect(texts("status").join("\n")).not.toContain("链接里的版本 v5 已清理");
-    expect(texts("alert").join("\n")).toContain(
-      "第 1 位 · kalos-demo-1：当前版本已无此行",
-    );
-  });
-
-  it("C27: the 选剧 tab leaves the replay; every link carries the shown v", async () => {
-    state.loaders.loadReplay = replayOf({ mirrorVersion: 5 });
-    state.resolved = boardAt(5, { pinned: true, requestedV: 5 });
-    const root = await renderPage({ result: RESULT });
-    expect(tabLinks(root)[0]?.getAttribute("href")).toBe(
-      "/workspace/pick-data?v=5",
-    );
-    for (const a of tabLinks(root))
-      expect(a.getAttribute("href")).not.toContain("result=");
-    // The one way out to the latest version is the banner's, and it drops the result.
-    const latest = screen.getByText("看当前版本的选剧列表");
-    expect(latest.getAttribute("href")).toBe("/workspace/pick-data?v=7");
-    const internal = Array.from(root.querySelectorAll("a"))
-      .filter((a) => a !== latest)
-      .map((a) => a.getAttribute("href") ?? "")
-      .filter((h) => h.startsWith("/workspace/pick-data?"));
-    expect(internal.length).toBeGreaterThan(5);
-    for (const href of internal) expect(href).toMatch(/[?&]v=5(?:&|$)/);
-  });
-
-  it("410, 404 and 409: a notice on the URL's version, no rows read", async () => {
-    const cases = [
-      ["gone", "这份候选用的剧库批次已过保留期被清理，无法回放。"],
-      ["notFound", "找不到这份候选：链接不完整，或它不是你的结果。"],
-      ["conflict", "这份候选的条件已不能按当前规则重跑，无法回放。"],
-      [
-        "unavailable",
-        "暂时拿不到这份候选的回放（工作台后端没有回应），稍后刷新再试。",
-      ],
-    ] as const;
-    for (const [kind, text] of cases) {
-      state.calls = [];
-      state.loaders.loadReplay = () =>
-        kind === "notFound" || kind === "unavailable"
-          ? { kind }
-          : { kind, conditions: CONDITIONS };
-      const root = await renderPage({ result: RESULT, v: "7" });
-      expect(dataCalls()).toEqual([
-        "loadReplay",
-        "getPickSync",
-        "resolveBoard:7",
-        "loadCandidatePool",
-      ]);
-      expect(texts("alert")).toContain(text);
-      const near = root.querySelector('[data-replay-near="true"]');
-      expect(near === null).toBe(kind === "notFound" || kind === "unavailable");
-      cleanup();
-    }
-  });
-
-  it("a gateway 401 on the replay sends the visitor to login with next", async () => {
-    state.loaders.loadReplay = () => ({ kind: "unauthenticated" });
-    await expect(
-      PickDataPage({ searchParams: Promise.resolve({ result: RESULT }) }),
-    ).rejects.toThrow(
-      `NEXT_REDIRECT /login?next=${encodeURIComponent(`/workspace/pick-data?result=${RESULT}`)}`,
-    );
-    expect(dataCalls()).not.toContain("loadRowsByKeys");
-  });
-
-  it("the version pruned while reading the replay's rows: 打开当前版本 goes on replaying", async () => {
-    state.loaders.loadReplay = replayOf({ mirrorVersion: 5 });
-    state.resolved = boardAt(5, { pinned: true, requestedV: 5 });
-    state.loaders.loadMissingKeys = () => {
-      throw new errors.MirrorVersionGone("3F000");
-    };
-    const root = await renderPage({ result: RESULT, v: "5" });
-    expect(screen.getByText(/该版本刚被清理/)).toBeTruthy();
-    expect(within(root).getByText("打开当前版本").getAttribute("href")).toBe(
-      `/workspace/pick-data?result=${RESULT}`,
-    );
-  });
-
-  it("busy while reading the replay's rows: header and tabs stay, a notice replaces the list", async () => {
-    state.loaders.loadRowsByKeys = () => {
-      throw new errors.MirrorBusy("57014");
-    };
-    const root = await renderPage({ result: RESULT });
-    expect(screen.getByText(/镜像库繁忙，请稍后刷新/)).toBeTruthy();
-    expect(screen.getByTestId("board-header")).toBeTruthy();
-    expect(tabLinks(root).length).toBe(6);
   });
 });
