@@ -142,6 +142,8 @@ async def test_replay_of_an_old_result_says_exclusions_cannot_be_reproduced(app_
     body = (await _replay(client, result["id"])).json()
     assert body["excluded_reproducible"] is False
     assert body["shown"] == [item["identity"] for item in result["items"]]
+    # Fewer matches than the card's limit: the stored limit comes back as it was, for the page to highlight by.
+    assert body["limit"] == 5 and body["total"] == len(body["shown"]) == 3
 
 
 @pytest.mark.asyncio
@@ -165,6 +167,8 @@ async def test_replay_first_n_equals_the_query(app_client):
     assert body["identities"][: body["limit"]] == body["shown"] and body["limit"] == 3
     assert (body["result_id"], body["catalog_batch_id"], body["knowledge_batch_id"]) == (more["id"], more["catalog_batch_id"], more["knowledge_batch_id"])
     assert body["excluded_reproducible"] is True and body["ranking_reproducible"] is True and body["truncated"] is False
+    # 换一批 is redone through the exclusion list only: the data page has no filter for either exclusion.
+    assert body["unmappable"] == ["exclude_selected", "exclude_previous"]
     # No mirror here (always so on SQLite, U35): the version is null, data_as_of the one the result froze.
     record = await _alice(service).result(more["id"])
     assert body["mirror_version"] is None and body["data_as_of"] == record["data_as_of_json"] is not None
@@ -198,6 +202,20 @@ async def test_replay_truncates_long_lists(app_client):
     body = (await _replay(client, result["id"])).json()
     assert body["total"] == 2003 and body["truncated"] is True and len(body["identities"]) == 2000
     assert body["shown"] == [item["identity"] for item in result["items"]] == body["identities"][:5]
+
+
+@pytest.mark.asyncio
+async def test_replay_truncates_only_past_the_limit(app_client, monkeypatch):
+    from ggwork_pick import selection
+
+    client, service = app_client
+    monkeypatch.setattr(selection, "REPLAY_LIMIT", 3)
+    await _import(service, _catalog(3, tag="a"))
+    exact = (await _replay(client, (await _query(service, {}, "c1"))["id"])).json()
+    assert (exact["total"], len(exact["identities"]), exact["truncated"]) == (3, 3, False)
+    await _import(service, _catalog(4, tag="b"))
+    over = (await _replay(client, (await _query(service, {}, "c2"))["id"])).json()
+    assert (over["total"], len(over["identities"]), over["truncated"]) == (4, 3, True)
 
 
 @pytest.mark.asyncio
