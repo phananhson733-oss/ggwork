@@ -123,6 +123,7 @@ def delete_blobs(data_dir: Path, paths: list[str]) -> None:
 
 # Cleanups that must outlive a second cancellation, referenced here until they finish (as PickService.spawn does).
 _CLEANUPS: set[asyncio.Task] = set()
+CANCELLED_ERROR = "同步被中止（进程停止或取消）"
 
 
 async def shielded(coroutine):
@@ -131,6 +132,19 @@ async def shielded(coroutine):
     _CLEANUPS.add(task)
     task.add_done_callback(_CLEANUPS.discard)
     return await asyncio.shield(task)
+
+
+async def start_run(repo: PickRepository, trigger: str, *, cancelled: Callable[[str], Awaitable[object]]) -> dict:
+    """start_sync_run that a cancel cannot cut in half: a cancel landing while the record is written waits for the
+    write, closes the record through cancelled(run_id) and re-raises, so no run is left at running (the runner's own
+    except CancelledError only covers what comes after the record exists)."""
+    starting = asyncio.ensure_future(repo.start_sync_run(SOURCE, trigger))
+    try:
+        return await asyncio.shield(starting)
+    except asyncio.CancelledError:
+        record = await starting
+        await shielded(cancelled(record["id"]))
+        raise
 
 
 def batch_meta(meta: dict) -> dict:
@@ -272,14 +286,16 @@ class RealShortSync:
             return {"status": "already_running"}
         async with self._lock:
             repo = PickRepository.shared(self.service.session_factory)
-            record = await repo.start_sync_run(SOURCE, trigger)
             details = dict(self.details or {})
+            record = await start_run(
+                repo, trigger, cancelled=lambda run_id: repo.finish_sync_run(run_id, status="failed", error=CANCELLED_ERROR, **_extra(details))
+            )
             try:
                 cleanup = await self.sweep(repo) if self.sweep is not None else None
                 details = {**details, "cleanup": cleanup} if cleanup is not None else details
                 values = await self._pull(repo)
             except asyncio.CancelledError:
-                await asyncio.shield(repo.finish_sync_run(record["id"], status="failed", error="同步被中止（进程停止或取消）", **_extra(details)))
+                await asyncio.shield(repo.finish_sync_run(record["id"], status="failed", error=CANCELLED_ERROR, **_extra(details)))
                 raise
             except Exception as exc:
                 error = pull_error(exc, self.deadline_seconds)

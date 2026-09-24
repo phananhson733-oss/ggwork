@@ -312,16 +312,19 @@ async def test_a_stalled_feed_hits_the_deadline_and_a_cancelled_run_is_closed(se
 
     from ggwork_pick.repository import PickRepository
 
-    gate = asyncio.Event()
+    gate, entered = asyncio.Event(), asyncio.Event()
 
     async def stall(request):
+        entered.set()
         await gate.wait()
         return httpx.Response(200, json=_page())
 
     slow = await make_sync(service, _handler_transport(stall), deadline_seconds=0.05).run("cron")
     assert slow["status"] == "failed" and "超时" in slow["error"]
+    entered.clear()
     task = asyncio.create_task(make_sync(service, _handler_transport(stall)).run("manual"))
-    await asyncio.sleep(0.05)
+    # Cancel once the run is stalled on the feed: a fixed sleep raced a slow CI runner (the run was still starting).
+    await asyncio.wait_for(entered.wait(), timeout=10)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -358,3 +361,30 @@ async def test_lone_surrogates_from_a_cut_emoji_do_not_fail_the_batch(service):
     cut = json.dumps(_page(rows=[feed_row(1, title="Drama \ud83d")])).encode()
     outcome = await make_sync(service, _handler_transport(lambda r: httpx.Response(200, content=cut))).run("cron")
     assert outcome["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_while_the_run_record_is_being_written_still_closes_it(service, monkeypatch):
+    """A cancel landing between start_sync_run's insert and its return must not leave a run stuck at running."""
+    import asyncio
+
+    from ggwork_pick.repository import PickRepository
+
+    written = asyncio.Event()
+    original = PickRepository.start_sync_run
+
+    async def slow_return(self, *args, **kwargs):
+        record = await original(self, *args, **kwargs)
+        written.set()
+        await asyncio.sleep(1)
+        return record
+
+    monkeypatch.setattr(PickRepository, "start_sync_run", slow_return)
+    task = asyncio.create_task(make_sync(service, feed_transport([feed_row(1)])).run("manual"))
+    await asyncio.wait_for(written.wait(), timeout=10)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    last = (await PickRepository.shared(service.session_factory).sync_runs())[0]
+    assert last["status"] == "failed" and "中止" in last["error"] and last["finished_at"]
+    assert not service.sync_lock.locked()

@@ -73,13 +73,13 @@ from ggwork_pick.sync import (
     DEADLINE_SECONDS,
     KEEP_BATCHES,
     MIN_FREE_BYTES,
-    SOURCE,
     check_disk,
     discard_staged,
     prune_batches,
     pull_error,
     pull_v1,
     shielded,
+    start_run,
 )
 from ggwork_pick.sync import FeedError as V1FeedError
 
@@ -338,7 +338,7 @@ class MirrorSync:
             return {"status": "already_running"}
         async with self.service.sync_lock:
             repo = PickRepository.shared(self.service.session_factory)
-            record = await repo.start_sync_run(SOURCE, trigger)
+            record = await start_run(repo, trigger, cancelled=lambda run_id: repo.finish_sync_run(run_id, **cancelled_values()))
             return await self._recorded(repo, record["id"])
 
     async def _recorded(self, repo: PickRepository, run_id: str) -> dict:
