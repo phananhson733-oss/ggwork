@@ -85,6 +85,7 @@ MIRROR_COLUMNS = {
         "last_failure_at": ("timestamptz", "YES"),
         "last_failure": ("text", "YES"),
         "lock_holder_since": ("timestamptz", "YES"),
+        "lock_holder": ("text", "YES"),
     },
 }
 
@@ -392,6 +393,7 @@ async def test_control_and_series_state_hold_exactly_one_row(pg_db_url):
                 "last_failure_at": None,
                 "last_failure": None,
                 "lock_holder_since": None,
+                "lock_holder": None,
             }
         ]
         assert [dict(row) for row in state] == [{"id": 1, "through": None, "trimmed_before": None, "updated_at": None}]
@@ -401,6 +403,30 @@ async def test_control_and_series_state_hold_exactly_one_row(pg_db_url):
             await _refused(engine, f"insert into pick_mirror.{table} (id) values (:i)", {"i": row_id}, constraint)
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_control_lock_holder_takes_only_the_three_holders(pg_db_url):
+    # The sync, the backfill and the cleanup command are the only ones that take the mirror lock (U14).
+    update = "update pick_mirror.control set lock_holder = :h where id = 1"
+    engine = host_engine(pg_db_url)
+    try:
+        for holder in ("sync", "backfill", "cleanup", None):
+            async with engine.begin() as conn:
+                await conn.execute(text(update), {"h": holder})
+            assert await _scalar(engine, "select lock_holder from pick_mirror.control") == holder
+        for holder in ("Sync", "admin", "", "sync "):
+            await _refused(engine, update, {"h": holder}, "pick_mirror_control_lock_holder")
+        assert await _scalar(engine, "select lock_holder from pick_mirror.control") is None
+    finally:
+        await engine.dispose()
+
+
+def test_the_0006_lock_holders_are_the_ones_the_lock_takes():
+    # The migration imports nothing from ggwork_pick, so the list is written twice; this keeps the two equal.
+    from ggwork_pick.mirror.lock import LOCK_HOLDERS
+
+    assert _migration("0006").LOCK_HOLDERS == LOCK_HOLDERS == ("sync", "backfill", "cleanup")
 
 
 @pytest.mark.asyncio
