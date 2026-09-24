@@ -207,7 +207,8 @@ def test_large_manifest_fails_the_page_bytes_gate(capsys, files):
     fake, clock = world()
 
     def pad(page):
-        page["rows"][0]["meta"]["sources"] = {"pad": "x" * 3_000_000}
+        # meta.rules.ruleHints is rec(SCALAR) in MANIFEST_SHAPE: any key, a string value; the manifest stays in contract.
+        page["rows"][0]["meta"]["rules"]["ruleHints"] = {"pad": "x" * 3_000_000}
         return page
 
     _patch_manifest(fake, pad)

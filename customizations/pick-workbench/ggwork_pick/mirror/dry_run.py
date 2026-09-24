@@ -24,9 +24,9 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import NoReturn, TextIO
 
-from ggwork_pick.mirror.client import COUNTED_RESOURCES, ROW_RESOURCES, SERIES_RESOURCE, FeedClient, Manifest, Page, PageMetrics
+from ggwork_pick.mirror.client import COUNTED_RESOURCES, MAX_LIMITS, ROW_RESOURCES, SERIES_RESOURCE, FeedClient, Manifest, Page, PageMetrics
 from ggwork_pick.mirror.errors import AsOfExpiredError, BusyTimeout, ConfigError, DriftError, FeedError
-from ggwork_pick.mirror.feed_shape import MAX_LIMITS, SERIES_DAY_SPAN
+from ggwork_pick.mirror.feed_shape import SERIES_DAY_SPAN
 
 PROG = "python -m ggwork_pick.mirror.client"
 EXPORT_TOKEN_ENV = "PICK_REALSHORT_EXPORT_TOKEN"

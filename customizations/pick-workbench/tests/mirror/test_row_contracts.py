@@ -333,6 +333,43 @@ def test_manifest_identity_fields_are_typed(path, value):
     assert caught.value.path.startswith(path)
 
 
+@pytest.mark.parametrize("key", ["rs_rows.title SECRETVALUE=x", "", "a" * 201, "rs_rows..title", "资源.title", "rs_rows.title[0]"])
+def test_scrub_keys_must_be_field_paths_and_are_never_echoed(key):
+    # P2-2a's check, kept here: meta.scrub keys are toExportRow paths (export-v2-map.ts:641-672); an odd one is not echoed.
+    with pytest.raises(contracts.PageContractError) as caught:
+        contracts.parse_manifest(_with(MANIFEST, "meta.scrub", {key: 1}))
+    assert caught.value.path == "meta.scrub" and (not key or key not in str(caught.value)) and SECRET not in str(caught.value)
+
+
+def test_real_scrub_paths_pass():
+    scrub = {"catalog_signals.payload.h[*][*]": 2, "rs_rows.tag_list[*]": 1, "catalog_posted.posts[*].md.x": 0, "rs_ids.title": 3}
+    assert contracts.parse_manifest(_with(MANIFEST, "meta.scrub", scrub)).meta.scrub == scrub
+
+
+@pytest.mark.parametrize("code", ["Bad", "", "x" * 65, "has space", 5, None, "catalog-import"])
+def test_warning_codes_are_lowercase_words(code):
+    # P2-2a's check, kept here: the dry-run prints only the codes, so a code must be a fixed word, not text.
+    warning = {**MANIFEST["meta"]["warnings"][0], "code": code}
+    with pytest.raises(contracts.PageContractError) as caught:
+        contracts.parse_manifest(_with(MANIFEST, "meta.warnings", [warning]))
+    assert caught.value.path == "meta.warnings.0.code" and (not isinstance(code, str) or not code or code not in str(caught.value))
+
+
+def test_known_warning_codes_pass():
+    warnings = [{**MANIFEST["meta"]["warnings"][0], "code": code} for code in ("catalog_import_incomplete", "source_stale_running")]
+    assert [w.code for w in contracts.parse_manifest(_with(MANIFEST, "meta.warnings", warnings)).meta.warnings] == [
+        "catalog_import_incomplete",
+        "source_stale_running",
+    ]
+
+
+def test_odd_key_names_are_not_echoed_in_error_paths():
+    # Key names are not values, but one that is not a plain name could be text from a row: the path names its place only.
+    with pytest.raises(contracts.PageContractError) as caught:
+        contracts.parse_manifest(_with(MANIFEST, "meta.control.odd key SECRETVALUE", 1))
+    assert caught.value.path == "meta.control.<非常规键名>" and SECRET not in str(caught.value)
+
+
 def test_manifest_page_needs_exactly_one_row():
     assert rejected("manifest", page("manifest", [])).path == "rows"
     assert rejected("manifest", page("manifest", [MANIFEST, MANIFEST])).path == "rows"

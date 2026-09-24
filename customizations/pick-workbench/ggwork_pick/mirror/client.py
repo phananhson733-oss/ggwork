@@ -17,11 +17,13 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from types import MappingProxyType
 from urllib.parse import SplitResult, urlsplit
 
 import httpx
 
+from ggwork_pick.mirror.contracts import COUNTED_RESOURCES, EXPORT_VERSION, MAX_LIMITS, ROW_RESOURCES, SERIES_RESOURCE
 from ggwork_pick.mirror.errors import (
     AsOfExpiredError,
     BusyError,
@@ -35,13 +37,8 @@ from ggwork_pick.mirror.errors import (
     SourceReadError,
 )
 from ggwork_pick.mirror.feed_shape import (
-    COUNTED_RESOURCES,
     ERROR_WORDS,
-    EXPORT_VERSION,
-    MAX_LIMITS,
     REASON_WORDS,
-    ROW_RESOURCES,
-    SERIES_RESOURCE,
     V1_MAX_PAGES,
     V1_PAGE_LIMIT,
     V1_VERSION,
@@ -358,7 +355,9 @@ class FeedClient:
         """One manifest request at as_of; source_busy raises BusyError, which manifest_when_free waits out."""
         request = _Request(V2_PATH + "manifest", {"as_of": format_as_of(as_of)}, self._export_token, "manifest", 1, as_of, _MANIFEST)
         body, metrics = await self._fetch(request)
-        return parse_manifest(body, as_of=as_of, metrics=metrics, busy_sleeps=busy_sleeps)
+        check = partial(parse_manifest, body, as_of=as_of, metrics=metrics, busy_sleeps=busy_sleeps)
+        # pydantic over meta.rules and the rest: off the gateway's one event loop when the page is large (0.3).
+        return await asyncio.to_thread(check) if metrics.bytes > THREAD_PARSE_BYTES else check()
 
     async def manifest_when_free(self) -> Manifest:
         """Plan 5.2 step 3: sleep Retry-After on source_busy and choose a new as_of each time, 1200 seconds in all."""

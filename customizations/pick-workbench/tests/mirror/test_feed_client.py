@@ -550,6 +550,11 @@ def _row(change):
     return lambda body: {**body, "rows": [change(body["rows"][0])]}
 
 
+def _meta_at(section, key, value):
+    """The manifest with meta[section][key] replaced."""
+    return _row(lambda row: {**row, "meta": {**row["meta"], section: {**row["meta"][section], key: value}}})
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "change",
@@ -575,6 +580,15 @@ def _row(change):
         _row(lambda row: {**row, "meta": {**row["meta"], "warnings": [{"source": "x"}]}}),
         _row(lambda row: {**row, "sourceRevision": 5}),
         _row(lambda row: {**row, "asOf": "2026-09-23T12:31:00.000Z"}),
+        _row(lambda row: {**row, "x ROWVALUE=1": 1}),
+        # Content now goes through contracts.parse_manifest: every nested shape of MANIFEST_SHAPE, forbidden names, NUL.
+        _meta_at("control", "postedStates", {"pub": 0}),
+        _meta_at("control", "rankCounts", {"kd": [1]}),
+        _meta_at("rules", "glossary", [{"g": "x", "d": "y", "items": [{"t": "a", "extra": 1}]}]),
+        _meta_at("rules", "ruleHints", {"x_usd": "a"}),
+        _meta_at("rules", "postedPoolUrl", "a\x00b"),
+        _meta_at("growthBaseline", "1", {"baselineDay": None}),
+        _meta_at("freshness", "rows", float("inf")),
     ],
 )
 async def test_manifest_contract(change):
