@@ -191,6 +191,19 @@ def test_dry_run_scan_without_hits_exits_0(capsys, files):
     assert summary["gates"]["pan_scan"] == {"ok": True, "paths": 0, "hits": 0}
 
 
+def test_dry_run_scan_never_prints_a_key_that_holds_a_pan_link(capsys, files):
+    # meta.rules.ruleHints takes any key (rec(SCALAR), finding 7): a pan link used as a key passes the contract, and
+    # its value hits. The path shows where, the key itself is masked.
+    link = "https://pan.baidu.com/s/1AbCdEf"
+    fake, clock = world()
+    _patch_manifest(fake, lambda page: (page["rows"][0]["meta"]["rules"].update(ruleHints={link: PAN}), page)[1])
+    code, lines, text = run(capsys, fake, clock, "--scan", env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    _, summary = summary_of(lines)
+    assert code == 1 and summary["scan"]["hits"] == {"manifest.meta.rules.ruleHints.<非常规键名>": 1}
+    for piece in PAN_PIECES:
+        assert piece not in text
+
+
 def test_scan_without_v1_fails_the_pan_scan_gate(capsys, files):
     # P1 step 7 wants every path at 0, v1.rules included (U45): a --scan that never read v1 cannot vouch for it, so the
     # gate fails and names what it did not scan, even when the v2 pages and manifest.meta are clean.

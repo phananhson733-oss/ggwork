@@ -281,6 +281,21 @@ def test_scan_counts_every_leaf():
     assert pan.scan_row("rs_rows", {"tag_list": [PAN, PAN, "ok"], "flag": True, "n": 3, "none": None}) == {"rs_rows.tag_list[*]": 2}
 
 
+@pytest.mark.parametrize("key", ["https://pan.baidu.com/s/1AbCdEf", "提取码ab12", "a.b", "a b", "", "k" * 65])
+def test_a_key_that_is_not_a_plain_name_is_not_written_into_the_path(key):
+    # Paths are what --scan prints; a key can carry the very text the scan looks for. Keys meta.scrub could hold (SCRUB_PATH:
+    # letters, digits, underscore) are kept as they are; any other is written <非常规键名>, like contracts' error paths.
+    from ggwork_pick.mirror.contracts import ODD_KEY
+
+    assert pan.scan_value({"rules": {key: PAN, "plain_1": PAN}}, "manifest.meta") == {
+        f"manifest.meta.rules.{ODD_KEY}": 1,
+        "manifest.meta.rules.plain_1": 1,
+    }
+    # Two such keys add up under the one masked path; exemptions still go by the key itself.
+    assert pan.scan_row("rs_rows", {"md": {key: PAN, f"{key}/2": [PAN]}, "source_id": PAN}) == {f"rs_rows.md.{ODD_KEY}": 1, f"rs_rows.md.{ODD_KEY}[*]": 1}
+    assert pan.scan_v1_row({"signals": [{key: PAN, "source_ref": PAN}]}) == {f"signals[*].{ODD_KEY}": 1}
+
+
 def test_misuse_is_refused():
     with pytest.raises(ValueError):
         pan.scan_row("manifest", {"title": PAN})

@@ -142,7 +142,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 | `warnings` | manifest `meta.warnings` 的 code 列表 |
 | `source_revision_null` | manifest 的 `sourceRevision` 是否为 null |
 | `retries` | 重试与漂移的计数，字段见下表 |
-| `scan` | 只在加了 `--scan` 时出现：`hits`（路径 → 次数，不含值）、`total`（次数合计）、`elapsed_ms`（扫描线程耗时合计） |
+| `scan` | 只在加了 `--scan` 时出现：`hits`（路径 → 次数，不含值；路径里不是字母、数字、下划线的键名写成 `<非常规键名>`，键名本身也可能带着网盘片段）、`total`（次数合计）、`elapsed_ms`（扫描线程耗时合计） |
 | `gates` | 每个门槛的判定，字段见下表 |
 
 `resources` 每一项（`series_days`、`v1` 同）：
