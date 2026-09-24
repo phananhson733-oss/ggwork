@@ -7,7 +7,10 @@ deployment-protection bypass only from a file: a secret on the command line ends
 Exit status: 0 every gate passed, 1 a gate failed, 2 usage, 3 the pull itself failed, 4 an unexpected error (a bug,
 or a shape no check caught; the summary names its class and the innermost frame, never its message).
 
-Page iteration (walk) and bookkeeping (Tally) are kept apart, so --scan (after P2-2b) can read the same pages.
+Page iteration (walk) and bookkeeping (Tally) are kept apart. --scan also runs the Python pan scrub (mirror/pan.py) over
+every page it reads, in a worker thread, and reports only paths and counts: v1 rows by v1's exemptions, the v1 rules
+Markdown as v1.rules (U45), each v2 row by its resource's exemptions, manifest.meta as finalizeManifest scrubs it. Any
+hit fails the pan_scan gate (U20, U52). Its thread time is kept out of run_ms, which measures RealShort.
 """
 
 import argparse
@@ -24,6 +27,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import NoReturn, TextIO
 
+from ggwork_pick.mirror import pan
 from ggwork_pick.mirror.client import COUNTED_RESOURCES, MAX_LIMITS, ROW_RESOURCES, SERIES_RESOURCE, FeedClient, Manifest, Page, PageMetrics
 from ggwork_pick.mirror.errors import AsOfExpiredError, BusyTimeout, ConfigError, DriftError, FeedError
 from ggwork_pick.mirror.feed_shape import SERIES_DAY_SPAN
@@ -61,6 +65,7 @@ class Options:
     v1_token_file: Path | None
     series_days: int
     limits: Mapping[str, int]
+    scan: bool = False
 
 
 @dataclass(frozen=True)
@@ -118,12 +123,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--limit", type=_limit_item, action="extend", nargs="+", default=[], metavar="资源=条数", help="覆盖页大小：--limit rs_rows=1000 rs_ids=5000，可重复"
     )
+    parser.add_argument("--scan", action="store_true", help="在内存里用 Python 网盘清洗扫描每一页，只报路径与次数；有命中就以 1 退出")
     return parser
 
 
 def parse_args(argv: Sequence[str] | None) -> Options:
     args = build_parser().parse_args(argv)
-    return Options(args.base_url, args.bypass_header_file, args.token_file, args.v1_token_file, args.series_days, MappingProxyType(dict(args.limit)))
+    limits = MappingProxyType(dict(args.limit))
+    return Options(args.base_url, args.bypass_header_file, args.token_file, args.v1_token_file, args.series_days, limits, args.scan)
 
 
 def _read_secret(path: Path, what: str) -> str:
@@ -247,11 +254,23 @@ class Tally:
 
 
 @dataclass(frozen=True)
+class Scan:
+    """--scan's hits by path (never a value) and the thread time they took, which run_ms leaves out."""
+
+    hits: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    elapsed_ms: float = 0.0
+
+    def add(self, hits: Mapping[str, int], elapsed_ms: float) -> "Scan":
+        return Scan(MappingProxyType(pan.add_hits(dict(self.hits), dict(hits))), round(self.elapsed_ms + elapsed_ms, 1))
+
+
+@dataclass(frozen=True)
 class Pull:
     manifest: Manifest
     tally: Tally
     days: tuple[str, ...]
     run_ms: float
+    scan: Scan | None = None
 
 
 def series_days(manifest: Manifest, count: int) -> tuple[str, ...]:
@@ -306,6 +325,20 @@ class Outcome:
     error: FeedError | None = None
 
 
+def scan_page(key: Key, body: Mapping) -> dict[str, int]:
+    """One page's hits: a v1 page with v1's exemptions and its rules apart, a v2 page with its resource's."""
+    return pan.scan_v1_page(body) if key[0] == "v1" else pan.scan_v2_page(key[0], body)
+
+
+async def _scanned(scan: Scan | None, timer, function, *args) -> Scan | None:
+    """scan plus what function(*args) finds, run in a worker thread (0.3); None when --scan is off."""
+    if scan is None:
+        return None
+    started = timer()
+    hits = await asyncio.to_thread(function, *args)
+    return scan.add(hits, (timer() - started) * 1000)
+
+
 async def pull_once(client: FeedClient, options: Options, timer) -> tuple[int, Pull | FeedError]:
     """One run: (seconds it slept on a busy manifest, the pull or the FeedError that ended it).
 
@@ -317,15 +350,16 @@ async def pull_once(client: FeedClient, options: Options, timer) -> tuple[int, P
         return exc.waited, exc
     except FeedError as exc:
         return 0, exc
-    tally = Tally()
+    tally, scan = Tally(), await _scanned(Scan() if options.scan else None, timer, pan.scan_manifest_meta, manifest.meta)
     try:
         async for key, page in walk(client, manifest, options):
             tally = tally.add(key, page)
+            scan = await _scanned(scan, timer, scan_page, key, page.body)
     except FeedError as exc:
         return sum(manifest.busy_sleeps), exc
-    # From the moment the successful manifest request went out: busy waits before it are not the pull's time.
-    run_ms = round((timer() - manifest.metrics.started) * 1000, 1)
-    return sum(manifest.busy_sleeps), Pull(manifest, tally, series_days(manifest, options.series_days), run_ms)
+    # From the moment the successful manifest request went out: busy waits before it are not the pull's time, nor --scan's.
+    run_ms = round((timer() - manifest.metrics.started) * 1000 - (scan.elapsed_ms if scan else 0), 1)
+    return sum(manifest.busy_sleeps), Pull(manifest, tally, series_days(manifest, options.series_days), run_ms, scan)
 
 
 async def pull_with_reruns(client: FeedClient, options: Options, recorder: Recorder, *, sleep, timer) -> Outcome:
@@ -391,7 +425,19 @@ def evaluate_gates(pull: Pull, resources: Mapping[str, dict], series: Mapping[st
         "run_time": {"ok": pull.run_ms < RUN_MS_LIMIT, "limit_ms": RUN_MS_LIMIT, "run_ms": pull.run_ms},
         "row_counts": {"ok": not mismatched, "mismatched": mismatched},
         "title_scrub": {"ok": not hits, "hits": hits, **({"blocks": BLOCKS_67} if hits else {})},
+        **({"pan_scan": _scan_gate(pull.scan)} if pull.scan is not None else {}),
     }
+
+
+def _scan_gate(scan: Scan) -> dict:
+    return {"ok": not scan.hits, "paths": len(scan.hits), "hits": sum(scan.hits.values())}
+
+
+def _scan_summary(scan: Scan | None) -> dict:
+    if scan is None:
+        return {}
+    hits = dict(sorted(scan.hits.items()))
+    return {"scan": {"hits": hits, "total": sum(hits.values()), "elapsed_ms": scan.elapsed_ms}}
 
 
 def _label(key: Key) -> str:
@@ -427,6 +473,7 @@ def summarize(outcome: Outcome, recorder: Recorder, *, v1_enabled: bool) -> dict
         "scrub": dict(manifest.meta["scrub"]),
         "warnings": [warning["code"] for warning in manifest.meta["warnings"]],
         "source_revision_null": manifest.source_revision is None,
+        **_scan_summary(pull.scan),
         "gates": gates,
     }
 

@@ -140,6 +140,95 @@ def test_other_scrub_fields_do_not_block_67(capsys, files, path):
     assert code == 0 and summary["gates"]["title_scrub"] == {"ok": True, "hits": {}} and summary["scrub"] == {path: 2}
 
 
+PAN = "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+PAN_PIECES = ("pan.baidu.com", "1AbCdEf", "ab12")
+
+
+def _plant_pan(fake):
+    """A pan fragment on one leaf each of a v1 row, the v1 rules, a v2 row and manifest.meta, and on exempt fields."""
+    key, row = fake.v1[0]
+    signal = {"kind": "kd", "label": "x", "source_ref": PAN, "observed_at": PAN, "rank": None, "grade": "", "note": "x"}
+    posted = {**row["posted"], "last_post_on": PAN}
+    fake.v1[0] = (key, {**row, "title": PAN, "source_id": PAN, "detail_url": PAN, "listed_at": PAN, "signals": [signal], "posted": posted})
+    fake.data["catalog_rows"][0] = {**fake.data["catalog_rows"][0], "reoff_note": PAN, "in_site_ids": [PAN], "listed_on": PAN}
+    original_v1 = fake._v1_page
+
+    def v1_page(cursor, limit, as_of):
+        status, headers, body = original_v1(cursor, limit, as_of)
+        page = json.loads(body)
+        return status, headers, json.dumps({**page, "rules": f"# 规则\n{PAN}"} if page["rules"] else page).encode()
+
+    fake._v1_page = v1_page
+
+    def meta_pan(page):
+        page["rows"][0]["meta"]["rules"]["postedPoolUrl"] = PAN
+        return page
+
+    _patch_manifest(fake, meta_pan)
+
+
+def test_dry_run_scan_reports_paths_only(capsys, files):
+    # The brief's P2-2a test 24 (U20, U45, U52): paths and counts, never the value; any hit exits non-zero.
+    fake, clock = world()
+    _plant_pan(fake)
+    code, lines, text = run(capsys, fake, clock, "--scan", env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    _, summary = summary_of(lines)
+    assert code == 1 and summary["ok"] is False and summary["failed_gates"] == ["pan_scan"]
+    hits = {"v1.rows[*].title": 1, "v1.rules": 1, "catalog_rows.reoff_note": 1, "manifest.meta.rules.postedPoolUrl": 1}
+    # Exempt fields (v1 source_id, detail_url, listed_at, signals[*].source_ref / observed_at, posted.last_post_on;
+    # v2 in_site_ids and listed_on) hold the same fragment and count nothing.
+    assert summary["scan"]["hits"] == hits and summary["scan"]["total"] == 4
+    assert summary["gates"]["pan_scan"] == {"ok": False, "paths": 4, "hits": 4}
+    for piece in PAN_PIECES:
+        assert piece not in text
+
+
+def test_dry_run_scan_without_hits_exits_0(capsys, files):
+    fake, clock = world()
+    code, lines, _ = run(capsys, fake, clock, "--scan", env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    _, summary = summary_of(lines)
+    assert code == 0 and summary["ok"] is True and summary["scan"]["hits"] == {} and summary["scan"]["total"] == 0
+    assert summary["gates"]["pan_scan"] == {"ok": True, "paths": 0, "hits": 0}
+
+
+def test_without_scan_nothing_is_scanned(capsys, files, monkeypatch):
+    from ggwork_pick.mirror import pan
+
+    def refuse(*args):
+        raise AssertionError("scanned without --scan")
+
+    for name in ("scan_v1_page", "scan_v2_page", "scan_manifest_meta"):
+        monkeypatch.setattr(pan, name, refuse)
+    fake, clock = world()
+    _plant_pan(fake)
+    code, lines, _ = run(capsys, fake, clock, env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    _, summary = summary_of(lines)
+    assert code == 0 and "scan" not in summary and "pan_scan" not in summary["gates"]
+
+
+def test_scan_runs_off_the_event_loop(capsys, files, monkeypatch):
+    # 0.3: re and unicodedata hold the GIL; the gateway has one event loop, so every page's scan runs in a worker thread.
+    import threading
+
+    from ggwork_pick.mirror import pan
+
+    threads = []
+
+    def spying(function):
+        def spy(*args):
+            threads.append(threading.current_thread() is threading.main_thread())
+            return function(*args)
+
+        return spy
+
+    for name in ("scan_v1_page", "scan_v2_page", "scan_manifest_meta"):
+        monkeypatch.setattr(pan, name, spying(getattr(pan, name)))
+    fake, clock = world()
+    code, lines, _ = run(capsys, fake, clock, "--scan", env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    pages, _ = summary_of(lines)
+    assert code == 0 and len(threads) == len(pages) and not any(threads)
+
+
 def test_row_count_mismatch_fails(capsys, files):
     fake, clock = world()
     fake.counts = {**{name: len(rows) for name, rows in fake.data.items()}, "rs_ids": 3}
@@ -548,7 +637,8 @@ def test_bad_base_url_is_a_usage_error(capsys, files):
     assert code == 2 and "base URL" in capsys.readouterr().err
 
 
-def test_dry_run_runs_without_db_or_config(tmp_path, files):
+@pytest.mark.parametrize("extra", [[], ["--scan"]], ids=["plain", "scan"])
+def test_dry_run_runs_without_db_or_config(tmp_path, files, extra):
     """The real entry point in a clean process: python -m runs ggwork_pick/__init__.py first (critique 2, CLI entry)."""
     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
     fake = FakeRealShort(bypass=BYPASS, series={yesterday: 2}, sizes={"catalog_rows": 3}, page_rows={"catalog_rows": 2}, compress=True)
@@ -563,7 +653,7 @@ def test_dry_run_runs_without_db_or_config(tmp_path, files):
         "PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN,
     }
     command = [sys.executable, "-m", "ggwork_pick.mirror.client", "--dry-run", "--base-url", base]
-    command = [*command, "--bypass-header-file", str(files["bypass"]), "--token-file", str(files["token"])]
+    command = [*command, "--bypass-header-file", str(files["bypass"]), "--token-file", str(files["token"]), *extra]
     try:
         result = subprocess.run(command, cwd=work, env=env, capture_output=True, text=True, timeout=120)
     finally:
@@ -572,6 +662,8 @@ def test_dry_run_runs_without_db_or_config(tmp_path, files):
     lines = [json.loads(line) for line in result.stdout.splitlines()]
     pages, summary = summary_of(lines)
     assert summary["ok"] is True and summary["resources"]["catalog_rows"]["pages"] == 2 and summary["v1"]["rows"] == 3
+    # With --scan the packaged pan_rules.json loads in the clean process and the scan finds nothing in the double's rows.
+    assert ("scan" in summary) == bool(extra) and summary.get("scan", {"total": 0})["total"] == 0
     assert all(METRIC_KEYS <= set(line) and line["wire_bytes"] > 0 for line in pages)
     assert [(line["bytes"], line["wire_bytes"]) for line in pages] == [(body, sent) for _, body, sent in fake.wire]
     assert pages[0]["resource"] == "manifest" and pages[0]["wire_bytes"] < pages[0]["bytes"]

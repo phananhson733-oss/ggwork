@@ -245,6 +245,29 @@ def test_manifest_meta_scan_matches_realshort():
     assert pan.scan_manifest_meta({"scrub": {PAN: 1}}) == {}
 
 
+def test_v1_page_scan_prefixes_rows_and_counts_the_rules_apart():
+    # The brief's --scan: v1 rows[*] by v1's exemptions, the first page's rules Markdown as v1.rules (U45).
+    row = CONTRACT["v1_row"]
+    page = {"rows": [row["input"], row["input"]], "rules": f"# 规则\n{PAN}", "scope": PAN}
+    expected = {f"v1.rows[*].{path}": hits * 2 for path, hits in row["hits"].items()}
+    assert pan.scan_v1_page(page) == {**expected, "v1.rules": 1}
+    # Later pages carry no rules; a row that is not an object is still scanned as a leaf.
+    assert pan.scan_v1_page({"rows": [PAN], "rules": None}) == {"v1.rows[*]": 1}
+    assert pan.scan_v1_page({"rows": [], "rules": "# 规则"}) == {}
+
+
+@pytest.mark.parametrize("resource", sorted(CONTRACT["v2_rows"]))
+def test_v2_page_scan_adds_up_its_rows(resource):
+    sample = CONTRACT["v2_rows"][resource]
+    page = {"rows": [sample["input"], sample["output"], sample["input"]], "fingerprint": PAN}
+    assert pan.scan_v2_page(resource, page) == {path: hits * 2 for path, hits in sample["hits"].items()}
+
+
+def test_add_hits_returns_a_new_mapping():
+    first = {"a": 1}
+    assert pan.add_hits(first, {"a": 2, "b": 1}) == {"a": 3, "b": 1} and first == {"a": 1}
+
+
 def test_scan_leaves_its_input_alone():
     row = {"title": PAN, "tag_list": [PAN, "ok"], "payload": {"h": [[PAN]]}}
     before = copy.deepcopy(row)

@@ -285,3 +285,30 @@ def scan_v1_row(row: dict) -> dict[str, int]:
 def scan_manifest_meta(meta: dict) -> dict[str, int]:
     """manifest.meta as finalizeManifest scrubs it (export-v2-map.ts:922-928): every key but scrub, under manifest.meta."""
     return scan_value({key: item for key, item in meta.items() if key != "scrub"}, "manifest.meta")
+
+
+def add_hits(first: dict[str, int], second: dict[str, int]) -> dict[str, int]:
+    """Two hit counts added up by path, as a new dict (addScrubCounts, export-v2-map.ts:644-646)."""
+    return {**first, **{path: first.get(path, 0) + hits for path, hits in second.items()}}
+
+
+def scan_v1_page(page: dict) -> dict[str, int]:
+    """A feed v1 page: rows[*] by v1's exemptions, under v1.rows[*]; the first page's rules Markdown apart, as v1.rules.
+
+    RealShort sends the rules unscrubbed (feed.ts:63), so they are counted on their own (U45); other page fields
+    (scope, freshness) are not scanned, as in G2.
+    """
+    totals: dict[str, int] = {}
+    for row in page.get("rows") or ():
+        found = {f"v1.rows[*].{path}" if path else "v1.rows[*]": hits for path, hits in scan_v1_row(row).items()}
+        totals = add_hits(totals, found)
+    rules = page.get("rules")
+    return totals if rules is None else add_hits(totals, scan_value(rules, "v1.rules"))
+
+
+def scan_v2_page(resource: str, page: dict) -> dict[str, int]:
+    """A feed v2 row page: every row as scan_row counts it, added up; paths as meta.scrub writes them."""
+    totals: dict[str, int] = {}
+    for row in page.get("rows") or ():
+        totals = add_hits(totals, scan_row(resource, row))
+    return totals
