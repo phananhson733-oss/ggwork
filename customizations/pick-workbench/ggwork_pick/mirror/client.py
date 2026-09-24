@@ -6,6 +6,8 @@ Plan 4.1, 4.7 and 5.2 steps 3, 5 and 6, checked against RealShort 816ca2e (rs = 
 - every response becomes a page or one of the errors in mirror/errors.py; every page is checked in mirror/feed_shape.py;
 - pages() and v1_pages() are async generators, so one page is in memory at a time.
 Nothing here reads the database or the app config: the dry-run (mirror/dry_run.py) and the mirror run (P2-5c) share it.
+
+`python -m ggwork_pick.mirror.client --dry-run ...` is the P1-6 measurement (plan 1486).
 """
 
 import asyncio
@@ -415,3 +417,9 @@ class FeedClient:
         except httpx.HTTPError as exc:
             raise FeedConnectionError(f"RealShort {request.label} 连接失败：{type(exc).__name__}", resource=request.resource) from None
         return _Reply(status, response_headers, content, wire, started, round((self._timer() - started) * 1000, 1))
+
+
+if __name__ == "__main__":
+    from ggwork_pick.mirror.dry_run import main
+
+    raise SystemExit(main())
