@@ -7,6 +7,7 @@ Configuration, transport, secrets and metrics are in test_feed_transport.py.
 import json
 import re
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fake_realshort import BYPASS, EXPORT_TOKEN, FEED_TOKEN, ROW_SENTINEL, busy, make_rows, v1_error, v2_error
@@ -329,6 +330,40 @@ def _rewrite_rows_page(fake, resource, change):
         return status, headers, json.dumps(change(json.loads(body), params)).encode()
 
     fake._rows = patched
+
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+
+
+def test_page_limits_default_to_each_resources_server_maximum():
+    # The brief's P2-2a: PAGE_LIMITS is a module constant, by default RealShort's maxLimit per resource (RESOURCE_SPECS,
+    # rs:src/lib/pick/export-v2-map.ts:130-191, also its default limit, export-v2-page.ts:107); rs_rows is P1-6's (U47).
+    from ggwork_pick.mirror import client
+
+    specs = json.loads((FIXTURES / "export_v2_contract.json").read_text(encoding="utf-8"))["resource_specs"]
+    maxima = {resource: spec["maxLimit"] for resource, spec in specs.items()}
+    assert dict(client.MAX_LIMITS) == maxima
+    assert list(client.PAGE_LIMITS) == list(maxima) and dict(client.PAGE_LIMITS) == maxima
+    assert all(1 <= client.PAGE_LIMITS[r] <= maxima[r] for r in maxima)
+    with pytest.raises(TypeError):
+        client.PAGE_LIMITS["rs_rows"] = 1000
+
+
+@pytest.mark.asyncio
+async def test_a_page_limit_below_the_maximum_is_sent_and_honoured(monkeypatch):
+    # What P1-6's first fallback does (--limit rs_rows=1000, then the constant): the page size goes out as limit.
+    from ggwork_pick.mirror import client
+
+    monkeypatch.setattr(client, "PAGE_LIMITS", {**client.PAGE_LIMITS, "rs_rows": 1})
+    fake, clock = world(sizes={"rs_rows": 2, "rs_ids": 2})
+    async with make_client(fake, clock) as feed:
+        manifest = await feed.manifest_when_free()
+        pages = await collect(feed.pages("rs_rows", manifest=manifest))
+        await collect(feed.pages("rs_ids", manifest=manifest))
+    assert [p.metrics.rows for p in pages] == [1, 1]
+    assert {c.params.get("limit") for c in only(fake.calls, "rs_rows")} == {"1"}
+    # At the server's own maximum nothing is sent: RealShort's default is that maximum.
+    assert all("limit" not in c.params for c in only(fake.calls, "rs_ids"))
 
 
 @pytest.mark.asyncio
