@@ -436,6 +436,32 @@ async def test_v1_pan_text_publishes_nothing(harness):
     assert await batches(harness.engine) == [] and v2_row_calls(fake.calls) == []
 
 
+@pytest.mark.parametrize(
+    ("world", "options", "path"),
+    [
+        (gw.with_manifest(gw.baseline(), ("meta", "freshness", "rsSyncedAt"), gw.PAN), {}, "manifest.meta.freshness.rsSyncedAt"),
+        (None, {"sha": gw.PAN}, "manifest.sourceRevision"),
+    ],
+    ids=["meta", "source_revision"],
+)
+@pytest.mark.asyncio
+async def test_pan_text_in_the_manifest_builds_no_version(harness, world, options, path):
+    """security-2: manifest.meta and sourceRevision are scanned before the version row is written. pick_board_reader can
+    read pick_mirror.versions whatever its status, so a failed version must not keep their text; none is built."""
+    fake = world_fake(harness, world, **options)
+    result = await make_sync(harness, fake).run("cron")
+    details = result["details_json"]
+    assert (result["status"], details["outcome"], details["reason"], details["version"]) == ("success", "degraded", "degraded:mirror_text", None)
+    gate = details["gates"]["mirror_text"]
+    assert (gate["ok"], gate["consequence"], gate["paths"]) == (False, "mirror", {path: 1})
+    assert details["scrub_hits"]["mirror"] == 1
+    assert await versions(harness.engine) == [] and v2_row_calls(fake.calls) == []
+    assert await shared_current(harness.engine) == (result["catalog_batch_id"], result["knowledge_batch_id"])
+    assert "pan.baidu.com" not in str(details)
+    state = await control(harness.engine)
+    assert (state["consecutive_failures"], state["last_failure"]) == (1, "degraded:mirror_text")
+
+
 @pytest.mark.asyncio
 async def test_a_bad_export_token_falls_back(harness):
     result, fake = await _run(harness, export_token="has a space")

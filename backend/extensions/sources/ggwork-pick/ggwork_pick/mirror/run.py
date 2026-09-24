@@ -29,11 +29,13 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ggwork_pick.mirror import pan
 from ggwork_pick.mirror.client import FeedClient
 from ggwork_pick.mirror.connection import MirrorConnectionError
 from ggwork_pick.mirror.errors import BusyTimeout, ConfigError, DriftError, FeedError
 from ggwork_pick.mirror.feed_shape import Manifest
-from ggwork_pick.mirror.gates import GateError
+from ggwork_pick.mirror.gate_result import MIRROR_TEXT, GateResult
+from ggwork_pick.mirror.gates import GateError, MirrorTextScan, scan_mirror_meta
 from ggwork_pick.mirror.lock import LOCK_STUCK_AFTER, lock_status, mirror_lock
 from ggwork_pick.mirror.publish import ALERT_AFTER
 from ggwork_pick.mirror.retention import clean_leftover_versions, prune_versions
@@ -266,6 +268,23 @@ def _failure_code(exc: BaseException) -> str:
     return type(exc).__name__[:64]
 
 
+def _manifest_text(manifest: Manifest) -> GateResult | None:
+    """G5 over manifest.meta and sourceRevision before any version row stores them (security-2): pick_board_reader can
+    read pick_mirror.versions whatever its status, and the meta table would carry sourceRevision, which G5's page scan
+    never sees. A failed G5 verdict when either holds pan text, else None. Pure and CPU-bound."""
+    found = scan_mirror_meta(MirrorTextScan(), manifest.meta).found
+    if isinstance(manifest.source_revision, str):
+        found = found.add(pan.scan_value(manifest.source_revision, "manifest.sourceRevision"), ("manifest",))
+    return GateResult(MIRROR_TEXT, False, found.as_detail()) if found.total else None
+
+
+def _with_text_gate(outcome: RunOutcome, gate: GateResult | None) -> RunOutcome:
+    if gate is None:
+        return outcome
+    hits = sum(gate.detail["paths"].values())
+    return outcome.merged("gates", **{MIRROR_TEXT: gate.as_json()}).merged("scrub_hits", mirror=hits)
+
+
 def _v1_details(v1: V1Staged | V1Failed) -> dict:
     scan = v1.scan
     details = {"gates": {"v1_text": v1.gate.as_json()}} if v1.gate is not None else {}
@@ -442,7 +461,8 @@ class MirrorSync:
             return manifest
         stages = {"manifest_ms": ms(self._timer() - begun)}
         budget = Budget(self._timer, manifest.metrics.started, self.limits.run_deadline, self.limits.mirror_deadline)
-        version, build_error = await self._open_version(conn, manifest, run_id, over_cap=over_cap)
+        text_gate = await asyncio.to_thread(_manifest_text, manifest)
+        version, build_error = await self._open_version(conn, manifest, run_id, over_cap=over_cap, text_gate=text_gate)
         staged: tuple = ()
         try:
             begun = self._timer()
@@ -459,7 +479,7 @@ class MirrorSync:
         if isinstance(result, Retry):
             return result
         # The fold reads rs_series_day at this manifest's as_of and fp (U29); after a drift that fp is stale.
-        pinned = replace(result, manifest=manifest if result.drift_stage is None else None, source_as_of=manifest.as_of_text)
+        pinned = replace(_with_text_gate(result, text_gate), manifest=manifest if result.drift_stage is None else None, source_as_of=manifest.as_of_text)
         attempt_details = {"as_of": manifest.as_of_text, "version": version.id if version else None, "warnings": warning_codes(manifest)}
         return pinned.with_details(**attempt_details).with_stages(**stages)
 
@@ -475,11 +495,17 @@ class MirrorSync:
         except FeedError as exc:
             return await self._fallback(repo, cause=f"manifest:{type(exc).__name__}", error=safe_error(exc))
 
-    async def _open_version(self, conn, manifest: Manifest, run_id: str, *, over_cap: bool) -> tuple[MirrorVersion | None, str | None]:
-        """The building version (plan 5.2 step 4); none over the size cap (U43). A failure to build one is a mirror-side
-        failure: the attempt goes on without it and degrades with its class."""
+    async def _open_version(
+        self, conn, manifest: Manifest, run_id: str, *, over_cap: bool, text_gate: GateResult | None
+    ) -> tuple[MirrorVersion | None, str | None]:
+        """The building version (plan 5.2 step 4); none over the size cap (U43), none when manifest.meta or sourceRevision
+        holds pan text (text_gate; security-2: degraded:mirror_text without writing that text anywhere). A failure to
+        build one is a mirror-side failure: the attempt goes on without it and degrades with its class."""
         if over_cap:
             return None, None
+        if text_gate is not None:
+            logger.warning("[pick-mirror] pan text in the manifest (%s); no version is built", ", ".join(sorted(text_gate.detail["paths"])))
+            return None, MIRROR_TEXT
         meta = manifest.meta
         arguments = {"freshness": meta["freshness"], "warnings": meta["warnings"], "latest_snapshot": manifest.latest_snapshot}
         try:
