@@ -278,14 +278,13 @@ def _with(value, path, leaf):
         "counts.rs_series_day",
         "snapshotDays.0.extra",
         "meta.freshness.extra",
+        # rec(of, ["1", "7"]) and rec(of, ["ok", "only", "warn", "no"]): keys written into the shape itself stay closed.
         "meta.growthBaseline.30",
-        "meta.sources.mystery",
+        "meta.rules.youtubeLabels.maybe",
         "meta.sources.bill.details.token",
         "meta.rules.extra",
-        "meta.rules.platformRules.newtheater",
         "meta.rules.glossary.0.items.0.extra",
         "meta.control.extra",
-        "meta.control.rankCounts.newkind",
         "meta.control.facetsPick.posted.extra",
         "meta.warnings.0.extra",
     ],
@@ -295,6 +294,54 @@ def test_manifest_rejects_a_key_at_every_level(path):
         contracts.parse_manifest(_with(MANIFEST, path, SECRET))
     assert SECRET not in str(caught.value)
     assert caught.value.path == path
+
+
+# Records keyed by one of RealShort's business enums (theaters, platforms, bases, ranks, sorts, sources): a RealShort
+# release that adds one (a new theater) must not refuse every manifest until the workbench follows (Finding 7).
+NEW_KEYS = {
+    "meta.control.rankCounts.newtheater": 7,
+    "meta.control.facetsPick.platforms.newplatform": 3,
+    "meta.control.facetsAll.bases.newbasis": 1,
+    "meta.rules.basisLabels.newbasis": "新剧场",
+    "meta.rules.basisDateLabels.newbasis": "上榜日",
+    "meta.rules.rsRankLabels.rs_new": "新榜",
+    "meta.rules.sortLabels.newsort": "新排序",
+    "meta.rules.platformRules.newplatform": copy.deepcopy(next(iter(MANIFEST["meta"]["rules"]["platformRules"].values()))),
+    "meta.sources.newsource": {**copy.deepcopy(MANIFEST["meta"]["sources"]["bill"]), "source": "newsource"},
+}
+
+
+@pytest.mark.parametrize(("path", "value"), NEW_KEYS.items(), ids=NEW_KEYS.keys())
+def test_a_new_theater_platform_or_source_still_passes(path, value):
+    parsed = contracts.parse_manifest(_with(MANIFEST, path, value))
+    node = parsed.model_dump(by_alias=True, exclude_unset=True)
+    for part in path.split("."):
+        node = node[part]
+    assert node == value
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("meta.control.rankCounts.newtheater", [7]),
+        ("meta.control.facetsPick.platforms.newplatform", {"n": 3}),
+        ("meta.rules.basisLabels.newbasis", NAN),
+        ("meta.rules.platformRules.newplatform", SECRET),
+        ("meta.rules.platformRules.newplatform", {"key": "x"}),
+        ("meta.sources.mystery", SECRET),
+        ("meta.sources.newsource", {"source": "newsource"}),
+    ],
+)
+def test_open_records_still_check_their_values(path, value):
+    with pytest.raises(contracts.PageContractError) as caught:
+        contracts.parse_manifest(_with(MANIFEST, path, value))
+    assert caught.value.path.startswith(path) and SECRET not in str(caught.value)
+
+
+def test_open_records_still_refuse_forbidden_key_names():
+    with pytest.raises(contracts.PageContractError) as caught:
+        contracts.parse_manifest(_with(MANIFEST, "meta.control.rankCounts.bill_usd", 1))
+    assert caught.value.path == "meta.control.rankCounts.bill_usd"
 
 
 @pytest.mark.parametrize("path", ["version", "counts.rs_rows", "meta.rsCounts.ledger", "meta.control.ledger.orders", "meta.growthBaseline.1.baselineDay"])
@@ -396,14 +443,28 @@ def _shape_of(annotation):
     return {"kind": "scalar"}
 
 
+# RealShort's business enums as the generator exported them (request.ts, observe/metrics.ts, source-types.ts).
+ENUM_KEY_LISTS = [list(values) for name, values in CONTRACT["enums"].items() if name != "source_detail_keys"]
+
+
+def _open_record(shape) -> bool:
+    """Whether the workbench takes any key in this record: rec(of, null), or rec(of, <a RealShort business enum>).
+
+    RealShort's rec(of, keys) outputs only the keys it lists (export-v2-map.ts:785-793). Keys that are one of its enums
+    grow with its releases (a new theater), so the workbench takes any key there and checks the value; keys written into
+    the shape itself (growthBaseline ["1", "7"], youtubeLabels, counts' eight resources) are fixed, and so fixed here.
+    """
+    return shape["kind"] == "record" and (shape["keys"] is None or list(shape["keys"]) in ENUM_KEY_LISTS)
+
+
 def _realshort_shape(shape):
-    """The same vocabulary for MANIFEST_SHAPE as RealShort serialized it: a record with fixed keys is an object with optional fields."""
+    """The same vocabulary for MANIFEST_SHAPE as RealShort serialized it: a fixed-key record is an object with optional fields."""
     kind = shape["kind"]
     if kind == "object":
         return {"kind": "object", "fields": {key: _realshort_shape(child) for key, child in shape["fields"].items()}}
     if kind == "array":
         return {"kind": "array", "of": _realshort_shape(shape["of"])}
-    if kind == "record" and shape["keys"] is not None:
+    if kind == "record" and not _open_record(shape):
         return {"kind": "object", "fields": {key: _realshort_shape(shape["of"]) for key in shape["keys"]}}
     if kind == "record":
         return {"kind": "map", "of": _realshort_shape(shape["of"])}
@@ -412,6 +473,47 @@ def _realshort_shape(shape):
 
 def test_manifest_shape_matches_realshort():
     assert _shape_of(contracts.ManifestModel) == _realshort_shape(CONTRACT["manifest_shape"])
+
+
+def _extra_keys(shape, annotation, path="$"):
+    """(path, RealShort takes any key, the model takes any key) for every object and record of MANIFEST_SHAPE."""
+    args = [arg for arg in typing.get_args(annotation) if arg is not type(None)]
+    if typing.get_origin(annotation) in (typing.Union, types.UnionType) and len(args) == 1:
+        return _extra_keys(shape, args[0], path)
+    if shape["kind"] == "array":
+        return _extra_keys(shape["of"], args[0], f"{path}[*]")
+    if shape["kind"] == "scalar":
+        return []
+    takes_any = typing.get_origin(annotation) is dict
+    found = [(path, _open_record(shape), takes_any)]
+    if takes_any:
+        return found + _extra_keys(shape["of"], args[1], f"{path}.*")
+    fields = {field.alias or name: field.annotation for name, field in annotation.model_fields.items()}
+    children = shape["fields"] if shape["kind"] == "object" else dict.fromkeys(shape["keys"], shape["of"])
+    return found + [item for key, child in children.items() for item in _extra_keys(child, fields[key], f"{path}.{key}")]
+
+
+def test_manifest_models_take_extra_keys_exactly_where_realshort_does():
+    # Regenerating export_v2_contract.json after RealShort changes a shape makes this fail until the models follow.
+    nodes = _extra_keys(CONTRACT["manifest_shape"], contracts.ManifestModel)
+    assert [(path, realshort, ours) for path, realshort, ours in nodes if realshort != ours] == []
+    assert len(nodes) > 30
+    assert {path for path, realshort, _ in nodes if realshort} == {
+        "$.meta.sources",
+        "$.meta.rules.platformRules",
+        "$.meta.rules.basisLabels",
+        "$.meta.rules.basisDateLabels",
+        "$.meta.rules.rsRankLabels",
+        "$.meta.rules.ruleHints",
+        "$.meta.rules.langLoc",
+        "$.meta.rules.sortLabels",
+        "$.meta.control.facetsPick.platforms",
+        "$.meta.control.facetsPick.bases",
+        "$.meta.control.facetsAll.platforms",
+        "$.meta.control.facetsAll.bases",
+        "$.meta.control.rankCounts",
+        "$.meta.scrub",
+    }
 
 
 def test_forbidden_name_matches_realshort():

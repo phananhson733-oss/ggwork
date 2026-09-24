@@ -154,16 +154,14 @@ RESOURCE_COLUMNS = MappingProxyType(
 SIGNAL_PAYLOAD_KEYS = ("d", "w", "weeks", "best", "days", "first", "h", "qy", "pid")
 POSTED_POST_KEYS = ("d", "acct", "st", "views", "likes", "favs", "cmts", "shares", "md", "url", "note", "how", "pid")
 
-# request.ts, observe/metrics.ts and observe/source-types.ts: the fixed keys of the manifest's records (export-v2-map.ts:853-897).
-# Closed on purpose, like RealShort's rec(of, keys): once RealShort adds a platform, basis, rank, sort or export source, every
-# manifest is refused (the error names the record and the new key) until these lists follow it.
-PLATFORMS = ("reelshort", "dramabox", "shortmax", "flickreels", "flareflow", "kalos", "starshort", "goodshort", "moboreels", "touchshort")
-THEATER_BASES = ("kd", "kw", "qc", "qr", "sm", "smd", "mg", "fh", "sh", "gh", "gn", "ghh", "dbn")
-BASES = (*THEATER_BASES, "clk", "bill", "gsc")
-RS_RANKS = ("rs_rr", "rs_growth", "rs_cand", "rs_pc", "rs_clk", "rs_gsc", "rs_bill", "rs_ledger")
-RANKS = (*THEATER_BASES, *RS_RANKS)
-RS_SORTS = ("rr", "d1", "d7", "dp1", "dp7", "promoters", "publish", "bill", "eff", "gsc", "clicks")
-EXPORT_SOURCES = ("catalog", "snapshot", "bill", "gsc", "pick_catalog")
+# The manifest's records (MANIFEST_SHAPE's rec(of, keys), export-v2-map.ts:785-793, :853-909) come in two kinds here:
+# - keyed by one of RealShort's business enums (PLATFORMS, BASES, RANKS, RS_RANKS, SORTS, EXPORT_SOURCES in request.ts,
+#   observe/metrics.ts, observe/source-types.ts) or by any key (rec(of, null)): the enums grow with RealShort releases (a
+#   new theater), so any key is taken (_open_record) and only the value's shape is checked; forbidden key names are still
+#   refused at any depth (FORBIDDEN_NAME);
+# - keyed by a list written into the shape itself (growthBaseline ["1", "7"], youtubeLabels, counts' eight resources):
+#   fixed there, so fixed here (_keyed; counts even needs all eight).
+# test_manifest_models_take_extra_keys_exactly_where_realshort_does holds this against the generated MANIFEST_SHAPE.
 SOURCE_DETAIL_KEYS = (
     "startDate", "endDate", "timezone", "dataState", "rows", "expectedRows", "unresolvedPages", "unmatchedQueries",
     "pageRows", "queryRows", "truncated", "partial", "scope", "ratio", "billPeriod", "termsFetchedAt",
@@ -292,8 +290,13 @@ def _flat(name: str, keys, *, partial: bool = False) -> type[StrictContract]:
 
 
 def _keyed(name: str, keys, value_type) -> type[StrictContract]:
-    """RealShort's rec(of, keys): any of the fixed keys, each holding value_type; any other key refuses the page."""
+    """RealShort's rec(of, keys) with keys written into the shape: any of them, each holding value_type; another key refuses the page."""
     return create_model(name, __base__=StrictContract, __module__=__name__, **_fields(keys, value_type, required=False))
+
+
+def _open_record(value_type):
+    """The type of RealShort's rec(of, null), or rec(of, <a business enum>): any key, each value of value_type."""
+    return dict[StrictStr, value_type]
 
 
 SignalPayload = create_model("SignalPayload", __base__=StrictContract, __module__=__name__, **_fields(SIGNAL_PAYLOAD_KEYS, JsonValue, required=False))
@@ -379,30 +382,30 @@ class GlossaryGroup(StrictContract):
 
 
 class Facets(StrictContract):
-    platforms: _keyed("PlatformCounts", PLATFORMS, Scalar)
+    platforms: _open_record(Scalar)  # rec(SCALAR, PLATFORMS)
     langs: list[Lang]
-    bases: _keyed("BasisCounts", BASES, Scalar)
+    bases: _open_record(Scalar)  # rec(SCALAR, BASES)
     posted: FacetPosted
 
 
 class Rules(StrictContract):
-    platformRules: _keyed("PlatformRules", PLATFORMS, PlatformRule)
+    platformRules: _open_record(PlatformRule)  # rec(flat(...), PLATFORMS)
     inUse: list[Scalar]
-    basisLabels: _keyed("BasisLabels", BASES, Scalar)
-    basisDateLabels: _keyed("BasisDateLabels", BASES, Scalar)
-    rsRankLabels: _keyed("RsRankLabels", RS_RANKS, Scalar)
+    basisLabels: _open_record(Scalar)  # rec(SCALAR, BASES)
+    basisDateLabels: _open_record(Scalar)  # rec(SCALAR, BASES)
+    rsRankLabels: _open_record(Scalar)  # rec(SCALAR, RS_RANKS)
     youtubeLabels: _keyed("YoutubeLabels", ("ok", "only", "warn", "no"), Scalar)
     glossary: list[GlossaryGroup]
-    ruleHints: dict[StrictStr, Scalar]
-    langLoc: dict[StrictStr, Scalar]
+    ruleHints: _open_record(Scalar)  # rec(SCALAR)
+    langLoc: _open_record(Scalar)  # rec(SCALAR)
     postedPoolUrl: Scalar
-    sortLabels: _keyed("SortLabels", RS_SORTS, Scalar)
+    sortLabels: _open_record(Scalar)  # rec(SCALAR, RS_SORTS)
 
 
 class Control(StrictContract):
     facetsPick: Facets
     facetsAll: Facets
-    rankCounts: _keyed("RankCounts", RANKS, Scalar)
+    rankCounts: _open_record(Scalar)  # rec(SCALAR, RANKS): only theaters with signals have a key (queries-rank.ts:139-140)
     postedStats: PostedStats
     postedStates: PostedStates
     ledger: Ledger
@@ -412,7 +415,7 @@ class Meta(StrictContract):
     freshness: Freshness
     rsCounts: RsCounts
     growthBaseline: _keyed("GrowthBaselines", ("1", "7"), GrowthBaseline)
-    sources: _keyed("Sources", EXPORT_SOURCES, Source)
+    sources: _open_record(Source)  # rec(obj(...), EXPORT_SOURCES)
     rules: Rules
     control: Control
     scrub: ScrubCounts

@@ -602,6 +602,23 @@ async def test_manifest_contract(change):
 
 
 @pytest.mark.asyncio
+async def test_a_new_theater_in_the_manifest_passes_the_client():
+    # Finding 7: a RealShort release adding a theater or platform fills rankCounts, bases and platforms with a new key.
+    def grow(row):
+        control = row["meta"]["control"]
+        facets = {**control["facetsPick"], "platforms": {"newplatform": 2}, "bases": {"newtheater": 1}}
+        control = {**control, "rankCounts": {"newtheater": 5}, "facetsPick": facets, "facetsAll": facets}
+        rules = {**row["meta"]["rules"], "basisLabels": {"newtheater": "新剧场"}, "sortLabels": {"newsort": "新排序"}}
+        return {**row, "meta": {**row["meta"], "control": control, "rules": rules}}
+
+    fake, clock = world()
+    _rewrite_manifest(fake, _row(grow))
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+    assert manifest.meta["control"]["rankCounts"] == {"newtheater": 5}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("day", ["2026-06-22", "2026-09-24"])
 async def test_snapshot_days_outside_the_series_window_are_a_contract_error(day):
     # rs:src/lib/pick/export-v2.ts:440-446: snapshotDays runs from the as_of day back 92 days, the window day takes.
