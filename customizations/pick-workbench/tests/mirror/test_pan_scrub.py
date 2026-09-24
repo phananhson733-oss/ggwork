@@ -9,6 +9,9 @@ import dataclasses
 import hashlib
 import json
 import re
+import shutil
+import subprocess
+import zipfile
 from importlib import resources
 from pathlib import Path
 
@@ -16,7 +19,8 @@ import pytest
 
 from ggwork_pick.mirror import pan
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+PROJECT = Path(__file__).resolve().parents[2]
+FIXTURES = PROJECT / "tests" / "fixtures"
 CASES_FILE = FIXTURES / "pan_scrub_cases.json"
 CASES = json.loads(CASES_FILE.read_text(encoding="utf-8"))
 SOURCE = json.loads((FIXTURES / "SOURCE.json").read_text(encoding="utf-8"))
@@ -47,6 +51,80 @@ def test_fixture_cases(case):
     assert pan.scrub_text(case["expected"]) == (case["expected"], 0)
 
 
+# Local cases the shared fixture lacks. Each hits count is what RealShort 816ca2e's own scrubPanText returned for the same
+# input (node --import tsx in a clean checkout, 2026-09-24), so they pin agreement, not a guess.
+@pytest.mark.parametrize(
+    ("text", "hits"),
+    [
+        # %7E is the top of normalize.printable (a closed range): it decodes to ~, which the next pass's markup step removes.
+        ("pan%7E.baidu.com/s/1abc", 1),
+        ("pan%7F.baidu.com/s/1abc", 0),
+        # Only copy keep, which leaves tags alone, reads the code in the attribute once %3A is decoded.
+        ('<b data-x="提取码%3A ab12">y</b>', 1),
+    ],
+)
+def test_local_cases_agree_with_realshort(text, hits):
+    assert pan.scrub_text(text) == ((pan.RULES.replacement, 1) if hits else (text, 0))
+
+
+def _case(name):
+    return next(case["input"] for case in CASES["cases"] if case["name"] == name)
+
+
+# Per copy, an input no other copy (and neither raw pattern) recognises. Copy value has none: in the fixture and in
+# about ten thousand generated tag, keyword and value combinations, whatever value recognises another copy does too.
+ONLY_ONE_COPY = {
+    "delete": _case("url_value_tag_inside_domain"),
+    "keep": '<b data-x="提取码%3A ab12">y</b>',
+    "keyless": _case("code_text_value_in_container_next_to_link"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(ONLY_ONE_COPY))
+def test_each_copy_is_needed(name):
+    text = ONLY_ONE_COPY[name]
+    assert pan.RULES.url.search(text) is None and pan.RULES.code.search(text) is None
+    detected = {copy_name for copy_name, steps in zip(pan.COPIES, pan._copies(pan.RULES), strict=True) if pan._probe(text, steps)[0]}
+    assert detected == {name}
+    assert pan.scrub_text(text) == (pan.RULES.replacement, 1)
+
+
+@pytest.mark.parametrize(
+    ("text", "decoded"),
+    [
+        ("pan&#46baidu", "pan.baidu"),
+        ("&#x10FFFF;", chr(0x10FFFF)),
+        ("&#1114111;", chr(0x10FFFF)),
+        ("&#00000065;", "A"),
+        ("&#xD800;", "&#xD800;"),
+        ("&#57343;", "&#57343;"),
+        ("&#x110000;", "&#x110000;"),
+        ("&#10000000;", "&#10000000;"),
+        ("&#0;", "&#0;"),
+        ("&amp;&AMP;&nosuch;", "&&AMP;&nosuch;"),
+    ],
+)
+def test_entities_step(text, decoded):
+    # Fixture about: leading zeros dropped, at most max_digits (dec 7, hex 6), a scalar value 1-0x10FFFF, names case-sensitive.
+    assert (pan.RULES.entity_max_dec, pan.RULES.entity_max_hex) == (7, 6)
+    assert dict(pan._copies(pan.RULES)[0])["entities"](text) == decoded
+
+
+@pytest.mark.parametrize(
+    ("copy_name", "text", "after"),
+    [
+        ("value", '<input value="ab12">', " ab12 "),
+        ("value", "<b>x</b>", "x"),
+        ("delete", '<input value="ab12">', ""),
+        ("keyless", '<span title="复制提取码">x</span>', '<span title="复制' + chr(0xFFFD) * 3 + '">x</span>'),
+    ],
+)
+def test_tags_step_per_copy(copy_name, text, after):
+    steps = dict(pan._copies(pan.RULES)[pan.COPIES.index(copy_name)])
+    assert steps["tags"](text) == after
+    assert "tags" not in dict(pan._copies(pan.RULES)[pan.COPIES.index("keep")])
+
+
 def test_fixture_copies_identical():
     packaged = resources.files("ggwork_pick.mirror").joinpath("pan_rules.json").read_bytes()
     assert SOURCE == {"commit": "816ca2e", "path": "tests/fixtures/pan-scrub-cases.json", "sha256": FIXTURE_SHA256}
@@ -57,6 +135,22 @@ def test_fixture_copies_identical():
     assert CASES["normalize"]["order"] == ["entities", "form", "dots", "strip", "markup", "tags", "percent"]
     assert CASES["limits"]["probe_passes"] == 16
     assert len(CASES["cases"]) == 330
+
+
+def test_wheel_ships_the_rules(tmp_path):
+    # The image installs a wheel built from this project (a path dependency of backend/pyproject.toml), not the source
+    # tree that importlib.resources reads above. Built offline, so it is skipped where uv or its cached backend is missing.
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("没有 uv，无法离线构建 wheel")
+    command = [uv, "build", "--wheel", "--offline", "--no-config", "--quiet", "-o", str(tmp_path), str(PROJECT)]
+    built = subprocess.run(command, capture_output=True, timeout=120, check=False)
+    if built.returncode != 0:
+        pytest.skip(f"离线构建 wheel 不可用（uv 退出码 {built.returncode}）")
+    (wheel,) = tmp_path.glob("*.whl")
+    with zipfile.ZipFile(wheel) as archive:
+        assert hashlib.sha256(archive.read("ggwork_pick/mirror/pan_rules.json")).hexdigest() == FIXTURE_SHA256
+        assert not [name for name in archive.namelist() if name.startswith("tests/")]
 
 
 def test_rules_come_from_the_packaged_copy_and_cannot_change():
