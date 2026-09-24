@@ -203,7 +203,10 @@ test.describe("pick data board on the fixture mirror", () => {
       headers: { RSC: "1" },
       maxRedirects: 0,
     });
-    expect(await rsc.text()).not.toContain("c-3 的剧名");
+    // No fixture title of any kind: catalog rows, ReelShort dramas, posts.
+    expect(await rsc.text()).not.toMatch(
+      /c-\d 的剧名|rs\d{4} 的剧名|title-\d-文本/,
+    );
     await fresh.close();
   });
 });
