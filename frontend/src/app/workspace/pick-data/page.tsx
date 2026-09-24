@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import type { ReactElement, ReactNode } from "react";
 
 import { Sources } from "@/components/workspace/pick-board/sources";
 import { TAB_LABELS } from "@/components/workspace/pick-board/toolbar";
-import { bannersFor } from "@/components/workspace/pick-board/views/banner-rules";
+import {
+  bannersFor,
+  type Banner,
+} from "@/components/workspace/pick-board/views/banner-rules";
 import { Banners } from "@/components/workspace/pick-board/views/banners";
 import type {
   BoardContext,
@@ -27,7 +31,19 @@ import {
   MirrorNotice,
   type MirrorNoticeKind,
 } from "@/components/workspace/pick-board/views/notices";
+import {
+  replayBannerBoard,
+  replayBanners,
+  replayPage,
+  replayVersion,
+} from "@/components/workspace/pick-board/views/replay-rules";
+import {
+  ReplayBody,
+  type ReplayData,
+} from "@/components/workspace/pick-board/views/replay-view";
 import { TabView } from "@/components/workspace/pick-board/views/tab-view";
+import { validateAuthNextPath } from "@/core/auth/next-path";
+import { buildLoginUrl } from "@/core/auth/types";
 import type { PickSyncStatus } from "@/core/pick/sync-schema";
 import {
   isRsRank,
@@ -44,6 +60,7 @@ import {
   loadCandidatePool,
   loadFacets,
   loadGrowthDiagnosis,
+  loadMissingKeys,
   loadPickRows,
   loadPostedList,
   loadPostedRecord,
@@ -51,14 +68,18 @@ import {
   loadRankMeta,
   loadRankRows,
   loadReelshortDetail,
+  loadReplay,
   loadRowDetail,
+  loadRowsByKeys,
   loadRsRank,
   MirrorBusy,
   MirrorMisconfigured,
   MirrorUnavailable,
   MirrorVersionGone,
+  PICK_DATA_PATH,
   pickDataNextPath,
   type ReadyBoard,
+  type ReplayLoad,
   requireBoardUser,
   resolveBoard,
   setBoardScope,
@@ -71,7 +92,8 @@ import {
  * 顺序（合成稿 P3-5）：先鉴权，再决定读哪个版本、同时问 gateway 的 /sync，钉住版本（setBoardScope）之后才取数。
  * 取数都在这里：组件对 @/server/pick-board 只能 import type（契约测试），views/ 下的视图都是同步的。
  * 镜像读不了（没配、没版本、授权缺失、忙、版本刚被清理）是提示，不进 error.tsx；别的错误照常抛给 error.tsx。
- * 回放（tab=pick&result=…）属于 P4-2：这里忽略 result，照常出列表。
+ * 回放（tab=pick&result=…，P4-2）：先问 gateway 的 /replay（名单）与 /results/{id}（条件），再按结果配对的镜像版本
+ * 钉住（批判 B11：它优先于链接的 v），只取这一页的行、一次查全名单的缺行（B10）。别的 tab 带着 result 一律忽略。
  */
 
 export const dynamic = "force-dynamic";
@@ -88,7 +110,13 @@ export async function generateMetadata({
   searchParams?: SearchParams;
 }): Promise<Metadata> {
   const req = parsePickRequest((await searchParams) ?? {});
+  if (isReplay(req)) return { title: "选剧资料 · 回放候选" };
   return { title: `选剧资料 · ${TAB_LABELS[req.tab]}` };
+}
+
+/** 选剧 tab 带着合法的 result：回放；别的 tab 上的 result 不算 */
+function isReplay(req: PickRequest): boolean {
+  return req.tab === "pick" && req.result !== "";
 }
 
 /** 镜像读不了的几种：返回提示；别的错误不认，交回调用方抛出 */
@@ -183,9 +211,48 @@ function contextOf(board: Board): BoardContext {
   };
 }
 
+/** 页头、横幅、tab、这一 tab 的内容、页底：列表与回放共用的外框（徽标来自版本的新鲜度） */
+function BoardFrame({
+  board,
+  ctx,
+  req,
+  banners,
+  pool,
+  children,
+}: {
+  board: Board;
+  ctx: BoardContext;
+  req: PickRequest;
+  banners: readonly Banner[];
+  pool: number | null;
+  children: ReactNode;
+}) {
+  const fresh = ctx.freshness;
+  return (
+    <BoardShell>
+      <BoardHeader ctx={ctx} pool={pool} />
+      <Banners banners={banners} />
+      <BoardTabs
+        req={req}
+        counts={{
+          pick: fresh.withSignal + fresh.rsCandidates,
+          all: fresh.rows + fresh.rsCanonical,
+          posted: fresh.posted,
+        }}
+      />
+      {children}
+      <Sources
+        fresh={fresh}
+        sources={sourcesOf(board.sources)}
+        asOf={ctx.asOf}
+      />
+      <DifferencesNote />
+    </BoardShell>
+  );
+}
+
 /**
- * 版本已钉住：页头、横幅、tab、这一 tab 的内容、页底。先 setBoardScope，再取数，取完才出 JSX
- * （返回的是同步的元素树：异步的只有这一层）。
+ * 版本已钉住：先 setBoardScope，再取这一 tab 的数，取完才出 JSX（返回的是同步的元素树：异步的只有这一层）。
  */
 async function boardPage(
   board: Board,
@@ -198,32 +265,97 @@ async function boardPage(
   const loaded = await guarded(() =>
     Promise.all([loadCandidatePool(), loadTab(req)]),
   );
-  const fresh = ctx.freshness;
   const banners = bannersFor({ board, sync, req, now: new Date() });
   return (
-    <BoardShell>
-      <BoardHeader ctx={ctx} pool={loaded.ok ? loaded.value[0] : null} />
-      <Banners banners={banners} />
-      <BoardTabs
-        req={req}
-        counts={{
-          pick: fresh.withSignal + fresh.rsCandidates,
-          all: fresh.rows + fresh.rsCanonical,
-          posted: fresh.posted,
-        }}
-      />
+    <BoardFrame
+      board={board}
+      ctx={ctx}
+      req={req}
+      banners={banners}
+      pool={loaded.ok ? loaded.value[0] : null}
+    >
       {loaded.ok ? (
         <TabView data={loaded.value[1]} req={req} ctx={ctx} />
       ) : (
         <MirrorNotice notice={loaded.notice} req={req} />
       )}
-      <Sources
-        fresh={fresh}
-        sources={sourcesOf(board.sources)}
-        asOf={ctx.asOf}
-      />
-      <DifferencesNote />
-    </BoardShell>
+    </BoardFrame>
+  );
+}
+
+/** 401 已在 replayRoute 里转去登录，到这里的回放只剩这几种 */
+type ReplayOutcome = Exclude<ReplayLoad, { kind: "unauthenticated" }>;
+
+/** 回放这一页：只取这一页的行、一次查全名单的缺行（B10）；回放接口没给名单时是一条提示 */
+async function replayData(
+  loaded: ReplayOutcome,
+  req: PickRequest,
+): Promise<ReplayData> {
+  if (loaded.kind !== "ok")
+    return {
+      kind: "notice",
+      reason: loaded.kind,
+      conditions: "conditions" in loaded ? loaded.conditions : null,
+    };
+  const plan = replayPage(loaded.answer, req.page, req.size);
+  const [rows, missing] = await Promise.all([
+    loadRowsByKeys(plan.pageKeys),
+    loadMissingKeys(plan.allKeys),
+  ]);
+  const { answer, conditions } = loaded;
+  return { kind: "rows", answer, conditions, plan, rows, missing };
+}
+
+/**
+ * 回放的横幅：有名单时，版本怎么落的由 replayBanners 说（B11），页面自己的版本横幅让位（replayBannerBoard）；
+ * 没有名单（404 / 409 / 410 / 拿不到）时是普通的横幅，链接不带 result。
+ */
+function replayBannerList(
+  board: Board,
+  loaded: ReplayOutcome,
+  sync: GatewayResult<PickSyncStatus>,
+  urlV: number | null,
+  req: PickRequest,
+): Banner[] {
+  const now = new Date();
+  if (loaded.kind !== "ok")
+    return bannersFor({ board, sync, req: { ...req, result: "" }, now });
+  const paired = loaded.answer.mirrorVersion;
+  return [
+    ...replayBanners({ board, answer: loaded.answer, urlV, req }),
+    ...bannersFor({ board: replayBannerBoard(board, paired), sync, req, now }),
+  ];
+}
+
+/** 回放的版本已钉住：同一个外框，内容换成回放视图；翻页链接带着 result 与显示的版本 */
+async function replayBoardPage(
+  board: Board,
+  req0: PickRequest,
+  sync: GatewayResult<PickSyncStatus>,
+  loaded: ReplayOutcome,
+): Promise<ReactElement> {
+  setBoardScope(board.scope);
+  const req: PickRequest = { ...req0, v: board.scope.versionId };
+  const ctx = contextOf(board);
+  const content = await guarded(() =>
+    Promise.all([loadCandidatePool(), replayData(loaded, req)]),
+  );
+  const banners = replayBannerList(board, loaded, sync, req0.v, req);
+  return (
+    <BoardFrame
+      board={board}
+      ctx={ctx}
+      req={req}
+      banners={banners}
+      pool={content.ok ? content.value[0] : null}
+    >
+      {content.ok ? (
+        <ReplayBody data={content.value[1]} req={req} ctx={ctx} />
+      ) : (
+        /* 「打开当前版本」带着 result：回放在当前版本上接着做（配对版本已清理时走 B11 的回退） */
+        <MirrorNotice notice={content.notice} req={req} />
+      )}
+    </BoardFrame>
   );
 }
 
@@ -246,6 +378,29 @@ function mirrorlessPage(notice: MirrorNoticeKind, req0: PickRequest) {
   );
 }
 
+/**
+ * 回放：名单与条件先问 gateway（和 /sync 并发），再钉版本：结果配对的镜像版本优先于链接的 v（B11）。
+ * gateway 说没登录（会话在两次请求之间过期）就去登录页，回来还是这份回放。
+ */
+async function replayRoute(
+  req0: PickRequest,
+  nextPath: string,
+): Promise<ReactElement> {
+  const [loaded, sync] = await Promise.all([
+    loadReplay(req0.result),
+    getPickSync(),
+  ]);
+  if (loaded.kind === "unauthenticated")
+    redirect(buildLoginUrl(validateAuthNextPath(nextPath) ?? PICK_DATA_PATH));
+  const v =
+    loaded.kind === "ok" ? replayVersion(loaded.answer, req0.v) : req0.v;
+  const resolved = await guarded(() => resolveBoard(v));
+  if (!resolved.ok) return mirrorlessPage(resolved.notice, req0);
+  if (resolved.value.state === "empty")
+    return mirrorlessPage({ kind: "empty" }, req0);
+  return replayBoardPage(resolved.value, req0, sync, loaded);
+}
+
 export default async function PickDataPage({
   searchParams,
 }: {
@@ -253,7 +408,8 @@ export default async function PickDataPage({
 }): Promise<ReactElement> {
   const raw = await searchParams;
   const req0 = parsePickRequest(raw);
-  const access = await requireBoardUser(pickDataNextPath(raw));
+  const nextPath = pickDataNextPath(raw);
+  const access = await requireBoardUser(nextPath);
   if (access.kind === "notice")
     return (
       <NoticePage>
@@ -267,6 +423,7 @@ export default async function PickDataPage({
         <ImportsView />
       </NoticePage>
     );
+  if (isReplay(req0)) return replayRoute(req0, nextPath);
   const [resolved, sync] = await Promise.all([
     guarded(() => resolveBoard(req0.v)),
     getPickSync(),
