@@ -225,6 +225,28 @@ describe("replay: tab=pick&result= (P4-2)", () => {
     }
   });
 
+  it("a notice on a pinned version: the page's own banners leave the replay too", async () => {
+    // A card link ?result=X&v=5 whose replay fails, v5 readable but not the latest:
+    // 切换到最新 must not carry the result back into the same failed replay.
+    const answers = [
+      { kind: "gone", conditions: CONDITIONS },
+      { kind: "conflict", conditions: CONDITIONS },
+      { kind: "notFound" },
+      { kind: "unavailable" },
+    ];
+    state.resolved = boardAt(5, { pinned: true, requestedV: 5 });
+    for (const answer of answers) {
+      state.loaders.loadReplay = () => answer;
+      const root = await renderPage({ result: RESULT, v: "5" });
+      expect(texts("status").join("\n")).toContain(
+        "正在看智能体当时用的版本 v5",
+      );
+      const latest = within(root).getByText("切换到最新");
+      expect(latest.getAttribute("href")).toBe("/workspace/pick-data");
+      cleanup();
+    }
+  });
+
   it("a gateway 401 on the replay sends the visitor to login with next", async () => {
     state.loaders.loadReplay = () => ({ kind: "unauthenticated" });
     await expect(
