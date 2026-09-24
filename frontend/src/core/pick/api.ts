@@ -4,6 +4,7 @@ import { fetch as fetchWithAuth } from "@/core/api/fetcher";
 import { getBackendBaseURL } from "@/core/config";
 
 import { pickAnswerCheckSchema } from "./answer-checks";
+import { syncStatusSchema } from "./sync-schema";
 import { pickItemSchema, pickResultSchema } from "./types";
 
 export type SaveCommand = {
@@ -51,35 +52,9 @@ const batchSchema = z.object({
     .passthrough(),
 });
 export type PickBatch = z.infer<typeof batchSchema>;
-const syncRunSchema = z.object({
-  id: z.string(),
-  source: z.string(),
-  trigger: z.string(),
-  status: z.enum(["running", "success", "failed"]),
-  started_at: z.string(),
-  finished_at: z.string().nullable(),
-  rows: z.number().int().nullable(),
-  catalog_batch_id: z.string().nullable(),
-  knowledge_batch_id: z.string().nullable(),
-  source_as_of: z.string().nullable(),
-  error: z.string().nullable(),
-});
-const syncStatusSchema = z.object({
-  configured: z.boolean(),
-  current: z
-    .object({
-      id: z.string(),
-      shared: z.boolean(),
-      source_as_of: z.string().nullable(),
-      published_at: z.string().nullable(),
-      freshness: z.record(z.string(), z.unknown()).nullable().optional(),
-      scope: z.string().nullable().optional(),
-      rows: z.number().int().nullable().optional(),
-    })
-    .nullable(),
-  runs: z.array(syncRunSchema),
-});
-export type PickSyncStatus = z.infer<typeof syncStatusSchema>;
+// /sync's shape lives in the pure sync-schema module, shared with the
+// server-side pick data board (critique B14).
+export type { PickSyncStatus } from "./sync-schema";
 
 async function responseFor(path: string, init?: RequestInit) {
   const response = await fetchWithAuth(

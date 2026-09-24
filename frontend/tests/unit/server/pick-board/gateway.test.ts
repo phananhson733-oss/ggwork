@@ -174,6 +174,18 @@ describe("getPickSync", () => {
     expect(JSON.stringify(errorLog.mock.calls)).not.toContain("s3cr3t");
   });
 
+  it("keeps a failed mirror read as {error}, with nothing logged", async () => {
+    const body = {
+      configured: true,
+      current: null,
+      runs: [],
+      mirror: { error: "OperationalError" },
+    };
+    stubFetch(async () => Response.json(body));
+    await expect(getPickSync()).resolves.toEqual({ ok: true, data: body });
+    expect(errorLog).not.toHaveBeenCalled();
+  });
+
   it("parses /sync with its mirror field", async () => {
     const body = {
       configured: true,

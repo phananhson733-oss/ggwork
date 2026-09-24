@@ -3,7 +3,12 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "@rstest/core";
 
-import { mirrorStatusSchema, syncStatusSchema } from "@/core/pick/sync-schema";
+import {
+  isMirrorReadError,
+  mirrorStatusSchema,
+  parseSyncTime,
+  syncStatusSchema,
+} from "@/core/pick/sync-schema";
 
 const RUN = {
   id: "run-1",
@@ -120,6 +125,68 @@ describe("syncStatusSchema", () => {
     expect(syncStatusSchema.safeParse(status({ runs: [run] })).success).toBe(
       false,
     );
+  });
+
+  it("keeps a failed mirror read as its own branch, not as absent", () => {
+    const parsed = syncStatusSchema.parse(
+      status({ mirror: { error: "OperationalError" } }),
+    );
+    expect(parsed.mirror).toEqual({ error: "OperationalError" });
+    expect(isMirrorReadError(parsed.mirror)).toBe(true);
+    expect(isMirrorReadError(MIRROR)).toBe(false);
+    expect(isMirrorReadError(null)).toBe(false);
+    expect(isMirrorReadError(undefined)).toBe(false);
+  });
+
+  it("reads an error branch that is not a class name as malformed", () => {
+    for (const mirror of [
+      { error: "" },
+      { error: "value 'secret' is wrong" },
+      { error: "RuntimeError", detail: "x" },
+    ]) {
+      expect(syncStatusSchema.parse(status({ mirror })).mirror).toBe(undefined);
+    }
+  });
+
+  it("takes the gateway's own time formats and a null published_at", () => {
+    const mirror = {
+      ...MIRROR,
+      current: {
+        id: 3,
+        as_of: "2026-09-23T22:15:00.000Z",
+        latest_snapshot: "2026-09-23",
+        published_at: null,
+      },
+      last_failure_at: "2026-09-24T03:52:00.123456+00:00",
+    };
+    expect(syncStatusSchema.parse(status({ mirror })).mirror).toEqual(mirror);
+  });
+});
+
+describe("parseSyncTime", () => {
+  it("reads RealShort's asOf and the gateway's stamp", () => {
+    expect(parseSyncTime("2026-09-23T22:15:00.000Z")?.toISOString()).toBe(
+      "2026-09-23T22:15:00.000Z",
+    );
+    expect(
+      parseSyncTime("2026-09-24T03:52:00.123456+00:00")?.toISOString(),
+    ).toBe("2026-09-24T03:52:00.123Z");
+    expect(parseSyncTime("2026-09-24T11:52:00+08:00")?.toISOString()).toBe(
+      "2026-09-24T03:52:00.000Z",
+    );
+  });
+
+  it("answers null for anything else", () => {
+    for (const value of [
+      null,
+      undefined,
+      "",
+      "2026-09-24",
+      "2026-09-24 03:52:00+00",
+      "yesterday",
+      "2026-13-40T99:00:00Z",
+    ])
+      expect(parseSyncTime(value)).toBeNull();
   });
 });
 

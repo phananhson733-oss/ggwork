@@ -4,7 +4,11 @@ rs.mock("@/core/api/fetcher", () => ({ fetch: rs.fn() }));
 rs.mock("@/core/config", () => ({ getBackendBaseURL: () => "" }));
 
 import { fetch as fetcher } from "@/core/api/fetcher";
-import { listPickResults, savePickSelection } from "@/core/pick/api";
+import {
+  getPickSyncStatus,
+  listPickResults,
+  savePickSelection,
+} from "@/core/pick/api";
 
 const mockedFetch = rs.mocked(fetcher);
 beforeEach(() => {
@@ -42,6 +46,17 @@ describe("pick API", () => {
       new Response(JSON.stringify({ results: [{ id: "made-up" }] })),
     );
     await expect(listPickResults("t1")).rejects.toThrow();
+  });
+  it("reads /sync through the shared schema, keeping the mirror key", async () => {
+    const body = {
+      configured: true,
+      current: null,
+      runs: [],
+      mirror: { error: "OperationalError" },
+    };
+    mockedFetch.mockResolvedValueOnce(new Response(JSON.stringify(body)));
+    await expect(getPickSyncStatus()).resolves.toEqual(body);
+    expect(mockedFetch.mock.calls[0]?.[0]).toBe("/api/pick/sync");
   });
   it("encodes the thread parameter and propagates cancellation", async () => {
     mockedFetch.mockResolvedValueOnce(
