@@ -61,6 +61,47 @@ describe("pick candidate payload", () => {
       pickResultSchema.safeParse({ ...result, items: [item, item] }).success,
     ).toBe(false);
   });
+  it("accepts data_as_of with, without, or with a null mirror_version", () => {
+    const asOf = {
+      source_as_of: "2026-09-23T03:00:00.000Z",
+      published_at: "2026-09-23T03:17:34Z",
+      shared: true,
+    };
+    for (const data_as_of of [
+      asOf,
+      { ...asOf, mirror_version: 7 },
+      { ...asOf, mirror_version: null },
+    ])
+      expect(
+        pickResultSchema.safeParse({ ...result, data_as_of }).success,
+      ).toBe(true);
+    expect(
+      pickResultSchema.parse({
+        ...result,
+        data_as_of: { ...asOf, mirror_version: 7 },
+      }).data_as_of?.mirror_version,
+    ).toBe(7);
+  });
+  it("rejects a mirror_version that is no version id, and stays strict", () => {
+    const asOf = { source_as_of: null, published_at: null, shared: true };
+    for (const mirror_version of [0, -1, 1.5, "7", true])
+      expect(
+        pickResultSchema.safeParse({
+          ...result,
+          data_as_of: { ...asOf, mirror_version },
+        }).success,
+      ).toBe(false);
+    expect(
+      pickResultSchema.safeParse({
+        ...result,
+        data_as_of: {
+          ...asOf,
+          mirror_version: 7,
+          mirror_schema: "pickm_v000007",
+        },
+      }).success,
+    ).toBe(false);
+  });
   it("rejects a model-invented status and executable markup payload", () => {
     expect(
       pickResultSchema.safeParse({
