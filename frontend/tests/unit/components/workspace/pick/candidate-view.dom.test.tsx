@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, rs } from "@rstest/core";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { CandidateView } from "@/components/workspace/pick/candidate-view";
+import {
+  CandidateView,
+  ReplayLink,
+} from "@/components/workspace/pick/candidate-view";
 import { REPLAY_LINK_ENABLED } from "@/core/pick/links";
 import type { PickDataAsOf, PickItem, PickResult } from "@/core/pick/types";
 
@@ -216,6 +219,17 @@ describe("row check links (P4-1)", () => {
     expect(checkLinks().map((link) => link.getAttribute("aria-label"))).toEqual(
       ["在选剧资料核对：剧一"],
     );
+  });
+
+  it("renders the replay link as its own line in a new tab, for P4-2", () => {
+    const href = "/workspace/pick-data?result=0123456789abcdef0123456789abcdef";
+    const { container } = render(<ReplayLink href={href} />);
+    const link = screen.getByRole("link", { name: "回放这份候选" });
+    expect(link.getAttribute("href")).toBe(href);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(link.parentElement?.tagName).toBe("P");
+    expect(link.parentElement?.parentElement).toBe(container);
   });
 
   it("does not offer replay until the replay view ships (critique A4)", () => {

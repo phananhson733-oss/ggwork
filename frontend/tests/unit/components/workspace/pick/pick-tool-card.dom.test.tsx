@@ -174,6 +174,9 @@ describe("row check links on the confirmation card (P4-1)", () => {
     await screen.findByText("剧二");
     expect(screen.getByText("剧三")).toBeTruthy();
     expect(screen.queryByText("剧一")).toBeNull();
+    expect(screen.getByText("剧三").parentElement?.textContent).toBe(
+      "剧二 在选剧资料核对、剧三",
+    );
     const links = screen.getAllByRole("link", { name: /在选剧资料核对/ });
     expect(links.map((link) => link.getAttribute("aria-label"))).toEqual([
       "在选剧资料核对：剧二",
@@ -191,6 +194,9 @@ describe("row check links on the confirmation card (P4-1)", () => {
     renderConfirmation(["i1", "i2"]);
     await screen.findByText("剧一");
     expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.getByText("剧一").parentElement?.textContent).toBe(
+      "剧一、剧二",
+    );
   });
 
   it("keeps the query card a summary without per-title links", async () => {

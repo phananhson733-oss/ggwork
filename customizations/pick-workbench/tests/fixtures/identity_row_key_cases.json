@@ -3,7 +3,7 @@
     "Shared cases for decoding a candidate identity into the pick-board row_key. Both sides read this file:",
     "customizations/pick-workbench/tests/mirror/test_mirror_identity_cases.py checks row_key (gates.row_key_of) and identity (DramaInput.identity);",
     "frontend/tests/unit/core/pick/identity.test.ts checks rowKeyFromSourceId against row_key and rowKeyFromIdentity against card_row_key.",
-    "identity is json.dumps([source, source_id, language], separators=(',', ':')) (ggwork_pick/contracts.py); source_id is",
+    "identity is json.dumps([source, source_id, language], ensure_ascii=False, separators=(',', ':')) (ggwork_pick/contracts.py); source_id is",
     "Buffer.from(rowKey).toString('base64url') (realshort@816ca2e src/lib/pick/feed-map.ts:316): base64url, no padding.",
     "row_key: base64url alphabet only, decodes, strict UTF-8 (a leading BOM is kept), and re-encoding gives source_id back; else null.",
     "card_row_key: row_key when it also passes isRowKey (non-empty, <= 120 UTF-16 units, not all whitespace, no C0 control or DEL), else null.",

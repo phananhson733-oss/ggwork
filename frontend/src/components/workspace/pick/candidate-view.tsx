@@ -29,6 +29,25 @@ export function RowCheckLink({ href, title }: { href: string; title: string }) {
   );
 }
 
+/**
+ * 「回放这份候选」on its own line, in a new tab like RowCheckLink. Rendered only
+ * while REPLAY_LINK_ENABLED is on (P4-2, critique A4).
+ */
+export function ReplayLink({ href }: { href: string }) {
+  return (
+    <p>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-muted-foreground hover:text-foreground text-xs underline"
+      >
+        回放这份候选
+      </a>
+    </p>
+  );
+}
+
 function EvidenceDetails({ item }: { item: PickItem }) {
   return (
     <details className="mt-3 text-xs">
@@ -168,11 +187,7 @@ export function CandidateView({
       >
         数据截至：{dataAsOfLine(result.data_as_of)}
       </p>
-      {replayHref && (
-        <a href={replayHref} className="text-xs underline">
-          回放这份候选
-        </a>
-      )}
+      {replayHref && <ReplayLink href={replayHref} />}
       {result.items.length === 0 && (
         <p className="rounded-lg border border-dashed p-6 text-sm">
           没有符合这次条件的剧目，可以放宽条件后重新查询。
