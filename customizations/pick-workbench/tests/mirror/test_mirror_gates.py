@@ -1,17 +1,19 @@
 """The gates before a mirror run publishes, the parts without a database (P2-4; plan 5.3, 1546-1554; implementation
-note P2-4, U18, U45, U49): GateResult and the text scanners (G2, G5).
+note P2-4, U18, U45, U49): GateResult, the text scanners (G2, G5) and the pure comparisons (G3, G8, G7's kinds).
 
 gate_world builds one consistent version, manifest and v1 pull where every gate passes; each case changes one thing.
+The gates that read a built version are tested on PostgreSQL in test_mirror_gates_pg.py.
 """
 
+import asyncio
 import json
 import threading
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import gate_world as gw
 import pytest
 from gate_world import PAN, b64url, baseline, text_scan, v1_row, v1_scan, with_v1
-from mirror_rows import TABLES, synthetic_row
+from mirror_rows import TABLES, NoSql, synthetic_row
 
 from ggwork_pick.mirror import gates
 from ggwork_pick.mirror.contracts import ODD_KEY
@@ -278,3 +280,101 @@ async def test_scanned_pages_run_in_a_worker_thread(monkeypatch):
     v1 = await gates.scanned_v1_page(gates.V1Scan(), world.v1_pages()[0])
     assert text.scanned["catalog_rows"] == 4 and v1.pages == 1
     assert len(seen) == 2 and loop_thread not in seen
+
+
+# ---------------------------------------------------------------- G3, G7, G8: pure parts
+
+
+def test_row_counts_gate_names_each_table_off():
+    for table in TABLES:
+        claimed = {**gw.COUNTS, table: gw.COUNTS[table] + 1}
+        result = gates.row_counts_gate(gw.COUNTS, claimed)
+        assert not result.ok, table
+        assert result.detail == {"tables": {table: {"manifest": gw.COUNTS[table] + 1, "mirror": gw.COUNTS[table]}}, "total": 1}
+    assert gates.row_counts_gate(gw.COUNTS, gw.COUNTS).ok
+    # A count that is not a plain int is off, and never echoed.
+    result = gates.row_counts_gate(gw.COUNTS, {**gw.COUNTS, "rs_ids": "3"})
+    assert result.detail["tables"] == {"rs_ids": {"manifest": None, "mirror": 3}}
+
+
+@pytest.mark.parametrize(
+    "source_id, row_key",
+    [
+        (b64url("c-1"), "c-1"),
+        (b64url("goodshort-K10JEicNmxOWhQPwdg3zdw=="), "goodshort-K10JEicNmxOWhQPwdg3zdw=="),
+        (b64url("剧-1"), "剧-1"),
+        ("YS1i", "a-b"),
+        ("YS1i=", None),  # RealShort never pads
+        ("YS+i", None),  # base64, not base64url
+        ("YS1", None),  # does not round-trip
+        ("_w", None),  # not UTF-8
+        (None, None),
+        (12, None),
+    ],
+)
+def test_row_key_of_decodes_base64url_strictly(source_id, row_key):
+    assert gates.row_key_of(source_id) == row_key
+
+
+def test_signal_and_theater_kinds_come_from_the_manifest_rules():
+    # request.ts:43, :110-121: basisLabels is a full Record<Basis, ...>; theaters are BASES less clk, bill and gsc.
+    manifest = baseline().manifest
+    bases = ("kd", "kw", "qc", "qr", "sm", "smd", "mg", "fh", "sh", "gh", "gn", "ghh", "dbn", "clk", "bill", "gsc")
+    assert gates.signal_kinds(manifest) == bases
+    assert gates.theater_kinds(manifest) == bases[:13]
+    grown = gw.replaced(manifest, ("meta", "rules", "basisLabels", "xx"), "新剧场")
+    assert gates.theater_kinds(grown) == (*bases[:13], "xx")  # a new theater needs no change here
+    with pytest.raises(ValueError):
+        gates.signal_kinds(gw.removed(manifest, ("meta", "rules", "basisLabels")))
+
+
+def _candidates(world) -> tuple:
+    """The baseline's candidates as the version gives them (checked against PostgreSQL in the PG tests)."""
+    return tuple(gates.Candidate(key, frozenset(kinds)) for key, (kinds, _) in gw.V1_CANDIDATES.items())
+
+
+PAIRS = (("c-1", "SD-1"), ("reelshort-d-1", "SD-2"), ("c-4", "SD-4"))
+
+
+@pytest.mark.parametrize(
+    "change, path, row_id",
+    [
+        (lambda rows: [*rows, v1_row("c-3", ("kd",), ())], "rows.only_v1", "c-3"),
+        (lambda rows: rows[1:], "rows.only_mirror", "c-1"),
+        (lambda rows: [v1_row("c-1", ("kd",), ("SD-1",)), *rows[1:]], "signals[*].kind", "c-1"),
+        (lambda rows: [v1_row("c-1", ("kd", "kw"), ("SD-1", "SD-4")), *rows[1:]], "posted.records", "c-1"),
+        (lambda rows: [*rows, {**v1_row("c-9"), "source_id": "not base64url!"}], "v1.source_id", "not base64url!"),
+        (lambda rows: [*rows, v1_row("c-2", ("sm",), ())], "v1.duplicate", "c-2"),
+    ],
+    ids=["v1-extra-row", "v1-missing-row", "kind-diff", "sd-diff", "undecodable-source-id", "duplicate-row"],
+)
+def test_v1_consistency_differences_fail(change, path, row_id):
+    world = with_v1(baseline(), change(list(baseline().v1_rows)))
+    result = gates.v1_consistency_gate(_candidates(world), PAIRS, v1_scan(world))
+    assert not result.ok
+    assert result.consequence == "mirror"
+    assert path in result.detail["paths"]
+    assert row_id in result.detail["rows"]
+
+
+def test_v1_consistency_baseline_passes_without_the_database():
+    world = baseline()
+    assert gates.v1_consistency_gate(_candidates(world), PAIRS, v1_scan(world)).as_json() == "pass"
+
+
+@pytest.mark.asyncio
+async def test_schema_name_is_checked_before_any_statement():
+    world = baseline()
+    connection = NoSql()
+    with pytest.raises(ValueError):
+        await gates.run_mirror_gates(connection, schema_name="public", manifest=world.manifest, v1=v1_scan(world), text=text_scan(world))
+    assert connection.touched == []
+
+
+def test_as_json_of_a_run_outcome_is_plain():
+    outcome = gates.MirrorGates(results=(gates.GateResult("row_counts", True),), accept_empty=gates.AcceptEmpty(False, None), measured={"rs_rows": 1})
+    assert outcome.as_json() == {"row_counts": "pass"}
+    with pytest.raises(FrozenInstanceError):
+        outcome.results = ()
+    assert replace(outcome, results=()).ok  # no result, nothing failed
+    assert asyncio.iscoroutinefunction(gates.run_mirror_gates)
