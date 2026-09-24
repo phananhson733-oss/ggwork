@@ -4,7 +4,8 @@ stdout gets one JSON line per HTTP response (metrics only: PageMetrics.line() pl
 last. Nothing is written to disk; no database or app config is read. Tokens come from files or the environment, the
 deployment-protection bypass only from a file: a secret on the command line ends up in shell history and `ps`.
 
-Exit status: 0 every gate passed, 1 a gate failed, 2 usage, 3 the pull itself failed.
+Exit status: 0 every gate passed, 1 a gate failed, 2 usage, 3 the pull itself failed, 4 an unexpected error (a bug,
+or a shape no check caught; the summary names its class and the innermost frame, never its message).
 
 Page iteration (walk) and bookkeeping (Tally) are kept apart, so --scan (after P2-2b) can read the same pages.
 """
@@ -17,8 +18,9 @@ import os
 import re
 import sys
 import time
-from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass, field
+import traceback
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import NoReturn, TextIO
@@ -40,8 +42,9 @@ BLOCKS_67 = "阻断 #67 合并"
 # RealShort redeploys often and the fingerprint carries the commit SHA (critique 1.3): start over up to three times.
 RERUNS = 3
 DRIFT_BACKOFF_SECONDS = 90  # plan 5.2 step 3
-EXIT_OK, EXIT_GATES, EXIT_USAGE, EXIT_FETCH = 0, 1, 2, 3
+EXIT_OK, EXIT_GATES, EXIT_USAGE, EXIT_FETCH, EXIT_INTERNAL = 0, 1, 2, 3, 4
 _NUMBER = re.compile(r"^[0-9]{1,6}$")
+_QUOTED = re.compile("['\"]")  # argparse quotes the values it echoes (%r)
 
 
 class UsageError(Exception):
@@ -66,11 +69,16 @@ class Secrets:
 
 
 def _safe_usage_error(message: str) -> str:
-    """argparse quotes the offending value; a secret pasted by mistake must not reach the terminal."""
+    """argparse quotes the offending value; a secret pasted by mistake must not reach the terminal.
+
+    "argument --x: <detail>" keeps the flag, which comes from this parser, and the detail only when it quotes nothing:
+    `--dry-run=<secret>` gives "ignored explicit argument '<secret>'", which is replaced.
+    """
     if message.startswith("unrecognized arguments"):
-        return "有不认识的参数（token 与 bypass 只收文件：--token-file、--v1-token-file、--bypass-header-file）"
+        return "有不认识的参数，用 --help 查看用法（token 与 bypass 不收命令行明文，只收文件：--token-file、--v1-token-file、--bypass-header-file）"
     if message.startswith("argument "):
-        return ": ".join(message.split(": ")[:2])
+        flag, _, detail = message.partition(": ")
+        return f"{flag}: {'取值不对，用 --help 查看用法' if _QUOTED.search(detail) else detail}"
     if message.startswith("the following arguments are required"):
         return message
     return "参数不对，用 --help 查看用法"
@@ -105,7 +113,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token-file", type=Path, help=f"feed v2 token 文件；缺省读环境变量 {EXPORT_TOKEN_ENV}")
     parser.add_argument("--v1-token-file", type=Path, help=f"feed v1 token 文件；缺省读 {FEED_TOKEN_ENV}，都没有就跳过 v1")
     parser.add_argument("--series-days", type=_series_days, default=1, help="拉 snapshotDays 最后几天的 rs_series_day，缺省 1")
-    parser.add_argument("--limit", type=_limit_item, action="append", default=[], metavar="资源=条数", help="覆盖某个资源的页大小，可重复")
+    parser.add_argument(
+        "--limit", type=_limit_item, action="extend", nargs="+", default=[], metavar="资源=条数", help="覆盖页大小：--limit rs_rows=1000 rs_ids=5000，可重复"
+    )
     return parser
 
 
@@ -140,29 +150,42 @@ def _emit(out: TextIO, record: Mapping) -> None:
 
 
 class Recorder:
-    """The client's on_response: prints each response's metrics as it happens and keeps them for the summary's counts."""
+    """The client's on_response: prints each response's metrics as it happens and keeps them for the summary's counts.
+
+    The dry-run's one stateful object, a sink: its lines change only through __call__, the run tag through start_run.
+    """
 
     def __init__(self, out: TextIO):
         self._out = out
-        self.lines: list[dict] = []
-        self.run = 1
-        self.as_of_expired = 0
-        self.busy_waited = 0
+        self._lines: list[dict] = []
+        self._run = 1
+
+    def start_run(self, run: int) -> None:
+        self._run = run
 
     def __call__(self, metrics: PageMetrics) -> None:
-        line = {**metrics.line(), "run": self.run}
-        self.lines.append(line)
+        line = {**metrics.line(), "run": self._run}
+        self._lines.append(line)
         _emit(self._out, line)
 
-    def retries(self) -> dict:
-        return {
-            "drift_409": sum(line["status"] == 409 for line in self.lines),
-            "busy_503": sum(line.get("error") == "source_busy" for line in self.lines),
-            "busy_wait_seconds": self.busy_waited,
-            "read_failed_503": sum(line.get("error") == "read_failed" for line in self.lines),
-            "as_of_expired": self.as_of_expired,
-            "reruns": self.run - 1,
-        }
+    def count(self, predicate: Callable[[Mapping], bool]) -> int:
+        return sum(1 for line in self._lines if predicate(line))
+
+
+def _is_409(line: Mapping) -> bool:
+    return line["status"] == 409
+
+
+def _is_busy(line: Mapping) -> bool:
+    return line.get("error") == "source_busy"
+
+
+def _is_manifest_busy(line: Mapping) -> bool:
+    return _is_busy(line) and line["resource"] == "manifest"
+
+
+def _is_read_failed(line: Mapping) -> bool:
+    return line.get("error") == "read_failed"
 
 
 @dataclass(frozen=True)
@@ -243,34 +266,92 @@ async def walk(client: FeedClient, manifest: Manifest, options: Options) -> Asyn
             yield (SERIES_RESOURCE, day), page
 
 
-async def pull_once(client: FeedClient, options: Options, recorder: Recorder, timer) -> Pull:
-    manifest = await client.manifest_when_free()
-    recorder.busy_waited += sum(manifest.busy_sleeps)
+@dataclass(frozen=True)
+class Interruption:
+    """A run that drift or an expired as_of ended: why, and on which feed (critique 1.3 wants the drift rate).
+
+    cause: drift_409 (source_changed), drift_busy_503 (source_busy after the manifest), drift_echo (a page answering
+    for another as_of, fingerprint or build), as_of_expired_400 (RealShort refused the as_of), as_of_expired_local.
+    """
+
+    run: int
+    cause: str
+    side: str
+    resource: str | None
+
+    @classmethod
+    def of(cls, run: int, exc: FeedError) -> "Interruption":
+        if isinstance(exc, AsOfExpiredError):
+            cause = "as_of_expired_400" if exc.status == 400 else "as_of_expired_local"
+        else:
+            cause = {409: "drift_409", 503: "drift_busy_503"}.get(exc.status, "drift_echo")
+        return cls(run=run, cause=cause, side="v1" if exc.resource == "v1" else "v2", resource=exc.resource)
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """How the runs ended: the pull or the FeedError, how many runs it took, what cut the others short."""
+
+    runs: int
+    interruptions: tuple[Interruption, ...] = ()
+    busy_wait_seconds: int = 0
+    pull: Pull | None = None
+    error: FeedError | None = None
+
+
+async def pull_once(client: FeedClient, options: Options, timer) -> tuple[int, Pull | FeedError]:
+    """One run: (seconds it slept on a busy manifest, the pull or the FeedError that ended it).
+
+    A manifest that fails some other way after busy waits reports 0: manifest_when_free does not return its waits.
+    """
+    try:
+        manifest = await client.manifest_when_free()
+    except BusyTimeout as exc:
+        return exc.waited, exc
+    except FeedError as exc:
+        return 0, exc
     tally = Tally()
-    async for key, page in walk(client, manifest, options):
-        tally = tally.add(key, page)
+    try:
+        async for key, page in walk(client, manifest, options):
+            tally = tally.add(key, page)
+    except FeedError as exc:
+        return sum(manifest.busy_sleeps), exc
     # From the moment the successful manifest request went out: busy waits before it are not the pull's time.
-    return Pull(manifest, tally, series_days(manifest, options.series_days), round((timer() - manifest.metrics.started) * 1000, 1))
+    run_ms = round((timer() - manifest.metrics.started) * 1000, 1)
+    return sum(manifest.busy_sleeps), Pull(manifest, tally, series_days(manifest, options.series_days), run_ms)
 
 
-async def pull_with_reruns(client: FeedClient, options: Options, recorder: Recorder, *, sleep, timer) -> Pull:
+async def pull_with_reruns(client: FeedClient, options: Options, recorder: Recorder, *, sleep, timer) -> Outcome:
     """Drift or an expired as_of starts the whole pull over with a new as_of, at most RERUNS times."""
+    interruptions, waited = (), 0
     for run in range(1, RERUNS + 2):
-        recorder.run = run
-        try:
-            return await pull_once(client, options, recorder, timer)
-        except BusyTimeout as exc:
-            recorder.busy_waited += exc.waited
-            raise
-        except AsOfExpiredError:
-            recorder.as_of_expired += 1
-            if run > RERUNS:
-                raise
-        except DriftError:
-            if run > RERUNS:
-                raise
+        recorder.start_run(run)
+        seconds, result = await pull_once(client, options, timer)
+        waited = waited + seconds
+        if isinstance(result, Pull):
+            return Outcome(run, interruptions, waited, pull=result)
+        if not isinstance(result, DriftError | AsOfExpiredError):
+            return Outcome(run, interruptions, waited, error=result)
+        interruptions = (*interruptions, Interruption.of(run, result))
+        if run > RERUNS:
+            return Outcome(run, interruptions, waited, error=result)
+        if isinstance(result, DriftError):
             await sleep(DRIFT_BACKOFF_SECONDS)
-    raise AssertionError("every run returns or raises")
+    raise AssertionError("every run returns an outcome")
+
+
+def retries(outcome: Outcome, recorder: Recorder) -> dict:
+    """Response counts from the printed lines; causes are per interrupted run. manifest_busy_503 are waits, not drift."""
+    return {
+        "drift_409": recorder.count(_is_409),
+        "busy_503": recorder.count(_is_busy),
+        "manifest_busy_503": recorder.count(_is_manifest_busy),
+        "busy_wait_seconds": outcome.busy_wait_seconds,
+        "read_failed_503": recorder.count(_is_read_failed),
+        "as_of_expired": sum(item.cause.startswith("as_of_expired") for item in outcome.interruptions),
+        "reruns": outcome.runs - 1,
+        "causes": [asdict(item) for item in outcome.interruptions],
+    }
 
 
 def _resource_summary(stats: Stats, expected: int) -> dict:
@@ -310,7 +391,8 @@ def _v1_summary(pull: Pull, enabled: bool) -> dict:
     return {**stats.as_dict(), "total": pull.tally.v1_total, "rows_match_total": stats.rows == pull.tally.v1_total}
 
 
-def summarize(pull: Pull, recorder: Recorder, *, v1_enabled: bool) -> dict:
+def summarize(outcome: Outcome, recorder: Recorder, *, v1_enabled: bool) -> dict:
+    pull = outcome.pull
     manifest = pull.manifest
     resources = {name: _resource_summary(pull.tally.get((name, None)), manifest.counts[name]) for name in COUNTED_RESOURCES}
     series = {day: _resource_summary(pull.tally.get((SERIES_RESOURCE, day)), manifest.row_cap(SERIES_RESOURCE, day)) for day in pull.days}
@@ -321,8 +403,8 @@ def summarize(pull: Pull, recorder: Recorder, *, v1_enabled: bool) -> dict:
         "ok": not failed,
         "failed_gates": failed,
         "as_of": manifest.as_of_text,
-        "runs": recorder.run,
-        "retries": recorder.retries(),
+        "runs": outcome.runs,
+        "retries": retries(outcome, recorder),
         "run_ms": pull.run_ms,
         "manifest": {key: manifest.metrics.line()[key] for key in ("elapsed_ms", "bytes", "wire_bytes")},
         "v1": _v1_summary(pull, v1_enabled),
@@ -335,8 +417,23 @@ def summarize(pull: Pull, recorder: Recorder, *, v1_enabled: bool) -> dict:
     }
 
 
-def failure_summary(exc: FeedError, recorder: Recorder) -> dict:
-    return {"summary": True, "ok": False, "error_type": type(exc).__name__, "error": str(exc), "runs": recorder.run, "retries": recorder.retries()}
+def failure_summary(outcome: Outcome, recorder: Recorder) -> dict:
+    exc = outcome.error
+    return {"summary": True, "ok": False, "error_type": type(exc).__name__, "error": str(exc), "runs": outcome.runs, "retries": retries(outcome, recorder)}
+
+
+def internal_summary(exc: Exception) -> dict:
+    """Not a FeedError: its class and innermost frame only, since a message from outside this package may quote a value."""
+    frames = traceback.extract_tb(exc.__traceback__)
+    where = f"{Path(frames[-1].filename).name}:{frames[-1].lineno}" if frames else "?"
+    return {"summary": True, "ok": False, "error_type": type(exc).__name__, "error": "意外错误，不是 RealShort 的已知失败；按类名与位置排查", "where": where}
+
+
+def _conclude(outcome: Outcome, recorder: Recorder, *, v1_enabled: bool) -> tuple[dict, int]:
+    if outcome.error is not None:
+        return failure_summary(outcome, recorder), EXIT_FETCH
+    summary = summarize(outcome, recorder, v1_enabled=v1_enabled)
+    return summary, EXIT_OK if summary["ok"] else EXIT_GATES
 
 
 async def dry_run(options: Options, secrets: Secrets, *, transport=None, clock=None, sleep=None, timer=None, out: TextIO | None = None) -> int:
@@ -356,13 +453,12 @@ async def dry_run(options: Options, secrets: Secrets, *, transport=None, clock=N
     )
     async with client:
         try:
-            pull = await pull_with_reruns(client, options, recorder, sleep=sleep, timer=timer)
-        except FeedError as exc:
-            _emit(out, failure_summary(exc, recorder))
-            return EXIT_FETCH
-    summary = summarize(pull, recorder, v1_enabled=client.has_v1)
+            outcome = await pull_with_reruns(client, options, recorder, sleep=sleep, timer=timer)
+            summary, code = _conclude(outcome, recorder, v1_enabled=client.has_v1)
+        except Exception as exc:  # reported, not swallowed: exit 4 and a summary line, never the message
+            summary, code = internal_summary(exc), EXIT_INTERNAL
     _emit(out, summary)
-    return EXIT_OK if summary["ok"] else EXIT_GATES
+    return code
 
 
 def main(argv: Sequence[str] | None = None, *, env: Mapping[str, str] | None = None, transport=None, clock=None, sleep=None, timer=None) -> int:

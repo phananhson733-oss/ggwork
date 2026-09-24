@@ -78,7 +78,8 @@ def test_dry_run_prints_metrics_not_rows(capsys, files):
     assert summary["manifest"]["bytes"] > 0 and "elapsed_ms" in summary["manifest"]
     assert summary["as_of"] == "2026-09-23T12:32:00.000Z" and summary["source_revision_null"] is False
     assert summary["scrub"] == {} and summary["warnings"] == [] and summary["failed_gates"] == [] and summary["ok"] is True
-    assert summary["retries"] == {"drift_409": 0, "busy_503": 0, "busy_wait_seconds": 0, "read_failed_503": 0, "as_of_expired": 0, "reruns": 0}
+    counters = ("drift_409", "busy_503", "manifest_busy_503", "busy_wait_seconds", "read_failed_503", "as_of_expired", "reruns")
+    assert summary["retries"] == {**dict.fromkeys(counters, 0), "causes": []}
     assert {c.headers.get("x-vercel-protection-bypass") for c in fake.calls} == {BYPASS}
 
 
@@ -157,6 +158,72 @@ def test_slow_page_fails_the_page_time_gate(capsys, files):
     assert lines[-1]["gates"]["run_time"]["ok"] is True
 
 
+def _patch_manifest(fake, change):
+    original = fake._manifest
+
+    def patched(as_of):
+        status, headers, body = original(as_of)
+        return status, headers, json.dumps(change(json.loads(body))).encode()
+
+    fake._manifest = patched
+
+
+def test_slow_manifest_fails_the_page_time_gate(capsys, files):
+    # The manifest runs thirteen queries at once (rs:src/lib/pick/export-v2.ts:455-469): the page most likely to be slow.
+    fake, clock = world()
+    _patch_manifest(fake, lambda page: (clock.advance(15), page)[1])
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    gate = lines[-1]["gates"]["page_time"]
+    assert code == 1 and gate == {"ok": False, "limit_ms": 15000, "worst_ms": 15000.0, "worst": "manifest"}
+    assert lines[-1]["manifest"]["elapsed_ms"] == 15000.0
+
+
+def test_large_manifest_fails_the_page_bytes_gate(capsys, files):
+    fake, clock = world()
+
+    def pad(page):
+        page["rows"][0]["meta"]["sources"] = {"pad": "x" * 3_000_000}
+        return page
+
+    _patch_manifest(fake, pad)
+    code, lines, text = run(capsys, fake, clock, files=files)
+    gate = lines[-1]["gates"]["page_bytes"]
+    assert code == 1 and gate["ok"] is False and gate["worst"] == "manifest" and gate["worst_bytes"] > 3_000_000
+    assert "xxxxxxxx" not in text
+
+
+def test_a_page_of_exactly_3000000_bytes_fails(capsys, files):
+    # Plan 1491: under 3,000,000 bytes; exactly that many is not under.
+    fake, clock = world()
+    original = fake._rows
+
+    def exact(name, params, as_of):
+        status, headers, body = original(name, params, as_of)
+        if name != "rs_rows":
+            return status, headers, body
+        page = json.loads(body)
+        page["rows"][0]["description"] = ""
+        short = len(json.dumps(page, separators=(",", ":")).encode())
+        page["rows"][0]["description"] = "x" * (3_000_000 - short)
+        return status, headers, json.dumps(page, separators=(",", ":")).encode()
+
+    fake._rows = exact
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    gate = lines[-1]["gates"]["page_bytes"]
+    assert code == 1 and gate == {"ok": False, "limit_bytes": 3_000_000, "worst_bytes": 3_000_000, "worst": "rs_rows"}
+
+
+def test_a_run_of_exactly_three_minutes_fails(capsys, files):
+    # Eighteen row pages of ten seconds each: every page passes, the run is exactly 180 seconds and is not under.
+    fake, clock = world(sizes={"catalog_rows": 10}, page_rows={"catalog_rows": 1})
+    _slow(fake, clock, 10, set(dry_run.COUNTED_RESOURCES) | {"rs_series_day"})
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    gates = lines[-1]["gates"]
+    assert len([c for c in fake.calls if c.resource != "manifest"]) == 18
+    assert code == 1 and gates["page_time"]["ok"] is True
+    assert gates["run_time"] == {"ok": False, "limit_ms": 180_000, "run_ms": 180_000.0}
+
+
 def test_long_run_fails_the_run_time_gate(capsys, files):
     fake, clock = world(sizes={"catalog_rows": 6}, page_rows={"catalog_rows": 1})
     _slow(fake, clock, 14.9, set(dry_run.COUNTED_RESOURCES) | {"rs_series_day"})
@@ -199,7 +266,19 @@ def test_drift_reruns_and_counts(capsys, files):
     code, lines, _ = run(capsys, fake, clock, files=files)
     pages, summary = summary_of(lines)
     assert code == 0 and summary["ok"] is True
-    assert summary["retries"] == {"drift_409": 1, "busy_503": 2, "busy_wait_seconds": 60, "read_failed_503": 0, "as_of_expired": 0, "reruns": 2}
+    assert summary["retries"] == {
+        "drift_409": 1,
+        "busy_503": 2,
+        "manifest_busy_503": 1,
+        "busy_wait_seconds": 60,
+        "read_failed_503": 0,
+        "as_of_expired": 0,
+        "reruns": 2,
+        "causes": [
+            {"run": 1, "cause": "drift_409", "side": "v2", "resource": "catalog_rows"},
+            {"run": 2, "cause": "drift_busy_503", "side": "v2", "resource": "rs_ids"},
+        ],
+    }
     assert clock.sleeps == [60, 90, 90]
     assert {line["run"] for line in pages} == {1, 2, 3}
     assert [(p["resource"], p["status"], p["run"]) for p in pages if p["status"] != 200] == [
@@ -220,6 +299,44 @@ def test_drift_gives_up_after_three_reruns(capsys, files):
     assert "409" in summary["error"] and EXPORT_TOKEN not in text
 
 
+def test_rerun_causes_name_the_echo_and_the_side(capsys, files):
+    # v1 answering for another build (plan 5.2 step 5) is drift without any 409; RealShort's 400 as_of is expiry.
+    reply = v2_error(400, "bad_request", reason="as_of")
+    fake, clock = world(intercept=lambda call: reply if call.resource == "rs_ids" and call.n == 1 else None)
+    original, served = fake._v1_page, []
+
+    def v1_page(cursor, limit, as_of):
+        status, headers, body = original(cursor, limit, as_of)
+        served.append(cursor)
+        page = json.loads(body)
+        return status, headers, json.dumps({**page, "sourceRevision": "sha-other"} if len(served) == 1 else page).encode()
+
+    fake._v1_page = v1_page
+    code, lines, _ = run(capsys, fake, clock, env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    _, summary = summary_of(lines)
+    assert code == 0 and summary["retries"]["drift_409"] == 0 and summary["retries"]["as_of_expired"] == 1
+    assert summary["retries"]["causes"] == [
+        {"run": 1, "cause": "drift_echo", "side": "v1", "resource": "v1"},
+        {"run": 2, "cause": "as_of_expired_400", "side": "v2", "resource": "rs_ids"},
+    ]
+
+
+def test_local_as_of_expiry_is_its_own_cause(capsys, files):
+    fake, clock = world()
+    original = fake._rows
+
+    def stall_once(name, params, as_of):
+        clock.advance(26 * 60 if name == "catalog_rows" and len([c for c in fake.calls if c.resource == name]) == 1 else 0)
+        return original(name, params, as_of)
+
+    fake._rows = stall_once
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    causes = lines[-1]["retries"]["causes"]
+    assert causes == [{"run": 1, "cause": "as_of_expired_local", "side": "v2", "resource": "catalog_signals"}]
+    # The gates judge the pull that finished: run 2, whose pages were quick.
+    assert code == 0 and lines[-1]["runs"] == 2 and lines[-1]["gates"]["page_time"]["ok"] is True
+
+
 def test_as_of_expiry_reruns_without_waiting(capsys, files):
     reply = v2_error(400, "bad_request", reason="as_of")
     fake, clock = world(intercept=lambda call: reply if call.resource == "rs_ids" and call.n == 1 else None)
@@ -232,6 +349,25 @@ def test_busy_timeout_and_errors_exit_3_with_a_safe_summary(capsys, files):
     fake, clock = world(intercept=lambda call: busy() if call.resource == "manifest" else None)
     code, lines, _ = run(capsys, fake, clock, files=files)
     assert code == 3 and lines[-1]["error_type"] == "BusyTimeout" and lines[-1]["retries"]["busy_wait_seconds"] == 1200
+
+
+def test_snapshot_day_outside_the_window_is_a_fetch_failure(capsys, files):
+    fake, clock = world(series={"2026-01-01": 1, "2026-09-23": 1})
+    code, lines, _ = run(capsys, fake, clock, "--series-days", "2", files=files)
+    assert code == 3 and lines[-1]["error_type"] == "ContractError"
+
+
+def test_unexpected_errors_exit_4_naming_only_the_class(capsys, files, monkeypatch):
+    async def broken(client, manifest, options):
+        raise KeyError(f"{ROW_SENTINEL}-{EXPORT_TOKEN}")
+        yield  # an async generator, as walk is
+
+    monkeypatch.setattr(dry_run, "walk", broken)
+    fake, clock = world()
+    code, lines, text = run(capsys, fake, clock, files=files)
+    assert code == 4 and lines[-1]["summary"] is True and lines[-1]["ok"] is False and lines[-1]["error_type"] == "KeyError"
+    assert lines[-1]["where"].startswith("test_dry_run.py:")
+    assert ROW_SENTINEL not in text and EXPORT_TOKEN not in text
 
 
 def test_wrong_token_exits_3_without_the_token(capsys, files):
@@ -275,6 +411,13 @@ def test_limit_override(capsys, files):
     assert lines[-1]["resources"]["rs_rows"]["pages"] == 3
 
 
+def test_limit_takes_several_items_after_one_flag(capsys, files):
+    fake, clock = world(sizes={"rs_rows": 3})
+    code, lines, _ = run(capsys, fake, clock, "--limit", "rs_rows=1", "rs_series_day=2", files=files)
+    assert code == 0 and lines[-1]["resources"]["rs_rows"]["pages"] == 3
+    assert {c.params.get("limit") for c in fake.calls if c.resource == "rs_series_day"} == {"2"}
+
+
 @pytest.mark.parametrize(
     "extra",
     [["--limit", "nope=3"], ["--limit", "rs_rows=0"], ["--limit", "rs_rows=2001"], ["--limit", "rs_rows"], ["--series-days", "94"], ["--series-days", "-1"]],
@@ -302,6 +445,20 @@ def test_bypass_only_from_file(capsys, files, flag):
 def test_usage_errors_do_not_echo_values(capsys):
     code = dry_run.main(["--dry-run", "--base-url", BASE, "--series-days", "PLAINTEXT-SECRET"], env={})
     assert code == 2 and "PLAINTEXT-SECRET" not in "".join(capsys.readouterr())
+
+
+@pytest.mark.parametrize("flag", ["--dry-run=PLAINTEXT-SECRET", "--help=PLAINTEXT-SECRET", "-h=PLAINTEXT-SECRET"])
+def test_flags_without_values_do_not_echo_what_was_attached(capsys, flag):
+    # argparse: "argument --dry-run: ignored explicit argument 'PLAINTEXT-SECRET'" (Python 3.12).
+    code = dry_run.main([flag, "--base-url", BASE], env={})
+    text = "".join(capsys.readouterr())
+    assert code == 2 and "PLAINTEXT-SECRET" not in text and "参数错误" in text
+
+
+def test_unknown_arguments_point_at_help(capsys):
+    code = dry_run.main(["--dry-run", "--base-url", BASE, "stray"], env={})
+    text = "".join(capsys.readouterr())
+    assert code == 2 and "不认识的参数" in text and "--help" in text and "stray" not in text
 
 
 def test_dry_run_flag_is_required(capsys, files):
@@ -356,7 +513,7 @@ def test_bad_base_url_is_a_usage_error(capsys, files):
 def test_dry_run_runs_without_db_or_config(tmp_path, files):
     """The real entry point in a clean process: python -m runs ggwork_pick/__init__.py first (critique 2, CLI entry)."""
     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
-    fake = FakeRealShort(bypass=BYPASS, series={yesterday: 2}, sizes={"catalog_rows": 3}, page_rows={"catalog_rows": 2})
+    fake = FakeRealShort(bypass=BYPASS, series={yesterday: 2}, sizes={"catalog_rows": 3}, page_rows={"catalog_rows": 2}, compress=True)
     server, base = serve(fake)
     work, home = tmp_path / "cwd", tmp_path / "home"
     work.mkdir()
@@ -378,6 +535,8 @@ def test_dry_run_runs_without_db_or_config(tmp_path, files):
     pages, summary = summary_of(lines)
     assert summary["ok"] is True and summary["resources"]["catalog_rows"]["pages"] == 2 and summary["v1"]["rows"] == 3
     assert all(METRIC_KEYS <= set(line) and line["wire_bytes"] > 0 for line in pages)
+    assert [(line["bytes"], line["wire_bytes"]) for line in pages] == [(body, sent) for _, body, sent in fake.wire]
+    assert pages[0]["resource"] == "manifest" and pages[0]["wire_bytes"] < pages[0]["bytes"]
     for secret in SECRETS:
         assert secret not in result.stdout + result.stderr
     assert "RuntimeWarning" not in result.stderr
