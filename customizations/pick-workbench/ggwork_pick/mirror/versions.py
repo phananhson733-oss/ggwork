@@ -157,8 +157,9 @@ def check_moment(moment: object) -> datetime:
 
 
 def _check_as_of(as_of: object) -> datetime:
-    check_moment(as_of)
-    if as_of.second or as_of.microsecond:
+    """A whole UTC minute, as feed_shape.format_as_of and the 0006 CHECK take it: a zone's own minute may be off it."""
+    moment = check_moment(as_of).astimezone(UTC)
+    if moment.second or moment.microsecond:
         raise ValueError("as_of 必须是整分钟（与 RealShort 的 asOf 相同，U6）")
     return as_of
 

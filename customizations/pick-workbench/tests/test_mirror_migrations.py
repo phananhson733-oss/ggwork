@@ -447,15 +447,42 @@ async def test_a_control_table_from_before_lock_holder_gets_it_when_0006_runs_ag
         await engine.dispose()
 
 
+# Session time zones 45 minutes off UTC, and 36 seconds off (SET TIME ZONE takes a number of hours: 0.01 h). The
+# two-argument date_trunc(text, timestamptz) truncates in the session's zone, so in the second one it would refuse a
+# whole UTC minute; the CHECK is the UTC minute whatever the session's zone.
+SESSION_ZONES = {"Asia/Kathmandu": "time zone 'Asia/Kathmandu'", "36 seconds off UTC": "time zone 0.01"}
+
+
+@pytest.mark.parametrize("zone", SESSION_ZONES.values(), ids=SESSION_ZONES.keys())
 @pytest.mark.asyncio
-async def test_a_whole_minute_as_of_passes_the_check_in_any_session_time_zone(pg_db_url):
-    # date_trunc on timestamptz truncates in the session's TimeZone; a zone 45 minutes off UTC still keeps whole minutes.
+async def test_the_as_of_check_is_the_utc_minute_in_any_session_time_zone(pg_db_url, zone):
     engine = host_engine(pg_db_url)
     try:
         async with engine.begin() as conn:
-            await conn.execute(text("set local time zone 'Asia/Kathmandu'"))
+            await conn.execute(text(f"set local {zone}"))
             await conn.execute(INSERT_VERSION, _version())
         assert await _scalar(engine, "select as_of from pick_mirror.versions") == AS_OF
+        with pytest.raises(IntegrityError, match="pick_mirror_versions_as_of"):
+            async with engine.begin() as conn:
+                await conn.execute(text(f"set local {zone}"))
+                await conn.execute(INSERT_VERSION, _version("pickm_v000002", as_of=AS_OF.replace(second=30)))
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_the_as_of_check_calls_only_immutable_functions(pg_db_url):
+    # PostgreSQL takes a CHECK's expression to be immutable, and a restore checks every row again under the restoring
+    # session's settings. An index expression must call IMMUTABLE functions only (pg_depend records none of the built-in
+    # ones), so the CHECK's own expression, as the catalog holds it, goes into an index that is rolled back.
+    engine = host_engine(pg_db_url)
+    try:
+        definition = await _scalar(engine, "select pg_get_constraintdef(oid) from pg_constraint where conname = 'pick_mirror_versions_as_of'")
+        assert definition.startswith("CHECK (") and "date_trunc" in definition
+        async with engine.connect() as conn:
+            transaction = await conn.begin()
+            await conn.execute(text(f"create index pick_mirror_versions_as_of_immutable on pick_mirror.versions ({definition.removeprefix('CHECK ')})"))
+            await transaction.rollback()
     finally:
         await engine.dispose()
 

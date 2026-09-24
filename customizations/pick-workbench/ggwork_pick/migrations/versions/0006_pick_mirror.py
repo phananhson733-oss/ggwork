@@ -57,11 +57,13 @@ CREATE = (
         CONSTRAINT pick_mirror_versions_status CHECK (status IN ('building', 'published', 'failed', 'dropped')),
         CONSTRAINT pick_mirror_versions_fingerprint CHECK (fingerprint ~ '^[0-9a-f]{64}$')
     )""",
-    # as_of is RealShort's whole-minute asOf (U6; versions.create_version checks it too). The CHECK came into 0006 by an
-    # in-place edit before any deployment: dropped and added again on its own, so a local database that ran the earlier
-    # 0006 and was set back to 0005 by hand gets it as well, and a second run changes nothing.
+    # as_of is RealShort's whole-minute asOf (U6; versions.create_version checks it too), a whole UTC minute. The
+    # three-argument date_trunc is IMMUTABLE, as a CHECK should be; date_trunc(text, timestamptz) is only STABLE and
+    # truncates in the session's TimeZone. The CHECK came into 0006 by an in-place edit before any deployment: dropped
+    # and added again on its own, so a local database that ran the earlier 0006 and was set back to 0005 by hand gets it
+    # as well, and a second run changes nothing.
     "ALTER TABLE pick_mirror.versions DROP CONSTRAINT IF EXISTS pick_mirror_versions_as_of,"
-    " ADD CONSTRAINT pick_mirror_versions_as_of CHECK (date_trunc('minute', as_of) = as_of)",
+    " ADD CONSTRAINT pick_mirror_versions_as_of CHECK (date_trunc('minute', as_of, 'UTC') = as_of)",
     "CREATE INDEX IF NOT EXISTS pick_mirror_versions_current ON pick_mirror.versions (status, published_at DESC)",
     "CREATE INDEX IF NOT EXISTS pick_mirror_versions_catalog ON pick_mirror.versions (agent_catalog_batch_id, published_at)",
     """CREATE TABLE IF NOT EXISTS pick_mirror.series (
