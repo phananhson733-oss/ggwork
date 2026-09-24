@@ -16,7 +16,8 @@ One run, under the process's sync_lock and the mirror lock on a dedicated connec
 6. retention again, the curve fold when a manifest was read (U29) unless the run was over the size cap (F10: U43 wins,
    details.series says skipped), the ERROR log from the third failure in a row (U50).
 The lock is released and the connection closed on the way out whatever happens, a cancellation included; a cancelled run
-fails what it built and staged under a shield, is recorded as failed and is not counted (U11).
+fails what it built and staged under a shield, is recorded as failed and is not counted (U11). A cancellation after the
+run decided (during step 6) is recorded as that outcome with details.after_cancelled, and still propagates (flow-3).
 """
 
 import asyncio
@@ -120,6 +121,16 @@ _PAIRED = (
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+class _CancelledAfterDeciding(asyncio.CancelledError):
+    """A cancellation that reached the run after it decided (steps 10-11: retention, the curve fold), carrying that
+    outcome: what was published is recorded as published, not as a cancelled run with no batch (review flow-3). Still a
+    CancelledError, so the task ends cancelled."""
+
+    def __init__(self, outcome: RunOutcome):
+        super().__init__()
+        self.outcome = outcome
 
 
 @dataclass(frozen=True)
@@ -315,6 +326,9 @@ class MirrorSync:
         cpu = self._cpu()
         try:
             outcome = await self._locked(repo, run_id)
+        except _CancelledAfterDeciding as decided:
+            await shielded(repo.finish_sync_run(run_id, **self._alerted(decided.outcome).finish_values(alert_after=self.limits.alert_after)))
+            raise
         except asyncio.CancelledError:
             await shielded(repo.finish_sync_run(run_id, **cancelled_values()))
             raise
@@ -368,7 +382,10 @@ class MirrorSync:
             return (await self._fallback(repo, cause="client", error=safe_error(exc))).with_details(capacity=capacity)
         async with client:
             outcome = await self._attempts(conn, repo, client, run_id, over_cap=capacity["over_cap"])
-            outcome = await self._after(conn, repo, client, outcome)
+            try:
+                outcome = await self._after(conn, repo, client, outcome)
+            except asyncio.CancelledError as exc:
+                raise _CancelledAfterDeciding(outcome.with_details(capacity=capacity, after_cancelled=True)) from exc
         return outcome.with_details(capacity=capacity)
 
     async def _prepare(self, conn, repo: PickRepository) -> tuple[dict, dict]:

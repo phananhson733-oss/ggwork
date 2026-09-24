@@ -255,6 +255,33 @@ async def test_cancel_cleans_and_unlocks(harness, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_a_cancel_after_the_pair_published_records_the_pair(harness, monkeypatch):
+    """flow-3: cancelled during the curve fold, after the pair went out, the run is recorded as what it published
+    (success, its batches, after_cancelled), not as a cancelled run with no batch; the cancellation still propagates."""
+    from ggwork_pick.mirror import run
+
+    started = asyncio.Event()
+
+    async def slow_fold(conn, **options):
+        started.set()
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(run, "fold_series", slow_fold)
+    task = asyncio.create_task(make_sync(harness, world_fake(harness)).run("cron"))
+    await asyncio.wait_for(started.wait(), 20)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    [record] = await sync_runs(harness)
+    details = record["details_json"]
+    assert (record["status"], details["outcome"], details["after_cancelled"], details["consecutive_failures"]) == ("success", "paired", True, 0)
+    assert (record["catalog_batch_id"], record["knowledge_batch_id"]) == await shared_current(harness.engine)
+    assert record["source_as_of"] is not None and record["error"] is None
+    assert [v["status"] for v in await versions(harness.engine)] == ["published"]
+    assert await advisory_locks(harness.engine) == 0
+
+
+@pytest.mark.asyncio
 async def test_dedicated_connection_failure_falls_back(harness):
     from sqlalchemy.engine import make_url
 
