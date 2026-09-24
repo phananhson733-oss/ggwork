@@ -1,0 +1,325 @@
+"""The curve backfill (P2-7; plan 5.6, 1598-1608; brief U30 and the critique's as_of window):
+`python -m ggwork_pick.mirror.series --backfill N`.
+
+In process through backfill_series and run_backfill with the RealShort double on httpx.MockTransport, and for real: the -m
+entry in a subprocess with no DEER_FLOW_* and another cwd, against the double on a loopback http.server and the per-test
+PostgreSQL database.
+"""
+
+import asyncio
+import io
+import os
+import subprocess
+import sys
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+import pytest_asyncio
+from fake_realshort import EXPORT_TOKEN, FakeRealShort, serve, v2_error
+from series_world import (
+    AS_OF_DAY,
+    SESSION_SETTING,
+    Watched,
+    add_version,
+    as_points,
+    close_world,
+    curve,
+    open_world,
+    points,
+    realshort_curve,
+    set_state,
+    snapshots,
+    span,
+    state,
+    text,
+)
+
+EXTENSION_ROOT = Path(__file__).resolve().parents[2]
+EXTENSION_API = Path(__file__).resolve().parents[4] / "backend/packages/extension-api"
+D = AS_OF_DAY
+AS_OF = datetime(2026, 9, 23, 12, 32, tzinfo=UTC)
+VARIABLES = ("PICK_DATABASE_URL", "PGSSLMODE", "PICK_REALSHORT_FEED_URL", "PICK_REALSHORT_EXPORT_TOKEN")
+
+
+def ago(days: int):
+    return D - timedelta(days=days)
+
+
+def one(day):
+    return ("d-a",)
+
+
+def two(day):
+    return ("d-a", "d-b")
+
+
+@pytest.fixture
+def dsn(pg_db_url):
+    from ggwork_pick.mirror.connection import dsn_from_url
+
+    return dsn_from_url(pg_db_url)
+
+
+@pytest_asyncio.fixture
+async def world(dsn):
+    opened = await open_world(dsn, holder="backfill")
+    yield opened
+    await close_world(opened)
+
+
+async def backfill(world, lookback_days: int = 90, **options):
+    from ggwork_pick.mirror.series import backfill_series
+
+    return await backfill_series(world.conn, client=world.client, lookback_days=lookback_days, clock=world.clock, sleep=world.clock.sleep, **options)
+
+
+def manifests(world) -> list[str]:
+    return [call.params["as_of"] for call in world.fake.calls if call.resource == "manifest"]
+
+
+@pytest.mark.asyncio
+async def test_the_current_versions_curve_matches_realshort_point_for_point(world):
+    def ids(day):
+        extra = ("d-b",) if day.toordinal() % 3 else ()  # d-b misses every third day
+        return ("d-a", *extra, *(("d-new",) if day >= ago(10) else ()))
+
+    series = snapshots(span(ago(92), D), ids)
+    world.serve(series)
+    await add_version(world.conn, 1, AS_OF, latest_snapshot=D)
+    outcome = await backfill(world, lookback_days=92)
+    assert len(outcome.merged) == 93 and outcome.missing == ()
+    for drama in ("d-a", "d-b", "d-new"):
+        assert await curve(world.conn, drama, as_of=AS_OF, latest_snapshot=D) == realshort_curve(series, drama, AS_OF)
+    full = await curve(world.conn, "d-a", as_of=AS_OF, latest_snapshot=D)
+    assert len(full) == 91 and full[0][0] == ago(90)  # as_of - 90 is the first of 91 dates
+    assert await state(world.conn) == (D, ago(92))
+    assert await points(world.conn) == as_points(series)
+
+
+@pytest.mark.asyncio
+async def test_lookback_is_an_upper_bound_and_through_is_where_it_resumes(world):
+    world.serve(snapshots(span(ago(5), D), one))
+    outcome = await backfill(world, lookback_days=3)
+    assert outcome.merged == tuple(text(day) for day in span(ago(3), D))
+    assert world.series_calls() == list(outcome.merged)
+    # Run again after an interruption at D-1: only the days after through are asked for.
+    await set_state(world.conn, ago(1), (await state(world.conn))[1])
+    again = await backfill(world, lookback_days=90)
+    assert again.merged == (text(D),) and world.series_calls()[-1:] == [text(D)]
+    # RealShort keeps 91 days: a larger N only means the whole of snapshotDays.
+    assert (await state(world.conn))[0] == D
+
+
+@pytest.mark.asyncio
+async def test_backfill_renews_as_of_after_25_minutes_and_goes_on_with_the_next_day(world):
+    series = snapshots(span(ago(4), D), two)
+    world.serve(series)
+
+    def report(day, rows, seconds):
+        if day == text(ago(3)):
+            # Exactly 25 minutes: the client would still send (it stops past 25), RealShort would still answer (30).
+            world.clock.advance((AS_OF + timedelta(minutes=25) - world.clock()).total_seconds())
+
+    outcome = await backfill(world, report=report)
+    first, second = manifests(world)
+    assert first != second and outcome.renewals == 1 and world.clock.sleeps == []
+    assert world.series_calls() == [text(day) for day in span(ago(4), D)]  # no day asked, or merged, twice
+    later = [call.params["as_of"] for call in world.fake.calls if call.resource == "rs_series_day" and call.params["day"] >= text(ago(2))]
+    assert set(later) == {second}
+    assert await points(world.conn) == as_points(series)
+
+
+@pytest.mark.parametrize(
+    ("reply", "slept"),
+    [
+        pytest.param(lambda: v2_error(400, "bad_request", reason="as_of"), [], id="400-as_of"),
+        pytest.param(lambda: v2_error(409, "source_changed"), [90], id="409"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_backfill_renews_on_400_as_of_or_409_and_asks_for_that_day_again(dsn, reply, slept):
+    third = text(ago(2))
+
+    def once(call):
+        return reply() if call.resource == "rs_series_day" and call.params.get("day") == third and call.n == 3 else None
+
+    world = await open_world(dsn, intercept=once, holder="backfill")
+    try:
+        series = snapshots(span(ago(4), D), two)
+        world.serve(series)
+        outcome = await backfill(world)
+        assert world.series_calls() == [text(ago(4)), text(ago(3)), third, third, text(ago(1)), text(D)]
+        assert len(manifests(world)) == 2 and outcome.renewals == 1
+        assert world.clock.sleeps == slept
+        assert await points(world.conn) == as_points(series) and (await state(world.conn))[0] == D
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
+async def test_backfill_gives_up_after_repeated_drift_and_keeps_what_it_merged(dsn):
+    from ggwork_pick.mirror.series import BACKFILL_MAX_RESTARTS, EXIT_FAILED, run_backfill
+
+    third = text(ago(2))
+
+    def always(call):
+        return v2_error(409, "source_changed") if call.resource == "rs_series_day" and call.params.get("day") == third else None
+
+    world = await open_world(dsn, intercept=always, holder=None)
+    try:
+        series = snapshots(span(ago(4), D), one)
+        world.serve(series)
+        out, err = io.StringIO(), io.StringIO()
+        code = await run_backfill(dsn=dsn, client=world.client, lookback_days=90, clock=world.clock, sleep=world.clock.sleep, out=out, err=err)
+        assert code == EXIT_FAILED and "DriftError" in err.getvalue()
+        assert world.series_calls().count(third) == BACKFILL_MAX_RESTARTS + 1
+        assert (await state(world.conn))[0] == ago(3)
+        assert {point[1] for point in await points(world.conn)} == {ago(4), ago(3)}
+        assert "d-a" not in out.getvalue() + err.getvalue()
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
+async def test_backfill_stops_at_a_day_whose_rows_differ_from_snapshot_days(world):
+    from ggwork_pick.mirror.series import SeriesCountError
+
+    world.serve(snapshots(span(ago(2), D), two))
+
+    def shrink(day, rows, seconds):
+        if day == text(ago(2)):
+            world.fake.series = {**world.fake.series, text(ago(1)): world.fake.series[text(ago(1))][:1]}
+
+    with pytest.raises(SeriesCountError, match=text(ago(1))):
+        await backfill(world, report=shrink)
+    assert (await state(world.conn))[0] == ago(2)
+    assert {point[1] for point in await points(world.conn)} == {ago(2)}
+    assert await world.conn.fetchval("SELECT to_regclass('pg_temp.series_new')") is None
+
+
+@pytest.mark.asyncio
+async def test_backfill_while_the_sync_holds_the_lock_writes_nothing(dsn):
+    from ggwork_pick.mirror.series import EXIT_LOCKED, run_backfill
+
+    world = await open_world(dsn, holder="sync")
+    try:
+        world.serve(snapshots(span(ago(1), D), one))
+        out, err = io.StringIO(), io.StringIO()
+        code = await run_backfill(dsn=dsn, client=world.client, lookback_days=90, clock=world.clock, sleep=world.clock.sleep, out=out, err=err)
+        assert code == EXIT_LOCKED and "同步正在进行" in err.getvalue()
+        assert world.fake.calls == []
+        assert await points(world.conn) == set() and await state(world.conn) == (None, None)
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
+async def test_backfill_logs_days_and_row_counts_only_and_releases_the_lock(dsn):
+    from ggwork_pick.mirror.series import EXIT_OK, run_backfill
+
+    world = await open_world(dsn, holder=None)
+    try:
+        world.serve(snapshots(span(ago(1), D), two))
+        out, err = io.StringIO(), io.StringIO()
+        code = await run_backfill(dsn=dsn, client=world.client, lookback_days=90, clock=world.clock, sleep=world.clock.sleep, out=out, err=err)
+        assert code == EXIT_OK, err.getvalue()
+        lines = out.getvalue().splitlines()
+        assert len(lines) == 3 and lines[0].startswith(text(ago(1))) and " 2 " in lines[0] and lines[1].startswith(text(D))
+        assert "d-a" not in out.getvalue() + err.getvalue() and err.getvalue() == ""
+        advisory = "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'"
+        assert await world.conn.fetchval(advisory) == 0
+        holder = await world.conn.fetchrow("SELECT lock_holder, lock_holder_since FROM pick_mirror.control WHERE id = 1")
+        assert tuple(holder) == (None, None)
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
+async def test_only_plain_statements_reach_the_backfill_connection(world):
+    watched = Watched(world.conn)
+    world.serve(snapshots(span(ago(1), D), one))
+    from ggwork_pick.mirror.series import backfill_series
+
+    outcome = await backfill_series(watched, client=world.client, lookback_days=90, clock=world.clock, sleep=world.clock.sleep)
+    assert len(outcome.merged) == 2
+    assert watched.sent and [query for query in watched.sent if SESSION_SETTING.search(query)] == []
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_database_fails_without_echoing_the_url():
+    from ggwork_pick.mirror.series import EXIT_FAILED, run_backfill
+
+    out, err = io.StringIO(), io.StringIO()
+    code = await run_backfill(
+        dsn="postgresql://postgres:hunter2-secret@127.0.0.1:1/nothing", client=None, lookback_days=90, out=out, err=err, clock=lambda: AS_OF
+    )
+    assert code == EXIT_FAILED and "镜像专用连接失败" in err.getvalue() and "hunter2-secret" not in err.getvalue()
+
+
+@pytest.mark.parametrize("argv", [[], ["--backfill"], ["--backfill", "0"], ["--backfill", "x"], ["--backfill", "90", "--more"]])
+def test_bad_arguments_are_usage_errors(capsys, argv):
+    from ggwork_pick.mirror.series import EXIT_USAGE, main
+
+    assert main(argv, env={}) == EXIT_USAGE
+    assert "--backfill" in capsys.readouterr().err
+
+
+def _run(env: dict[str, str], cwd: Path, *args: str) -> subprocess.CompletedProcess:
+    base = {"PATH": os.environ.get("PATH", ""), "HOME": str(cwd.parent / "home"), "PYTHONPATH": os.pathsep.join([str(EXTENSION_ROOT), str(EXTENSION_API)])}
+    command = [sys.executable, "-m", "ggwork_pick.mirror.series", *args]
+    return subprocess.run(command, cwd=cwd, env={**base, **env}, capture_output=True, text=True, timeout=120)
+
+
+@pytest.fixture
+def work(tmp_path):
+    (tmp_path / "home").mkdir()
+    folder = tmp_path / "cwd"
+    folder.mkdir()
+    return folder
+
+
+def test_missing_variables_are_named_without_echoing_any_value(work):
+    """python -m runs ggwork_pick/__init__.py first; no DEER_FLOW_*, cwd outside backend (railway ssh, plan 6.5)."""
+    from ggwork_pick.mirror.series import EXIT_USAGE
+
+    nothing = _run({}, work, "--backfill", "90")
+    assert nothing.returncode == EXIT_USAGE, nothing.stderr[-2000:]
+    assert all(name in nothing.stderr for name in VARIABLES)
+    given = {"PICK_DATABASE_URL": "postgresql://postgres:hunter2-secret@127.0.0.1:1/x", "PGSSLMODE": "require", "PICK_REALSHORT_FEED_URL": "https://rs.test"}
+    one_missing = _run(given, work, "--backfill", "90")
+    assert one_missing.returncode == EXIT_USAGE and "PICK_REALSHORT_EXPORT_TOKEN" in one_missing.stderr
+    assert not any(name in one_missing.stderr for name in VARIABLES[:3])
+    assert "hunter2-secret" not in one_missing.stdout + one_missing.stderr and "rs.test" not in one_missing.stderr
+    assert "RuntimeWarning" not in nothing.stderr + one_missing.stderr
+    assert list(work.iterdir()) == []
+
+
+def test_backfill_runs_for_real_in_a_clean_process(work, dsn):
+    last = (datetime.now(UTC) - timedelta(minutes=5)).date() - timedelta(days=1)
+    fake = FakeRealShort(series={})
+    fake.series = snapshots(span(last - timedelta(days=2), last), two)
+    server, base = serve(fake)
+    env = {"PICK_DATABASE_URL": dsn, "PGSSLMODE": "disable", "PICK_REALSHORT_FEED_URL": base, "PICK_REALSHORT_EXPORT_TOKEN": EXPORT_TOKEN}
+    try:
+        result = _run(env, work, "--backfill", "90")
+    finally:
+        server.shutdown()
+    assert result.returncode == 0, result.stderr[-3000:]
+    assert asyncio.run(_points(dsn)) == as_points(fake.series)
+    lines = result.stdout.splitlines()
+    assert [line.split()[0] for line in lines[:3]] == [text(day) for day in span(last - timedelta(days=2), last)]
+    for secret in (EXPORT_TOKEN, "d-a", "d-b", dsn):
+        assert secret not in result.stdout + result.stderr
+    assert "RuntimeWarning" not in result.stderr
+    assert list(work.iterdir()) == []
+
+
+async def _points(dsn: str) -> set:
+    from ggwork_pick.mirror.connection import open_dedicated
+
+    conn = await open_dedicated(dsn)
+    try:
+        return await points(conn)
+    finally:
+        await conn.close()
