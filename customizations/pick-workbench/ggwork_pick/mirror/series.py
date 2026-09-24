@@ -8,9 +8,10 @@ folded day; trimmed_before is the day before which no point is kept any more.
 
 Two writers read, modify and write back the arrays, so both hold the mirror lock:
 - fold_series, the sync's step 11 on its dedicated connection, after the version retention: at most three days a run,
-  the earliest after through and contiguous, and no new day once as_of + 27 minutes has passed (U38). A run that fell
-  back to v1 or timed out on busy has no manifest and does not fold; a degraded run does (U29). A failure only lands in
-  details_json.series: the published version never depends on the curve.
+  the earliest after through and contiguous, and no new day once as_of + 27 minutes has passed (U38). In effect the
+  client stops at 25 (client.AS_OF_MAX_AGE): a day or page it refuses past that ends the fold the same way. A run that
+  fell back to v1 or timed out on busy has no manifest and does not fold; a degraded run does (U29). A failure only
+  lands in details_json.series: the published version never depends on the curve.
 - backfill_series, `python -m ggwork_pick.mirror.series --backfill N` (main below): every day in snapshotDays from the
   first as_of day - N on, one transaction a day, so a run that is cut off resumes at the next day. as_of is chosen again
   when it is 25 minutes old, on 400 reason=as_of and on 409 (U30; RealShort judges each request against its own now,
@@ -342,10 +343,19 @@ async def _stage_days(conn, *, client: FeedClient, manifest: Manifest, days: Seq
         try:
             rows = await _stage_day(conn, client, manifest, day)
         except Exception as exc:
-            logger.warning("[pick-mirror] curve day %s not folded: %s", day, describe(exc), exc_info=_unexpected(exc))
-            return replace(staged, error=f"{day} 未合并：{describe(exc)}")
+            return _cut_short(staged, day, exc)
         staged = replace(staged, days=(*staged.days, day), rows=(*staged.rows, rows))
     return staged
+
+
+def _cut_short(staged: _Staged, day: str, exc: Exception) -> _Staged:
+    """The client sends nothing once as_of is 25 minutes old (client.AS_OF_MAX_AGE), before U38's 27: a day started, or a
+    page asked for, past that is the same deadline stop. RealShort's own 400 as_of (a status) says the clocks disagree."""
+    if isinstance(exc, AsOfExpiredError) and exc.status is None:
+        logger.info("[pick-mirror] curve day %s not folded: as_of is past the client's %s", day, AS_OF_MAX_AGE)
+        return replace(staged, stopped="deadline")
+    logger.warning("[pick-mirror] curve day %s not folded: %s", day, describe(exc), exc_info=_unexpected(exc))
+    return replace(staged, error=f"{day} 未合并：{describe(exc)}")
 
 
 # ---------------------------------------------------------------- the backfill

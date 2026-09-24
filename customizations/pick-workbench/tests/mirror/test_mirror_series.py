@@ -409,6 +409,52 @@ async def test_no_new_day_is_started_27_minutes_after_as_of(dsn):
         await close_world(world)
 
 
+@pytest.mark.parametrize("where", ["between-days", "mid-day"])
+@pytest.mark.asyncio
+async def test_the_clients_25_minute_as_of_stop_ends_the_fold_like_the_deadline(dsn, where):
+    """U38's 27 minutes are only reached through the client, which sends nothing once as_of is past 25 minutes
+    (client.AS_OF_MAX_AGE): a day started, or a page asked for, in between is a deadline stop, not an error."""
+    clock = Clock()
+    first = text(ago(2))
+
+    def slow(call):
+        if call.resource == "rs_series_day" and call.params.get("day") == first and "cursor" not in call.params:
+            clock.advance(24 * 60)  # as_of 12:32, now 12:58:56: past the client's 25 minutes, short of U38's 27
+        return None
+
+    world = await open_world(dsn, clock=clock, intercept=slow)
+    try:
+        world.fake.page_rows = {"rs_series_day": 1} if where == "mid-day" else {}
+        await set_state(world.conn, ago(3))
+        world.serve(snapshots(span(ago(2), D), two))
+        outcome = await world.fold()
+        folded = (first,) if where == "between-days" else ()
+        assert (outcome.folded, outcome.stopped, outcome.error) == (folded, "deadline", None)
+        assert world.series_calls() == [first] and outcome.pending == 3 - len(folded)
+        assert (await state(world.conn))[0] == (ago(2) if folded else ago(3))
+        assert {point[1] for point in await points(world.conn)} == ({ago(2)} if folded else set())
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
+async def test_realshorts_own_as_of_refusal_stays_an_error(dsn):
+    first = text(ago(1))
+
+    def refuse(call):
+        return v2_error(400, "bad_request", reason="as_of") if call.resource == "rs_series_day" and call.params.get("day") == first else None
+
+    world = await open_world(dsn, intercept=refuse)
+    try:
+        await set_state(world.conn, ago(2))
+        world.serve(snapshots(span(ago(1), D), one))
+        outcome = await world.fold()
+        # RealShort's clock disagrees with ours by minutes: worth an error, unlike the client's own stop.
+        assert outcome.folded == () and outcome.stopped is None and "AsOfExpiredError" in outcome.error
+    finally:
+        await close_world(world)
+
+
 @pytest.mark.asyncio
 async def test_refuses_to_fold_on_a_connection_without_the_mirror_lock(world, dsn):
     from ggwork_pick.mirror.connection import open_dedicated
