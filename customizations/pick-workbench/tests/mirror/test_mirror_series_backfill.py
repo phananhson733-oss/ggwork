@@ -236,14 +236,35 @@ async def test_backfill_logs_days_and_row_counts_only_and_releases_the_lock(dsn)
 
 
 @pytest.mark.asyncio
-async def test_only_plain_statements_reach_the_backfill_connection(world):
+async def test_only_plain_statements_reach_the_backfill_connection_and_each_merge_is_vacuumed(world):
     watched = Watched(world.conn)
-    world.serve(snapshots(span(ago(1), D), one))
+    world.serve(snapshots(span(ago(2), D), one))
     from ggwork_pick.mirror.series import backfill_series
 
     outcome = await backfill_series(watched, client=world.client, lookback_days=90, clock=world.clock, sleep=world.clock.sleep)
-    assert len(outcome.merged) == 2
+    assert len(outcome.merged) == 3
     assert watched.sent and [query for query in watched.sent if SESSION_SETTING.search(query)] == []
+    # Measured at 40,000 dramas x 91 days: without it the table reached 3.3 GB of dead row versions (66 MB live), past the
+    # capacity cap U43 checks; with it 131 MB, and the vacuums took 3 s in all.
+    assert sum("VACUUM" in query for query in watched.sent) == len(outcome.merged)
+
+
+@pytest.mark.asyncio
+async def test_a_vacuum_that_cannot_get_its_lock_is_skipped_not_waited_for(world, dsn):
+    from ggwork_pick.mirror.connection import open_dedicated
+
+    blocker = await open_dedicated(dsn)
+    try:
+        # What an autovacuum of the table holds; the merges themselves (ROW EXCLUSIVE) do not conflict with it.
+        transaction = blocker.transaction()
+        await transaction.start()
+        await blocker.execute("LOCK TABLE pick_mirror.series IN SHARE UPDATE EXCLUSIVE MODE")
+        world.serve(snapshots(span(ago(1), D), one))
+        outcome = await asyncio.wait_for(backfill(world), timeout=20)
+        assert len(outcome.merged) == 2
+        await transaction.rollback()
+    finally:
+        await blocker.close()
 
 
 @pytest.mark.asyncio

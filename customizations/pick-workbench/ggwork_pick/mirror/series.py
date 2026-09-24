@@ -22,7 +22,15 @@ its row count equals the manifest's snapshotDays entry and no drama_id repeats. 
 replace any old point of the same day (so folding a day twice is harmless), points before the cutoff go, rows left empty
 are deleted and series_state moves. The cutoff is the earlier of the oldest published version's as_of day - 90 and the
 new through - 92 (93 days kept), and never earlier than the trimmed_before already recorded: those points are gone.
-Only plain statements run on the dedicated connection, never a session-level SET.
+Every merge rewrites every drama's row, so a VACUUM follows it. Only plain statements run on the dedicated connection,
+never a session-level SET.
+
+Through railway ssh (plan 5.6; a dropped session ends the process, and a rerun resumes):
+    cd /app/backend && DEER_FLOW_HOME=/data python -m ggwork_pick.mirror.series --backfill 90
+or, to let it finish on its own, with only days, row counts and seconds in the log:
+    cd /app/backend && DEER_FLOW_HOME=/data nohup python -m ggwork_pick.mirror.series --backfill 90 \\
+        > /data/pick/backfill-$(date -u +%Y%m%d).log 2>&1 &
+It needs PICK_DATABASE_URL, PGSSLMODE, PICK_REALSHORT_FEED_URL and PICK_REALSHORT_EXPORT_TOKEN; not while a sync runs.
 """
 
 import argparse
@@ -111,6 +119,10 @@ SET (days, revenue_cents, promoters) = (
 WHERE s.days[1] < $1::date
 """
 _DROP_EMPTY = "DELETE FROM pick_mirror.series WHERE cardinality(days) = 0"
+# Every drama gets a point a day, so each merge rewrites every row. Measured at 40,000 dramas: 91 daily merges left 3.3 GB
+# of dead versions (66 MB live) before autovacuum caught up, past the capacity cap U43 checks; a VACUUM after each merge
+# kept it at 131 MB for 3 s in all. SKIP_LOCKED: an autovacuum already at it does the same job, never worth waiting for.
+_VACUUM = "VACUUM (SKIP_LOCKED) pick_mirror.series"
 
 
 def _utc_now() -> datetime:
@@ -212,7 +224,7 @@ async def _stage_day(conn, client: FeedClient, manifest: Manifest, day: str) -> 
 
 
 async def _merge(conn, *, days: Sequence[date], now: datetime) -> SeriesState:
-    """The staged days into pick_mirror.series and series_state, in one transaction."""
+    """The staged days into pick_mirror.series and series_state, in one transaction; then VACUUM the rewritten rows."""
     async with conn.transaction():
         before = await read_state(conn)
         oldest = await conn.fetchval(_OLDEST_PUBLISHED, timeout=STATEMENT_TIMEOUT)
@@ -222,7 +234,16 @@ async def _merge(conn, *, days: Sequence[date], now: datetime) -> SeriesState:
         await conn.execute(_TRIM, cutoff, now, timeout=MERGE_TIMEOUT)
         await conn.execute(_DROP_EMPTY, timeout=MERGE_TIMEOUT)
         await conn.execute(_SET_STATE, through, cutoff, now, timeout=STATEMENT_TIMEOUT)
+    await _vacuum(conn)
     return SeriesState(through, cutoff)
+
+
+async def _vacuum(conn) -> None:
+    """After the merge committed (VACUUM refuses to run in a transaction); a failure costs disk, not the merged days."""
+    try:
+        await conn.execute(_VACUUM, timeout=MERGE_TIMEOUT)
+    except Exception as exc:
+        logger.warning("[pick-mirror] vacuuming pick_mirror.series failed: %s", describe(exc))
 
 
 # ---------------------------------------------------------------- the regular fold

@@ -421,5 +421,7 @@ async def test_only_plain_statements_reach_the_dedicated_connection(world):
     manifest = await world.client.manifest_when_free()
     assert (await fold_series(watched, manifest=manifest, client=world.client, clock=world.clock)).folded == (text(D),)
     assert watched.sent and [query for query in watched.sent if SESSION_SETTING.search(query)] == []
+    # Every drama gets a point a day, so each merge rewrites every row: the dead versions go right away.
+    assert sum("VACUUM" in query for query in watched.sent) == 1
     assert tuple(await world.conn.fetchrow(settings)) == before
     assert not world.conn.is_in_transaction() and await world.conn.fetchval(TEMP_TABLE) is None
