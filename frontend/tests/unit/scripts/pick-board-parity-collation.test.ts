@@ -155,6 +155,41 @@ describe("compareCase: collation (only what the two collations explain)", () => 
     const counted = swapped({ lang: "EN", n: 3 }, { lang: "de", n: 2 }, langs);
     expect(verdict(counted, C_EN)).toBe("failed");
   });
+
+  it("accounts: group, then name, then id, each by its collation", () => {
+    const account = (id: string, grp: string, name: string) => ({
+      id,
+      name,
+      url: "",
+      grp,
+      form: "",
+      niche: "",
+      status: "",
+      fans: null,
+      asOf: null,
+    });
+    const globals = (rows: Json[]): Json => ({ accounts: rows });
+    const byGroup = swapped(
+      account("a1", "Beta", "x"),
+      account("a2", "alpha", "x"),
+      globals,
+    );
+    expect(verdict(byGroup, C_EN)).toBe("forgiven");
+    expect(verdict(byGroup, EN_C)).toBe("failed");
+    const byName = swapped(
+      account("a1", "g", "Beta"),
+      account("a2", "g", "alpha"),
+      globals,
+    );
+    expect(verdict(byName, C_EN)).toBe("forgiven");
+    // Both collations put "alpha" first: the swap is a sort error.
+    const plain = swapped(
+      account("a1", "g", "alpha"),
+      account("a2", "g", "beta"),
+      globals,
+    );
+    expect(verdict(plain, C_EN)).toBe("failed");
+  });
 });
 
 describe("collation names", () => {

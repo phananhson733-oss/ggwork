@@ -1,8 +1,10 @@
 /**
  * parity 的 collation 放行（P4-3）：两边库的 datcollate 不同时，列表里先后对调的一对，只有同时满足下面三条才算
  * collation 造成的，否则照常报「顺序不同」：
- * 1. 两项在同一种列表里，并且主排序键相同（ORDER BY 里排在剧名前面的列：证据日期、剧单日期、名次、周数、评级、条数）；
- * 2. RealShort 的先后正是 RealShort 的 collation 比出来的先后（剧名，再平台，再行键；语种计数只比语种名）；
+ * 1. 两项在同一种列表里，并且主排序键相同（ORDER BY 里排在剧名前面的列：证据日期、剧单日期、名次、周数、评级、条数；
+ *    账号列表没有主排序键）；
+ * 2. RealShort 的先后正是 RealShort 的 collation 比出来的先后（剧名，再平台，再行键；语种计数只比语种名；
+ *    账号比分组、名字、id）；
  * 3. 镜像的先后正是镜像的 collation 比出来的先后。
  * 2 与 3 同时成立，两种 collation 对这一对的判断必然相反。
  *
@@ -104,6 +106,11 @@ function rowOrderKey(row: JsonObject): OrderKey | null {
 function orderKey(item: Json | undefined): OrderKey | null {
   if (!isJsonObject(item)) return null;
   if ("rowKey" in item && "sourceTable" in item) return rowOrderKey(item);
+  if ("grp" in item && "name" in item && "id" in item) {
+    // 账号：ORDER BY grp, name, id（queries-posted.ts loadAccounts），三列都是文字，没有主排序键
+    const chain = texts(item, ["grp", "name", "id"]);
+    return chain ? { list: "accounts", primary: "", chain } : null;
+  }
   if (!("lang" in item && "n" in item)) return null;
   // 语种计数：ORDER BY n DESC, k ASC
   const chain = texts(item, ["lang"]);
