@@ -392,14 +392,37 @@ async def test_a_connection_inside_a_transaction_is_refused_before_any_change(sy
     assert len(await _schemas(observer)) == 6
 
 
-@pytest.mark.parametrize("option, value", [("lock_timeout", timedelta(0)), ("lock_timeout", timedelta(microseconds=10)), ("keep_latest", 0), ("cap", 2)])
+BAD_OPTIONS = [
+    ("lock_timeout", timedelta(0)),
+    ("lock_timeout", timedelta(microseconds=10)),
+    ("lock_timeout", 5),
+    ("keep_latest", 0),
+    ("cap", 2),
+    ("grace", timedelta(seconds=-1)),
+    ("referenced_within", timedelta(days=-1)),
+    ("referenced_within", 7),
+]
+
+
+@pytest.mark.parametrize("option, value", BAD_OPTIONS)
 @pytest.mark.asyncio
-async def test_bad_options_are_refused_before_any_sql(option, value):
+async def test_bad_retention_options_are_refused_before_any_sql(option, value):
     from ggwork_pick.mirror.retention import prune_versions
 
     conn = _Recorder(None)
     with pytest.raises(ValueError):
         await prune_versions(conn, clock=lambda: T0, **{option: value})
+    assert conn.sent == []
+
+
+@pytest.mark.parametrize("value", [timedelta(0), timedelta(microseconds=999), 5])
+@pytest.mark.asyncio
+async def test_a_bad_cleanup_lock_timeout_is_refused_before_any_sql(value):
+    from ggwork_pick.mirror.retention import clean_leftover_versions
+
+    conn = _Recorder(None)
+    with pytest.raises(ValueError, match="lock_timeout"):
+        await clean_leftover_versions(conn, clock=lambda: T0, lock_timeout=value)
     assert conn.sent == []
 
 
@@ -526,9 +549,6 @@ class _Recorder:
 
     def __getattr__(self, name):
         return getattr(self.conn, name)
-
-    def is_in_transaction(self) -> bool:
-        return self.conn.is_in_transaction()
 
     def transaction(self):
         self.sent.append("BEGIN")
