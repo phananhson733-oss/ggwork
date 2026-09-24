@@ -6,6 +6,7 @@
     "css": 190000,
     "js": 4100000
   },
+  "/workspace/pick-data": { "css": 228000, "js": 1975000 },
   "/en/docs": { "css": 270000, "js": 4200000 },
   "/blog/posts": { "css": 270000, "js": 4200000 }
 }

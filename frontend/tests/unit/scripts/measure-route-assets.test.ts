@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "@rstest/core";
 
 import {
@@ -11,6 +14,21 @@ import {
 describe("route asset measurement", () => {
   it("covers every approved representative route", () => {
     expect(ROUTES).toContain("/login");
+    expect(ROUTES).toContain("/workspace/pick-data");
+  });
+
+  it("budgets exactly the routes it measures", () => {
+    const budgets = JSON.parse(
+      readFileSync(
+        path.resolve(__dirname, "../../../performance-budgets.json"),
+        "utf8",
+      ),
+    ) as Record<string, { css: number; js: number }>;
+    expect(Object.keys(budgets).sort()).toEqual([...ROUTES].sort());
+    for (const limits of Object.values(budgets)) {
+      expect(limits.css).toBeGreaterThan(0);
+      expect(limits.js).toBeGreaterThan(0);
+    }
   });
 
   it("removes an inherited static-mode flag from the normal build", () => {
