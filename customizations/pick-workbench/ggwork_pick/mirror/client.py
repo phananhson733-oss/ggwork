@@ -131,7 +131,12 @@ def _origin(base_url: object) -> str:
         raise ConfigError("base URL 只写源站：http(s)://主机[:端口]，不带账号")
     if parts.path not in ("", "/") or parts.query or parts.fragment:
         raise ConfigError("base URL 只写源站，不带路径、查询或锚点；路径由客户端拼")
-    return f"{parts.scheme}://{parts.netloc}"
+    origin = f"{parts.scheme}://{parts.netloc}"
+    try:
+        httpx.URL(origin)  # urlsplit takes hosts httpx refuses (a bad IDNA label, a control character)
+    except httpx.InvalidURL:
+        raise ConfigError("base URL 的主机名不合法（httpx 不收）") from None
+    return origin
 
 
 def _secret(value: object, what: str) -> str:

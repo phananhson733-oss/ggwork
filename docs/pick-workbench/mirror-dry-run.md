@@ -214,7 +214,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 |---|---|---|
 | 0 | 全部门槛通过 | `source_revision_null` 仍要人工看 |
 | 1 | 拉取成功，但有门槛没过 | `failed_gates`、`gates` |
-| 2 | 用法错误：参数不对；token 或 bypass 文件读不了、是空的；没有 v2 token；`--base-url` 不是源站，或 token、bypass 里有空白、控制字符或非 ASCII 字符 | 只在 stderr 写一行原因，没有汇总行 |
+| 2 | 用法错误：参数不对；token 或 bypass 文件读不了、是空的；没有 v2 token；`--base-url` 不是源站或主机名不合法，或 token、bypass 里有空白、控制字符或非 ASCII 字符 | 只在 stderr 写一行原因，没有汇总行 |
 | 3 | 拉取本身失败 | 汇总的 `error_type` 与 `error`，见下 |
 | 4 | 意外错误：代码 bug，或者有一种形状没有任何检查拦下 | `error_type` 与 `where`，按类名和位置排查 |
 

@@ -711,9 +711,12 @@ def test_missing_export_token_names_the_variable(capsys):
     assert code == 2 and "PICK_REALSHORT_EXPORT_TOKEN" in capsys.readouterr().err
 
 
-def test_bad_base_url_is_a_usage_error(capsys, files):
-    code = dry_run.main(["--dry-run", "--base-url", "https://realshort.test/api/pick-feed", "--token-file", str(files["token"])], env={})
-    assert code == 2 and "base URL" in capsys.readouterr().err
+@pytest.mark.parametrize("base", ["https://realshort.test/api/pick-feed", "https://exa\u00e9mple..test"])
+def test_bad_base_url_is_a_usage_error(capsys, files, base):
+    # The second one passes urlsplit and fails only in httpx: still exit 2 with a line, never a traceback and exit 1.
+    code = dry_run.main(["--dry-run", "--base-url", base, "--token-file", str(files["token"])], env={})
+    err = capsys.readouterr().err
+    assert code == 2 and "base URL" in err and "Traceback" not in err
 
 
 @pytest.mark.parametrize("extra", [[], ["--scan"]], ids=["plain", "scan"])

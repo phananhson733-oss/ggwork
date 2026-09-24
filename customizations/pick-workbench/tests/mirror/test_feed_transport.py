@@ -107,6 +107,9 @@ async def test_one_request_has_a_total_time_limit():
         {"base_url": "https://user:pw@realshort.test"},
         {"base_url": "ftp://realshort.test"},
         {"base_url": "https://realshort.test?x=1"},
+        # urlsplit takes these hosts, httpx refuses them (InvalidURL) when the client is built: a ConfigError, not a traceback.
+        {"base_url": "https://exa\u00e9mple..test"},
+        {"base_url": "https://exa\x00mple.test"},
         {"export_token": " "},
         {"export_token": "two words"},
         {"bypass": "line\nbreak"},
