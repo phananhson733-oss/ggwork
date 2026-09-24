@@ -69,17 +69,17 @@ def parsed(resource: str, rows: list[dict]) -> tuple:
     return parse_page(resource, {"rows": rows})
 
 
+def _read_back(column, value):
+    if value is not None and column.type == "ts":
+        return ts_datetime(value)
+    if value is not None and column.type == "float":
+        return float(value)
+    return value
+
+
 def expected_values(resource: str, row: dict) -> dict:
     """What reading `row` back from PostgreSQL gives, jsonb decoded: timestamps aware, floats floats."""
-    values = {}
-    for column in RESOURCE_COLUMNS[resource]:
-        value = row[column.name]
-        if value is not None and column.type == "ts":
-            value = ts_datetime(value)
-        elif value is not None and column.type == "float":
-            value = float(value)
-        values[column.name] = value
-    return values
+    return {column.name: _read_back(column, row[column.name]) for column in RESOURCE_COLUMNS[resource]}
 
 
 def version_args(**overrides) -> dict:

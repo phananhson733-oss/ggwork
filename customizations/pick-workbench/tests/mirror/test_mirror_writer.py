@@ -80,11 +80,8 @@ async def _build(conn, **overrides):
 
 
 def _decoded(resource: str, record) -> dict:
-    values = dict(record)
-    for column in RESOURCE_COLUMNS[resource]:
-        if column.type == "json":
-            values[column.name] = json.loads(values[column.name])
-    return values
+    json_columns = {column.name for column in RESOURCE_COLUMNS[resource] if column.type == "json"}
+    return {name: json.loads(value) if name in json_columns else value for name, value in dict(record).items()}
 
 
 @pytest.mark.asyncio

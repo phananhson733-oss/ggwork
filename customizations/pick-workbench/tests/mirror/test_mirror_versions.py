@@ -68,9 +68,10 @@ async def test_ddl_matches_contract(mirror_conn, observer):
     from ggwork_pick.mirror.versions import create_version
 
     version = await create_version(mirror_conn, **version_args())
-    found = {}
-    for row in await observer.fetch(COLUMNS, version.schema_name):
-        found.setdefault(row["table_name"], []).append((row["column_name"], row["ordinal_position"], row["is_nullable"], row["data_type"], row["udt_name"]))
+    rows = await observer.fetch(COLUMNS, version.schema_name)
+    fields = ("column_name", "ordinal_position", "is_nullable", "data_type", "udt_name")
+    tables = dict.fromkeys(row["table_name"] for row in rows)
+    found = {table: [tuple(row[field] for field in fields) for row in rows if row["table_name"] == table] for table in tables}
     expected = {
         table: [
             (column.name, position, "YES" if column.nullable else "NO", *DATA_TYPES[column.type])
