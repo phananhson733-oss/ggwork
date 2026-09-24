@@ -18,6 +18,7 @@ from run_world import (
     advisory_locks,
     batches,
     control,
+    fetch,
     make_sync,
     open_harness,
     schema_exists,
@@ -30,7 +31,7 @@ from run_world import (
 )
 
 from ggwork_pick.imports import Importer
-from ggwork_pick.repository import PickRepository
+from ggwork_pick.repository import PickRepository, stamp
 
 
 @pytest_asyncio.fixture
@@ -472,3 +473,29 @@ async def test_an_unfinished_transaction_before_the_pair_degrades(harness, monke
     assert await advisory_locks(harness.engine) == 0
     state = await control(harness.engine)
     assert (state["lock_holder"], state["lock_holder_since"]) == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_a_pair_committed_before_an_error_stays_paired(harness, monkeypatch):
+    """The pair transaction committed, then the driver raised (a connection lost on COMMIT's reply): the run is paired;
+    the degraded path would move the paired batches' published_at and count a failure."""
+    real = PickRepository.publish_mirror_pair
+
+    async def committed_then_lost(self, **arguments):
+        await real(self, **arguments)
+        harness.clock.advance(5)
+        raise ConnectionResetError("connection lost after COMMIT")
+
+    monkeypatch.setattr(PickRepository, "publish_mirror_pair", committed_then_lost)
+    result, _ = await _run(harness)
+    details = result["details_json"]
+    assert (result["status"], details["outcome"], details["reason"], details["consecutive_failures"]) == ("success", "paired", None, 0)
+    assert details["pair_error"] == "ConnectionResetError"
+    [version] = await versions(harness.engine)
+    assert version["status"] == "published"
+    assert (version["agent_catalog_batch_id"], version["agent_knowledge_batch_id"]) == (result["catalog_batch_id"], result["knowledge_batch_id"])
+    [published] = await fetch(harness.engine, "SELECT published_at FROM pick_mirror.versions WHERE id = :id", id=version["id"])
+    [batch] = [b for b in await batches(harness.engine) if b["id"] == result["catalog_batch_id"]]
+    assert batch["published_at"] == stamp(published["published_at"])
+    state = await control(harness.engine)
+    assert (state["consecutive_failures"], state["last_failure"]) == (0, None)

@@ -95,6 +95,9 @@ DEFAULT_DB_SIZE_CAP = 6 * 2**30  # PICK_DB_SIZE_CAP_BYTES when unset (SyncSettin
 # the run.
 PERMISSION_SQLSTATES = frozenset({"42501"})
 _DB_SIZE = "SELECT pg_database_size(current_database())"
+_PAIRED = (
+    "SELECT coalesce(status = 'published' AND agent_catalog_batch_id = $2 AND agent_knowledge_batch_id = $3, false) FROM pick_mirror.versions WHERE id = $1"
+)
 
 
 def _utc_now() -> datetime:
@@ -441,9 +444,12 @@ class MirrorSync:
 
     async def _pair(self, conn, repo: PickRepository, version: MirrorVersion, v1: V1Staged, built: Built) -> RunOutcome:
         """Step 9. The pair transaction rolled back (a GRANT refused, the version no longer building) is a mirror-side
-        failure like any other: the version fails and the agent batches go alone, which raises in turn if they cannot."""
+        failure like any other: the version fails and the agent batches go alone, which raises in turn if they cannot.
+        An error raised after the COMMIT took effect (the reply lost with the connection) leaves the version published
+        with this pair: the run is paired, and the error is kept in details.pair_error."""
         begun = self._timer()
         accept = built.gates.accept_empty
+        paired = self._published(PAIRED, v1, reason=None, count=0)
         try:
             await repo.publish_mirror_pair(
                 version_id=version.id,
@@ -454,8 +460,21 @@ class MirrorSync:
                 accept_empty_seen=accept.seen,
             )
         except Exception as exc:
-            return await self._mirror_failed(conn, repo, version, v1, exc)
-        return self._published(PAIRED, v1, reason=None, count=0).with_stages(publish_ms=ms(self._timer() - begun))
+            if not await self._paired_anyway(conn, version, v1):
+                return await self._mirror_failed(conn, repo, version, v1, exc)
+            logger.warning("[pick-mirror] the pair transaction raised %s after its COMMIT took effect; the run is paired", safe_error(exc))
+            paired = paired.with_details(pair_error=safe_error(exc))
+        return paired.with_stages(publish_ms=ms(self._timer() - begun))
+
+    async def _paired_anyway(self, conn, version: MirrorVersion, v1: V1Staged) -> bool:
+        """Whether the version is published with this attempt's pair although publish_mirror_pair raised; False when that
+        cannot be read either (the degraded path then decides)."""
+        catalog, knowledge = v1.batches
+        try:
+            return bool(await conn.fetchval(_PAIRED, version.id, catalog["id"], knowledge["id"], timeout=self.limits.statement_timeout))
+        except Exception as exc:
+            logger.warning("[pick-mirror] whether the pair was published could not be read (%s)", safe_error(exc))
+            return False
 
     async def _agent_only(self, repo: PickRepository, v1: V1Staged, reason: str) -> RunOutcome:
         begun = self._timer()
