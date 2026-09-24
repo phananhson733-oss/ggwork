@@ -5,9 +5,11 @@ The PostgreSQL half skips when PICK_TEST_PG_URL is unset.
 
 import asyncio
 import hashlib
+import logging
 import time
 from datetime import UTC, datetime, timedelta
 
+import pg
 import pytest
 import pytest_asyncio
 from engines import host_engine
@@ -20,6 +22,7 @@ ADVISORY = (
     " where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())"
 )
 MIRROR_CONNECTIONS = "select count(*) from pg_stat_activity where datname = current_database() and application_name = 'ggwp-mirror'"
+NOT_HELD = {"held": False, "holder_pid": None, "holder_since": None, "stuck": False}
 
 
 @pytest.fixture
@@ -238,7 +241,7 @@ async def _cancelled_holder(dsn, body, *, cancels: int = 1):
     "body, cancels",
     [
         (lambda conn: asyncio.sleep(3600), 1),
-        # Cancelled mid-statement: the connection is busy, releasing on it may fail, closing still ends the session.
+        # Cancelled mid-statement: asyncpg has the server cancel the statement, then the cleanup releases and closes as usual.
         (lambda conn: conn.execute("select pg_sleep(30)"), 1),
         # Cancelled again while it cleans up: the shielded cleanup carries on to the end.
         (lambda conn: asyncio.sleep(3600), 2),
@@ -255,3 +258,143 @@ async def test_a_cancelled_holder_still_releases_and_closes(dsn, observer, body,
         return conn.is_closed()
 
     await _eventually(closed)
+
+
+def _warned(caplog, text: str) -> bool:
+    return any(record.name == "ggwork_pick.mirror.lock" and text in record.getMessage() for record in caplog.records)
+
+
+class _Wrapped:
+    """The dedicated connection with one call made to fail; everything else passes through."""
+
+    def __init__(self, conn):
+        self.conn = conn
+        self.terminated = False
+
+    def __getattr__(self, name):
+        return getattr(self.conn, name)
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self.conn.terminate()
+
+
+class _CloseTimesOut(_Wrapped):
+    async def close(self, *, timeout=None):
+        raise TimeoutError
+
+
+class _UnlockBreaks(_Wrapped):
+    async def fetchval(self, query, *args):
+        if "pg_advisory_unlock" in query:
+            raise ConnectionResetError("connection lost")
+        return await self.conn.fetchval(query, *args)
+
+
+@pytest.mark.asyncio
+async def test_a_release_that_fails_still_closes_and_the_session_takes_the_lock_along(dsn, observer, caplog):
+    from ggwork_pick.mirror.lock import mirror_lock
+
+    with caplog.at_level(logging.WARNING, logger="ggwork_pick.mirror.lock"):
+        async with mirror_lock(dsn, clock=lambda: T0) as holder:
+            # The release clears the timestamp in control first: with the table gone that statement fails.
+            await observer.execute("drop table pick_mirror.control")
+    assert holder.is_closed()
+    await _eventually(lambda: _no_advisory_locks(observer))
+    assert _warned(caplog, "releasing the mirror lock failed")
+
+
+@pytest.mark.asyncio
+async def test_a_connection_that_will_not_close_is_terminated(dsn, observer, monkeypatch, caplog):
+    from ggwork_pick.mirror import lock
+    from ggwork_pick.mirror.connection import open_dedicated
+
+    opened = []
+
+    async def open_stuck(target):
+        opened.append(_CloseTimesOut(await open_dedicated(target)))
+        return opened[-1]
+
+    monkeypatch.setattr(lock, "open_dedicated", open_stuck)
+    try:
+        with caplog.at_level(logging.WARNING, logger="ggwork_pick.mirror.lock"):
+            async with lock.mirror_lock(dsn, clock=lambda: T0) as holder:
+                assert holder is opened[0]
+        assert holder.terminated and holder.conn.is_closed()
+        await _eventually(lambda: _count_is(observer, MIRROR_CONNECTIONS, 0))
+        assert _warned(caplog, "did not close cleanly")
+    finally:
+        for wrapped in opened:
+            wrapped.conn.terminate()
+
+
+@pytest.mark.asyncio
+async def test_a_holder_that_cannot_give_the_lock_back_still_raises_its_own_error(dsn, observer, caplog):
+    from ggwork_pick.mirror.connection import open_dedicated
+    from ggwork_pick.mirror.lock import try_mirror_lock
+
+    await observer.execute("delete from pick_mirror.control")
+    conn = await open_dedicated(dsn)
+    try:
+        with caplog.at_level(logging.WARNING, logger="ggwork_pick.mirror.lock"), pytest.raises(RuntimeError, match="pick_mirror.control"):
+            await try_mirror_lock(_UnlockBreaks(conn), now=T0)
+        # The give-back failed, so the session still holds it; the warning says closing is what frees it.
+        assert len(await observer.fetch(ADVISORY)) == 1
+        assert _warned(caplog, "giving the mirror lock back failed")
+    finally:
+        await conn.close()
+    await _eventually(lambda: _no_advisory_locks(observer))
+
+
+def _int4(half: int) -> int:
+    return half - 2**32 if half >= 2**31 else half
+
+
+@pytest.mark.asyncio
+async def test_a_two_key_lock_on_the_same_halves_is_not_the_mirror_lock(dsn, observer):
+    from ggwork_pick.mirror.connection import open_dedicated
+    from ggwork_pick.mirror.lock import MIRROR_LOCK_CLASSID, MIRROR_LOCK_OBJID, lock_status, release_mirror_lock, try_mirror_lock
+
+    # pg_advisory_lock(int4, int4) shows the very same classid and objid, with objsubid 2.
+    await observer.execute("select pg_advisory_lock($1::int4, $2::int4)", _int4(MIRROR_LOCK_CLASSID), _int4(MIRROR_LOCK_OBJID))
+    other = await observer.fetchval("select pg_backend_pid()")
+    assert [tuple(row) for row in await observer.fetch(ADVISORY)] == [(other, MIRROR_LOCK_CLASSID, MIRROR_LOCK_OBJID, 2, True)]
+    assert await lock_status(observer, now=T0) == NOT_HELD
+    holder = await open_dedicated(dsn)
+    try:
+        assert await try_mirror_lock(holder, now=T0)
+        pid = await holder.fetchval("select pg_backend_pid()")
+        assert await lock_status(observer, now=T0 + timedelta(minutes=61)) == {"held": True, "holder_pid": pid, "holder_since": T0, "stuck": True}
+        # The other lock's owner "releasing the mirror lock" leaves the real holder and its timestamp alone.
+        assert not await release_mirror_lock(observer)
+        assert await observer.fetchval(SINCE) == T0
+    finally:
+        await holder.close()
+
+
+@pytest.mark.asyncio
+async def test_the_key_held_in_another_database_is_not_this_databases_mirror_lock(dsn, observer, pg_cluster):
+    import asyncpg
+
+    from ggwork_pick.mirror.connection import dsn_from_url, open_dedicated
+    from ggwork_pick.mirror.lock import MIRROR_LOCK_KEY, lock_status, try_mirror_lock
+
+    name = pg.unique_name("other")
+    pg_cluster.create_database(name)
+    try:
+        elsewhere = await asyncpg.connect(dsn_from_url(pg_cluster.async_url(name)))
+        try:
+            # Advisory locks are per database while pg_locks shows the whole cluster.
+            assert await elsewhere.fetchval("select pg_try_advisory_lock($1)", MIRROR_LOCK_KEY)
+            assert await observer.fetchval("select count(*) from pg_locks where locktype = 'advisory' and pid = $1", elsewhere.get_server_pid()) == 1
+            assert await lock_status(observer, now=T0) == NOT_HELD
+            here = await open_dedicated(dsn)
+            try:
+                assert await try_mirror_lock(here, now=T0)
+                assert (await lock_status(observer, now=T0))["holder_pid"] == here.get_server_pid()
+            finally:
+                await here.close()
+        finally:
+            await elsewhere.close()
+    finally:
+        pg_cluster.drop_database(name)

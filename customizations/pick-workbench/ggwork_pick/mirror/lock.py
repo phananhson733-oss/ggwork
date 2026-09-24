@@ -6,6 +6,11 @@ so a killed process never leaves it held; Supavisor's session mode resets the se
 although the next client gets the same backend pid (docs/pick-workbench/supabase.md). That reuse is why the holder
 records when it took the lock in pick_mirror.control.lock_holder_since: pg_stat_activity.backend_start belongs to the
 pooled backend, not to the hold, and would call a sync that just started stuck.
+
+Every holder, the sync and the backfill and cleanup commands alike, takes the lock through try_mirror_lock or mirror_lock,
+never with a bare pg_advisory_lock: lock_status trusts lock_holder_since only because each holder writes it on taking the
+lock, and one that skipped it would inherit whatever a dead holder left there and read as stuck at once. The stuck
+threshold is a timedelta (LOCK_STUCK_AFTER), not a number of seconds.
 """
 
 import asyncio
