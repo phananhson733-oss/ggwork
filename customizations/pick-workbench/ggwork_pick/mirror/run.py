@@ -5,7 +5,9 @@ One run, under the process's sync_lock and the mirror lock on a dedicated connec
    backfill or the cleanup command, the run fails with who holds it, not counted (U46);
 2. leftovers of a dead run cleaned (clean_leftovers), version and batch retention, the disk check, the size cap (U43);
 3. the manifest, waiting out source_busy (a busy past 20 minutes fails, counted, U42; a 409 is drift; any other manifest
-   failure falls back to v1 without as_of, counted, U16);
+   failure falls back to v1 without as_of, counted, U16). The 20 minutes are each attempt's: the drift retry's manifest
+   waits afresh (the brief's loop), so a run can outlast U14's 51-minute estimate only when a drift and a second busy
+   spell meet;
 4. a building version (none over the size cap), then the v1 half (run_v1) and the mirror half (run_v2);
 5. publish: the pair when both halves pass; the agent batches alone when only the mirror half failed (degraded, counted);
    nothing when the v1 half failed (counted). Drift repeats the attempt once after 90 s with a new as_of; the second drift
@@ -120,7 +122,7 @@ def _utc_now() -> datetime:
 class MirrorLimits:
     """The run's budgets (implementation note P2-5c constants), in seconds and bytes; tests pass smaller ones."""
 
-    busy_wait_total: float = BUSY_WAIT_TOTAL
+    busy_wait_total: float = BUSY_WAIT_TOTAL  # per attempt: FeedClient.manifest_when_free starts from zero each call
     run_deadline: float = RUN_DEADLINE
     mirror_deadline: float = MIRROR_DEADLINE
     drift_retry_delay: float = DRIFT_RETRY_DELAY

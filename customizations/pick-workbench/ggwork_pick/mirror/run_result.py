@@ -19,6 +19,7 @@ from ggwork_pick.mirror.errors import FeedError
 from ggwork_pick.mirror.feed_shape import Manifest
 from ggwork_pick.mirror.gate_result import GateError
 from ggwork_pick.mirror.publish import MirrorPublishError
+from ggwork_pick.mirror.status import warning_codes as codes_of
 from ggwork_pick.mirror.versions import MirrorBuildError, describe_error
 from ggwork_pick.mirror.writer import MirrorRecordError
 from ggwork_pick.sync import FeedError as V1FeedError
@@ -53,9 +54,8 @@ def ms(seconds: float) -> int:
 
 
 def warning_codes(manifest: Manifest) -> list[str]:
-    """manifest.meta.warnings as their codes only (P2-8b shows them as they are)."""
-    warnings = manifest.meta.get("warnings")
-    return [item["code"] for item in warnings if isinstance(item, Mapping) and isinstance(item.get("code"), str)] if isinstance(warnings, list) else []
+    """manifest.meta.warnings as their codes only, as P2-8b shows the current version's (status.warning_codes)."""
+    return codes_of(manifest.meta.get("warnings"))
 
 
 @dataclass(frozen=True)
