@@ -823,7 +823,7 @@ v1 也要顺手修两处：
 常规折叠和回填都是对数组「读出、修改、写回」，所以两者都必须持有同一把 `ggwp:mirror-sync` advisory lock：常规折叠在同步的锁内执行（5.2 第 11 步）；回填命令自己开一条专用连接 `pg_try_advisory_lock`，拿不到就退出并提示「同步正在进行」。
 
 **首次回填：**
-- 用命令 `cd /app/backend && DEER_FLOW_HOME=/data python -m ggwork_pick.mirror.series --backfill 90`，经 `railway ssh` 在 gateway 容器里执行。执行前按 6.8 第 8 步先确认 ssh 会话里有 `PICK_DATABASE_URL` 和 `PGSSLMODE`（只看有没有，不打印值）。
+- 用命令 `cd /app/backend && DEER_FLOW_HOME=/data python -m ggwork_pick.mirror.series --backfill 92`（92 也是不写 N 时的缺省值，覆盖 snapshotDays 全部），经 `railway ssh` 在 gateway 容器里执行。执行前按 6.8 第 8 步先确认 ssh 会话里有 `PICK_DATABASE_URL` 和 `PGSSLMODE`（只看有没有，不打印值）。
 - 入口不依赖 cwd 和 `get_app_config` 的默认查找，缺变量时非零退出并说明缺哪个（6.5）；不打印 token。
 - 只开一条 asyncpg 连接，不初始化宿主 engine，连接预算见 6.4。
 
@@ -1488,7 +1488,7 @@ export function getDb() {
 5. 测完删掉临时配置的 token 和 bypass secret。
 
 **门槛：**
-- 每页少于 15 秒、少于 3 MB；
+- 每页少于 15 秒、少于 3 MB；manifest 单独门槛 45 s（2026-09-24 实测后用户决定）；
 - 整次少于 3 分钟；
 - 数据库时间少于 90 秒；
 - 首个真实 manifest 的 `meta.scrub` 按字段记下清洗次数：title、title_cn、description 上有任何命中，都当作正则 bug，修好之前不进入第 9 节第 6 步（不打开镜像）。

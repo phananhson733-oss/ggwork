@@ -66,7 +66,36 @@ ggwork-deerflow 的 Vercel 项目不再需要 `CRON_SECRET`、`PICK_SYNC_TOKEN`�
 
 - 立即同步：资料页按钮。
 - 看同步结果：资料页；或者 `railway logs`（定时失败记为 `[pick-sync] scheduled pull failed`）。
-- feed v2 的实测（P1-6 dry-run）和镜像上线前的 `--scan`：见 [mirror-dry-run.md](mirror-dry-run.md)。那是一次性流程，临时凭据测完即删，所以单独成篇；实测数字与最终的 `rs_rows` 页大小记回本文的 v2 一节。
+- feed v2 的实测（P1-6 dry-run）和镜像上线前的 `--scan`：见 [mirror-dry-run.md](mirror-dry-run.md)。那是一次性流程，临时凭据测完即删，所以单独成篇；实测数字与最终的 `rs_rows` 页大小记在下面「feed v2（镜像用）」一节。
+
+## feed v2（镜像用）
+
+P2 镜像读 RealShort 的 feed v2（realshort#67：manifest 加八个行资源和 rs_series_day）。上面的 v1 定时同步不变。
+
+**凭据**（只列名字，值不进仓库）：
+
+| 位置 | 变量 | 用途 |
+|---|---|---|
+| RealShort Vercel，只配 Production | `PICK_EXPORT_TOKEN` | v2 的 Bearer；没配时 v2 路由返回 404 |
+| Railway gateway | `PICK_REALSHORT_EXPORT_TOKEN` | 拉 v2；与上一行是同一个值 |
+
+- 截至 2026-09-24，Production 还没配 `PICK_EXPORT_TOKEN`，v2 对外返回 404。
+- 实测和镜像上线前 `--scan` 的一次性流程（临时凭据、bypass、收尾）见 [mirror-dry-run.md](mirror-dry-run.md)。
+- **轮换**：先改 RealShort 的 `PICK_EXPORT_TOKEN`（需要重新部署），再改 Railway 的 `PICK_REALSHORT_EXPORT_TOKEN`，最后点一次「立即同步」确认。
+
+**P1-6 实测（2026-09-24 10:37–10:44 UTC）**：在 RealShort `feat/pick-export-v2`@816ca2e 重新部署的 Preview 上（读生产库）跑了两次 dry-run。
+
+- 第一次，默认页大小：
+  - rs_rows 按 3 MB 截页，约 1,250 行一页，共 25 页；单页 2.6–25.4 s，整次 228.8 s；manifest 25.5 s。
+  - `--scan`（含 v1 行与 `v1.rules`）0 命中。
+  - 行数 8 个资源与当天 rs_series_day 全对：catalog_rows 42,025、catalog_signals 2,783、catalog_posted 193、catalog_accounts 19、rs_rows 31,848、rs_ids 34,913、rs_clicks14 11,277、rs_bill_orders 14；rs_series_day 34,841；v1 8,141。
+  - title 类字段的 `meta.scrub` 为 0；`sourceRevision` 非空；漂移与 busy 都是 0。
+- 第二次，`--limit rs_rows=1000`：rs_rows 32 页，单页 1.9–2.6 s，整次 120.8 s；manifest 22.7 s；最大页 2,995,895 字节。
+- 结论：
+  - rs_rows 页大小定为 1000（U47），写在 `customizations/pick-workbench/ggwork_pick/mirror/client.py` 的 `PAGE_LIMITS["rs_rows"]`。
+  - manifest 22–25 s，超过方案每页 15 s 的门槛。用户决定先接受：manifest 单独门槛 45 s（dry-run 的 `manifest_time`），上线后看运行记录里的 manifest 耗时；RealShort 另开后续任务，优化 manifest 的 13 个并行查询。
+  - 数据库时间没有在 Neon 控制台上看；请求耗时合计约 120 s，是它的上限。
+- 合并：#67 于 2026-09-24 10:48 UTC 以 merge commit c45c520 合并。生产部署后 v2 不带 token 返回 404，v1 返回 401；10:50 UTC 工作台手动同步成功，8,141 部。
 
 ## 已知限制
 
