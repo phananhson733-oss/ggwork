@@ -23,15 +23,19 @@ HTTP request: deerflow_app's idle_in_transaction_session_timeout is 5 minutes, b
 its row count equals the manifest's snapshotDays entry and no drama_id repeats. The merge is one transaction: new points
 replace any old point of the same day (so folding a day twice is harmless), points before the cutoff go, rows left empty
 are deleted and series_state moves. The cutoff is the earlier of the oldest published version's as_of day - 90 and the
-new through - 92 (93 days kept), and never earlier than the trimmed_before already recorded: those points are gone.
+new through - 92 (93 days kept), and never earlier than the trimmed_before already recorded: those points are gone. On
+the first merge it is never earlier than the first day merged either: no point before that day was ever folded.
 Every merge rewrites every drama's row, so a VACUUM follows it. Only plain statements run on the dedicated connection,
 never a session-level SET.
 
 Through railway ssh (plan 5.6; a dropped session ends the process, and a rerun resumes):
-    cd /app/backend && DEER_FLOW_HOME=/data python -m ggwork_pick.mirror.series --backfill 90
+    cd /app/backend && DEER_FLOW_HOME=/data python -m ggwork_pick.mirror.series --backfill 92
 or, to let it finish on its own, with only days, row counts and seconds in the log:
-    cd /app/backend && DEER_FLOW_HOME=/data nohup python -m ggwork_pick.mirror.series --backfill 90 \\
+    cd /app/backend && DEER_FLOW_HOME=/data nohup python -m ggwork_pick.mirror.series --backfill 92 \\
         > /data/pick/backfill-$(date -u +%Y%m%d).log 2>&1 &
+92 is all of snapshotDays (as_of day - 92 to as_of day, rs:src/lib/pick/export-v2.ts:440-447). RealShort keeps 91 dates,
+but prunes right after a UTC day's first snapshot (rs:src/lib/sync.ts:643-645): before it, as_of day - 91 is still
+there, and 90 would leave it out (trimmed_before then says so).
 It needs PICK_DATABASE_URL, PGSSLMODE, PICK_REALSHORT_FEED_URL and PICK_REALSHORT_EXPORT_TOKEN; not while a sync runs.
 """
 
@@ -70,7 +74,7 @@ ERROR_TEXT_MAX = 300
 SERIES_COLUMNS = ("drama_id", "revenue_cents", "promoters_cnt")
 EXIT_OK, EXIT_LOCKED, EXIT_USAGE, EXIT_FAILED, EXIT_INTERRUPTED = 0, 1, 2, 3, 130
 PROG = "python -m ggwork_pick.mirror.series"
-USAGE = f"用法：{PROG} --backfill N（N 是 1 到 {MAX_LOOKBACK_DAYS} 的整数：只回填 as_of 当天往前 N 天以内的日子，RealShort 只留 91 天，90 即全部）"
+USAGE = f"用法：{PROG} --backfill N（N 是 1 到 {MAX_LOOKBACK_DAYS} 的整数：只回填 as_of 当天往前 N 天以内的日子；snapshotDays 最早到往前 92 天，92 即全部）"
 FEED_URL_ENV = "PICK_REALSHORT_FEED_URL"
 EXPORT_TOKEN_ENV = "PICK_REALSHORT_EXPORT_TOKEN"
 # Present, whatever its value: production sets require; the DSN never carries ssl* parameters (pick_entrypoint.py).
@@ -226,13 +230,22 @@ async def _stage_day(conn, client: FeedClient, manifest: Manifest, day: str) -> 
     return counted["n"]
 
 
+def _floor(before: SeriesState, days: Sequence[date]) -> date | None:
+    """What the cutoff may not go below: what is already trimmed, and on the first merge (through NULL: the backfill's
+    first day) that day too, since no point before it was ever folded. trimmed_before then tells the profile page's
+    banner the truth (plan 3.2, 373): a window that starts before it is missing points."""
+    if before.through is not None:
+        return before.trimmed_before
+    return max(day for day in (before.trimmed_before, min(days)) if day is not None)
+
+
 async def _merge(conn, *, days: Sequence[date], now: datetime) -> SeriesState:
     """The staged days into pick_mirror.series and series_state, in one transaction; then VACUUM the rewritten rows."""
     async with conn.transaction():
         before = await read_state(conn)
         oldest = await conn.fetchval(_OLDEST_PUBLISHED, timeout=STATEMENT_TIMEOUT)
         through = max(days)
-        cutoff = trim_cutoff(through=through, oldest_published=oldest, trimmed_before=before.trimmed_before)
+        cutoff = trim_cutoff(through=through, oldest_published=oldest, trimmed_before=_floor(before, days))
         await conn.execute(_UPSERT, cutoff, now, list(days), timeout=MERGE_TIMEOUT)
         await conn.execute(_TRIM, cutoff, now, timeout=MERGE_TIMEOUT)
         await conn.execute(_DROP_EMPTY, timeout=MERGE_TIMEOUT)

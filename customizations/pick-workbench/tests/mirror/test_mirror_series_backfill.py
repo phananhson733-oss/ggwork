@@ -292,6 +292,19 @@ async def test_backfill_refuses_a_connection_without_the_mirror_lock(dsn):
 
 
 @pytest.mark.asyncio
+async def test_the_first_backfilled_day_bounds_trimmed_before(world):
+    # Before a UTC day's first snapshot RealShort still has as_of day - 91: its prune runs right after that snapshot
+    # (rs:src/lib/sync.ts:643-645, src/lib/observe/snapshot.ts:96-104). --backfill 90 starts at as_of day - 90.
+    world.serve(snapshots(span(ago(91), ago(1)), one))
+    await add_version(world.conn, 1, AS_OF - timedelta(days=1), latest_snapshot=ago(1))  # its window starts at D-91
+    outcome = await backfill(world, lookback_days=90)
+    assert outcome.merged[0] == text(ago(90)) and len(outcome.merged) == 90
+    # No point before D-90 was ever folded: trimmed_before says so, and yesterday's version can tell its D-91 is missing.
+    assert await state(world.conn) == (ago(1), ago(90)) and outcome.trimmed_before == text(ago(90))
+    assert min(point[1] for point in await points(world.conn)) == ago(90)
+
+
+@pytest.mark.asyncio
 async def test_backfill_names_the_days_realshort_has_no_snapshot_for(dsn):
     from ggwork_pick.mirror.series import EXIT_OK, run_backfill
 
