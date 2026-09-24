@@ -102,8 +102,12 @@ test.describe("pick data board on the fixture mirror", () => {
         `镜像 v${versions.v2} 采集于`,
       );
     }
+    // The breadcrumb's current page is also a link named 选剧资料: the
+    // sidebar's is the one this checks.
     await expect(
-      page.getByRole("link", { name: "选剧资料", exact: true }),
+      page
+        .getByRole("navigation", { name: "选剧工作台" })
+        .getByRole("link", { name: "选剧资料", exact: true }),
     ).toHaveAttribute("aria-current", "page");
   });
 
