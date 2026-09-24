@@ -318,6 +318,14 @@ describe("generateMetadata", () => {
     expect(state.calls).toEqual([]);
   });
 
+  it("titles the default tab when called without searchParams", async () => {
+    // Nextra's page map calls every app page's generateMetadata({}) while
+    // building the docs (nextra/dist/server/page-map/index.js).
+    const meta = await pageModule.generateMetadata({});
+    expect(meta.title).toBe("选剧资料 · 选剧");
+    expect(state.calls).toEqual([]);
+  });
+
   it("renders per request, for up to a minute", () => {
     expect(pageModule.dynamic).toBe("force-dynamic");
     expect(pageModule.maxDuration).toBe(60);

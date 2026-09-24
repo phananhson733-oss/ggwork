@@ -80,12 +80,14 @@ export const maxDuration = 60;
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 type Board = ReadyBoard<BoardRules>;
 
+// searchParams is optional: Nextra's docs page map calls generateMetadata({})
+// on every app page at build time (nextra/dist/server/page-map/index.js).
 export async function generateMetadata({
   searchParams,
 }: {
-  searchParams: SearchParams;
+  searchParams?: SearchParams;
 }): Promise<Metadata> {
-  const req = parsePickRequest(await searchParams);
+  const req = parsePickRequest((await searchParams) ?? {});
   return { title: `选剧资料 · ${TAB_LABELS[req.tab]}` };
 }
 
