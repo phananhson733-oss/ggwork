@@ -81,7 +81,7 @@ test("configured model preserves old evidence and retries a committed save", asy
     (c) => c.name === "csrf_token",
   )!.value;
   const marker = `Synthetic-${randomUUID().slice(0, 8)}`;
-  await page.goto("/workspace/pick-data");
+  await page.goto("/workspace/pick-data?tab=imports");
   await page.getByLabel("选择资料文件").setInputFiles({
     name: "synthetic.json",
     mimeType: "application/json",

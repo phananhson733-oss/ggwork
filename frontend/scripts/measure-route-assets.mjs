@@ -8,11 +8,16 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const DEMO_THREAD_ID = "7cfa5f8f-a2f8-47ad-acbd-da7137baf990";
+// /workspace/pick-data is measured in the static demo like the other
+// workspace routes: its visitor is the shared demo user, so the page renders
+// its access notice and no mirror query. What counts is the route's own CSS
+// (pick-board.css through its layout) and JavaScript.
 export const ROUTES = [
   "/",
   "/login",
   "/workspace/chats",
   `/workspace/chats/${DEMO_THREAD_ID}`,
+  "/workspace/pick-data",
   "/en/docs",
   "/blog/posts",
 ];

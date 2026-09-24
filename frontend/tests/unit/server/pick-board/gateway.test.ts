@@ -174,12 +174,12 @@ describe("getPickSync", () => {
     expect(JSON.stringify(errorLog.mock.calls)).not.toContain("s3cr3t");
   });
 
-  it("keeps a mirror the gateway could not read, without calling it malformed", async () => {
+  it("keeps a failed mirror read as {error}, with nothing logged", async () => {
     const body = {
       configured: true,
       current: null,
       runs: [],
-      mirror: { error: "ProgrammingError" },
+      mirror: { error: "OperationalError" },
     };
     stubFetch(async () => Response.json(body));
     await expect(getPickSync()).resolves.toEqual({ ok: true, data: body });

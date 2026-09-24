@@ -7,7 +7,6 @@ import { AUTH_REQUEST_TIMEOUT_MS } from "@/core/auth/constants";
 import { getGatewayConfig } from "@/core/auth/gateway-config";
 import {
   mirrorFieldSchema,
-  mirrorStatusSchema,
   type PickSyncStatus,
   syncStatusSchema,
 } from "@/core/pick/sync-schema";
@@ -97,19 +96,25 @@ export async function gatewayGet<T>(
   }
 }
 
+/** Field paths of a failed parse, through both branches of a union. */
+function issuePaths(issues: readonly z.ZodIssue[]): string[] {
+  const paths = issues.flatMap((issue) =>
+    issue.code === "invalid_union"
+      ? issuePaths(issue.unionErrors.flatMap((error) => error.issues))
+      : [issue.path.join(".")],
+  );
+  return [...new Set(paths)];
+}
+
 // The shared schema reads a malformed mirror as absent; here that is logged,
-// by field path only. A mirror the gateway could not read ({ error }) is not
-// malformed. The paths are the state schema's: a union failure alone would
-// name only "mirror".
+// by field path only. A failed mirror read ({error}) is not malformed.
 const boardSyncSchema = syncStatusSchema.extend({
   mirror: mirrorFieldSchema
     .nullable()
     .optional()
-    .catch(({ input }) => {
-      const state = mirrorStatusSchema.safeParse(input);
-      const issues = state.success ? [] : state.error.issues;
+    .catch(({ error }) => {
       console.error("[pick-board] gateway mirror malformed", {
-        fields: issues.map((issue) => ["mirror", ...issue.path].join(".")),
+        fields: issuePaths(error.issues),
       });
       return undefined;
     }),

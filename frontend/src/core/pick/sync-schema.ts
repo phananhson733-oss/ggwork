@@ -4,13 +4,17 @@
  * can import it without pulling browser code in.
  *
  * zod objects drop unknown keys, so `mirror` (P2-8b) is declared explicitly or
- * it would vanish. It is optional (a gateway from before P2-8b) and nullable
- * (SQLite never mirrors). When the gateway cannot read the mirror state it
- * answers `{ error: <class name> }` (routes.mirror_view) and the rest of /sync
- * as usual: consumers tell it apart with `"error" in mirror`. A mirror object
- * that matches neither reads as absent: no mirror banners, while the imports
- * tab and the rest of /sync still parse. mirrorStatusSchema itself stays
- * strict, so no banner guesses at a field.
+ * it would vanish. It is optional (a gateway from before P2-8b), nullable
+ * (SQLite never mirrors), or `{error: "<class name>"}` when the gateway failed
+ * to read the mirror status (routes.mirror_view): that branch is modelled, so
+ * the board can say "no mirror status right now" instead of saying nothing.
+ * Any other shape reads as absent: no mirror banners, while the imports tab
+ * and the rest of /sync still parse. mirrorStatusSchema itself stays strict,
+ * so no banner guesses at a field.
+ *
+ * Times come in two shapes: current.as_of is RealShort's asOf
+ * ("…T22:15:00.000Z"), every other moment is the gateway's stamp
+ * ("…T03:52:00.123456+00:00"); parseSyncTime reads both.
  */
 import { z } from "zod";
 
@@ -32,7 +36,7 @@ const mirrorVersionSchema = z.object({
   id: z.number().int().positive(),
   as_of: z.string(),
   latest_snapshot: z.string().nullable(),
-  published_at: z.string(),
+  published_at: z.string().nullable(),
 });
 
 const lockStuckSchema = z.object({
@@ -61,15 +65,18 @@ export const mirrorStatusSchema = z.object({
   shared_source_as_of: z.string().nullable().optional(),
 });
 
-/** The gateway could not read pick_mirror: the error's class name, no text. */
-export const mirrorUnavailableSchema = z
-  .object({ error: z.string().max(200) })
+/** A Python class name (type(exc).__name__), never free text. */
+const CLASS_NAME = /^[A-Za-z_][A-Za-z0-9_.]{0,99}$/;
+
+/** The gateway could not read the mirror status; it names the class only. */
+export const mirrorReadErrorSchema = z
+  .object({ error: z.string().regex(CLASS_NAME) })
   .strict();
 
-/** /sync's mirror: its state, or why it could not be read. */
+/** What /sync's mirror key holds when present and not null. */
 export const mirrorFieldSchema = z.union([
   mirrorStatusSchema,
-  mirrorUnavailableSchema,
+  mirrorReadErrorSchema,
 ]);
 
 export const syncStatusSchema = z.object({
@@ -91,5 +98,22 @@ export const syncStatusSchema = z.object({
 
 export type PickSyncRun = z.infer<typeof syncRunSchema>;
 export type PickMirrorStatus = z.infer<typeof mirrorStatusSchema>;
-export type PickMirrorUnavailable = z.infer<typeof mirrorUnavailableSchema>;
+export type PickMirrorReadError = z.infer<typeof mirrorReadErrorSchema>;
+export type PickMirrorField = z.infer<typeof mirrorFieldSchema>;
 export type PickSyncStatus = z.infer<typeof syncStatusSchema>;
+
+export function isMirrorReadError(
+  mirror: PickMirrorField | null | undefined,
+): mirror is PickMirrorReadError {
+  return typeof mirror === "object" && mirror !== null && "error" in mirror;
+}
+
+const SYNC_TIME =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
+
+/** A /sync moment in either of its two shapes; null for anything else. */
+export function parseSyncTime(value: string | null | undefined): Date | null {
+  if (typeof value !== "string" || !SYNC_TIME.test(value)) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}

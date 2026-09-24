@@ -49,7 +49,16 @@ export function pickDataNextPath(params: SearchParamsRecord): string {
   return search ? `${PICK_DATA_PATH}?${search}` : PICK_DATA_PATH;
 }
 
-/** Redirects to login or setup; otherwise the user, or why not to show data. */
+/**
+ * Redirects to login or setup; otherwise the user, or why not to show data.
+ *
+ * The workspace layout checks the same visitor first and is left as it is
+ * (P3-5): signed out, it redirects to /login without `next`; on config_error
+ * it throws to the app's error boundary. Next renders the layout and the page
+ * together, so those two branches here seldom decide the outcome; they stay
+ * so the page never reads data for a visitor the layout would turn away,
+ * whichever runs first.
+ */
 export async function requireBoardUser(nextPath: string): Promise<BoardAccess> {
   const result = await getServerSideUserCached();
   switch (result.tag) {
