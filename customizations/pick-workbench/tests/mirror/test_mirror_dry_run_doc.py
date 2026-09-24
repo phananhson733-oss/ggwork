@@ -38,9 +38,10 @@ def _section(text: str, heading: str) -> str:
     return text[start : end if end != -1 else len(text)]
 
 
-def _full_run_summary(tmp_path) -> dict:
-    """A clean --scan run with v1 against the RealShort double: every key a passing summary carries."""
-    folder = tmp_path / "secrets"
+def _full_run_summary(tmp_path, *, v1: bool = True) -> dict:
+    """A clean --scan run against the RealShort double: with v1, every key a passing summary carries; without, the
+    pan_scan gate's keys for a v1 it could not scan."""
+    folder = tmp_path / ("secrets" if v1 else "secrets-no-v1")
     folder.mkdir()
     (folder / "export").write_text(EXPORT_TOKEN)
     (folder / "bypass").write_text(BYPASS)
@@ -50,9 +51,9 @@ def _full_run_summary(tmp_path) -> dict:
     argv = ["--dry-run", "--base-url", "https://realshort.test", "--token-file", str(folder / "export")]
     argv = [*argv, "--bypass-header-file", str(folder / "bypass"), "--scan"]
     options = dry_run.parse_args(argv)
-    secrets = dry_run.load_secrets(options, {dry_run.FEED_TOKEN_ENV: FEED_TOKEN})
+    secrets = dry_run.load_secrets(options, {dry_run.FEED_TOKEN_ENV: FEED_TOKEN} if v1 else {})
     code = asyncio.run(dry_run.dry_run(options, secrets, transport=fake.transport(), clock=clock, sleep=clock.sleep, timer=clock.timer, out=out))
-    assert code == dry_run.EXIT_OK
+    assert code == (dry_run.EXIT_OK if v1 else dry_run.EXIT_GATES)
     return json.loads(out.getvalue().splitlines()[-1])
 
 
@@ -78,7 +79,8 @@ def _failure_keys() -> set[str]:
 
 def test_the_handbook_names_every_output_field(doc, tmp_path):
     output = _section(doc, "输出")
-    missing = sorted(key for key in _page_line_keys() | _summary_keys(_full_run_summary(tmp_path)) | _failure_keys() if f"`{key}`" not in output)
+    keys = _page_line_keys() | _summary_keys(_full_run_summary(tmp_path)) | set(_full_run_summary(tmp_path, v1=False)["gates"]["pan_scan"])
+    missing = sorted(key for key in keys | _failure_keys() if f"`{key}`" not in output)
     assert not missing, f"输出一节没写到这些字段：{missing}"
 
 
@@ -104,6 +106,17 @@ def test_the_handbook_command_uses_only_the_dry_runs_flags(doc):
     flags = set(_FLAG.findall(command))
     assert flags <= options, f"命令一节有 dry-run 不认的参数：{sorted(flags - options)}"
     assert {"--base-url", "--bypass-header-file", "--token-file", "--v1-token-file", "--scan", "--limit"} <= flags
+
+
+def test_the_pre_check_bodies_are_realshorts_gate_answers(doc):
+    # rs:src/lib/pick/feed-http.ts gate(): v2 answers {ok:false, version, error}; the curl pre-check tells them from a
+    # deployment-protection page by that body, since both may be a 401.
+    from ggwork_pick.mirror.client import ERROR_WORDS
+    from ggwork_pick.mirror.contracts import EXPORT_VERSION
+
+    for word in ("unauthorized", "not_found"):
+        assert word in ERROR_WORDS
+        assert json.dumps({"ok": False, "version": EXPORT_VERSION, "error": word}, separators=(",", ":")) in doc
 
 
 def test_the_handbook_holds_placeholders_not_values(doc):

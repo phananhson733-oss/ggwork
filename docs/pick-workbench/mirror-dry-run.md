@@ -11,19 +11,23 @@
 
 ## 什么时候跑
 
-- **P1-6**：P2-2a 客户端合并之后、realshort#67 合并之前，在 RealShort `feat/pick-export-v2` 分支的 Preview 上跑。Preview 读的是生产库，测到的数字就是生产的查询增量。
+- **P1-6**：P2-2a 客户端合并之后、realshort#67 合并之前，在 RealShort `feat/pick-export-v2` 分支的 Preview 上跑。Preview 读生产库时，测到的数字就是生产的查询增量；读的是不是生产库，前提第 1 步要先核实。
 - 避开三个时段：RealShort 的 cron、Mac mini 的剧单导入、工作台 03:40 / 15:40 UTC 的定时同步。
+- 在哪台机器上跑：出口 IP 不能属于阿里云（AS45102）或腾讯云（AS132203）。RealShort 的防火墙按 ASN 拒绝这两家（`rs:src/lib/crawler-policy.ts`），响应是 `403`。挂着这两家的代理，或在这两家的云主机上跑，都会被挡。
 - **`--scan`（U52）**：能在 P1-6 这次一起跑就一起跑。没跑成的话，等 Production 配好正式 `PICK_EXPORT_TOKEN`、打开镜像之前，在 Production 上单独跑一次，同样避开 cron。Production 不需要 bypass。
 
 ## 前提（RealShort 的 Vercel 项目）
 
 在控制台操作，或在已 `vercel link` 到该项目的 RealShort 检出目录里用 `vercel` 命令：
 
-1. 确认 Rolling Releases 已关闭。看 Preview 环境已有哪些变量：`vercel env ls preview` 只列名字，不显示值。
-2. 配临时 `PICK_EXPORT_TOKEN`：**只配 Preview，并限定 git 分支 `feat/pick-export-v2`**（生成与写入见下一节）。不配 Production，也不配 Development：配到 Development 会被 `vercel env pull` 拉到本机文件里。
-3. 要量 v1、而 Preview 上没有 `PICK_FEED_TOKEN` 时，另配一个临时值，作用域同上。**不要用生产的值。** 不量 v1 就不配，dry-run 会跳过 v1 并在汇总里注明。**加 `--scan` 就必须量 v1**：没有 v1 token 时 `pan_scan` 门槛直接判不通过（v1 行与 `v1.rules` 没扫，P1 第 7 步要求含 `v1.rules` 全为 0）。
-4. 打开 Deployment Protection 里的 Protection Bypass for Automation，拿到 bypass 值。**bypass 是项目级的，对这个项目的所有 Preview 部署都生效**，所以测完当天就撤。项目上原本就有 bypass 时，先问清用途再动。
-5. **Redeploy** 这个分支的 Preview：环境变量只对新部署生效，旧部署看不到新配的 token。
+1. 确认 Preview 的 `DATABASE_URL` 指向哪个库：在环境变量页看 Preview 那一行指向的 Neon 分支或主机名，不读值（方案 P1-6 第 1 步）。
+   - 指向生产库的主分支：照下面在 Preview 上测。
+   - 指向别的分支或别的库：Preview 上测出的数字没有意义。改为 #67 合并后在 Production 上测：v2 在没配 `PICK_EXPORT_TOKEN` 时返回 404，只在测量窗口里配上 token，测完删掉。
+2. 确认 Rolling Releases 已关闭。看 Preview 环境已有哪些变量：`vercel env ls preview` 只列名字，不显示值。
+3. 配临时 `PICK_EXPORT_TOKEN`：**只配 Preview，并限定 git 分支 `feat/pick-export-v2`**（生成与写入见下一节）。不配 Production，也不配 Development：配到 Development 会被 `vercel env pull` 拉到本机文件里。
+4. 要量 v1、而 Preview 上没有 `PICK_FEED_TOKEN` 时，另配一个临时值，作用域同上。**不要用生产的值。** 不量 v1 就不配，dry-run 会跳过 v1 并在汇总里注明。**加 `--scan` 就必须量 v1**：没有 v1 token 时 `pan_scan` 门槛直接判不通过（v1 行与 `v1.rules` 没扫，P1 第 7 步要求含 `v1.rules` 全为 0）。
+5. 打开 Deployment Protection 里的 Protection Bypass for Automation，拿到 bypass 值。**bypass 是项目级的，对这个项目的所有 Preview 部署都生效**，所以测完当天就撤。项目上原本就有 bypass 时，先问清用途再动。
+6. **Redeploy** 这个分支的 Preview：环境变量只对新部署生效，旧部署看不到新配的 token。从这一刻起，这个分支新建的每个 Preview 部署都带着 token，收尾时要一个不落地处理。
 
 ## 准备凭据文件
 
@@ -47,21 +51,28 @@ read -rs v && printf '%s' "$v" > "$dir/bypass"; unset v
 ls -l "$dir"              # 三个文件都应是 -rw-------；不要 cat
 ```
 
-Redeploy 之后先验一次：带 bypass、不带 token 请求 manifest，应得 `401`（正文是 `{"error":"unauthorized"}`）。
+Redeploy 之后先验一次：带 bypass、不带 token 请求 manifest。这个请求不带 token，正文里没有秘密，要连正文一起看：只看状态码分不出是 RealShort 的 401，还是部署保护的 401。
 
 ```bash
-curl -sS -o /dev/null -w '%{http_code}\n' \
+curl -sS -w '\n%{http_code}\n' \
   -H @<(printf 'x-vercel-protection-bypass: %s\n' "$(cat "$dir/bypass")") \
   'https://<preview-host>/api/pick-feed/v2/manifest'
 ```
 
-- `404`：token 没生效，可能是没 Redeploy，或作用域不是这个分支。
-- `3xx` 或登录页：bypass 不对。
+- `401`，正文是 `{"ok":false,"version":"pick-export-v2","error":"unauthorized"}`：bypass 生效，token 也配上了，可以跑。
+- `401` 但正文是 HTML（登录页、Authentication Required 之类）：被部署保护拦下，bypass 不对。部署保护对不带凭据的非浏览器请求也可能回 401。
+- `3xx`：被部署保护重定向到登录页，bypass 不对。
+- `404`，正文是 `{"ok":false,"version":"pick-export-v2","error":"not_found"}`：token 没生效，可能是没 Redeploy，或作用域不是这个分支。正文不是这段 JSON 的 404：地址不对，或这个部署里没有 v2 路由。
+- `403`：出口 IP 被 RealShort 的防火墙挡下，见「什么时候跑」。
 - 带 token 的那一次，就是下面的 dry-run 本身。
 
 ## 命令
 
-在 ggwork-deerflow 仓库根目录执行。本机 `backend/.venv` 里装的是托管副本，可能还没刷新；`PYTHONPATH` 让它直接用仓库里的源码。
+在 ggwork-deerflow 检出的根目录执行。
+
+- 检出里要有 `customizations/pick-workbench/ggwork_pick/mirror/`：`feat/pick-mirror` 合并之前，main 和 work 上都没有。
+- 本机 `backend/.venv` 里装的是托管副本，可能还没刷新；`PYTHONPATH` 让它直接用检出里的源码。`backend/.venv` 只在主检出里有，在 git worktree 里跑时，把命令里的 `backend/.venv/bin/python` 换成主检出里这个解释器的绝对路径。
+- 不给 `--token-file`、`--v1-token-file` 时，dry-run 读 shell 里的 `PICK_REALSHORT_EXPORT_TOKEN`、`PICK_REALSHORT_FEED_TOKEN`。shell 里导出过这两个变量的，要么给文件参数，要么先 `unset`；尤其是不想拉 v1 时，先 `unset PICK_REALSHORT_FEED_TOKEN`。
 
 ```bash
 PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick.mirror.client --dry-run \
@@ -85,7 +96,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 | `--limit rs_rows=N` | 覆盖页大小，可以写多个：`--limit rs_rows=1000 rs_ids=5000`；取值 1 到该资源的服务端上限 |
 | `--series-days N` | 拉 `snapshotDays` 最后几天的 rs_series_day，0 到 93，缺省 1（只拉 latestSnapshot 那天） |
 
-- stdout 只有 JSON 行，不含 token、bypass 值和行内容，可以存在仓库外。参数错误只写 stderr。
+- stdout 只有 JSON 行，不含 token、bypass 值和行内容，可以存在仓库外。唯一的例外是 `RowTooLargeError`：它的 `error` 带着那一行的主键（见「退出码」）。参数错误只写 stderr。
 - 边跑边看：另开一个终端 `tail -f /tmp/pick-dry-run.jsonl`。看汇总：`tail -n 1 /tmp/pick-dry-run.jsonl | backend/.venv/bin/python -m json.tool`。
 
 流程：选 as_of → manifest → v1 → v2 八个资源 → rs_series_day。
@@ -183,11 +194,11 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 | `title_scrub` | `ok`、`hits`（六个标题字段上的 `meta.scrub` 命中）；有命中时另有 `blocks` |
 | `pan_scan` | 只在加了 `--scan` 时出现：`ok`、`paths`（有命中的路径数）、`hits`（命中次数合计）；没有 v1 token 时另有 `unscanned`（没扫到的 `v1.rows`、`v1.rules`）和 `reason`，`ok` 为 false |
 
-`page_time` 和 `page_bytes` 覆盖 manifest 和所有 v2 页（含 rs_series_day），不含 v1。
+`page_time` 和 `page_bytes` 覆盖 manifest 和所有 v2 页（含 rs_series_day），不含 v1。`run_time` 不同：`run_ms` 从 manifest 请求发出算到最后一页收完，中间的 v1 也在里面。
 
 ### 失败时的汇总
 
-- 退出码 3：`ok` 为 false，另有 `error_type`（异常类名）、`error`（中文说明，只含状态码、类名和字段位置，不含值）、`runs`、`retries`。
+- 退出码 3：`ok` 为 false，另有 `error_type`（异常类名）、`error`（中文说明，只含状态码、类名和字段位置，不含值；`RowTooLargeError` 例外，带主键）、`runs`、`retries`。
 - 退出码 4：`error_type`、`error`（固定的一句话）和 `where`（出错的文件名与行号）。
 
 ## 门槛
@@ -206,7 +217,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 - 标题字段有命中：不合并 #67，也不进入 P2 上线。v1 的 `title` 不在 RealShort 的豁免清单里，一合并，智能体看到的剧名就会被整串替换。按 RealShort 清洗正则的 bug 处理，在 PR 分支上修好后重测。
 - `--scan` 有命中：不打开镜像。先分清是 Python 多认了，还是 RealShort 漏清了。`scan.hits` 只给路径，要看值得去 RealShort 那边按路径查。
 - 另外记下 `retries.drift_409`、`retries.busy_503`。Preview 的构建 SHA 是固定的，测不出生产频繁部署带来的漂移频率，那要上线后再统计。
-- v1 不设门槛（它不是新接口），`v1` 里的数字只作记录。
+- v1 的页不进 `page_time`、`page_bytes`（它不是新接口），`v1` 里的数字只作记录；但 v1 的耗时算在 `run_ms` 里。`run_time` 没过时，先比 `v1.sum_elapsed_ms` 和各 v2 资源的 `sum_elapsed_ms`：慢的是 v1 的话，下面的 rs_rows 两级退路帮不上，记下数字交评审。
 
 ## 退出码
 
@@ -220,13 +231,14 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 
 退出码 3 常见的 `error_type`：
 
-- `ConfigError`：401 是 token 不对；404 是 token 没配、没 Redeploy 或作用域不对；3xx 是被部署保护拦下，检查 bypass（客户端不跟随跳转）。
+- `ConfigError`：401 是 token 不对；`error` 写「不是 RealShort 的 401 正文」的，是被部署保护拦下，先查 bypass。404 是 token 没配、没 Redeploy 或作用域不对。3xx 是被部署保护拦下，检查 bypass（客户端不跟随跳转）。
 - `DriftError`、`AsOfExpiredError`：重来 2 次之后第三次仍然漂移或过期；每次的原因在 `retries.causes`。
 - `BusyTimeout`：manifest 阶段的 `source_busy` 累计等满 1200 秒。
 - `SourceReadError`：`read_failed` 重试 1 次后仍失败。
 - `ContractError`：响应不合契约，字段位置写在 `error` 里。
-- `RowTooLargeError`：有一行超过 RealShort 的单行上限。
+- `RowTooLargeError`：有一行超过 RealShort 的单行上限。`error` 里写着这一行的主键（如 `row_key`、`book_id`、`bill_date`），是业务标识：可以拿去 RealShort 查，但不要贴进 progress.md、realshort-sync.md 或 PR。
 - `FeedConnectionError`：连接失败，或 60 秒内没收完。
+- `FeedError`：RealShort 回了约定之外的状态码，`error` 写 `HTTP <状态码>`。`403` 多半是出口 IP 被防火墙挡下，换网络后重跑，见「什么时候跑」。
 
 ## 超门槛时的两级退路
 
@@ -243,11 +255,11 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 
 1. 删掉 Preview 上的临时变量：`vercel env rm PICK_EXPORT_TOKEN preview feat/pick-export-v2`，或在控制台删。另配过 `PICK_FEED_TOKEN` 的，同样删掉。
 2. 撤销这次用的 Protection Bypass for Automation。
-3. 删除那个 Preview 部署，或者在删变量之后重新部署它：旧部署仍带着 token。
-4. 验证：
-   - 再请求那个 Preview，应该是登录页或 404。
-   - 用旧的 bypass 值（上面那条 curl）请求任意一个 Preview，应该被重定向到登录页。
-5. 最后删本机文件：`rm -rf "$dir"`。`/tmp/pick-dry-run.jsonl` 里没有凭据，数字记好后也删掉。
+3. 这个分支从配上变量起构建的**每一个** Preview 部署都带着 token，包括为修 bug 重测而新推的：逐个删除，或者在删变量之后重新部署。
+4. 验证（用上面那条 curl，同样看正文）：
+   - 再请求这些 Preview，应该是部署保护的登录页（3xx，或 401 加 HTML 正文）。
+   - 用旧的 bypass 值请求任意一个 Preview，同样应被部署保护拦下，而不是 RealShort 的 JSON。
+5. 最后删本机文件：`rm -rf "$dir"`。`/tmp/pick-dry-run.jsonl` 里没有凭据（遇到 `RowTooLargeError` 时带着一行的主键），数字记好后也删掉。
 
 ## 测完之后
 
