@@ -170,6 +170,7 @@ EOF
 ```bash
 cd "$W/frontend"
 export DEER_FLOW_INTERNAL_GATEWAY_BASE_URL=http://127.0.0.1:8011
+export NEXT_TELEMETRY_DISABLED=1    # 本机默认开着 Next 的匿名遥测，会往外发请求
 pnpm build
 PICK_MIRROR_READER_URL="$(cat "$d/reader.url")" PICK_MIRROR_CA_PEM="$(cat "$d/tls/ca.pem")" \
   pnpm start -p 3008 --hostname 127.0.0.1 > "$d/frontend.log" 2>&1 &
