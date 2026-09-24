@@ -105,7 +105,9 @@ async def _build(conn, client: FeedClient, manifest: Manifest, version: MirrorVe
     gates = await run_mirror_gates(conn, schema_name=version.schema_name, manifest=manifest.row, v1=v1, text=text, timeout=limits.statement_timeout)
     budget.check_mirror()
     if conn.is_in_transaction():
-        # publish_mirror_pair's GRANT would wait on whatever is uncommitted here (brief 0.3).
+        # publish_mirror_pair's GRANT would wait on whatever is uncommitted here (brief 0.3). Rolled back first: the
+        # degraded path fails and drops the version on this connection, and the lock's release clears lock_holder here.
+        await conn.execute("ROLLBACK", timeout=limits.statement_timeout)
         raise MirrorBuildError("镜像专用连接上还有未结束的事务，不能配对发布")
     stages = {"v2_ms": ms(written - begun), "finalize_ms": ms(finalized - written), "gates_ms": ms(timer() - finalized)}
     return Built(gates=gates, text=text, copied=copied, retries=retries, stages=stages)

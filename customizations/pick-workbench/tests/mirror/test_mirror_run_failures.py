@@ -442,3 +442,33 @@ async def test_the_v1_half_ends_at_the_run_deadline(harness, monkeypatch):
     assert await batches(harness.engine) == [] and v2_row_calls(fake.calls) == []
     state = await control(harness.engine)
     assert (state["consecutive_failures"], state["last_failure"]) == (1, "v1")
+
+
+@pytest.mark.asyncio
+async def test_an_unfinished_transaction_before_the_pair_degrades(harness, monkeypatch):
+    """The dedicated connection must be idle before the pair transaction's GRANT (brief 0.3): if the gates leave a
+    transaction open, the run degrades, and the version is still failed and dropped on that connection."""
+    from ggwork_pick.mirror import run_v2
+
+    real_gates, pairs = run_v2.run_mirror_gates, []
+
+    async def leaves_a_transaction_open(conn, **arguments):
+        gates = await real_gates(conn, **arguments)
+        await conn.execute("BEGIN")
+        return gates
+
+    async def spied(self, **arguments):
+        pairs.append(arguments["version_id"])
+
+    monkeypatch.setattr(run_v2, "run_mirror_gates", leaves_a_transaction_open)
+    monkeypatch.setattr(PickRepository, "publish_mirror_pair", spied)
+    result, _ = await _run(harness)
+    assert (result["status"], result["details_json"]["reason"]) == ("success", "degraded:MirrorBuildError")
+    assert pairs == []
+    [version] = await versions(harness.engine)
+    assert version["status"] == "failed" and version["dropped_at"] is not None
+    assert not await schema_exists(harness.engine, version["schema_name"])
+    assert await shared_current(harness.engine) == (result["catalog_batch_id"], result["knowledge_batch_id"])
+    assert await advisory_locks(harness.engine) == 0
+    state = await control(harness.engine)
+    assert (state["lock_holder"], state["lock_holder_since"]) == (None, None)
