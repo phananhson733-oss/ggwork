@@ -5,9 +5,9 @@
  *
  * zod objects drop unknown keys, so `mirror` (P2-8b) is declared explicitly or
  * it would vanish. It is optional (a gateway from before P2-8b) and nullable
- * (SQLite never mirrors). A mirror object that does not match fails the whole
- * parse: the board then says the sync status is unavailable instead of
- * guessing its banners.
+ * (SQLite never mirrors). A mirror object that does not match reads as absent:
+ * no mirror banners, while the imports tab and the rest of /sync still parse.
+ * mirrorStatusSchema itself stays strict, so no banner guesses at a field.
  */
 import { z } from "zod";
 
@@ -72,7 +72,7 @@ export const syncStatusSchema = z.object({
     })
     .nullable(),
   runs: z.array(syncRunSchema),
-  mirror: mirrorStatusSchema.nullable().optional(),
+  mirror: mirrorStatusSchema.nullable().optional().catch(undefined),
 });
 
 export type PickSyncRun = z.infer<typeof syncRunSchema>;

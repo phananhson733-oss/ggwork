@@ -95,13 +95,24 @@ describe("syncStatusSchema", () => {
     );
   });
 
-  it("rejects a malformed mirror rather than guessing its banners", () => {
-    const broken = { ...MIRROR, behind: "yes" };
-    expect(syncStatusSchema.safeParse(status({ mirror: broken })).success).toBe(
-      false,
-    );
+  it("reads a malformed mirror as absent; the rest of /sync still parses", () => {
+    for (const broken of [
+      { ...MIRROR, behind: "yes" },
+      { ...MIRROR, lock_stuck: { pid: "4242" } },
+      "mirror",
+    ]) {
+      const parsed = syncStatusSchema.parse(status({ mirror: broken }));
+      expect(parsed.mirror).toBeUndefined();
+      expect(parsed.runs).toEqual([RUN]);
+      expect(parsed.current?.id).toBe("b-cat");
+    }
+  });
+
+  it("keeps the mirror schema itself strict, for its banners", () => {
     const noWarnings = { ...MIRROR, warnings: "catalog_import_incomplete" };
     expect(mirrorStatusSchema.safeParse(noWarnings).success).toBe(false);
+    const broken = { ...MIRROR, behind: "yes" };
+    expect(mirrorStatusSchema.safeParse(broken).success).toBe(false);
   });
 
   it("keeps the run status to the three values the gateway writes", () => {

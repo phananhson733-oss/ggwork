@@ -118,19 +118,62 @@ describe("gatewayGet", () => {
     });
   });
 
-  it("reads only the pick API", async () => {
-    stubFetch(async () => Response.json({ n: 1 }));
+  it("forwards the query string", async () => {
+    const fetchSpy = stubFetch(async () => Response.json({ n: 1 }));
+    await gatewayGet("/api/pick/results?thread_id=t1&limit=5", itemSchema);
+    expect((fetchSpy.mock.calls[0] as FetchArgs)[0]).toBe(
+      "http://127.0.0.1:8001/api/pick/results?thread_id=t1&limit=5",
+    );
+  });
+
+  it("reads only the pick API, however the path spells its way out", async () => {
+    const fetchSpy = stubFetch(async () => Response.json({ n: 1 }));
     for (const path of [
       "/api/v1/auth/me",
       "//evil.example/api/pick/x",
       "/api/pick/../v1/x",
+      "/api/pick/results/%2e%2e/%2e%2e/v1/auth/me",
+      "/api/pick/%2E%2e/x",
+      "/api/pick/.%2e/x",
+      "/api/pick/..\\..\\v1/x",
     ]) {
-      await expect(gatewayGet(path, itemSchema)).rejects.toThrow();
+      await expect(gatewayGet(path, itemSchema)).rejects.toThrow(
+        "the gateway reader reads /api/pick/ only",
+      );
     }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("fetches the path as resolved, never a spelling the fetch would resolve again", async () => {
+    const fetchSpy = stubFetch(async () => Response.json({ n: 1 }));
+    await gatewayGet("/api/pick/results/%2e%2e/sync#part", itemSchema);
+    expect((fetchSpy.mock.calls[0] as FetchArgs)[0]).toBe(
+      "http://127.0.0.1:8001/api/pick/sync",
+    );
   });
 });
 
 describe("getPickSync", () => {
+  it("drops a malformed mirror, logging its field paths only", async () => {
+    const body = {
+      configured: true,
+      current: null,
+      runs: [],
+      mirror: { enabled: "s3cr3t" },
+    };
+    stubFetch(async () => Response.json(body));
+    const result = await getPickSync();
+    expect(result).toEqual({
+      ok: true,
+      data: { configured: true, current: null, runs: [] },
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      "[pick-board] gateway mirror malformed",
+      { fields: expect.arrayContaining(["mirror.enabled", "mirror.behind"]) },
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain("s3cr3t");
+  });
+
   it("parses /sync with its mirror field", async () => {
     const body = {
       configured: true,
