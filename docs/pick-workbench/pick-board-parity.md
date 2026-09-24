@@ -124,8 +124,8 @@ PICK_MIRROR_CA_PEM="$(cat "$SCRATCH/supabase-ca.pem")" \
   - 榜单行的 `dayNote` 记到它取自的那个信号 `payload.h` 格子上。
   - manifest meta 文本（比如来源说明）的清洗不计入 `meta.scrub`，出现就是白名单外，需要人工确认。
 - **payload、posts 里白名单之外的键**：导出只保留 `SIGNAL_PAYLOAD_KEYS` 与 `POSTED_POST_KEYS`；单测钉住这两个列表与 `contracts.py` 一致。
-- **「分成」改名「订单」**。
-- **timestamptz 按毫秒比**。
+- **「分成」改名「订单」**：只在标签字段（`label`、`…Label`）上；剧名、备注这类数据里出现要照报。
+- **timestamptz 按毫秒比**：只在时间字段（`…At`、`…_at`）上。
 - **collation 不同时的剧名排序**：两边 `datcollate` 都知道并且不同时才放行。只看剧场行列表（选剧、全部剧库、剧场榜）与语种计数，先后对调的每一对都要同时满足：
   - 主排序键相同：选剧与全部剧库是证据日期与剧单日期；日榜是名次；周榜是周数；评级榜是评级与剧单日期；其余剧场榜是证据日期与剧单日期；语种计数是条数；
   - RealShort 的先后正是按 RealShort 的 collation 比剧名、平台、行键得出的先后（剧场榜不比平台，语种计数只比语种名），镜像的先后也正是按镜像的 collation 得出的。
@@ -150,7 +150,11 @@ RS_REPO="$RS_REPO" <工作台>/frontend/scripts/pick-board-drift.sh
 
 退出码：0 没有变化；1 有变化（打印 diff --stat，要评估是否补移植）；2 缺 `RS_REPO`、`PORTED_FROM` 格式不对，或检出里没有基准 commit 或 `origin/main`（先 fetch）。
 
-816ca2e 目前不在 RealShort 的 main 上（批判 C34），所以 main 合并 feed v2 之前，这里的差异里也会包括 feed v2 分支自己的改动。
+2026-09-25 核对：本机 RealShort 检出的 origin/main（c45c520，2026-09-24）已经包含 816ca2e（批判 C34 写的是当时还不在），所以差异只来自 816ca2e 之后 main 上的改动。基准不在 origin/main 上时，差异里会混进基准所在分支自己的改动；每次跑之前可以先确认：
+
+```bash
+git -C "$RS_REPO" merge-base --is-ancestor <基准 commit> origin/main && echo 基准在 main 上
+```
 
 ## 6. 收尾
 

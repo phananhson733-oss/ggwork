@@ -11,8 +11,8 @@
  * - 清洗占位「[网盘信息已移除]」：只在 meta.scrub 记过的字段路径上放行，按格子去重后不得超过它记的次数。
  *   快照那边是 SCRUBBED（RealShort 自己的清洗器认出的文本）或原文；SCRUBBED 对上的镜像不是清洗占位，照报；
  * - payload、posts 里导出键白名单之外的键；
- * - 「分成」改名「订单」；
- * - timestamptz 按毫秒比；
+ * - 「分成」改名「订单」（只在 …label / …Label 字段）；
+ * - timestamptz 按毫秒比（只在 …At / …_at 字段）；
  * - 两边库的 collation 不同时，剧场行列表与语种计数里、主排序键相同的两项之间由 collation 造成的先后
  *   （判断见 pick-board-parity-collation.ts）。
  * bill_rank 排序（ReelShort 预估分成榜）不进白名单：镜像按 bill_rank 排，与 RealShort 的顺序必须相同。
@@ -196,8 +196,13 @@ function showMirror(value: Json | undefined): string {
   );
 }
 
+/** 路径最后一个键（数组下标不算） */
+function leafKey(w: Walk): string {
+  return /([A-Za-z0-9_]+)(?:\[\*\])*$/.exec(w.generic)?.[1] ?? "";
+}
+
 function isSensitive(w: Walk): boolean {
-  const leaf = /([A-Za-z0-9_]+)(?:\[\*\])*$/.exec(w.generic)?.[1] ?? "";
+  const leaf = leafKey(w);
   return PAN_KEYS.has(leaf) || MONEY_KEYS.has(leaf);
 }
 
@@ -361,6 +366,10 @@ function chargeScrub(w: Walk, rs: string): CaseComparison {
 
 /* ---------------------------------------------------------------- 标量 */
 
+/** 改名只看标签字段；按毫秒比只看时间字段（loader 输出的 timestamptz 一律叫 …At） */
+const LABEL_KEY = /(?:^l|L)abel$/;
+const TIME_KEY = /(?:At|_at)$/;
+
 const TIMESTAMP =
   /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}(?::?\d{2})?)$/;
 
@@ -399,9 +408,12 @@ function compareStrings(
         );
   // 快照清洗器没认出、导出却清洗了：导出清洗的是它自己规范化过的值（比如整串标签），照样按 meta.scrub 记数
   if (mirror === PAN_SCRUB_REPLACEMENT) return chargeScrub(w, rs);
-  if (rs.includes("分成") && rs.replaceAll("分成", "订单") === mirror)
+  const leaf = leafKey(w);
+  const renamed =
+    rs.includes("分成") && rs.replaceAll("分成", "订单") === mirror;
+  if (renamed && LABEL_KEY.test(leaf))
     return allow(w, "rename", "「分成」改名「订单」");
-  if (sameMillisecond(rs, mirror))
+  if (TIME_KEY.test(leaf) && sameMillisecond(rs, mirror))
     return allow(w, "timestamptz-ms", "同一毫秒");
   return null;
 }

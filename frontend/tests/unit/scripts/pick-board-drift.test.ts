@@ -112,6 +112,23 @@ describe("pick-board-drift.sh", () => {
     mainAt(base);
   });
 
+  it("diffs against origin/main, not against the checked-out HEAD", () => {
+    // origin/main moved, the checkout stayed at the base: a drift.
+    write(PAGE, "changed upstream\n");
+    mainAt(commit("upstream"));
+    git("reset", "-q", "--hard", base);
+    const upstream = drift({ RS_REPO: repo, PORTED_FROM: list });
+    expect(upstream.status).toBe(1);
+    expect(upstream.stdout).toContain("(protected)/pick/page.tsx");
+    // A local commit (a feature branch, a detached sourceRevision) is not.
+    mainAt(base);
+    write(PAGE, "changed locally\n");
+    commit("local");
+    const local = drift({ RS_REPO: repo, PORTED_FROM: list });
+    expect([local.status, local.stdout]).toEqual([0, ""]);
+    git("reset", "-q", "--hard", base);
+  });
+
   it("takes the listed paths literally: [resource] is not a character class", () => {
     write("src/app/api/r/route.ts", "decoy\n");
     mainAt(commit("decoy"));
