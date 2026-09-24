@@ -278,16 +278,19 @@ async def test_lock_stuck_needs_all_three_conditions(harness):
     try:
         assert await try_mirror_lock(other, now=datetime.now(UTC), holder="backfill")
         assert (await _sync_status(harness.service))["mirror"]["lock_stuck"] is None
-        expected = await _held_since(harness, other, 61)
+        expected = await _held_since(harness, other, 81)
         assert (await _sync_status(harness.service))["mirror"]["lock_stuck"] == expected
         await _held_since(harness, other, 5)
         assert (await _sync_status(harness.service))["mirror"]["lock_stuck"] is None
-        await _held_since(harness, other, 61)
+        # F7: a legitimate run can hold the lock about 71.5 minutes; 75 is not stuck yet.
+        await _held_since(harness, other, 75)
+        assert (await _sync_status(harness.service))["mirror"]["lock_stuck"] is None
+        await _held_since(harness, other, 81)
         async with harness.service.sync_lock:
             assert (await _sync_status(harness.service))["mirror"]["lock_stuck"] is None
     finally:
         await other.close()
     # The holder went without clearing its record: an old lock_holder_since with no lock held is not a stuck lock.
     left = (await fetch(harness.engine, "SELECT lock_holder_since FROM pick_mirror.control WHERE id = 1"))[0]["lock_holder_since"]
-    assert left < datetime.now(UTC) - timedelta(minutes=60)
+    assert left < datetime.now(UTC) - timedelta(minutes=80)
     assert (await _sync_status(harness.service))["mirror"]["lock_stuck"] is None

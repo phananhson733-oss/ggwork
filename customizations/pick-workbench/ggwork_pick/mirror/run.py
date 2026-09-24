@@ -7,8 +7,8 @@ One run, under the process's sync_lock and the mirror lock on a dedicated connec
    recorded by step and class and the run goes on, F6), the disk check, the size cap (U43);
 3. the manifest, waiting out source_busy (a busy past 20 minutes fails, counted, U42; a 409 is drift; any other manifest
    failure falls back to v1 without as_of, counted, U16). The 20 minutes are each attempt's: the drift retry's manifest
-   waits afresh (the brief's loop), so a run can outlast U14's 51-minute estimate only when a drift and a second busy
-   spell meet;
+   waits afresh (the brief's loop), so a run can reach about 71.5 minutes when a drift and a second busy spell meet;
+   lock.LOCK_STUCK_AFTER is 80 minutes for that reason (F7);
 4. a building version (none over the size cap), then the v1 half (run_v1) and the mirror half (run_v2);
 5. publish: the pair when both halves pass; the agent batches alone when only the mirror half failed (degraded, counted);
    nothing when the v1 half failed (counted). Drift repeats the attempt once after 90 s with a new as_of; the second drift

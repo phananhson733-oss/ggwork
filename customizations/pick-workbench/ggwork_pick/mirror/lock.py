@@ -34,10 +34,13 @@ MIRROR_LOCK_CLASSID = (MIRROR_LOCK_KEY >> 32) & 0xFFFFFFFF
 MIRROR_LOCK_OBJID = MIRROR_LOCK_KEY & 0xFFFFFFFF
 # Who may take the lock (U14); pick_mirror.control's CHECK in migration 0006 allows exactly these.
 LOCK_HOLDERS = ("sync", "backfill", "cleanup")
-# The brief's LOCK_STUCK_AFTER=3600 (P2-5c constants, U14), in seconds there: a timedelta here, so no caller can mix up
-# seconds and minutes. A legitimate run can reach about 51 minutes (20 of busy waiting, the run deadline, one drift retry,
-# the curve fold).
-LOCK_STUCK_AFTER = timedelta(seconds=3600)
+# LOCK_STUCK_AFTER, in seconds in the brief (P2-5c constants, U14): a timedelta here, so no caller can mix up seconds
+# and minutes. 4800 (80 minutes), raised from the brief's 3600 by the owner's decision F7: the busy wait's 20 minutes
+# count per attempt (run.MirrorLimits.busy_wait_total), so a legitimate run can reach about 71.5 minutes (two busy waits,
+# the run deadline twice, the drift delay), past the 60 that would call it stuck. The curve fold after it stops taking
+# new days 27 minutes after its as_of (series.FOLD_DEADLINE). /sync never calls this process's own run stuck anyway:
+# lock_stuck needs this process's sync_lock free (status.py).
+LOCK_STUCK_AFTER = timedelta(seconds=4800)
 CLOSE_TIMEOUT = 10
 
 # The granted mirror lock in this database; the key halves are integers computed above, never input.

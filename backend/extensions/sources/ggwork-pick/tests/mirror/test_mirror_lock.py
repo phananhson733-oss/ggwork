@@ -135,7 +135,8 @@ async def test_stuck_is_judged_by_the_holders_own_timestamp(dsn, observer, pg_db
     from ggwork_pick.mirror.connection import open_dedicated
     from ggwork_pick.mirror.lock import LOCK_STUCK_AFTER, lock_status, release_mirror_lock, try_mirror_lock
 
-    assert LOCK_STUCK_AFTER == timedelta(minutes=60)
+    # F7: 80 minutes, above the longest legitimate run (about 71.5: busy waits count per attempt).
+    assert LOCK_STUCK_AFTER == timedelta(minutes=80)
     holder = await open_dedicated(dsn)
     engine = host_engine(pg_db_url)
     try:
@@ -143,14 +144,14 @@ async def test_stuck_is_judged_by_the_holders_own_timestamp(dsn, observer, pg_db
         assert await try_mirror_lock(holder, now=T0, holder="backfill")
         pid = await holder.fetchval("select pg_backend_pid()")
         held = {"held": True, "holder_pid": pid, "holder": "backfill", "holder_since": T0}
-        assert await lock_status(observer, now=T0 + timedelta(minutes=60)) == {**held, "stuck": False}
-        assert await lock_status(observer, now=T0 + timedelta(minutes=61)) == {**held, "stuck": True}
+        assert await lock_status(observer, now=T0 + timedelta(minutes=80)) == {**held, "stuck": False}
+        assert await lock_status(observer, now=T0 + timedelta(minutes=81)) == {**held, "stuck": True}
         assert (await lock_status(observer, now=T0 + timedelta(minutes=11), stuck_after=timedelta(minutes=10)))["stuck"]
         # The /sync route asks through its ORM session.
         async with async_sessionmaker(engine)() as session:
-            assert await lock_status(session, now=T0 + timedelta(minutes=61)) == {**held, "stuck": True}
+            assert await lock_status(session, now=T0 + timedelta(minutes=81)) == {**held, "stuck": True}
         assert await release_mirror_lock(holder)
-        assert await lock_status(observer, now=T0 + timedelta(minutes=61)) == NOT_HELD
+        assert await lock_status(observer, now=T0 + timedelta(minutes=81)) == NOT_HELD
         # Supavisor hands the next client the same backend (supabase.md): a backend serving for hours that took the lock a
         # minute ago is not stuck. backend_start is not the time of the hold.
         started = await observer.fetchval("select backend_start from pg_stat_activity where pid = $1", pid)
@@ -433,7 +434,7 @@ async def test_a_two_key_lock_on_the_same_halves_is_not_the_mirror_lock(dsn, obs
         assert await try_mirror_lock(holder, now=T0, holder="sync")
         pid = await holder.fetchval("select pg_backend_pid()")
         held = {"held": True, "holder_pid": pid, "holder": "sync", "holder_since": T0, "stuck": True}
-        assert await lock_status(observer, now=T0 + timedelta(minutes=61)) == held
+        assert await lock_status(observer, now=T0 + timedelta(minutes=81)) == held
         # The other lock's owner "releasing the mirror lock" leaves the real holder and its timestamp alone.
         assert not await release_mirror_lock(observer)
         assert await observer.fetchval(SINCE) == T0
