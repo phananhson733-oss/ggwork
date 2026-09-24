@@ -24,6 +24,7 @@ export type MisconfiguredReason =
   | "database"
   | "permission"
   | "current_unreadable"
+  | "control_missing"
   | "control_shape"
   | "rules";
 
@@ -99,10 +100,11 @@ const MISCONFIGURED = new Map<string, MisconfiguredReason>([
   ["28P01", "auth"],
   ["3D000", "database"],
 ]);
-// Errors the pg driver raises with no code: pool checkout timeout, the
-// client-side query_timeout, and a connection that went away.
+// Errors the pg driver raises with no code: pool checkout timeout, pg-pool's
+// timeout on opening a new connection, the client-side query_timeout, and a
+// connection that went away.
 const DRIVER_BUSY =
-  /^(timeout exceeded when trying to connect|timeout expired|Query read timeout|Connection terminated( unexpectedly)?|Client has encountered a connection error and is not queryable)$/;
+  /^(timeout exceeded when trying to connect|timeout expired|Query read timeout|Connection terminated( unexpectedly| due to connection timeout)?|Client has encountered a connection error and is not queryable)$/;
 // A full pooler, whatever code it sends: Supavisor answers XX000 with these.
 const POOLER_FULL =
   /max client connections reached|unable to check out (process|connection) from the pool|too many (clients|connections)|remaining connection slots/i;

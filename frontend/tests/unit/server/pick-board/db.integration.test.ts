@@ -185,6 +185,28 @@ describe.runIf(READER_URL !== "")("the mirror, read as the reader", () => {
     ).rejects.toBeInstanceOf(MirrorVersionGone);
   });
 
+  it("a reader URL naming a database without the mirror: control_missing, not a prune", async () => {
+    // The cluster's maintenance database: PUBLIC may connect, no pick_mirror.
+    const elsewhere = createMirrorPool({
+      connection: { ...parseReaderUrl(READER_URL), database: "postgres" },
+      ssl: false,
+    });
+    try {
+      const scope = makeScope(
+        () => ({ scope: null }),
+        () => elsewhere,
+      );
+      const thrown = await resolveVersion(versions.v1, buildRules, {
+        controlDb: scope.controlDb,
+        versionDb: scope.versionDb,
+      }).catch((error: unknown) => error);
+      expect(thrown).toBeInstanceOf(MirrorMisconfigured);
+      expect(thrown).toMatchObject({ reason: "control_missing" });
+    } finally {
+      await elsewhere.end();
+    }
+  });
+
   it("reads in read-only transactions", async () => {
     const thrown = await scopeFor()
       .versionDb(schemaOf(versions.v2))

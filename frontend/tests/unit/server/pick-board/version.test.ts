@@ -275,6 +275,30 @@ describe("resolveVersion", () => {
     });
   });
 
+  it("pick_mirror itself missing is misconfigured, not a pruned version", async () => {
+    let controlReads = 0;
+    const deps: VersionReaders = {
+      controlDb: () => ({
+        execute: async () => {
+          controlReads += 1;
+          throw new MirrorVersionGone("42P01");
+        },
+      }),
+      versionDb: () => {
+        throw new Error("not reached");
+      },
+    };
+    const thrown = await resolveVersion(5, buildRules, deps).catch(
+      (error: unknown) => error,
+    );
+    expect(thrown).toBeInstanceOf(MirrorMisconfigured);
+    expect(thrown).toMatchObject({
+      reason: "control_missing",
+      sourceCode: "42P01",
+    });
+    expect(controlReads).toBe(1);
+  });
+
   it("gives up when the retry finds its version gone too", async () => {
     const { deps } = readers(
       [control(currentRow()), control(currentRow())],

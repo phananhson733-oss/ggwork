@@ -323,7 +323,8 @@ export function makeScope<R = unknown>(
   return Object.freeze({
     setBoardScope,
     boardScope,
-    withScriptScope: <T>(scope: VersionScope<R>, fn: () => Promise<T>) =>
+    // async: a bad schema name rejects, as the Promise type says, not throws.
+    withScriptScope: async <T>(scope: VersionScope<R>, fn: () => Promise<T>) =>
       script.run(checkedScope(scope), fn),
     getDb: () =>
       executorFor(pool, () => `${boardScope().schema}, ${CONTROL_SCHEMA}`),

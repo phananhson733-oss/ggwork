@@ -23,7 +23,9 @@ import {
  * picked the way the agent pins it (published_at DESC, id DESC), the version
  * the URL names, and series_state. Step 2 reads the chosen version's
  * meta.rules and meta.sources. A version pruned between the two steps is
- * answered by running once more without v and flagging it pruned.
+ * answered by running once more without v and flagging it pruned. Step 1
+ * finding a table gone is not a prune: pick_mirror is never dropped, so the
+ * reader names the wrong database or the migration is missing.
  *
  * `buildRules` turns meta.rules into the board's rules; it is injected so this
  * module does not depend on the pure rules module (P3-2). It throwing means
@@ -169,7 +171,10 @@ function isVersionId(v: number | null): v is number {
 }
 
 async function readControl(db: Executor, lookup: number): Promise<Control> {
-  const { rows } = await db.execute(controlQuery(lookup));
+  const { rows } = await db.execute(controlQuery(lookup)).catch((error) => {
+    if (!(error instanceof MirrorVersionGone)) throw error;
+    throw new MirrorMisconfigured("control_missing", error.sourceCode);
+  });
   const parsed = controlSchema.safeParse(rows[0]);
   if (!parsed.success) throw new MirrorMisconfigured("control_shape");
   return parsed.data;
@@ -325,6 +330,7 @@ export async function resolveVersion<R>(
   try {
     return await resolveOnce(v, buildRules, readers);
   } catch (error) {
+    // Only step 2 throws Gone: readControl turns step 1's into Misconfigured.
     if (!(error instanceof MirrorVersionGone)) throw error;
     // Pruned between the two steps: the current version, once more.
     const retried = await resolveOnce(null, buildRules, readers);

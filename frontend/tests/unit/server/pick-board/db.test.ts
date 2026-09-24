@@ -1,5 +1,8 @@
+import { createServer, type Server, type Socket } from "node:net";
+
 import { afterEach, beforeEach, describe, expect, it, rs } from "@rstest/core";
 import { sql } from "drizzle-orm";
+import { Pool } from "pg";
 
 import {
   createMirrorPool,
@@ -18,6 +21,7 @@ import {
   MirrorMisconfigured,
   MirrorUnavailable,
   MirrorVersionGone,
+  type MisconfiguredReason,
 } from "@/server/pick-board/errors";
 
 const V1: VersionScope = {
@@ -208,6 +212,23 @@ describe("the version scope", () => {
     }
   });
 
+  it("withScriptScope checks the schema name before fn runs, and freezes the scope", async () => {
+    const scope = scopeWith(recorder().pool);
+    const fn = rs.fn(async () => scope.boardScope());
+    for (const schema of ["pickm_v000123, public", "public", "pickm_v12"]) {
+      await expect(
+        scope.withScriptScope({ ...V1, schema }, fn),
+      ).rejects.toThrow("not a mirror version schema");
+    }
+    expect(fn).not.toHaveBeenCalled();
+    const stored = await scope.withScriptScope(V1, async () =>
+      scope.boardScope(),
+    );
+    expect(stored).toEqual(V1);
+    expect(stored).not.toBe(V1);
+    expect(Object.isFrozen(stored)).toBe(true);
+  });
+
   it("withScriptScope is visible only inside fn", async () => {
     const { log, pool } = recorder();
     const scope = scopeWith(pool);
@@ -247,17 +268,84 @@ describe("typed errors", () => {
   it("maps pool exhaustion and broken connections to MirrorBusy", async () => {
     const busy = [
       new Error("timeout exceeded when trying to connect"),
+      new Error("Connection terminated due to connection timeout"),
+      new Error("timeout expired"),
       new Error("Query read timeout"),
+      new Error("Connection terminated"),
       new Error("Connection terminated unexpectedly"),
+      new Error(
+        "Client has encountered a connection error and is not queryable",
+      ),
       pgError("ECONNRESET"),
       pgError("ETIMEDOUT"),
+      pgError("EPIPE"),
       pgError("08006"),
       pgError("08P01"),
-      pgError("53300", "sorry, too many clients already"),
+      pgError("57P01"),
+      pgError("57P03"),
+      // The code alone: the message matches no pooler-full text.
+      pgError("53300", "x"),
+      pgError("XX000", "sorry, too many clients already"),
       pgError("XX000", "Max client connections reached"),
+      pgError("XX000", "Unable to check out connection from the pool"),
     ];
     for (const error of busy) {
-      expect(await failWith(error)).toBeInstanceOf(MirrorBusy);
+      const thrown = await failWith(error);
+      expect({ message: error.message, thrown }).toEqual({
+        message: error.message,
+        thrown: expect.any(MirrorBusy),
+      });
+    }
+  });
+
+  it("maps auth, database, permission and TLS failures with their reason", async () => {
+    const cases: [Error, MisconfiguredReason][] = [
+      [pgError("42501"), "permission"],
+      [pgError("28P01"), "auth"],
+      [pgError("28000"), "auth"],
+      [pgError("3D000"), "database"],
+      [pgError("SELF_SIGNED_CERT_IN_CHAIN"), "tls"],
+      [pgError("UNABLE_TO_VERIFY_LEAF_SIGNATURE"), "tls"],
+      [pgError("ERR_TLS_CERT_ALTNAME_INVALID"), "tls"],
+      [new Error("The server does not support SSL connections"), "tls"],
+    ];
+    for (const [error, reason] of cases) {
+      const thrown = await failWith(error);
+      expect(thrown).toBeInstanceOf(MirrorMisconfigured);
+      expect({ message: error.message, reason }).toEqual({
+        message: error.message,
+        reason: (thrown as MirrorMisconfigured).reason,
+      });
+    }
+  });
+
+  it("maps pg-pool's own timeout on opening a connection to MirrorBusy", async () => {
+    // A server that accepts and never answers: the driver's connect times out.
+    const sockets: Socket[] = [];
+    const silent: Server = createServer((socket) => {
+      sockets.push(socket);
+    });
+    await new Promise<void>((done) => silent.listen(0, "127.0.0.1", done));
+    const address = silent.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const pool = new Pool({
+      host: "127.0.0.1",
+      port,
+      user: "u",
+      password: "p",
+      database: "d",
+      connectionTimeoutMillis: 150,
+    });
+    try {
+      await expect(
+        scopeWith(pool as unknown as MirrorPool)
+          .controlDb()
+          .execute(sql`SELECT 1`),
+      ).rejects.toBeInstanceOf(MirrorBusy);
+    } finally {
+      await pool.end();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((done) => silent.close(() => done()));
     }
   });
 
@@ -278,6 +366,39 @@ describe("typed errors", () => {
       .execute(sql`SELECT 1`);
     expect(result.rows).toEqual([{ n: 1 }]);
     expect(attempts).toBe(2);
+  });
+
+  it("retries a deadlock once only, releasing every client", async () => {
+    const deadlock = pgError("40P01");
+    let attempts = 0;
+    const { log, pool } = recorder((text) => {
+      if (text !== "SELECT 1") return null;
+      attempts += 1;
+      return deadlock;
+    });
+    await expect(
+      scopeWith(pool, { scope: V1 })
+        .getDb()
+        .execute(sql`SELECT 1`),
+    ).rejects.toBe(deadlock);
+    expect(attempts).toBe(2);
+    expect(log.statements.filter((s) => s === "ROLLBACK")).toHaveLength(2);
+    expect(log.releases).toEqual([undefined, undefined]);
+  });
+
+  it("does not retry any other error", async () => {
+    let attempts = 0;
+    const { pool } = recorder((text) => {
+      if (text !== "SELECT 1") return null;
+      attempts += 1;
+      return pgError(attempts === 1 ? "22P02" : "40P01");
+    });
+    await expect(
+      scopeWith(pool, { scope: V1 })
+        .getDb()
+        .execute(sql`SELECT 1`),
+    ).rejects.toMatchObject({ code: "22P02" });
+    expect(attempts).toBe(1);
   });
 
   it("logs only the code and the schema", async () => {
@@ -334,6 +455,7 @@ describe("the reader connection", () => {
       "postgresql://u:p@h:5432/",
       "postgresql://u@h:5432/db",
       "postgresql://:p@h:5432/db",
+      `${URL_OK}#fragment`,
     ];
     for (const url of bad) {
       expect(() => parseReaderUrl(url)).toThrow(MirrorMisconfigured);
