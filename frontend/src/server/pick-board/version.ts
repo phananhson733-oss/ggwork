@@ -9,7 +9,12 @@ import {
   type Executor,
   type VersionScope,
 } from "./db";
-import { MirrorError, MirrorMisconfigured, MirrorVersionGone } from "./errors";
+import {
+  errorCode,
+  MirrorError,
+  MirrorMisconfigured,
+  MirrorVersionGone,
+} from "./errors";
 
 /**
  * Which mirror version a request reads (plan 7.5 step 4).
@@ -211,9 +216,27 @@ function buildOrMisconfigured<R>(
   try {
     return buildRules(raw, versionId);
   } catch (error) {
-    if (error instanceof MirrorError) throw error;
+    // A RangeError is the caller's bug (a bad versionId), not bad data.
+    if (error instanceof MirrorError || error instanceof RangeError) {
+      throw error;
+    }
+    console.error("[pick-board] version rules rejected", {
+      versionId,
+      code:
+        errorCode(error) ?? (error instanceof Error ? error.name : "unknown"),
+      paths: fieldPaths(error),
+    });
     throw new MirrorMisconfigured("rules");
   }
+}
+
+/** The field paths a rules error names (P3-2's BoardRulesInvalid), at most ten. */
+function fieldPaths(error: unknown): string[] {
+  const paths = (error as { paths?: unknown } | null)?.paths;
+  if (!Array.isArray(paths)) return [];
+  return paths
+    .filter((path): path is string => typeof path === "string")
+    .slice(0, 10);
 }
 
 function record(value: unknown): Readonly<Record<string, unknown>> | null {

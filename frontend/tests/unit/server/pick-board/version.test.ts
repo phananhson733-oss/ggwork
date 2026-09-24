@@ -285,16 +285,38 @@ describe("resolveVersion", () => {
     );
   });
 
-  it("rules the builder rejects → MirrorMisconfigured", async () => {
+  it("rules the builder rejects → MirrorMisconfigured, logged by code and field paths", async () => {
     const { deps } = readers([control(currentRow())]);
     const reject = () => {
-      throw new Error("rules do not match");
+      // The shape of P3-2's BoardRulesInvalid: a code and field paths only.
+      throw Object.assign(new Error("rules do not match"), {
+        name: "BoardRulesInvalid",
+        code: "board_rules_invalid",
+        paths: ["platformRules.<key>.yt"],
+      });
     };
     const thrown = await resolveVersion(null, reject, deps).catch(
       (error: unknown) => error,
     );
     expect(thrown).toBeInstanceOf(MirrorMisconfigured);
     expect((thrown as MirrorMisconfigured).reason).toBe("rules");
+    expect(errorLog).toHaveBeenCalledWith(
+      "[pick-board] version rules rejected",
+      {
+        versionId: 7,
+        code: "board_rules_invalid",
+        paths: ["platformRules.<key>.yt"],
+      },
+    );
+  });
+
+  it("a builder's RangeError is a caller bug, not bad data: passed through", async () => {
+    const { deps } = readers([control(currentRow())]);
+    const bug = new RangeError("versionId out of range");
+    const reject = () => {
+      throw bug;
+    };
+    await expect(resolveVersion(null, reject, deps)).rejects.toBe(bug);
   });
 
   it("a control row of another shape → MirrorMisconfigured", async () => {
