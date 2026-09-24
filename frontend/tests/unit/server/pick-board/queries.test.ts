@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it, rs } from "@rstest/core";
 
 import { parsePickRequest } from "@/core/pick-board/request";
 import { buildBoardRules, type BoardRules } from "@/core/pick-board/rules";
-import { resetVersionCacheForTests } from "@/server/pick-board/cache";
+import {
+  resetVersionCacheForTests,
+  resolveBoard,
+} from "@/server/pick-board/cache";
 import type * as DbModule from "@/server/pick-board/db";
 import { type ScopeHolder, type VersionScope } from "@/server/pick-board/db";
 import {
@@ -122,6 +125,34 @@ function observeRaw(over: Record<string, unknown> = {}) {
   };
 }
 
+/** resolveVersion's step 1 result: version `id` is the current, readable one. */
+function controlRow(id: number) {
+  return {
+    current: {
+      id,
+      schema_name: `pickm_v${String(id).padStart(6, "0")}`,
+      as_of: AS_OF,
+      published_at: AS_OF,
+      latest_snapshot: "2026-09-23",
+      freshness: {},
+      warnings: [],
+      agent_catalog_batch_id: null,
+      agent_knowledge_batch_id: null,
+      readable: true,
+    },
+    requested: null,
+    series_state: null,
+  };
+}
+
+/** Its step 2 result: the version's meta.rules and meta.sources. */
+function metaRows() {
+  return [
+    { key: "rules", value: structuredClone(rulesFixture) },
+    { key: "sources", value: {} },
+  ];
+}
+
 const EMPTY_RS = {
   tab: "all",
   sort: "rr",
@@ -188,6 +219,24 @@ describe("rs-queries: ReelShort rows from rs_rows", () => {
       "bill_rank ASC NULLS LAST, drama_id ASC",
       "clicks7 DESC NULLS LAST, drama_id ASC",
       "rr DESC NULLS LAST, drama_id ASC",
+    ]);
+  });
+
+  it("growth boards keep the rows comparable for their sort: d1 on rr1, dp1 on p1, dp7 on p7, d7 on rr7", async () => {
+    pin(scopeOf(rulesWith("ok")));
+    for (const sort of ["d1", "dp1", "dp7", "d7"] as const)
+      await loadRows(
+        { ...EMPTY_RS, sort },
+        { limit: 50, comparableOnly: true },
+      );
+    const wheres = fake.statements.map(
+      (s) => /WHERE ([\s\S]*?) ORDER BY/.exec(s.text)?.[1]?.trim() ?? "",
+    );
+    expect(wheres).toEqual([
+      "rr1 IS NOT NULL",
+      "p1 IS NOT NULL",
+      "p7 IS NOT NULL",
+      "rr7 IS NOT NULL",
     ]);
   });
 
@@ -301,6 +350,29 @@ describe("A3: what never changes within a version is read once", () => {
     pin({ ...scopeOf(rulesWith("ok")), schema: "pickm_v000008", versionId: 8 });
     await loadCandidatePool();
     expect(fake.statements).toHaveLength(3);
+  });
+
+  it("resolveBoard: step 1 (which version) every time, step 2 (meta.rules / meta.sources) once per version", async () => {
+    let current = 7;
+    fake.respond = (s) => {
+      if (s.text.includes("pick_mirror.versions")) return [controlRow(current)];
+      if (s.text.includes("FROM meta")) return metaRows();
+      return [];
+    };
+    const first = await resolveBoard(null);
+    const again = await resolveBoard(null);
+    expect([first.state, again.state]).toEqual(["ready", "ready"]);
+    if (first.state !== "ready" || again.state !== "ready")
+      throw new Error("expected a published version");
+    expect(again.scope).toEqual(first.scope);
+    expect(first.scope.versionId).toBe(7);
+    expect(sent(/pick_mirror\.versions/)).toHaveLength(2);
+    expect(sent(/FROM meta/)).toHaveLength(1);
+    current = 8;
+    const next = await resolveBoard(null);
+    expect(next.state === "ready" && next.scope.schema).toBe("pickm_v000008");
+    expect(sent(/pick_mirror\.versions/)).toHaveLength(3);
+    expect(sent(/FROM meta/)).toHaveLength(2);
   });
 });
 

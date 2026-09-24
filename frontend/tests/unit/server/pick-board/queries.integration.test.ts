@@ -15,6 +15,7 @@ import { type Pool } from "pg";
 
 import { parsePickRequest } from "@/core/pick-board/request";
 import { buildBoardRules, type BoardRules } from "@/core/pick-board/rules";
+import { resolveBoard } from "@/server/pick-board/cache";
 import type * as DbModule from "@/server/pick-board/db";
 import {
   createMirrorPool,
@@ -130,6 +131,8 @@ describe.runIf(READER_URL !== "")("the ported queries on a real mirror", () => {
     it("pick default: has_signal and not delisted, in RealShort's order", async () => {
       const page = await inV2(() => loadPickRows(ask()));
       expect(page.rows.map((r) => r.rowKey)).toEqual([
+        "c-6",
+        "c-5",
         "c-2",
         "c-1",
         "reelshort-rs0001",
@@ -147,7 +150,7 @@ describe.runIf(READER_URL !== "")("the ported queries on a real mirror", () => {
         [...expected].sort(),
       );
       expect({ total: page.total, hasMore: page.hasMore }).toEqual({
-        total: 6,
+        total: 8,
         hasMore: false,
       });
     });
@@ -169,27 +172,58 @@ describe.runIf(READER_URL !== "")("the ported queries on a real mirror", () => {
 
     it("facet counts, each without its own dimension", async () => {
       expect(await inV2(() => loadFacets(ask()))).toEqual({
-        platforms: { shortmax: 1, dramabox: 1, reelshort: 4 },
-        langs: [{ lang: "英语", n: 6 }],
-        bases: { kd: 1, kw: 1, sm: 1, clk: 3, bill: 2, gsc: 1 },
-        posted: { pool: 2, yes: 1, no: 5 },
+        platforms: { shortmax: 1, dramabox: 1, starshort: 2, reelshort: 4 },
+        langs: [{ lang: "英语", n: 8 }],
+        bases: { kd: 1, kw: 1, sm: 1, sh: 2, clk: 3, bill: 2, gsc: 1 },
+        posted: { pool: 2, yes: 1, no: 7 },
       });
     });
 
+    const pickKeys = async (
+      params: PickParams,
+      inVersion: typeof inV1 = inV2,
+    ) =>
+      (await inVersion(() => loadPickRows(ask(params)))).rows.map(
+        (r) => r.rowKey,
+      );
+    const theaterKeys = (keys: readonly string[]) =>
+      keys.filter((k) => !k.startsWith("reelshort-"));
+
     it("B15: yt=1 and inuse=1 follow the version's rules (shortmax ok in v1, no in v2)", async () => {
-      const filtered = ask({ yt: "1", inuse: "1" });
-      const keys = async (inVersion: typeof inV1) =>
-        (await inVersion(() => loadPickRows(filtered))).rows.map(
-          (r) => r.rowKey,
-        );
-      const [old, now] = [await keys(inV1), await keys(inV2)];
+      const filtered = { yt: "1", inuse: "1" };
+      const [old, now] = [
+        await pickKeys(filtered, inV1),
+        await pickKeys(filtered, inV2),
+      ];
       expect(old.filter((k) => !now.includes(k))).toEqual(["c-1"]);
       expect(now.filter((k) => !old.includes(k))).toEqual([]);
-      expect(now).toContain("c-2");
+      expect(theaterKeys(now)).toEqual(["c-2"]);
+    });
+
+    it("yt=1 keeps a list-only theater's rows on its YouTube list only (starshort: c-5 on it, c-6 not)", async () => {
+      expect(theaterKeys(await pickKeys({ yt: "1" }, inV1))).toEqual([
+        "c-5",
+        "c-2",
+        "c-1",
+      ]);
+      expect(theaterKeys(await pickKeys({ yt: "1" }))).toEqual(["c-5", "c-2"]);
+    });
+
+    it("inuse=1 leaves out the theaters the version's rules do not use (starshort)", async () => {
+      expect(theaterKeys(await pickKeys({}))).toEqual([
+        "c-6",
+        "c-5",
+        "c-2",
+        "c-1",
+      ]);
+      expect(theaterKeys(await pickKeys({ inuse: "1" }))).toEqual([
+        "c-2",
+        "c-1",
+      ]);
     });
 
     it("the agent's candidate pool N equals the pick default total", async () => {
-      expect(await inV2(() => loadCandidatePool())).toBe(6);
+      expect(await inV2(() => loadCandidatePool())).toBe(8);
     });
 
     it("freshness: the version's own, as Dates", async () => {
@@ -198,9 +232,18 @@ describe.runIf(READER_URL !== "")("the ported queries on a real mirror", () => {
       expect(fresh.importedAt?.toISOString()).toBe("2026-09-22T03:10:06.500Z");
       expect(fresh.rsSyncedAt?.toISOString()).toBe("2026-09-23T09:00:00.000Z");
       expect([fresh.rows, fresh.withSignal, fresh.rsCandidates]).toEqual([
-        4, 3, 4,
+        6, 5, 4,
       ]);
     });
+  });
+
+  it("resolveBoard, the pages' entry, resolves what resolveVersion does", async () => {
+    const board = ready(await resolveBoard(null));
+    expect(board.scope).toEqual(v2.scope);
+    expect(board.sources).toEqual(v2.sources);
+    expect(ready(await resolveBoard(v1.scope.versionId)).scope).toEqual(
+      v1.scope,
+    );
   });
 
   describe("榜单", () => {
@@ -265,7 +308,8 @@ describe.runIf(READER_URL !== "")("the ported queries on a real mirror", () => {
       expect(await ids("rs_clk")).toEqual(["rs0001", "rs0005", "rs0002"]);
       expect(await ids("rs_gsc")).toEqual(["rs0001"]);
       expect(await ids("rs_bill")).toEqual(["rs0004", "rs0001"]);
-      expect(await ids("rs_growth")).toEqual(["rs0001", "rs0002", "rs0003"]);
+      // d7 by default: rr − s7_rr is 999.20, 998.30 and −1.75.
+      expect(await ids("rs_growth")).toEqual(["rs0003", "rs0002", "rs0001"]);
     });
 
     it("C35: a d1 tie stays tied under numeric and falls back to drama_id", async () => {
@@ -280,6 +324,22 @@ describe.runIf(READER_URL !== "")("the ported queries on a real mirror", () => {
         ),
       );
       expect(float).toEqual(["rs0003", "rs0002"]);
+    });
+
+    it("growth: d1 keeps the rows with a verified yesterday value (rr1) and counts growthD1", async () => {
+      const req = ask({ tab: "rank", rk: "rs_growth", rs: "d1" });
+      const result = await inV2(() => loadRsRank(req, "rs_growth"));
+      if (result.kind !== "rows") throw new Error("expected rows");
+      const withRr1 = await inV2(() =>
+        column<string>(
+          sql`SELECT drama_id AS v FROM rs_rows WHERE rr1 IS NOT NULL ORDER BY drama_id`,
+        ),
+      );
+      expect(result.rows.map((r) => r.id)).toEqual(withRr1);
+      expect(withRr1).toEqual(["rs0001"]);
+      const meta = await inV2(() => loadRankMeta(req));
+      expect(meta.counts.rs_growth).toBe((await inV2(loadRsCounts)).growthD1);
+      expect(meta.counts.rs_growth).toBe(1);
     });
 
     it("growth: dp1 compares with yesterday (p1), counts growthDp1, diagnoses a one-day window", async () => {
@@ -323,17 +383,27 @@ describe.runIf(READER_URL !== "")("the ported queries on a real mirror", () => {
       );
       if (result.kind !== "ledger") throw new Error("expected the ledger");
       expect(
-        result.rows.map((r) => [r.bookId, r.canonicalId, r.title, r.orderCnt]),
+        result.rows.map((r) => [
+          r.bookId,
+          r.canonicalId,
+          r.title,
+          r.orderCnt,
+          r.sameDayClicks,
+        ]),
       ).toEqual([
-        ["book-x", null, "book_title-2-文本", 1],
-        ["rs0001", "rs0001", "rs0001 的剧名", 5],
+        ["rs0004", "rs0004", "rs0004 的剧名", 7, 0],
+        ["book-x", null, "book_title-2-文本", 1, 0],
+        ["rs0001", "rs0001", "rs0001 的剧名", 5, 1],
+        // booked under the sibling: its own title, the canonical id it belongs to
+        ["rs0006", "rs0001", "rs0006 的剧名", 2, 0],
       ]);
+      // Only rs0001's 2026-09-20 row (2 source rows) had a click on its day.
       expect(result.totals).toEqual({
-        rows: 3,
-        mergedRows: 2,
-        orders: 6,
-        mergedWithClicks: 2,
-        rowsWithClicks: 3,
+        rows: 5,
+        mergedRows: 4,
+        orders: 15,
+        mergedWithClicks: 1,
+        rowsWithClicks: 2,
       });
       const control = (await inV2(() => metaValue("control"))) as {
         ledger: { rows: number; orders: number };
@@ -410,17 +480,30 @@ describe.runIf(READER_URL !== "")("the ported queries on a real mirror", () => {
     it("a ReelShort row through a sibling's book id: the canonical row and all of its evidence", async () => {
       const detail = await inV2(() => loadReelshortDetail("rs0006"));
       expect(detail?.row.id).toBe("rs0001");
-      expect(detail?.sameTitle.map((s) => s.rowKey)).toEqual(["c-2"]);
+      // matched to either id: c-2 to rs0001, c-3 to the sibling itself
+      expect(detail?.sameTitle.map((s) => s.rowKey)).toEqual(["c-2", "c-3"]);
       expect(detail?.postedRecords.map((p) => p.sd)).toEqual(["SD-2"]);
       expect(
         detail?.bill.map((b) => [b.bookId, b.canonicalId, b.sourceRows]),
-      ).toEqual([["rs0001", "rs0001", 2]]);
+      ).toEqual([
+        ["rs0001", "rs0001", 2],
+        ["rs0006", "rs0001", 1],
+      ]);
       expect(detail?.clicks).toEqual([{ day: "2026-09-20", human: 1, bot: 1 }]);
       expect(detail?.series.map((p) => p.day)).toEqual([
         "2026-09-21",
         "2026-09-22",
         "2026-09-23",
       ]);
+    });
+
+    it("the canonical id's page: the orders booked under its sibling too, the matches of its own id only", async () => {
+      const detail = await inV2(() => loadReelshortDetail("rs0001"));
+      expect(detail?.bill.map((b) => [b.bookId, b.canonicalId])).toEqual([
+        ["rs0001", "rs0001"],
+        ["rs0006", "rs0001"],
+      ]);
+      expect(detail?.sameTitle.map((s) => s.rowKey)).toEqual(["c-2"]);
     });
 
     it("B21: a book id with no canonical row, or none at all, finds nothing", async () => {
@@ -436,6 +519,18 @@ describe.runIf(READER_URL !== "")("the ported queries on a real mirror", () => {
         ["2026-09-22", 980.5],
       ]);
       expect(v2.series?.trimmedBefore).toBe("2026-06-25");
+    });
+
+    it("the curve stops at latest_snapshot when the version was cut before that day's snapshot (v1)", async () => {
+      expect([v1.latestSnapshot, v1.scope.asOf.slice(0, 10)]).toEqual([
+        "2026-09-22",
+        "2026-09-23",
+      ]);
+      const detail = await inV1(() => loadDramaDetail("rs0001"));
+      expect(detail?.series.map((p) => p.day)).toEqual([
+        "2026-09-21",
+        "2026-09-22",
+      ]);
     });
   });
 
