@@ -44,24 +44,31 @@ function versionPart(mirror: PickMirrorStatus): string {
   return `镜像 v${current.id} 采集于 ${utc(current.as_of) ?? "时间未知"} · 曲线截至 ${curve ?? "日期未知"}`;
 }
 
+function failureParts(mirror: PickMirrorStatus): string[] {
+  if (mirror.consecutive_failures === 0) return [];
+  const last = [mirror.last_failure, utc(mirror.last_failure_at)]
+    .filter((part): part is string => Boolean(part))
+    .join("，");
+  return [
+    `镜像连续失败 ${mirror.consecutive_failures} 次${last ? `（最近：${last}）` : ""}`,
+  ];
+}
+
+function lockParts(lock: PickMirrorStatus["lock_stuck"]): string[] {
+  if (!lock) return [];
+  return [
+    `镜像同步锁被 ${lock.holder ?? "未知进程"} 占着，自 ${utc(lock.since) ?? "时间未知"} 起超过 60 分钟没释放（进程 ${lock.pid ?? "未知"}）`,
+  ];
+}
+
 /** The mirror's line in the sync panel (P2-8b's /sync mirror key; ★U20). */
 function mirrorParts(mirror: PickMirrorStatus): string[] {
-  const parts = [versionPart(mirror)];
-  if (!mirror.enabled) parts.push("镜像同步已关闭");
-  if (mirror.consecutive_failures > 0) {
-    const last = [mirror.last_failure, utc(mirror.last_failure_at)]
-      .filter((part): part is string => Boolean(part))
-      .join("，");
-    parts.push(
-      `镜像连续失败 ${mirror.consecutive_failures} 次${last ? `（最近：${last}）` : ""}`,
-    );
-  }
-  const lock = mirror.lock_stuck;
-  if (lock)
-    parts.push(
-      `镜像同步锁被 ${lock.holder ?? "未知进程"} 占着，自 ${utc(lock.since) ?? "时间未知"} 起超过 60 分钟没释放（进程 ${lock.pid ?? "未知"}）`,
-    );
-  return parts;
+  return [
+    versionPart(mirror),
+    ...(mirror.enabled ? [] : ["镜像同步已关闭"]),
+    ...failureParts(mirror),
+    ...lockParts(mirror.lock_stuck),
+  ];
 }
 
 function MirrorLine({

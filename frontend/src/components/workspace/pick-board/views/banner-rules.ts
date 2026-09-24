@@ -51,38 +51,39 @@ export type BannerInput = Readonly<{
 
 const TO_IMPORTS: BannerLink = { href: IMPORTS_HREF, text: "看「同步与导入」" };
 
+/** 条件成立时是这一条，否则没有：横幅表用展开拼出来，不往数组里 push */
+function when(on: boolean, banner: Banner): Banner[] {
+  return on ? [banner] : [];
+}
+
 /** 1–3：链接里的 v 怎么落到了哪个版本（全靠 reader） */
 function versionBanners({ board, req }: BannerInput): Banner[] {
   const shown = board.scope.versionId;
   const latest = board.current.id;
   const asked = `v${String(board.requestedV)}`;
-  const list: Banner[] = [];
-  if (board.pinned)
-    list.push({
+  return [
+    ...when(board.pinned, {
       key: "pinned",
       role: "status",
       text: `正在看智能体当时用的版本 v${shown}（采集于 ${formatObservedAt(board.scope.asOf)}），当前最新 v${latest}`,
       link: { href: pickHref(req, { v: null }), text: "切换到最新" },
-    });
-  if (board.pruned)
-    list.push({
+    }),
+    ...when(board.pruned, {
       key: "pruned",
       role: "status",
       text: `链接里的版本 ${asked} 已清理，已显示当前版本 v${latest}`,
-    });
-  if (board.unreadable)
-    list.push({
+    }),
+    ...when(board.unreadable, {
       key: "unreadable",
       role: "alert",
       text: `链接里的版本 ${asked} 本页读不到（授权缺失），已显示当前版本 v${latest}；请联系管理员`,
-    });
-  if (board.ignoredV)
-    list.push({
+    }),
+    ...when(board.ignoredV, {
       key: "ignored",
       role: "status",
       text: `链接里的版本 ${asked} 不存在或未发布，已显示当前版本 v${latest}`,
-    });
-  return list;
+    }),
+  ];
 }
 
 function syncMoment(value: string | null | undefined): string | null {
@@ -120,34 +121,33 @@ function gatewayBanners({ board, sync }: BannerInput): Banner[] {
     return [
       { key: "sync-unavailable", role: "status", text: "暂时拿不到同步状态" },
     ];
-  const list: Banner[] = [];
-  if (sync.data.current?.shared === false)
-    list.push({
-      key: "personal",
-      role: "status",
-      text: "智能体当前用的是你手动导入的剧库，不在本页",
-      link: TO_IMPORTS,
-    });
+  const personal = when(sync.data.current?.shared === false, {
+    key: "personal",
+    role: "status",
+    text: "智能体当前用的是你手动导入的剧库，不在本页",
+    link: TO_IMPORTS,
+  });
   const mirror = sync.data.mirror;
   if (isMirrorReadError(mirror))
     return [
-      ...list,
+      ...personal,
       {
         key: "mirror-unreadable",
         role: "status",
         text: "暂时拿不到镜像同步状态",
       },
     ];
-  if (!mirror) return list;
-  if (mirror.behind) list.push(behindBanner(mirror, board));
-  if (mirror.alert) list.push(alertBanner(mirror));
-  if (!mirror.enabled)
-    list.push({
+  if (!mirror) return personal;
+  return [
+    ...personal,
+    ...when(mirror.behind, behindBanner(mirror, board)),
+    ...when(mirror.alert, alertBanner(mirror)),
+    ...when(!mirror.enabled, {
       key: "disabled",
       role: "status",
       text: `镜像同步已关闭：本页停在 v${board.current.id}（采集于 ${formatObservedAt(board.current.asOf)}），不再随 RealShort 更新`,
-    });
-  return list;
+    }),
+  ];
 }
 
 /** 当前版本采集超过 14 小时（只靠 reader 判断，B19）；已有「已关闭」或连续失败的横幅时不重复说 */
