@@ -7,8 +7,9 @@ a missing column or a value of another type refuses the whole page. Text is kept
 StrictInput (it strips whitespace).
 
 Before any model sees a page, the whole decoded page is checked for NUL and lone surrogates (unstorable_path) and for key
-names at any depth that look like forbidden fields (FORBIDDEN_NAME, :28). Errors name the resource, the row index and the
-key path, never a value. All of this is synchronous and CPU-bound; callers run it in asyncio.to_thread.
+names at any depth that look like forbidden fields (FORBIDDEN_NAME, :28). Errors are PageContractError, a ContractError of
+the feed client (errors.py), and name the resource, the row index and the key path, never a value. All of this is
+synchronous and CPU-bound; callers run it in asyncio.to_thread.
 """
 
 import keyword
@@ -23,6 +24,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictBool, S
 from pydantic_core import PydanticCustomError
 
 from ggwork_pick.contracts import unstorable_path
+from ggwork_pick.mirror.errors import ContractError
 
 EXPORT_VERSION = "pick-export-v2"
 MANIFEST = "manifest"
@@ -359,15 +361,14 @@ class Manifest(StrictContract):
 # ---------------------------------------------------------------- parsing
 
 
-class PageContractError(Exception):
-    """A page is not what feed v2 promises. Carries the resource, the row index (None above the rows) and the key path."""
+class PageContractError(ContractError):
+    """A page is not what feed v2 promises: a ContractError that also carries the row index (None above the rows) and key path."""
 
     def __init__(self, resource: str, row: int | None, path: str, reason: str):
-        self.resource = resource
+        where = f"第 {row} 行的 " if row is not None else ""
+        super().__init__(f"RealShort feed v2 {resource} {where}{path or '整条记录'} 不符合约定：{reason}", resource=resource)
         self.row = row
         self.path = path
-        where = f"第 {row} 行的 " if row is not None else ""
-        super().__init__(f"RealShort feed v2 {resource} {where}{path or '整条记录'} 不符合约定：{reason}")
 
 
 def _path(parts) -> str:

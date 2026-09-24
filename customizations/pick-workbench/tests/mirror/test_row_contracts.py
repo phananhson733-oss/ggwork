@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from ggwork_pick.mirror import contracts
+from ggwork_pick.mirror import contracts, errors
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 CONTRACT = json.loads((FIXTURES / "export_v2_contract.json").read_text(encoding="utf-8"))
@@ -105,6 +105,13 @@ def test_missing_column_rejects_page():
     del body["pay_start"]
     error = rejected("rs_ids", page("rs_ids", [body]))
     assert error.row == 0 and error.path == "pay_start"
+
+
+def test_page_contract_error_is_a_feed_contract_error():
+    # The sync sorts failures by the client's FeedError classes (errors.py): a row that breaks the contract is a ContractError.
+    error = rejected("rs_ids", page("rs_ids", [row("rs_ids", surprise=SECRET)]), SECRET)
+    assert isinstance(error, errors.ContractError) and isinstance(error, errors.FeedError)
+    assert (error.resource, error.row, error.path, error.status) == ("rs_ids", 0, "surprise", None)
 
 
 @pytest.mark.parametrize(
