@@ -1,18 +1,21 @@
 """`python -m ggwork_pick.mirror.client --dry-run`: one full pull, measured and thrown away (plan P1-6, 1486-1496).
 
-stdout gets one JSON line per HTTP response (metrics only: PageMetrics.line() plus the run number) and a summary line
-last. Nothing is written to disk; no database or app config is read. Tokens come from files or the environment, the
+stdout gets one JSON line per HTTP response (metrics only: PageMetrics.line() plus the run number, printed as both
+attempt and run) and a summary line last. Nothing is written to disk; no database or app config is read. Tokens come from files or the environment, the
 deployment-protection bypass only from a file: a secret on the command line ends up in shell history and `ps`.
 
 Exit status: 0 every gate passed, 1 a gate failed, 2 usage, 3 the pull itself failed, 4 an unexpected error (a bug,
 or a shape no check caught; the summary names its class and the innermost frame, never its message).
 
-Page iteration (walk) and bookkeeping (Tally) are kept apart, so --scan (after P2-2b) can read the same pages.
+Page iteration (walk) and bookkeeping (Tally) are kept apart. --scan also runs the Python pan scrub (mirror/pan.py) over
+every page it reads, in a worker thread, and reports only paths and counts: v1 rows by v1's exemptions, the v1 rules
+Markdown as v1.rules (U45), each v2 row by its resource's exemptions, manifest.meta as finalizeManifest scrubs it. Any
+hit fails the pan_scan gate (U20, U52), and so does a --scan without a v1 token: P1 step 7 counts v1.rules too. Its
+thread time is kept out of run_ms, which measures RealShort.
 """
 
 import argparse
 import asyncio
-import fnmatch
 import json
 import os
 import re
@@ -25,9 +28,10 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import NoReturn, TextIO
 
-from ggwork_pick.mirror.client import COUNTED_RESOURCES, ROW_RESOURCES, SERIES_RESOURCE, FeedClient, Manifest, Page, PageMetrics
+from ggwork_pick.mirror import pan
+from ggwork_pick.mirror.client import COUNTED_RESOURCES, MAX_LIMITS, ROW_RESOURCES, SERIES_RESOURCE, FeedClient, Manifest, Page, PageMetrics
 from ggwork_pick.mirror.errors import AsOfExpiredError, BusyTimeout, ConfigError, DriftError, FeedError
-from ggwork_pick.mirror.feed_shape import MAX_LIMITS, SERIES_DAY_SPAN
+from ggwork_pick.mirror.feed_shape import SERIES_DAY_SPAN
 
 PROG = "python -m ggwork_pick.mirror.client"
 EXPORT_TOKEN_ENV = "PICK_REALSHORT_EXPORT_TOKEN"
@@ -36,11 +40,17 @@ FEED_TOKEN_ENV = "PICK_REALSHORT_FEED_TOKEN"
 PAGE_MS_LIMIT = 15_000
 PAGE_BYTES_LIMIT = 3_000_000
 RUN_MS_LIMIT = 180_000
-# A title-like hit means RealShort's scrub rewrote drama names: merging realshort#67 would ship that (critique 1.2).
-TITLE_SCRUB_PATTERNS = ("*.title", "*.title_cn", "*.description", "rs_ids.title", "catalog_posted.title", "*.book_title")
+# A hit on one of these meta.scrub fields means RealShort's scrub rewrote drama names or descriptions: merging
+# realshort#67 would ship that (critique 1.2; the brief's P2-2a and P1 step 5). meta.scrub keys are "<resource>.<column>"
+# (toExportRow's hits); "*" stands for any one row resource, nothing deeper.
+TITLE_SCRUB_FIELDS = ("*.title", "*.title_cn", "*.description", "rs_ids.title", "catalog_posted.title", "rs_bill_orders.book_title")
 BLOCKS_67 = "阻断 #67 合并"
-# RealShort redeploys often and the fingerprint carries the commit SHA (critique 1.3): start over up to three times.
-RERUNS = 3
+# What --scan cannot vouch for without a v1 token (P1 step 7, U45): the pan_scan gate then fails and names them.
+V1_SCAN_PATHS = ("v1.rows", "v1.rules")
+V1_UNSCANNED = f"没有 v1 token，v1 行与 v1.rules 没扫；--scan 要连 v1 一起扫（--v1-token-file 或 {FEED_TOKEN_ENV}）"
+# RealShort redeploys often and the fingerprint carries the commit SHA (critique 1.3): the brief's P2-2a starts over
+# from the manifest at most twice, so a third drift ends the dry-run.
+RERUNS = 2
 DRIFT_BACKOFF_SECONDS = 90  # plan 5.2 step 3
 EXIT_OK, EXIT_GATES, EXIT_USAGE, EXIT_FETCH, EXIT_INTERNAL = 0, 1, 2, 3, 4
 _NUMBER = re.compile(r"^[0-9]{1,6}$")
@@ -59,6 +69,7 @@ class Options:
     v1_token_file: Path | None
     series_days: int
     limits: Mapping[str, int]
+    scan: bool = False
 
 
 @dataclass(frozen=True)
@@ -116,12 +127,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--limit", type=_limit_item, action="extend", nargs="+", default=[], metavar="资源=条数", help="覆盖页大小：--limit rs_rows=1000 rs_ids=5000，可重复"
     )
+    parser.add_argument("--scan", action="store_true", help="在内存里用 Python 网盘清洗扫描每一页，只报路径与次数；有命中就以 1 退出")
     return parser
 
 
 def parse_args(argv: Sequence[str] | None) -> Options:
     args = build_parser().parse_args(argv)
-    return Options(args.base_url, args.bypass_header_file, args.token_file, args.v1_token_file, args.series_days, MappingProxyType(dict(args.limit)))
+    limits = MappingProxyType(dict(args.limit))
+    return Options(args.base_url, args.bypass_header_file, args.token_file, args.v1_token_file, args.series_days, limits, args.scan)
 
 
 def _read_secret(path: Path, what: str) -> str:
@@ -164,7 +177,7 @@ class Recorder:
         self._run = run
 
     def __call__(self, metrics: PageMetrics) -> None:
-        line = {**metrics.line(), "run": self._run}
+        line = {"attempt": self._run, **metrics.line(), "run": self._run}
         self._lines.append(line)
         _emit(self._out, line)
 
@@ -186,6 +199,10 @@ def _is_manifest_busy(line: Mapping) -> bool:
 
 def _is_read_failed(line: Mapping) -> bool:
     return line.get("error") == "read_failed"
+
+
+def _is_retry(line: Mapping) -> bool:
+    return line["retried"] is True
 
 
 @dataclass(frozen=True)
@@ -241,11 +258,23 @@ class Tally:
 
 
 @dataclass(frozen=True)
+class Scan:
+    """--scan's hits by path (never a value) and the thread time they took, which run_ms leaves out."""
+
+    hits: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    elapsed_ms: float = 0.0
+
+    def add(self, hits: Mapping[str, int], elapsed_ms: float) -> "Scan":
+        return Scan(MappingProxyType(pan.add_hits(dict(self.hits), dict(hits))), round(self.elapsed_ms + elapsed_ms, 1))
+
+
+@dataclass(frozen=True)
 class Pull:
     manifest: Manifest
     tally: Tally
     days: tuple[str, ...]
     run_ms: float
+    scan: Scan | None = None
 
 
 def series_days(manifest: Manifest, count: int) -> tuple[str, ...]:
@@ -270,8 +299,9 @@ async def walk(client: FeedClient, manifest: Manifest, options: Options) -> Asyn
 class Interruption:
     """A run that drift or an expired as_of ended: why, and on which feed (critique 1.3 wants the drift rate).
 
-    cause: drift_409 (source_changed), drift_busy_503 (source_busy after the manifest), drift_echo (a page answering
-    for another as_of, fingerprint or build), as_of_expired_400 (RealShort refused the as_of), as_of_expired_local.
+    cause: drift_409 (source_changed), drift_busy_503 (source_busy after the manifest), drift_echo (a v2 page echoing
+    another fingerprint, a v1 page another capturedAt, fingerprint or build), as_of_expired_400 (RealShort refused the
+    as_of), as_of_expired_local.
     """
 
     run: int
@@ -299,6 +329,20 @@ class Outcome:
     error: FeedError | None = None
 
 
+def scan_page(key: Key, body: Mapping) -> dict[str, int]:
+    """One page's hits: a v1 page with v1's exemptions and its rules apart, a v2 page with its resource's."""
+    return pan.scan_v1_page(body) if key[0] == "v1" else pan.scan_v2_page(key[0], body)
+
+
+async def _scanned(scan: Scan | None, timer, function, *args) -> Scan | None:
+    """scan plus what function(*args) finds, run in a worker thread (0.3); None when --scan is off."""
+    if scan is None:
+        return None
+    started = timer()
+    hits = await asyncio.to_thread(function, *args)
+    return scan.add(hits, (timer() - started) * 1000)
+
+
 async def pull_once(client: FeedClient, options: Options, timer) -> tuple[int, Pull | FeedError]:
     """One run: (seconds it slept on a busy manifest, the pull or the FeedError that ended it).
 
@@ -310,15 +354,16 @@ async def pull_once(client: FeedClient, options: Options, timer) -> tuple[int, P
         return exc.waited, exc
     except FeedError as exc:
         return 0, exc
-    tally = Tally()
+    tally, scan = Tally(), await _scanned(Scan() if options.scan else None, timer, pan.scan_manifest_meta, manifest.meta)
     try:
         async for key, page in walk(client, manifest, options):
             tally = tally.add(key, page)
+            scan = await _scanned(scan, timer, scan_page, key, page.body)
     except FeedError as exc:
         return sum(manifest.busy_sleeps), exc
-    # From the moment the successful manifest request went out: busy waits before it are not the pull's time.
-    run_ms = round((timer() - manifest.metrics.started) * 1000, 1)
-    return sum(manifest.busy_sleeps), Pull(manifest, tally, series_days(manifest, options.series_days), run_ms)
+    # From the moment the successful manifest request went out: busy waits before it are not the pull's time, nor --scan's.
+    run_ms = round((timer() - manifest.metrics.started) * 1000 - (scan.elapsed_ms if scan else 0), 1)
+    return sum(manifest.busy_sleeps), Pull(manifest, tally, series_days(manifest, options.series_days), run_ms, scan)
 
 
 async def pull_with_reruns(client: FeedClient, options: Options, recorder: Recorder, *, sleep, timer) -> Outcome:
@@ -341,13 +386,15 @@ async def pull_with_reruns(client: FeedClient, options: Options, recorder: Recor
 
 
 def retries(outcome: Outcome, recorder: Recorder) -> dict:
-    """Response counts from the printed lines; causes are per interrupted run. manifest_busy_503 are waits, not drift."""
+    """Response counts from the printed lines; causes are per interrupted run. manifest_busy_503 are waits, not drift;
+    read_failed_retries are the requests repeated after a read_failed (each page once at most)."""
     return {
         "drift_409": recorder.count(_is_409),
         "busy_503": recorder.count(_is_busy),
         "manifest_busy_503": recorder.count(_is_manifest_busy),
         "busy_wait_seconds": outcome.busy_wait_seconds,
         "read_failed_503": recorder.count(_is_read_failed),
+        "read_failed_retries": recorder.count(_is_retry),
         "as_of_expired": sum(item.cause.startswith("as_of_expired") for item in outcome.interruptions),
         "reruns": outcome.runs - 1,
         "causes": [asdict(item) for item in outcome.interruptions],
@@ -358,12 +405,18 @@ def _resource_summary(stats: Stats, expected: int) -> dict:
     return {**stats.as_dict(), "expected_rows": expected, "rows_match": stats.rows == expected}
 
 
+def _title_field(path: str) -> bool:
+    resource, _, column = path.partition(".")
+    return resource in ROW_RESOURCES and any(field in (path, f"*.{column}") for field in TITLE_SCRUB_FIELDS)
+
+
 def _title_hits(scrub: Mapping[str, int]) -> dict[str, int]:
-    return {path: count for path, count in scrub.items() if count > 0 and any(fnmatch.fnmatchcase(path, p) for p in TITLE_SCRUB_PATTERNS)}
+    return {path: count for path, count in scrub.items() if count > 0 and _title_field(path)}
 
 
-def evaluate_gates(pull: Pull, resources: Mapping[str, dict], series: Mapping[str, dict]) -> dict:
-    """Plan 1490-1496 on the v2 pages and the manifest; v1 is reported, not gated (it is not the new endpoint)."""
+def evaluate_gates(pull: Pull, resources: Mapping[str, dict], series: Mapping[str, dict], *, v1_enabled: bool) -> dict:
+    """Plan 1490-1496 on the v2 pages and the manifest; v1 is reported, not gated (it is not the new endpoint), except
+    that pan_scan needs v1 read: P1 step 7 wants every path at 0, v1.rules included."""
     manifest = pull.manifest.metrics
     measured = [("manifest", manifest.elapsed_ms, manifest.bytes)]
     measured = [*measured, *((_label(key), s.max_elapsed_ms, s.max_bytes) for key, s in pull.tally.stats.items() if key[0] != "v1")]
@@ -377,7 +430,20 @@ def evaluate_gates(pull: Pull, resources: Mapping[str, dict], series: Mapping[st
         "run_time": {"ok": pull.run_ms < RUN_MS_LIMIT, "limit_ms": RUN_MS_LIMIT, "run_ms": pull.run_ms},
         "row_counts": {"ok": not mismatched, "mismatched": mismatched},
         "title_scrub": {"ok": not hits, "hits": hits, **({"blocks": BLOCKS_67} if hits else {})},
+        **({"pan_scan": _scan_gate(pull.scan, v1_scanned=v1_enabled)} if pull.scan is not None else {}),
     }
+
+
+def _scan_gate(scan: Scan, *, v1_scanned: bool) -> dict:
+    gate = {"ok": not scan.hits and v1_scanned, "paths": len(scan.hits), "hits": sum(scan.hits.values())}
+    return gate if v1_scanned else {**gate, "unscanned": list(V1_SCAN_PATHS), "reason": V1_UNSCANNED}
+
+
+def _scan_summary(scan: Scan | None) -> dict:
+    if scan is None:
+        return {}
+    hits = dict(sorted(scan.hits.items()))
+    return {"scan": {"hits": hits, "total": sum(hits.values()), "elapsed_ms": scan.elapsed_ms}}
 
 
 def _label(key: Key) -> str:
@@ -396,7 +462,7 @@ def summarize(outcome: Outcome, recorder: Recorder, *, v1_enabled: bool) -> dict
     manifest = pull.manifest
     resources = {name: _resource_summary(pull.tally.get((name, None)), manifest.counts[name]) for name in COUNTED_RESOURCES}
     series = {day: _resource_summary(pull.tally.get((SERIES_RESOURCE, day)), manifest.row_cap(SERIES_RESOURCE, day)) for day in pull.days}
-    gates = evaluate_gates(pull, resources, series)
+    gates = evaluate_gates(pull, resources, series, v1_enabled=v1_enabled)
     failed = [name for name, gate in gates.items() if not gate["ok"]]
     return {
         "summary": True,
@@ -413,6 +479,7 @@ def summarize(outcome: Outcome, recorder: Recorder, *, v1_enabled: bool) -> dict
         "scrub": dict(manifest.meta["scrub"]),
         "warnings": [warning["code"] for warning in manifest.meta["warnings"]],
         "source_revision_null": manifest.source_revision is None,
+        **_scan_summary(pull.scan),
         "gates": gates,
     }
 

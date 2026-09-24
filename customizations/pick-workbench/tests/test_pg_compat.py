@@ -206,6 +206,8 @@ async def test_an_engine_that_serializes_json_differently_fails_the_suite(pick_d
 
 # ---- session settings on pooled connections ----
 
+ADVISORY_HERE = "select count(*) from pg_locks where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())"
+
 
 @pytest.mark.asyncio
 async def test_transaction_settings_do_not_follow_a_pooled_connection(pg_db_url, tmp_path):
@@ -230,7 +232,8 @@ async def test_transaction_settings_do_not_follow_a_pooled_connection(pg_db_url,
             assert (await conn.execute(text("select pg_backend_pid()"))).scalar_one() == pid
             assert (await conn.execute(text("show lock_timeout"))).scalar_one() == "0"
             assert (await conn.execute(text("show search_path"))).scalar_one() == pg.SCHEMA
-            assert (await conn.execute(text("select count(*) from pg_locks where locktype = 'advisory'"))).scalar_one() == 0
+            # pg_locks spans the whole cluster; other databases on a shared test server may hold advisory locks of their own.
+            assert (await conn.execute(text(ADVISORY_HERE))).scalar_one() == 0
     finally:
         await engine.dispose()
 

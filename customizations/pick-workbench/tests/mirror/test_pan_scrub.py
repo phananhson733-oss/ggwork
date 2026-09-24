@@ -245,6 +245,29 @@ def test_manifest_meta_scan_matches_realshort():
     assert pan.scan_manifest_meta({"scrub": {PAN: 1}}) == {}
 
 
+def test_v1_page_scan_prefixes_rows_and_counts_the_rules_apart():
+    # The brief's --scan: v1 rows[*] by v1's exemptions, the first page's rules Markdown as v1.rules (U45).
+    row = CONTRACT["v1_row"]
+    page = {"rows": [row["input"], row["input"]], "rules": f"# 规则\n{PAN}", "scope": PAN}
+    expected = {f"v1.rows[*].{path}": hits * 2 for path, hits in row["hits"].items()}
+    assert pan.scan_v1_page(page) == {**expected, "v1.rules": 1}
+    # Later pages carry no rules; a row that is not an object is still scanned as a leaf.
+    assert pan.scan_v1_page({"rows": [PAN], "rules": None}) == {"v1.rows[*]": 1}
+    assert pan.scan_v1_page({"rows": [], "rules": "# 规则"}) == {}
+
+
+@pytest.mark.parametrize("resource", sorted(CONTRACT["v2_rows"]))
+def test_v2_page_scan_adds_up_its_rows(resource):
+    sample = CONTRACT["v2_rows"][resource]
+    page = {"rows": [sample["input"], sample["output"], sample["input"]], "fingerprint": PAN}
+    assert pan.scan_v2_page(resource, page) == {path: hits * 2 for path, hits in sample["hits"].items()}
+
+
+def test_add_hits_returns_a_new_mapping():
+    first = {"a": 1}
+    assert pan.add_hits(first, {"a": 2, "b": 1}) == {"a": 3, "b": 1} and first == {"a": 1}
+
+
 def test_scan_leaves_its_input_alone():
     row = {"title": PAN, "tag_list": [PAN, "ok"], "payload": {"h": [[PAN]]}}
     before = copy.deepcopy(row)
@@ -256,6 +279,21 @@ def test_scan_leaves_its_input_alone():
 
 def test_scan_counts_every_leaf():
     assert pan.scan_row("rs_rows", {"tag_list": [PAN, PAN, "ok"], "flag": True, "n": 3, "none": None}) == {"rs_rows.tag_list[*]": 2}
+
+
+@pytest.mark.parametrize("key", ["https://pan.baidu.com/s/1AbCdEf", "提取码ab12", "a.b", "a b", "", "k" * 65])
+def test_a_key_that_is_not_a_plain_name_is_not_written_into_the_path(key):
+    # Paths are what --scan prints; a key can carry the very text the scan looks for. Keys meta.scrub could hold (SCRUB_PATH:
+    # letters, digits, underscore) are kept as they are; any other is written <非常规键名>, like contracts' error paths.
+    from ggwork_pick.mirror.contracts import ODD_KEY
+
+    assert pan.scan_value({"rules": {key: PAN, "plain_1": PAN}}, "manifest.meta") == {
+        f"manifest.meta.rules.{ODD_KEY}": 1,
+        "manifest.meta.rules.plain_1": 1,
+    }
+    # Two such keys add up under the one masked path; exemptions still go by the key itself.
+    assert pan.scan_row("rs_rows", {"md": {key: PAN, f"{key}/2": [PAN]}, "source_id": PAN}) == {f"rs_rows.md.{ODD_KEY}": 1, f"rs_rows.md.{ODD_KEY}[*]": 1}
+    assert pan.scan_v1_row({"signals": [{key: PAN, "source_ref": PAN}]}) == {f"signals[*].{ODD_KEY}": 1}
 
 
 def test_misuse_is_refused():

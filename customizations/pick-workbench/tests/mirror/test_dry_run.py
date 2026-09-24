@@ -19,7 +19,8 @@ from ggwork_pick.mirror import dry_run
 EXTENSION_ROOT = Path(__file__).resolve().parents[2]
 EXTENSION_API = Path(__file__).resolve().parents[4] / "backend/packages/extension-api"
 BASE = "https://realshort.test"
-METRIC_KEYS = {"resource", "page", "status", "elapsed_ms", "bytes", "wire_bytes", "rows", "retry_after"}
+# The brief's P2-2a page line: attempt (the run, also printed as run), the eight metrics, retried (the read_failed retry).
+METRIC_KEYS = {"attempt", "resource", "page", "status", "elapsed_ms", "bytes", "wire_bytes", "rows", "retry_after", "retried"}
 SECRETS = (EXPORT_TOKEN, FEED_TOKEN, BYPASS, ROW_SENTINEL)
 
 
@@ -59,7 +60,7 @@ def test_dry_run_prints_metrics_not_rows(capsys, files):
     code, lines, text = run(capsys, fake, clock, env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
     assert code == 0, lines[-1]
     pages, summary = summary_of(lines)
-    assert all(METRIC_KEYS <= set(line) and line["run"] == 1 for line in pages)
+    assert all(METRIC_KEYS <= set(line) and line["run"] == line["attempt"] == 1 and line["retried"] is False for line in pages)
     assert [(p["resource"], p["page"]) for p in pages][:4] == [("manifest", 1), ("v1", 1), ("catalog_rows", 1), ("catalog_rows", 2)]
     assert [p.get("day") for p in pages if p["resource"] == "rs_series_day"] == ["2026-09-23"]
     for secret in SECRETS:
@@ -78,7 +79,7 @@ def test_dry_run_prints_metrics_not_rows(capsys, files):
     assert summary["manifest"]["bytes"] > 0 and "elapsed_ms" in summary["manifest"]
     assert summary["as_of"] == "2026-09-23T12:32:00.000Z" and summary["source_revision_null"] is False
     assert summary["scrub"] == {} and summary["warnings"] == [] and summary["failed_gates"] == [] and summary["ok"] is True
-    counters = ("drift_409", "busy_503", "manifest_busy_503", "busy_wait_seconds", "read_failed_503", "as_of_expired", "reruns")
+    counters = ("drift_409", "busy_503", "manifest_busy_503", "busy_wait_seconds", "read_failed_503", "read_failed_retries", "as_of_expired", "reruns")
     assert summary["retries"] == {**dict.fromkeys(counters, 0), "causes": []}
     assert {c.headers.get("x-vercel-protection-bypass") for c in fake.calls} == {BYPASS}
 
@@ -113,6 +114,187 @@ def test_title_scrub_hits_fail_and_block_67(capsys, files, path):
     gate = summary["gates"]["title_scrub"]
     assert code == 1 and summary["ok"] is False and "title_scrub" in summary["failed_gates"]
     assert gate == {"ok": False, "hits": {path: 2}, "blocks": "阻断 #67 合并"}
+
+
+def test_the_six_title_fields_that_block_67_are_pinned():
+    # The brief's P2-2a and P1 step 5: exactly these six meta.scrub fields; "*" stands for any row resource's name.
+    fields = ("*.title", "*.title_cn", "*.description", "rs_ids.title", "catalog_posted.title", "rs_bill_orders.book_title")
+    assert dry_run.TITLE_SCRUB_FIELDS == fields
+    from ggwork_pick.mirror.contracts import RESOURCE_COLUMNS
+
+    # Each one names a real text column: meta.scrub counts toExportRow's hits as "<resource>.<column>".
+    text_columns = {(resource, c.name) for resource, columns in RESOURCE_COLUMNS.items() for c in columns if c.type == "text"}
+    for field in fields:
+        resource, _, column = field.partition(".")
+        assert any(c == column and resource in ("*", r) for r, c in text_columns), field
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["catalog_posted.posts[*].md.title", "rs_rows.tag_list[*]", "catalog_rows.reoff_note", "catalog_rows.book_title", "manifest.title", "title"],
+)
+def test_other_scrub_fields_do_not_block_67(capsys, files, path):
+    fake, clock = world(scrub={path: 2})
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    _, summary = summary_of(lines)
+    assert code == 0 and summary["gates"]["title_scrub"] == {"ok": True, "hits": {}} and summary["scrub"] == {path: 2}
+
+
+PAN = "资源 https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+PAN_PIECES = ("pan.baidu.com", "1AbCdEf", "ab12")
+
+
+def _plant_pan(fake):
+    """A pan fragment on one leaf each of a v1 row, the v1 rules, a v2 row and manifest.meta, and on exempt fields."""
+    key, row = fake.v1[0]
+    signal = {"kind": "kd", "label": "x", "source_ref": PAN, "observed_at": PAN, "rank": None, "grade": "", "note": "x"}
+    posted = {**row["posted"], "last_post_on": PAN}
+    fake.v1[0] = (key, {**row, "title": PAN, "source_id": PAN, "detail_url": PAN, "listed_at": PAN, "signals": [signal], "posted": posted})
+    fake.data["catalog_rows"][0] = {**fake.data["catalog_rows"][0], "reoff_note": PAN, "in_site_ids": [PAN], "listed_on": PAN}
+    original_v1 = fake._v1_page
+
+    def v1_page(cursor, limit, as_of):
+        status, headers, body = original_v1(cursor, limit, as_of)
+        page = json.loads(body)
+        return status, headers, json.dumps({**page, "rules": f"# 规则\n{PAN}"} if page["rules"] else page).encode()
+
+    fake._v1_page = v1_page
+
+    def meta_pan(page):
+        page["rows"][0]["meta"]["rules"]["postedPoolUrl"] = PAN
+        return page
+
+    _patch_manifest(fake, meta_pan)
+
+
+def test_dry_run_scan_reports_paths_only(capsys, files):
+    # The brief's P2-2a test 24 (U20, U45, U52): paths and counts, never the value; any hit exits non-zero.
+    fake, clock = world()
+    _plant_pan(fake)
+    code, lines, text = run(capsys, fake, clock, "--scan", env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    _, summary = summary_of(lines)
+    assert code == 1 and summary["ok"] is False and summary["failed_gates"] == ["pan_scan"]
+    hits = {"v1.rows[*].title": 1, "v1.rules": 1, "catalog_rows.reoff_note": 1, "manifest.meta.rules.postedPoolUrl": 1}
+    # Exempt fields (v1 source_id, detail_url, listed_at, signals[*].source_ref / observed_at, posted.last_post_on;
+    # v2 in_site_ids and listed_on) hold the same fragment and count nothing.
+    assert summary["scan"]["hits"] == hits and summary["scan"]["total"] == 4
+    assert summary["gates"]["pan_scan"] == {"ok": False, "paths": 4, "hits": 4}
+    for piece in PAN_PIECES:
+        assert piece not in text
+
+
+def test_dry_run_scan_without_hits_exits_0(capsys, files):
+    fake, clock = world()
+    code, lines, _ = run(capsys, fake, clock, "--scan", env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    _, summary = summary_of(lines)
+    assert code == 0 and summary["ok"] is True and summary["scan"]["hits"] == {} and summary["scan"]["total"] == 0
+    assert summary["gates"]["pan_scan"] == {"ok": True, "paths": 0, "hits": 0}
+
+
+def test_dry_run_scan_never_prints_a_key_that_holds_a_pan_link(capsys, files):
+    # meta.rules.ruleHints takes any key (rec(SCALAR), finding 7): a pan link used as a key passes the contract, and
+    # its value hits. The path shows where, the key itself is masked.
+    link = "https://pan.baidu.com/s/1AbCdEf"
+    fake, clock = world()
+    _patch_manifest(fake, lambda page: (page["rows"][0]["meta"]["rules"].update(ruleHints={link: PAN}), page)[1])
+    code, lines, text = run(capsys, fake, clock, "--scan", env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    _, summary = summary_of(lines)
+    assert code == 1 and summary["scan"]["hits"] == {"manifest.meta.rules.ruleHints.<非常规键名>": 1}
+    for piece in PAN_PIECES:
+        assert piece not in text
+
+
+def test_scan_without_v1_fails_the_pan_scan_gate(capsys, files):
+    # P1 step 7 wants every path at 0, v1.rules included (U45): a --scan that never read v1 cannot vouch for it, so the
+    # gate fails and names what it did not scan, even when the v2 pages and manifest.meta are clean.
+    fake, clock = world()
+    code, lines, _ = run(capsys, fake, clock, "--scan", files=files)
+    _, summary = summary_of(lines)
+    assert code == 1 and summary["ok"] is False and summary["failed_gates"] == ["pan_scan"] and summary["v1"]["skipped"] is True
+    assert summary["scan"]["hits"] == {} and [c for c in fake.calls if c.resource == "v1"] == []
+    gate = summary["gates"]["pan_scan"]
+    assert gate["ok"] is False and gate["unscanned"] == ["v1.rows", "v1.rules"] and (gate["paths"], gate["hits"]) == (0, 0)
+    assert "--v1-token-file" in gate["reason"]
+
+
+def test_scan_without_v1_still_reports_what_it_found(capsys, files):
+    fake, clock = world()
+    _plant_pan(fake)
+    code, lines, text = run(capsys, fake, clock, "--scan", files=files)
+    _, summary = summary_of(lines)
+    assert code == 1 and summary["scan"]["hits"] == {"catalog_rows.reoff_note": 1, "manifest.meta.rules.postedPoolUrl": 1}
+    assert summary["gates"]["pan_scan"]["unscanned"] == ["v1.rows", "v1.rules"] and summary["gates"]["pan_scan"]["hits"] == 2
+    for piece in PAN_PIECES:
+        assert piece not in text
+
+
+def test_without_scan_nothing_is_scanned(capsys, files, monkeypatch):
+    from ggwork_pick.mirror import pan
+
+    def refuse(*args):
+        raise AssertionError("scanned without --scan")
+
+    for name in ("scan_v1_page", "scan_v2_page", "scan_manifest_meta"):
+        monkeypatch.setattr(pan, name, refuse)
+    fake, clock = world()
+    _plant_pan(fake)
+    code, lines, _ = run(capsys, fake, clock, env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    _, summary = summary_of(lines)
+    assert code == 0 and "scan" not in summary and "pan_scan" not in summary["gates"]
+
+
+def test_scan_runs_off_the_event_loop(capsys, files, monkeypatch):
+    # 0.3: re and unicodedata hold the GIL; the gateway has one event loop, so every page's scan runs in a worker thread.
+    import threading
+
+    from ggwork_pick.mirror import pan
+
+    threads = []
+
+    def spying(function):
+        def spy(*args):
+            threads.append(threading.current_thread() is threading.main_thread())
+            return function(*args)
+
+        return spy
+
+    for name in ("scan_v1_page", "scan_v2_page", "scan_manifest_meta"):
+        monkeypatch.setattr(pan, name, spying(getattr(pan, name)))
+    fake, clock = world()
+    code, lines, _ = run(capsys, fake, clock, "--scan", env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
+    pages, _ = summary_of(lines)
+    assert code == 0 and len(threads) == len(pages) and not any(threads)
+
+
+def test_scan_time_is_kept_out_of_run_ms(capsys, files, monkeypatch):
+    # run_ms measures RealShort for the run_time gate; the scan's worker-thread time is reported apart, as scan.elapsed_ms.
+    from ggwork_pick.mirror import pan
+
+    v1 = {"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}
+    fake, clock = world()
+    _slow(fake, clock, 1, {"rs_ids"})
+    code, lines, _ = run(capsys, fake, clock, env=v1, files=files)
+    _, plain = summary_of(lines)
+    assert code == 0 and plain["run_ms"] == 1000.0
+
+    fake, clock = world()
+    _slow(fake, clock, 1, {"rs_ids"})
+    scanners = {name: getattr(pan, name) for name in ("scan_v2_page", "scan_manifest_meta")}
+
+    def slowed(name, seconds):
+        def scan(*args):
+            clock.advance(seconds)
+            return scanners[name](*args)
+
+        return scan
+
+    monkeypatch.setattr(pan, "scan_v2_page", slowed("scan_v2_page", 2))
+    monkeypatch.setattr(pan, "scan_manifest_meta", slowed("scan_manifest_meta", 3))
+    code, lines, _ = run(capsys, fake, clock, "--scan", env=v1, files=files)
+    pages, summary = summary_of(lines)
+    v2_pages = len([p for p in pages if p["resource"] not in ("manifest", "v1")])
+    assert code == 0 and v2_pages > 1 and summary["scan"]["elapsed_ms"] == 3000.0 + 2000.0 * v2_pages
+    assert summary["run_ms"] == plain["run_ms"] and summary["gates"]["run_time"]["run_ms"] == 1000.0
 
 
 def test_row_count_mismatch_fails(capsys, files):
@@ -182,7 +364,8 @@ def test_large_manifest_fails_the_page_bytes_gate(capsys, files):
     fake, clock = world()
 
     def pad(page):
-        page["rows"][0]["meta"]["sources"] = {"pad": "x" * 3_000_000}
+        # meta.rules.ruleHints is rec(SCALAR) in MANIFEST_SHAPE: any key, a string value; the manifest stays in contract.
+        page["rows"][0]["meta"]["rules"]["ruleHints"] = {"pad": "x" * 3_000_000}
         return page
 
     _patch_manifest(fake, pad)
@@ -272,6 +455,7 @@ def test_drift_reruns_and_counts(capsys, files):
         "manifest_busy_503": 1,
         "busy_wait_seconds": 60,
         "read_failed_503": 0,
+        "read_failed_retries": 0,
         "as_of_expired": 0,
         "reruns": 2,
         "causes": [
@@ -280,7 +464,7 @@ def test_drift_reruns_and_counts(capsys, files):
         ],
     }
     assert clock.sleeps == [60, 90, 90]
-    assert {line["run"] for line in pages} == {1, 2, 3}
+    assert {line["run"] for line in pages} == {1, 2, 3} and all(line["attempt"] == line["run"] for line in pages)
     assert [(p["resource"], p["status"], p["run"]) for p in pages if p["status"] != 200] == [
         ("manifest", 503, 1),
         ("catalog_rows", 409, 1),
@@ -290,13 +474,35 @@ def test_drift_reruns_and_counts(capsys, files):
     assert summary["as_of"] == "2026-09-23T12:36:00.000Z"
 
 
-def test_drift_gives_up_after_three_reruns(capsys, files):
+def test_drift_gives_up_after_two_reruns(capsys, files):
+    # The brief's P2-2a dry-run: start over from the manifest at most twice; the third 409 exits non-zero (test 23).
+    assert dry_run.RERUNS == 2
     fake, clock = world(intercept=lambda call: v2_error(409, "source_changed") if call.resource == "catalog_rows" else None)
     code, lines, text = run(capsys, fake, clock, files=files)
     _, summary = summary_of(lines)
     assert code == 3 and summary["ok"] is False and summary["error_type"] == "DriftError"
-    assert summary["retries"]["drift_409"] == 4 and summary["retries"]["reruns"] == 3
+    assert summary["retries"]["drift_409"] == 3 and summary["retries"]["reruns"] == 2 and summary["runs"] == 3
     assert "409" in summary["error"] and EXPORT_TOKEN not in text
+
+
+def test_read_failed_retry_is_marked_on_its_line_and_counted(capsys, files):
+    fake, clock = world(intercept=lambda call: v2_error(503, "read_failed") if call.resource == "rs_ids" and call.n == 1 else None)
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    pages, summary = summary_of(lines)
+    assert code == 0 and summary["ok"] is True
+    assert [(p["status"], p["retried"]) for p in pages if p["resource"] == "rs_ids"] == [(503, False), (200, True)]
+    assert (summary["retries"]["read_failed_503"], summary["retries"]["read_failed_retries"]) == (1, 1) and clock.sleeps == [5]
+
+
+def test_read_failed_twice_is_two_responses_one_retry_and_a_fetch_failure(capsys, files):
+    # read_failed_503 counts responses, read_failed_retries the repeated requests: they part when the retry fails too.
+    fake, clock = world(intercept=lambda call: v2_error(503, "read_failed") if call.resource == "rs_ids" else None)
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    pages, summary = summary_of(lines)
+    assert code == 3 and summary["ok"] is False and summary["error_type"] == "SourceReadError"
+    assert [(p["status"], p["retried"]) for p in pages if p["resource"] == "rs_ids"] == [(503, False), (503, True)]
+    assert (summary["retries"]["read_failed_503"], summary["retries"]["read_failed_retries"]) == (2, 1) and clock.sleeps == [5]
+    assert summary["retries"]["reruns"] == 0 and summary["retries"]["causes"] == []
 
 
 def test_rerun_causes_name_the_echo_and_the_side(capsys, files):
@@ -505,12 +711,16 @@ def test_missing_export_token_names_the_variable(capsys):
     assert code == 2 and "PICK_REALSHORT_EXPORT_TOKEN" in capsys.readouterr().err
 
 
-def test_bad_base_url_is_a_usage_error(capsys, files):
-    code = dry_run.main(["--dry-run", "--base-url", "https://realshort.test/api/pick-feed", "--token-file", str(files["token"])], env={})
-    assert code == 2 and "base URL" in capsys.readouterr().err
+@pytest.mark.parametrize("base", ["https://realshort.test/api/pick-feed", "https://exa\u00e9mple..test"])
+def test_bad_base_url_is_a_usage_error(capsys, files, base):
+    # The second one passes urlsplit and fails only in httpx: still exit 2 with a line, never a traceback and exit 1.
+    code = dry_run.main(["--dry-run", "--base-url", base, "--token-file", str(files["token"])], env={})
+    err = capsys.readouterr().err
+    assert code == 2 and "base URL" in err and "Traceback" not in err
 
 
-def test_dry_run_runs_without_db_or_config(tmp_path, files):
+@pytest.mark.parametrize("extra", [[], ["--scan"]], ids=["plain", "scan"])
+def test_dry_run_runs_without_db_or_config(tmp_path, files, extra):
     """The real entry point in a clean process: python -m runs ggwork_pick/__init__.py first (critique 2, CLI entry)."""
     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
     fake = FakeRealShort(bypass=BYPASS, series={yesterday: 2}, sizes={"catalog_rows": 3}, page_rows={"catalog_rows": 2}, compress=True)
@@ -525,7 +735,7 @@ def test_dry_run_runs_without_db_or_config(tmp_path, files):
         "PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN,
     }
     command = [sys.executable, "-m", "ggwork_pick.mirror.client", "--dry-run", "--base-url", base]
-    command = [*command, "--bypass-header-file", str(files["bypass"]), "--token-file", str(files["token"])]
+    command = [*command, "--bypass-header-file", str(files["bypass"]), "--token-file", str(files["token"]), *extra]
     try:
         result = subprocess.run(command, cwd=work, env=env, capture_output=True, text=True, timeout=120)
     finally:
@@ -534,6 +744,8 @@ def test_dry_run_runs_without_db_or_config(tmp_path, files):
     lines = [json.loads(line) for line in result.stdout.splitlines()]
     pages, summary = summary_of(lines)
     assert summary["ok"] is True and summary["resources"]["catalog_rows"]["pages"] == 2 and summary["v1"]["rows"] == 3
+    # With --scan the packaged pan_rules.json loads in the clean process and the scan finds nothing in the double's rows.
+    assert ("scan" in summary) == bool(extra) and summary.get("scan", {"total": 0})["total"] == 0
     assert all(METRIC_KEYS <= set(line) and line["wire_bytes"] > 0 for line in pages)
     assert [(line["bytes"], line["wire_bytes"]) for line in pages] == [(body, sent) for _, body, sent in fake.wire]
     assert pages[0]["resource"] == "manifest" and pages[0]["wire_bytes"] < pages[0]["bytes"]

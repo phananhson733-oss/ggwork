@@ -17,12 +17,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 T0 = datetime(2026, 9, 24, 3, 40, tzinfo=UTC)
 SINCE = "select lock_holder_since from pick_mirror.control where id = 1"
+HOLDER = "select lock_holder, lock_holder_since from pick_mirror.control where id = 1"
 ADVISORY = (
     "select pid, classid, objid, objsubid, granted from pg_locks"
     " where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())"
 )
 MIRROR_CONNECTIONS = "select count(*) from pg_stat_activity where datname = current_database() and application_name = 'ggwp-mirror'"
-NOT_HELD = {"held": False, "holder_pid": None, "holder_since": None, "stuck": False}
+NOT_HELD = {"held": False, "holder_pid": None, "holder": None, "holder_since": None, "stuck": False}
 
 
 @pytest.fixture
@@ -71,7 +72,7 @@ async def test_pg_locks_shows_the_bigint_key_as_its_two_halves_and_objsubid_1(ds
 
     conn = await open_dedicated(dsn)
     try:
-        assert await try_mirror_lock(conn, now=T0)
+        assert await try_mirror_lock(conn, now=T0, holder="sync")
         pid = await conn.fetchval("select pg_backend_pid()")
         assert [tuple(row) for row in await observer.fetch(ADVISORY)] == [(pid, MIRROR_LOCK_CLASSID, MIRROR_LOCK_OBJID, 1, True)]
     finally:
@@ -85,22 +86,23 @@ async def test_a_second_connection_waits_its_turn_and_the_holder_timestamp_follo
 
     first, second = await open_dedicated(dsn), await open_dedicated(dsn)
     try:
-        assert await observer.fetchval(SINCE) is None
-        assert await try_mirror_lock(first, now=T0)
-        assert await observer.fetchval(SINCE) == T0
-        assert not await try_mirror_lock(second, now=T0 + timedelta(minutes=1))
-        # The loser leaves the holder's timestamp alone.
-        assert await observer.fetchval(SINCE) == T0
+        assert tuple(await observer.fetchrow(HOLDER)) == (None, None)
+        assert await try_mirror_lock(first, now=T0, holder="sync")
+        assert tuple(await observer.fetchrow(HOLDER)) == ("sync", T0)
+        assert not await try_mirror_lock(second, now=T0 + timedelta(minutes=1), holder="backfill")
+        # The loser leaves the holder's name and timestamp alone.
+        assert tuple(await observer.fetchrow(HOLDER)) == ("sync", T0)
         # Releasing a lock it does not hold changes nothing either.
         assert not await release_mirror_lock(second)
-        assert await observer.fetchval(SINCE) == T0 and len(await observer.fetch(ADVISORY)) == 1
+        assert tuple(await observer.fetchrow(HOLDER)) == ("sync", T0) and len(await observer.fetch(ADVISORY)) == 1
         assert await release_mirror_lock(first)
         assert await _no_advisory_locks(observer)
-        assert await observer.fetchval(SINCE) is None
-        assert await try_mirror_lock(second, now=T0 + timedelta(minutes=2))
-        assert await observer.fetchval(SINCE) == T0 + timedelta(minutes=2)
+        assert tuple(await observer.fetchrow(HOLDER)) == (None, None)
+        assert await try_mirror_lock(second, now=T0 + timedelta(minutes=2), holder="cleanup")
+        assert tuple(await observer.fetchrow(HOLDER)) == ("cleanup", T0 + timedelta(minutes=2))
         assert await release_mirror_lock(second)
         assert await _no_advisory_locks(observer)
+        assert tuple(await observer.fetchrow(HOLDER)) == (None, None)
     finally:
         await first.close()
         await second.close()
@@ -113,14 +115,17 @@ async def test_closing_without_unlocking_releases_it(dsn, observer):
 
     holder, next_one = await open_dedicated(dsn), await open_dedicated(dsn)
     try:
-        assert await try_mirror_lock(holder, now=T0)
+        assert await try_mirror_lock(holder, now=T0, holder="sync")
         await holder.close()
         await _eventually(lambda: _no_advisory_locks(observer))
         # Session-level: gone with the session. The timestamp it left says nothing once nobody holds the lock.
         assert await observer.fetchval(SINCE) == T0
-        assert await lock_status(observer, now=T0 + timedelta(hours=5)) == {"held": False, "holder_pid": None, "holder_since": None, "stuck": False}
-        assert await try_mirror_lock(next_one, now=T0 + timedelta(hours=5))
-        assert await observer.fetchval(SINCE) == T0 + timedelta(hours=5)
+        assert await lock_status(observer, now=T0 + timedelta(hours=5)) == NOT_HELD
+        # Another holder takes over the row the dead one left: both columns are its own, never the dead holder's name.
+        assert await try_mirror_lock(next_one, now=T0 + timedelta(hours=5), holder="backfill")
+        assert tuple(await observer.fetchrow(HOLDER)) == ("backfill", T0 + timedelta(hours=5))
+        status = await lock_status(observer, now=T0 + timedelta(hours=5))
+        assert (status["holder"], status["holder_since"], status["stuck"]) == ("backfill", T0 + timedelta(hours=5), False)
     finally:
         await next_one.close()
 
@@ -134,10 +139,10 @@ async def test_stuck_is_judged_by_the_holders_own_timestamp(dsn, observer, pg_db
     holder = await open_dedicated(dsn)
     engine = host_engine(pg_db_url)
     try:
-        assert await lock_status(observer, now=T0) == {"held": False, "holder_pid": None, "holder_since": None, "stuck": False}
-        assert await try_mirror_lock(holder, now=T0)
+        assert await lock_status(observer, now=T0) == NOT_HELD
+        assert await try_mirror_lock(holder, now=T0, holder="backfill")
         pid = await holder.fetchval("select pg_backend_pid()")
-        held = {"held": True, "holder_pid": pid, "holder_since": T0}
+        held = {"held": True, "holder_pid": pid, "holder": "backfill", "holder_since": T0}
         assert await lock_status(observer, now=T0 + timedelta(minutes=60)) == {**held, "stuck": False}
         assert await lock_status(observer, now=T0 + timedelta(minutes=61)) == {**held, "stuck": True}
         assert (await lock_status(observer, now=T0 + timedelta(minutes=11), stuck_after=timedelta(minutes=10)))["stuck"]
@@ -145,16 +150,79 @@ async def test_stuck_is_judged_by_the_holders_own_timestamp(dsn, observer, pg_db
         async with async_sessionmaker(engine)() as session:
             assert await lock_status(session, now=T0 + timedelta(minutes=61)) == {**held, "stuck": True}
         assert await release_mirror_lock(holder)
-        assert await lock_status(observer, now=T0 + timedelta(minutes=61)) == {"held": False, "holder_pid": None, "holder_since": None, "stuck": False}
+        assert await lock_status(observer, now=T0 + timedelta(minutes=61)) == NOT_HELD
         # Supavisor hands the next client the same backend (supabase.md): a backend serving for hours that took the lock a
         # minute ago is not stuck. backend_start is not the time of the hold.
         started = await observer.fetchval("select backend_start from pg_stat_activity where pid = $1", pid)
         took = started + timedelta(hours=5)
-        assert await try_mirror_lock(holder, now=took)
+        assert await try_mirror_lock(holder, now=took, holder="sync")
         assert not (await lock_status(observer, now=took + timedelta(minutes=1)))["stuck"]
     finally:
         await holder.close()
         await engine.dispose()
+
+
+class _Recording:
+    """Stands in for the dedicated connection and records every statement sent to it."""
+
+    def __init__(self):
+        self.sent = []
+
+    async def fetchval(self, query, *args):
+        self.sent.append(query)
+        return True
+
+    async def execute(self, query, *args):
+        self.sent.append(query)
+        return "UPDATE 1"
+
+
+@pytest.mark.parametrize("holder", ["admin", "", "Sync", "sync ", None, 1])
+@pytest.mark.asyncio
+async def test_a_holder_outside_the_three_is_refused_before_any_sql(holder, monkeypatch):
+    from ggwork_pick.mirror import lock
+
+    conn, opened = _Recording(), []
+
+    async def open_recorded(target):
+        opened.append(target)
+        return _Recording()
+
+    monkeypatch.setattr(lock, "open_dedicated", open_recorded)
+    with pytest.raises(ValueError, match="sync、backfill、cleanup"):
+        await lock.try_mirror_lock(conn, now=T0, holder=holder)
+    assert conn.sent == []
+    # The context manager checks it before it even opens the dedicated connection.
+    with pytest.raises(ValueError, match="sync、backfill、cleanup"):
+        async with lock.mirror_lock("postgresql://unused", holder=holder, clock=lambda: T0):
+            pass
+    assert opened == []
+
+
+@pytest.mark.asyncio
+async def test_every_take_names_its_holder():
+    from ggwork_pick.mirror import lock
+
+    with pytest.raises(TypeError):
+        await lock.try_mirror_lock(_Recording(), now=T0)
+    with pytest.raises(TypeError):
+        async with lock.mirror_lock("postgresql://unused", clock=lambda: T0):
+            pass
+
+
+@pytest.mark.parametrize("holder", ["sync", "backfill", "cleanup"])
+@pytest.mark.asyncio
+async def test_holder_and_since_are_written_while_held_and_cleared_on_release(dsn, observer, holder):
+    # P2-0 test 7 (U14): both control columns name the current hold and go back to NULL with it.
+    from ggwork_pick.mirror.lock import lock_status, mirror_lock
+
+    async with mirror_lock(dsn, holder=holder, clock=lambda: T0) as conn:
+        assert conn is not None
+        assert tuple(await observer.fetchrow(HOLDER)) == (holder, T0)
+        status = await lock_status(observer, now=T0 + timedelta(minutes=5))
+        assert (status["held"], status["holder"], status["holder_since"], status["stuck"]) == (True, holder, T0, False)
+    assert tuple(await observer.fetchrow(HOLDER)) == (None, None)
+    assert await lock_status(observer, now=T0) == NOT_HELD
 
 
 @pytest.mark.asyncio
@@ -165,7 +233,7 @@ async def test_try_needs_an_aware_now_and_takes_nothing_without_one(dsn, observe
     conn = await open_dedicated(dsn)
     try:
         with pytest.raises(ValueError, match="时区"):
-            await try_mirror_lock(conn, now=T0.replace(tzinfo=None))
+            await try_mirror_lock(conn, now=T0.replace(tzinfo=None), holder="sync")
         assert await _no_advisory_locks(observer)
         with pytest.raises(ValueError, match="时区"):
             await lock_status(observer, now=T0.replace(tzinfo=None))
@@ -183,7 +251,7 @@ async def test_a_holder_that_cannot_record_its_timestamp_gives_the_lock_back(dsn
     try:
         # Held without a timestamp, it could never be judged stuck.
         with pytest.raises(RuntimeError, match="pick_mirror.control"):
-            await try_mirror_lock(conn, now=T0)
+            await try_mirror_lock(conn, now=T0, holder="sync")
         assert await _no_advisory_locks(observer)
     finally:
         await conn.close()
@@ -193,17 +261,17 @@ async def test_a_holder_that_cannot_record_its_timestamp_gives_the_lock_back(dsn
 async def test_mirror_lock_yields_the_holder_or_none_and_always_releases_and_closes(dsn, observer):
     from ggwork_pick.mirror.lock import mirror_lock
 
-    async with mirror_lock(dsn, clock=lambda: T0) as holder:
-        assert holder is not None and await observer.fetchval(SINCE) == T0
-        async with mirror_lock(dsn, clock=lambda: T0 + timedelta(minutes=1)) as loser:
+    async with mirror_lock(dsn, holder="sync", clock=lambda: T0) as holder:
+        assert holder is not None and tuple(await observer.fetchrow(HOLDER)) == ("sync", T0)
+        async with mirror_lock(dsn, holder="backfill", clock=lambda: T0 + timedelta(minutes=1)) as loser:
             assert loser is None
         # The loser's exit closed its own connection and left the holder alone.
-        assert len(await observer.fetch(ADVISORY)) == 1 and await observer.fetchval(SINCE) == T0
+        assert len(await observer.fetch(ADVISORY)) == 1 and tuple(await observer.fetchrow(HOLDER)) == ("sync", T0)
         assert await observer.fetchval(MIRROR_CONNECTIONS) == 1
     assert holder.is_closed()
     assert await _no_advisory_locks(observer) and await observer.fetchval(SINCE) is None
     with pytest.raises(RuntimeError, match="boom"):
-        async with mirror_lock(dsn, clock=lambda: T0) as holder:
+        async with mirror_lock(dsn, holder="sync", clock=lambda: T0) as holder:
             raise RuntimeError("boom")
     assert holder.is_closed()
     assert await _no_advisory_locks(observer) and await observer.fetchval(SINCE) is None
@@ -221,7 +289,7 @@ async def _cancelled_holder(dsn, body, *, cancels: int = 1):
     inside, held = asyncio.Event(), {}
 
     async def hold():
-        async with mirror_lock(dsn, clock=lambda: T0) as conn:
+        async with mirror_lock(dsn, holder="sync", clock=lambda: T0) as conn:
             held["conn"] = conn
             inside.set()
             await body(conn)
@@ -296,7 +364,7 @@ async def test_a_release_that_fails_still_closes_and_the_session_takes_the_lock_
     from ggwork_pick.mirror.lock import mirror_lock
 
     with caplog.at_level(logging.WARNING, logger="ggwork_pick.mirror.lock"):
-        async with mirror_lock(dsn, clock=lambda: T0) as holder:
+        async with mirror_lock(dsn, holder="sync", clock=lambda: T0) as holder:
             # The release clears the timestamp in control first: with the table gone that statement fails.
             await observer.execute("drop table pick_mirror.control")
     assert holder.is_closed()
@@ -318,7 +386,7 @@ async def test_a_connection_that_will_not_close_is_terminated(dsn, observer, mon
     monkeypatch.setattr(lock, "open_dedicated", open_stuck)
     try:
         with caplog.at_level(logging.WARNING, logger="ggwork_pick.mirror.lock"):
-            async with lock.mirror_lock(dsn, clock=lambda: T0) as holder:
+            async with lock.mirror_lock(dsn, holder="sync", clock=lambda: T0) as holder:
                 assert holder is opened[0]
         assert holder.terminated and holder.conn.is_closed()
         await _eventually(lambda: _count_is(observer, MIRROR_CONNECTIONS, 0))
@@ -337,7 +405,7 @@ async def test_a_holder_that_cannot_give_the_lock_back_still_raises_its_own_erro
     conn = await open_dedicated(dsn)
     try:
         with caplog.at_level(logging.WARNING, logger="ggwork_pick.mirror.lock"), pytest.raises(RuntimeError, match="pick_mirror.control"):
-            await try_mirror_lock(_UnlockBreaks(conn), now=T0)
+            await try_mirror_lock(_UnlockBreaks(conn), now=T0, holder="sync")
         # The give-back failed, so the session still holds it; the warning says closing is what frees it.
         assert len(await observer.fetch(ADVISORY)) == 1
         assert _warned(caplog, "giving the mirror lock back failed")
@@ -362,9 +430,10 @@ async def test_a_two_key_lock_on_the_same_halves_is_not_the_mirror_lock(dsn, obs
     assert await lock_status(observer, now=T0) == NOT_HELD
     holder = await open_dedicated(dsn)
     try:
-        assert await try_mirror_lock(holder, now=T0)
+        assert await try_mirror_lock(holder, now=T0, holder="sync")
         pid = await holder.fetchval("select pg_backend_pid()")
-        assert await lock_status(observer, now=T0 + timedelta(minutes=61)) == {"held": True, "holder_pid": pid, "holder_since": T0, "stuck": True}
+        held = {"held": True, "holder_pid": pid, "holder": "sync", "holder_since": T0, "stuck": True}
+        assert await lock_status(observer, now=T0 + timedelta(minutes=61)) == held
         # The other lock's owner "releasing the mirror lock" leaves the real holder and its timestamp alone.
         assert not await release_mirror_lock(observer)
         assert await observer.fetchval(SINCE) == T0
@@ -390,7 +459,7 @@ async def test_the_key_held_in_another_database_is_not_this_databases_mirror_loc
             assert await lock_status(observer, now=T0) == NOT_HELD
             here = await open_dedicated(dsn)
             try:
-                assert await try_mirror_lock(here, now=T0)
+                assert await try_mirror_lock(here, now=T0, holder="sync")
                 assert (await lock_status(observer, now=T0))["holder_pid"] == here.get_server_pid()
             finally:
                 await here.close()

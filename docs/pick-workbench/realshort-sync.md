@@ -66,6 +66,7 @@ ggwork-deerflow 的 Vercel 项目不再需要 `CRON_SECRET`、`PICK_SYNC_TOKEN`�
 
 - 立即同步：资料页按钮。
 - 看同步结果：资料页；或者 `railway logs`（定时失败记为 `[pick-sync] scheduled pull failed`）。
+- feed v2 的实测（P1-6 dry-run）和镜像上线前的 `--scan`：见 [mirror-dry-run.md](mirror-dry-run.md)。那是一次性流程，临时凭据测完即删，所以单独成篇；实测数字与最终的 `rs_rows` 页大小记回本文的 v2 一节。
 
 ## 已知限制
 

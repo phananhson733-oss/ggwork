@@ -1,10 +1,12 @@
 """Strict contracts of RealShort feed v2 (pick-export-v2) pages: columns, row models, the manifest (plan 3.3, 4.4, 4.5, 4.6).
 
-RESOURCE_COLUMNS is the one list of what each row resource carries, copied from RealShort 816ca2e
-src/lib/pick/export-v2-map.ts:116-192 (RESOURCE_SPECS). The row models are made from it, and so are the mirror's DDL and
-COPY column order. The manifest models follow MANIFEST_SHAPE (:853-909). Every model is strict and closed: an unknown key,
-a missing column or a value of another type refuses the whole page. Text is kept verbatim, so nothing here inherits
-StrictInput (it strips whitespace).
+This module is the one place the feed v2 contract is written down: the version, the resources, RESOURCE_COLUMNS and the
+page limits (copied from RealShort 816ca2e src/lib/pick/export-v2-map.ts:116-192, RESOURCE_SPECS), and the manifest's
+content (MANIFEST_SHAPE, :853-909). feed_shape.py imports its constants from here and checks only transport (envelope,
+identity, snapshotDays order and window), then hands the manifest to parse_manifest. The row models are made from
+RESOURCE_COLUMNS, and so are the mirror's DDL and COPY column order. Every model is strict; objects are closed (an
+unknown key, a missing column or a value of another type refuses the whole page). Text is kept verbatim, so nothing here
+inherits StrictInput (it strips whitespace).
 
 Before any model sees a page, the whole decoded page is checked for NUL and lone surrogates (unstorable_path) and for key
 names at any depth that look like forbidden fields (FORBIDDEN_NAME, :28). Errors are PageContractError, a ContractError of
@@ -20,14 +22,15 @@ from datetime import UTC, date, datetime
 from types import MappingProxyType
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, ValidationError, create_model
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, ValidationError, create_model
 from pydantic_core import PydanticCustomError
 
 from ggwork_pick.contracts import unstorable_path
 from ggwork_pick.mirror.errors import ContractError
 
-EXPORT_VERSION = "pick-export-v2"
+EXPORT_VERSION = "pick-export-v2"  # export-v2-map.ts:25
 MANIFEST = "manifest"
+SERIES_RESOURCE = "rs_series_day"
 ROW_RESOURCES = (
     "catalog_rows",
     "catalog_signals",
@@ -37,11 +40,11 @@ ROW_RESOURCES = (
     "rs_ids",
     "rs_clicks14",
     "rs_bill_orders",
-    "rs_series_day",
+    SERIES_RESOURCE,
 )
 EXPORT_RESOURCES = (MANIFEST, *ROW_RESOURCES)
 # manifest.counts has every row resource but the per-day curve (export-v2.ts readCounts).
-COUNTED_RESOURCES = tuple(resource for resource in ROW_RESOURCES if resource != "rs_series_day")
+COUNTED_RESOURCES = tuple(resource for resource in ROW_RESOURCES if resource != SERIES_RESOURCE)
 
 # export-v2-map.ts:28, verbatim. JS /i without u folds ASCII only, hence re.ASCII.
 FORBIDDEN_NAME = re.compile("pan_|promotion_value|promotion_code|promotion_link|revenue_usd|bill_usd|usd", re.IGNORECASE | re.ASCII)
@@ -93,6 +96,20 @@ RESOURCE_KEYS = MappingProxyType(
         "rs_series_day": ("drama_id",),
     }
 )
+# export-v2-map.ts:130-191 maxLimit: the most rows a page may ask for, and RealShort's default limit (export-v2-page.ts:107).
+MAX_LIMITS = MappingProxyType(
+    {
+        "catalog_rows": 5000,
+        "catalog_signals": 5000,
+        "catalog_posted": 1000,
+        "catalog_accounts": 1000,
+        "rs_rows": 2000,
+        "rs_ids": 10000,
+        "rs_clicks14": 20000,
+        "rs_bill_orders": 5000,
+        SERIES_RESOURCE: 40000,
+    }
+)
 # fmt: off
 RESOURCE_COLUMNS = MappingProxyType(
     {
@@ -137,16 +154,14 @@ RESOURCE_COLUMNS = MappingProxyType(
 SIGNAL_PAYLOAD_KEYS = ("d", "w", "weeks", "best", "days", "first", "h", "qy", "pid")
 POSTED_POST_KEYS = ("d", "acct", "st", "views", "likes", "favs", "cmts", "shares", "md", "url", "note", "how", "pid")
 
-# request.ts, observe/metrics.ts and observe/source-types.ts: the fixed keys of the manifest's records (export-v2-map.ts:853-897).
-# Closed on purpose, like RealShort's rec(of, keys): once RealShort adds a platform, basis, rank, sort or export source, every
-# manifest is refused (the error names the record and the new key) until these lists follow it.
-PLATFORMS = ("reelshort", "dramabox", "shortmax", "flickreels", "flareflow", "kalos", "starshort", "goodshort", "moboreels", "touchshort")
-THEATER_BASES = ("kd", "kw", "qc", "qr", "sm", "smd", "mg", "fh", "sh", "gh", "gn", "ghh", "dbn")
-BASES = (*THEATER_BASES, "clk", "bill", "gsc")
-RS_RANKS = ("rs_rr", "rs_growth", "rs_cand", "rs_pc", "rs_clk", "rs_gsc", "rs_bill", "rs_ledger")
-RANKS = (*THEATER_BASES, *RS_RANKS)
-RS_SORTS = ("rr", "d1", "d7", "dp1", "dp7", "promoters", "publish", "bill", "eff", "gsc", "clicks")
-EXPORT_SOURCES = ("catalog", "snapshot", "bill", "gsc", "pick_catalog")
+# The manifest's records (MANIFEST_SHAPE's rec(of, keys), export-v2-map.ts:785-793, :853-909) come in two kinds here:
+# - keyed by one of RealShort's business enums (PLATFORMS, BASES, RANKS, RS_RANKS, SORTS, EXPORT_SOURCES in request.ts,
+#   observe/metrics.ts, observe/source-types.ts) or by any key (rec(of, null)): the enums grow with RealShort releases (a
+#   new theater), so any key is taken (_open_record) and only the value's shape is checked; forbidden key names are still
+#   refused at any depth (FORBIDDEN_NAME);
+# - keyed by a list written into the shape itself (growthBaseline ["1", "7"], youtubeLabels, counts' eight resources):
+#   fixed there, so fixed here (_keyed; counts even needs all eight).
+# test_manifest_models_take_extra_keys_exactly_where_realshort_does holds this against the generated MANIFEST_SHAPE.
 SOURCE_DETAIL_KEYS = (
     "startDate", "endDate", "timezone", "dataState", "rows", "expectedRows", "unresolvedPages", "unmatchedQueries",
     "pageRows", "queryRows", "truncated", "partial", "scope", "ratio", "billPeriod", "termsFetchedAt",
@@ -157,8 +172,16 @@ TS_TEXT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0
 TS_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 DAY_TEXT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 MAX_SAFE_INTEGER = 2**53 - 1
+# meta.scrub keys are toExportRow's field paths such as catalog_signals.payload.h[*][*] (export-v2-map.ts:641-672).
+SCRUB_PATH = re.compile(r"[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\*\]){0,16}")
+SCRUB_PATH_MAX = 200
+# meta.warnings codes are fixed words (catalog_import_incomplete, source_stale_running; export-v2.ts:183-190).
+WARNING_CODE = re.compile(r"[a-z_]{1,64}")
 # Longest piece of a key path an error repeats: key names are not values, but nothing bounds their length.
 PATH_PART_MAX = 64
+# A key that is not a plain name could be text out of a row: an error path names its place, never the key.
+PLAIN_PATH_PART = re.compile(r"[A-Za-z0-9_?.*\[\]]+")
+ODD_KEY = "<非常规键名>"
 
 
 def ts_datetime(value: str) -> datetime:
@@ -203,6 +226,19 @@ def _scalar(value):
     raise PydanticCustomError("realshort_scalar", "应是字符串、有限数、布尔或 null")
 
 
+def _scrub_paths(value):
+    """meta.scrub before its values are read: every key a field path. The error is on meta.scrub and names no key."""
+    if isinstance(value, dict) and not all(isinstance(key, str) and len(key) <= SCRUB_PATH_MAX and SCRUB_PATH.fullmatch(key) for key in value):
+        raise PydanticCustomError("realshort_scrub_path", "键应是 toExportRow 的字段路径（资源.列[.子键]，数组下标写 [*]）")
+    return value
+
+
+def _warning_code(value: str) -> str:
+    if WARNING_CODE.fullmatch(value) is None:
+        raise PydanticCustomError("realshort_warning_code", "应是小写字母与下划线组成的告警代号")
+    return value
+
+
 def _is_json(value) -> bool:
     if value is None or isinstance(value, str | bool | int):
         return True
@@ -227,6 +263,8 @@ JsonValue = Annotated[Any, AfterValidator(_json_value)]
 SafeInt = Annotated[StrictInt, Field(ge=-MAX_SAFE_INTEGER, le=MAX_SAFE_INTEGER)]
 Count = Annotated[StrictInt, Field(ge=0, le=MAX_SAFE_INTEGER)]
 Fingerprint = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
+ScrubCounts = Annotated[dict[StrictStr, Count], BeforeValidator(_scrub_paths)]
+WarningCode = Annotated[StrictStr, AfterValidator(_warning_code)]
 
 
 class StrictContract(BaseModel):
@@ -252,8 +290,13 @@ def _flat(name: str, keys, *, partial: bool = False) -> type[StrictContract]:
 
 
 def _keyed(name: str, keys, value_type) -> type[StrictContract]:
-    """RealShort's rec(of, keys): any of the fixed keys, each holding value_type; any other key refuses the page."""
+    """RealShort's rec(of, keys) with keys written into the shape: any of them, each holding value_type; another key refuses the page."""
     return create_model(name, __base__=StrictContract, __module__=__name__, **_fields(keys, value_type, required=False))
+
+
+def _open_record(value_type):
+    """The type of RealShort's rec(of, null), or rec(of, <a business enum>): any key, each value of value_type."""
+    return dict[StrictStr, value_type]
 
 
 SignalPayload = create_model("SignalPayload", __base__=StrictContract, __module__=__name__, **_fields(SIGNAL_PAYLOAD_KEYS, JsonValue, required=False))
@@ -313,7 +356,15 @@ FacetPosted = _flat("FacetPosted", ("pool", "yes", "no"))
 PostedStats = _flat("PostedStats", ("total", "pubCount", "postsSum", "viewsSum", "metricAt", "importedAt", "accountCount"))
 PostedStates = _flat("PostedStates", ("pub", "sched", "none", "nomatch"))
 Ledger = _flat("Ledger", ("rows", "orders"))
-ManifestWarning = _flat("ManifestWarning", ("code", "source", "status", "attemptedAt"))
+
+
+class ManifestWarning(StrictContract):
+    """flat(["code", "source", "status", "attemptedAt"]), with code held to a fixed word: the dry-run prints codes only."""
+
+    code: WarningCode
+    source: Scalar
+    status: Scalar
+    attemptedAt: Scalar
 
 
 class Source(StrictContract):
@@ -331,30 +382,30 @@ class GlossaryGroup(StrictContract):
 
 
 class Facets(StrictContract):
-    platforms: _keyed("PlatformCounts", PLATFORMS, Scalar)
+    platforms: _open_record(Scalar)  # rec(SCALAR, PLATFORMS)
     langs: list[Lang]
-    bases: _keyed("BasisCounts", BASES, Scalar)
+    bases: _open_record(Scalar)  # rec(SCALAR, BASES)
     posted: FacetPosted
 
 
 class Rules(StrictContract):
-    platformRules: _keyed("PlatformRules", PLATFORMS, PlatformRule)
+    platformRules: _open_record(PlatformRule)  # rec(flat(...), PLATFORMS)
     inUse: list[Scalar]
-    basisLabels: _keyed("BasisLabels", BASES, Scalar)
-    basisDateLabels: _keyed("BasisDateLabels", BASES, Scalar)
-    rsRankLabels: _keyed("RsRankLabels", RS_RANKS, Scalar)
+    basisLabels: _open_record(Scalar)  # rec(SCALAR, BASES)
+    basisDateLabels: _open_record(Scalar)  # rec(SCALAR, BASES)
+    rsRankLabels: _open_record(Scalar)  # rec(SCALAR, RS_RANKS)
     youtubeLabels: _keyed("YoutubeLabels", ("ok", "only", "warn", "no"), Scalar)
     glossary: list[GlossaryGroup]
-    ruleHints: dict[StrictStr, Scalar]
-    langLoc: dict[StrictStr, Scalar]
+    ruleHints: _open_record(Scalar)  # rec(SCALAR)
+    langLoc: _open_record(Scalar)  # rec(SCALAR)
     postedPoolUrl: Scalar
-    sortLabels: _keyed("SortLabels", RS_SORTS, Scalar)
+    sortLabels: _open_record(Scalar)  # rec(SCALAR, RS_SORTS)
 
 
 class Control(StrictContract):
     facetsPick: Facets
     facetsAll: Facets
-    rankCounts: _keyed("RankCounts", RANKS, Scalar)
+    rankCounts: _open_record(Scalar)  # rec(SCALAR, RANKS): only theaters with signals have a key (queries-rank.ts:139-140)
     postedStats: PostedStats
     postedStates: PostedStates
     ledger: Ledger
@@ -364,10 +415,10 @@ class Meta(StrictContract):
     freshness: Freshness
     rsCounts: RsCounts
     growthBaseline: _keyed("GrowthBaselines", ("1", "7"), GrowthBaseline)
-    sources: _keyed("Sources", EXPORT_SOURCES, Source)
+    sources: _open_record(Source)  # rec(obj(...), EXPORT_SOURCES)
     rules: Rules
     control: Control
-    scrub: dict[StrictStr, Count]
+    scrub: ScrubCounts
     warnings: list[ManifestWarning]
 
 
@@ -397,8 +448,13 @@ class PageContractError(ContractError):
         self.path = path
 
 
+def _path_part(part) -> str:
+    text = str(part)[:PATH_PART_MAX]
+    return text if PLAIN_PATH_PART.fullmatch(text) else ODD_KEY
+
+
 def _path(parts) -> str:
-    return ".".join(str(part)[:PATH_PART_MAX] for part in parts)
+    return ".".join(_path_part(part) for part in parts)
 
 
 def _located(resource: str, parts: list, reason: str) -> PageContractError:

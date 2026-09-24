@@ -1,9 +1,12 @@
 """The shape of RealShort's feed responses, feed v2 (`pick-export-v2`) and v1 (`pick-feed-v1`), checked page by page.
 
-Frozen at RealShort 816ca2e (rs = realshort-pick-export-v2). Only envelopes, the manifest and the cursor chain are
-checked here; the rows themselves are P2-2b's strict models. What RealShort echoes back (as_of, fp, and on v1 the
-manifest's fingerprint and build SHA) differing is drift; anything else out of shape is a contract error.
-Error messages name fields, never values.
+Frozen at RealShort 816ca2e (rs = realshort-pick-export-v2). Transport is checked here: envelopes, the cursor chain,
+and the manifest's identity (version, asOf, fingerprint), snapshotDays order and window and latestSnapshot. What the
+contract says the manifest and the rows contain, and its constants, live in contracts.py alone: parse_manifest hands the
+manifest row to contracts.parse_manifest once transport has passed. Drift is an echo that says the source moved: a v2 page with
+another fingerprint, a v1 page with another capturedAt, fingerprint or sourceRevision (plan 1520, 1523). A v2 page echoing
+another resource or asOf answers a request that was never sent: a contract error, like anything else out of shape
+(the brief's P2-2a page checks). Error messages name fields, never values.
 """
 
 import re
@@ -12,35 +15,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from types import MappingProxyType
 
+from ggwork_pick.mirror import contracts
+from ggwork_pick.mirror.contracts import COUNTED_RESOURCES, EXPORT_VERSION, SERIES_RESOURCE
 from ggwork_pick.mirror.errors import ContractError, DriftError
 
-EXPORT_VERSION = "pick-export-v2"  # rs:src/lib/pick/export-v2-map.ts:25
 V1_VERSION = "pick-feed-v1"  # rs:src/lib/pick/feed-map.ts:21; ggwork_pick/sync.py:22
 V1_PAGE_LIMIT = 1000  # sync.py:24; RealShort's FEED_MAX_LIMIT (feed-map.ts:22)
 V1_MAX_PAGES = 40  # sync.py:25
-# rs:src/lib/pick/export-v2-map.ts:61-71; manifest.counts has every one but rs_series_day (export-v2.ts:420)
-COUNTED_RESOURCES = ("catalog_rows", "catalog_signals", "catalog_posted", "catalog_accounts", "rs_rows", "rs_ids", "rs_clicks14", "rs_bill_orders")
-SERIES_RESOURCE = "rs_series_day"
-ROW_RESOURCES = (*COUNTED_RESOURCES, SERIES_RESOURCE)
-# maxLimit, also the default limit (rs:src/lib/pick/export-v2-map.ts:130-191, export-v2-page.ts:56-61)
-MAX_LIMITS: Mapping[str, int] = MappingProxyType(
-    {
-        "catalog_rows": 5000,
-        "catalog_signals": 5000,
-        "catalog_posted": 1000,
-        "catalog_accounts": 1000,
-        "rs_rows": 2000,
-        "rs_ids": 10000,
-        "rs_clicks14": 20000,
-        "rs_bill_orders": 5000,
-        "rs_series_day": 40000,
-    }
-)
 SERIES_DAY_SPAN = 93  # day runs from the as_of day back 92 days (rs:src/lib/pick/export-v2-page.ts:20, :49-54)
 V2_ENVELOPE_KEYS = frozenset({"ok", "version", "resource", "asOf", "fingerprint", "rows", "nextCursor"})  # export-v2-page.ts:125-133
-MANIFEST_KEYS = frozenset({"version", "asOf", "fingerprint", "sourceRevision", "counts", "latestSnapshot", "snapshotDays", "meta"})  # map.ts:900-909
-META_KEYS = frozenset({"freshness", "rsCounts", "growthBaseline", "sources", "rules", "control", "scrub", "warnings"})  # map.ts:878-897
-SNAPSHOT_DAY_KEYS = frozenset({"day", "rows"})  # export-v2-map.ts:907
 # The fixed words RealShort puts in error bodies (rs:src/lib/pick/feed-http.ts:6-14, export-v2-page.ts:72)
 ERROR_WORDS = frozenset({"not_found", "unauthorized", "bad_request", "source_changed", "source_busy", "read_failed", "row_too_large"})
 REASON_WORDS = frozenset({"resource", "unknown_param", "duplicate_param", "as_of", "fp", "cursor", "limit", "day"})
@@ -48,9 +31,6 @@ AS_OF_LAG = timedelta(minutes=2)  # plan 2.5
 
 _FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 _DAY = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-# meta.scrub keys are field paths such as catalog_signals.payload.h[*][*] (rs:src/lib/pick/export-v2-map.ts:641-672)
-_SCRUB_PATH = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\*\]){0,16}$")
-_WARNING_CODE = re.compile(r"^[a-z_]{1,64}$")
 _KEY_NAME = re.compile(r"^[A-Za-z0-9_]{1,64}$")
 
 
@@ -113,7 +93,8 @@ class PageMetrics:
     started: float = 0.0
 
     def line(self) -> dict:
-        """One stdout line of the dry-run: the eight metrics, plus day, attempt and error word when they say something."""
+        """One stdout line of the dry-run: the eight metrics and retried (this request repeated a read_failed one),
+        plus day and the error word when they say something. The dry-run adds the run as attempt (the brief's P2-2a)."""
         base = {
             "resource": self.resource,
             "page": self.page,
@@ -123,8 +104,9 @@ class PageMetrics:
             "wire_bytes": self.wire_bytes,
             "rows": self.rows,
             "retry_after": self.retry_after,
+            "retried": self.attempt > 1,
         }
-        optional = {"day": self.day, "attempt": self.attempt if self.attempt > 1 else None, "error": self.error}
+        optional = {"day": self.day, "error": self.error}
         return {**base, **{key: value for key, value in optional.items() if value is not None}}
 
 
@@ -182,7 +164,7 @@ def require_keys(value: object, expected: frozenset[str], where: str) -> dict:
 
 
 def check_v2_page(body: object, *, resource: str, as_of_text: str, fp: str | None) -> dict:
-    """Envelope of any v2 page (rs:src/lib/pick/export-v2.ts:516, :534-538): resource is contract, asOf and fp are drift."""
+    """Envelope of any v2 page (rs:src/lib/pick/export-v2.ts:516, :534-538): resource and asOf are contract, fp is drift."""
     label = f"RealShort feed v2 {resource}"
     if not isinstance(body, dict) or body.get("ok") is not True or body.get("version") != EXPORT_VERSION:
         raise ContractError(f"{label} 的版本或格式不符", resource=resource)
@@ -190,7 +172,7 @@ def check_v2_page(body: object, *, resource: str, as_of_text: str, fp: str | Non
     if body["resource"] != resource:
         raise ContractError(f"{label} 回显的 resource 不是 {resource}", resource=resource)
     if body["asOf"] != as_of_text:
-        raise DriftError(f"{label} 回显的 asOf 与请求的 as_of 不同", resource=resource)
+        raise ContractError(f"{label} 回显的 asOf 与请求的 as_of 不同", resource=resource)
     if fp is not None and body["fingerprint"] != fp:
         raise DriftError(f"{label} 回显的 fingerprint 与 manifest 不同", resource=resource)
     if not isinstance(body["rows"], list) or not all(isinstance(row, dict) for row in body["rows"]):
@@ -232,25 +214,18 @@ def check_v1_page(body: object, *, manifest: Manifest, first: bool) -> str | Non
     return cursor or None
 
 
-def _manifest_identity(row: dict, body: dict, as_of_text: str) -> str:
-    if row["version"] != EXPORT_VERSION:
+def _manifest_identity(row: dict, body: dict, as_of_text: str) -> None:
+    """Which manifest this is: read with get(), since whether every key is there is the content check's to say."""
+    if row.get("version") != EXPORT_VERSION:
         raise ContractError("manifest.version 不符", resource="manifest")
-    if row["asOf"] != as_of_text:
+    if row.get("asOf") != as_of_text:
         raise ContractError("manifest.asOf 与信封不同", resource="manifest")
-    fingerprint = row["fingerprint"]
+    fingerprint = row.get("fingerprint")
     if not isinstance(fingerprint, str) or not _FINGERPRINT.match(fingerprint) or fingerprint != body["fingerprint"]:
         raise ContractError("manifest.fingerprint 不是 64 位小写十六进制，或与信封不同", resource="manifest")
-    if row["sourceRevision"] is not None and not isinstance(row["sourceRevision"], str):
+    revision = row.get("sourceRevision")
+    if revision is not None and not isinstance(revision, str):
         raise ContractError("manifest.sourceRevision 不是字符串或 null", resource="manifest")
-    return fingerprint
-
-
-def _counts(value: object) -> Mapping[str, int]:
-    counts = require_keys(value, frozenset(COUNTED_RESOURCES), "manifest.counts")
-    bad = [name for name in COUNTED_RESOURCES if not _count(counts[name])]
-    if bad:
-        raise ContractError(f"manifest.counts.{bad[0]} 不是非负整数", resource="manifest")
-    return MappingProxyType({name: counts[name] for name in COUNTED_RESOURCES})
 
 
 def _series_day(day: object, as_of: datetime) -> bool:
@@ -261,52 +236,50 @@ def _series_day(day: object, as_of: datetime) -> bool:
     return True
 
 
-def _snapshot_days(value: object, as_of: datetime) -> list[tuple[str, int]]:
-    """[{day, rows}] over the days rs_series_day takes (rs:src/lib/pick/export-v2.ts:440-446): a day outside that
-    window could never be fetched, so it is a contract error here rather than a ValueError from pages() later."""
+def _snapshot_days(value: object, as_of: datetime) -> list[str]:
+    """The days of snapshotDays, over the days rs_series_day takes (rs:src/lib/pick/export-v2.ts:440-446) and strictly
+    increasing: a day outside that window could never be fetched, so it is a contract error here rather than a
+    ValueError from pages() later. Each entry's keys and rows are the content check's."""
     if not isinstance(value, list):
         raise ContractError("manifest.snapshotDays 不是数组", resource="manifest")
     days = []
     for index, item in enumerate(value):
-        entry = require_keys(item, SNAPSHOT_DAY_KEYS, f"manifest.snapshotDays[{index}]")
-        if not _series_day(entry["day"], as_of) or not _count(entry["rows"]):
-            message = f"manifest.snapshotDays[{index}] 的 day 不是 as_of 当天往前 {SERIES_DAY_SPAN} 天内的真实日期，或 rows 不是非负整数"
-            raise ContractError(message, resource="manifest")
-        days = [*days, (entry["day"], entry["rows"])]
-    if any(earlier[0] >= later[0] for earlier, later in zip(days, days[1:])):
+        day = item.get("day") if isinstance(item, dict) else None
+        if not _series_day(day, as_of):
+            raise ContractError(f"manifest.snapshotDays[{index}] 的 day 不是 as_of 当天往前 {SERIES_DAY_SPAN} 天内的真实日期", resource="manifest")
+        days = [*days, day]
+    if any(earlier >= later for earlier, later in zip(days, days[1:])):
         raise ContractError("manifest.snapshotDays 不是按日期严格递增", resource="manifest")
     return days
 
 
-def _meta(value: object) -> Mapping[str, object]:
-    meta = require_keys(value, META_KEYS, "manifest.meta")
-    scrub, warnings = meta["scrub"], meta["warnings"]
-    if not isinstance(scrub, dict) or not all(isinstance(k, str) and len(k) <= 200 and _SCRUB_PATH.match(k) and _count(n) for k, n in scrub.items()):
-        raise ContractError("manifest.meta.scrub 不是「字段路径 → 非负整数」", resource="manifest")
-    if not isinstance(warnings, list) or not all(isinstance(w, dict) and isinstance(w.get("code"), str) and _WARNING_CODE.match(w["code"]) for w in warnings):
-        raise ContractError("manifest.meta.warnings 的某一条没有合规的 code", resource="manifest")
-    return MappingProxyType(meta)
-
-
-def parse_manifest(body: object, *, as_of: datetime, metrics: PageMetrics, busy_sleeps: tuple[int, ...] = ()) -> Manifest:
-    """The manifest page (rs:src/lib/pick/export-v2.ts:497-518): one row, exactly its keys, counts and snapshotDays checked."""
-    as_of_text = format_as_of(as_of)
+def _manifest_row(body: object, as_of_text: str) -> dict:
     page = check_v2_page(body, resource="manifest", as_of_text=as_of_text, fp=None)
     if len(page["rows"]) != 1 or page["nextCursor"] is not None:
         raise ContractError("manifest 的 rows 必须恰好 1 个元素，nextCursor 为 null", resource="manifest")
-    row = require_keys(page["rows"][0], MANIFEST_KEYS, "manifest")
-    fingerprint = _manifest_identity(row, page, as_of_text)
-    days = _snapshot_days(row["snapshotDays"], as_of)
-    if row["latestSnapshot"] != (days[-1][0] if days else None):
+    row = page["rows"][0]
+    _manifest_identity(row, page, as_of_text)
+    return row
+
+
+def parse_manifest(body: object, *, as_of: datetime, metrics: PageMetrics, busy_sleeps: tuple[int, ...] = ()) -> Manifest:
+    """The manifest page (rs:src/lib/pick/export-v2.ts:497-518): transport here, then contracts.parse_manifest for the
+    content (every key and nested shape of MANIFEST_SHAPE, forbidden names, NUL); synchronous, so a large page's caller
+    runs it in a worker thread."""
+    as_of_text = format_as_of(as_of)
+    row = _manifest_row(body, as_of_text)
+    days = _snapshot_days(row.get("snapshotDays"), as_of)
+    if row.get("latestSnapshot") != (days[-1] if days else None):
         raise ContractError("manifest.latestSnapshot 不是 snapshotDays 的最后一天", resource="manifest")
+    contracts.parse_manifest(row)
     return Manifest(
         as_of=as_of.astimezone(UTC),
-        fingerprint=fingerprint,
+        fingerprint=row["fingerprint"],
         source_revision=row["sourceRevision"],
-        counts=_counts(row["counts"]),
+        counts=MappingProxyType({name: row["counts"][name] for name in COUNTED_RESOURCES}),
         latest_snapshot=row["latestSnapshot"],
-        snapshot_days=MappingProxyType(dict(days)),
-        meta=_meta(row["meta"]),
+        snapshot_days=MappingProxyType({entry["day"]: entry["rows"] for entry in row["snapshotDays"]}),
+        meta=MappingProxyType(row["meta"]),
         row=MappingProxyType(row),
         metrics=metrics,
         busy_sleeps=tuple(busy_sleeps),

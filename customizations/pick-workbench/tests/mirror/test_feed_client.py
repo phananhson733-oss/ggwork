@@ -7,9 +7,10 @@ Configuration, transport, secrets and metrics are in test_feed_transport.py.
 import json
 import re
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
-from fake_realshort import BYPASS, EXPORT_TOKEN, FEED_TOKEN, ROW_SENTINEL, busy, v1_error, v2_error
+from fake_realshort import BYPASS, EXPORT_TOKEN, FEED_TOKEN, ROW_SENTINEL, busy, make_rows, v1_error, v2_error
 from mirror_harness import collect, make_client, only, world
 
 from ggwork_pick.mirror.client import COUNTED_RESOURCES, format_as_of, select_as_of
@@ -165,6 +166,8 @@ async def test_read_failed_once_recovers_on_the_retry():
         (page,) = await collect(client.pages("rs_ids", manifest=manifest))
     assert page.metrics.attempt == 2 and page.metrics.status == 200
     assert [(m.resource, m.status, m.error) for m in seen] == [("manifest", 200, None), ("rs_ids", 503, "read_failed"), ("rs_ids", 200, None)]
+    # The printed line says whether the request was the read_failed retry; "attempt" there is the dry-run's run number.
+    assert [m.line()["retried"] for m in seen] == [False, False, True] and not any("attempt" in m.line() for m in seen)
 
 
 @pytest.mark.asyncio
@@ -329,6 +332,40 @@ def _rewrite_rows_page(fake, resource, change):
     fake._rows = patched
 
 
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+
+
+def test_page_limits_default_to_each_resources_server_maximum():
+    # The brief's P2-2a: PAGE_LIMITS is a module constant, by default RealShort's maxLimit per resource (RESOURCE_SPECS,
+    # rs:src/lib/pick/export-v2-map.ts:130-191, also its default limit, export-v2-page.ts:107); rs_rows is P1-6's (U47).
+    from ggwork_pick.mirror import client
+
+    specs = json.loads((FIXTURES / "export_v2_contract.json").read_text(encoding="utf-8"))["resource_specs"]
+    maxima = {resource: spec["maxLimit"] for resource, spec in specs.items()}
+    assert dict(client.MAX_LIMITS) == maxima
+    assert list(client.PAGE_LIMITS) == list(maxima) and dict(client.PAGE_LIMITS) == maxima
+    assert all(1 <= client.PAGE_LIMITS[r] <= maxima[r] for r in maxima)
+    with pytest.raises(TypeError):
+        client.PAGE_LIMITS["rs_rows"] = 1000
+
+
+@pytest.mark.asyncio
+async def test_a_page_limit_below_the_maximum_is_sent_and_honoured(monkeypatch):
+    # What P1-6's first fallback does (--limit rs_rows=1000, then the constant): the page size goes out as limit.
+    from ggwork_pick.mirror import client
+
+    monkeypatch.setattr(client, "PAGE_LIMITS", {**client.PAGE_LIMITS, "rs_rows": 1})
+    fake, clock = world(sizes={"rs_rows": 2, "rs_ids": 2})
+    async with make_client(fake, clock) as feed:
+        manifest = await feed.manifest_when_free()
+        pages = await collect(feed.pages("rs_rows", manifest=manifest))
+        await collect(feed.pages("rs_ids", manifest=manifest))
+    assert [p.metrics.rows for p in pages] == [1, 1]
+    assert {c.params.get("limit") for c in only(fake.calls, "rs_rows")} == {"1"}
+    # At the server's own maximum nothing is sent: RealShort's default is that maximum.
+    assert all("limit" not in c.params for c in only(fake.calls, "rs_ids"))
+
+
 @pytest.mark.asyncio
 async def test_repeated_cursor_stops():
     fake, clock = world(sizes={"rs_ids": 5}, page_rows={"rs_ids": 1})
@@ -368,6 +405,30 @@ async def test_page_cap_is_manifest_rows_plus_one():
 
 
 @pytest.mark.asyncio
+async def test_a_chain_of_exactly_rows_plus_one_pages_is_accepted():
+    # The cap is counts + 1 pages, not ceil(counts / limit) + 2: the (counts + 1)th page still passes when it ends the chain.
+    fake, clock = world(sizes={"rs_ids": 3}, page_rows={"rs_ids": 1})
+    fake.counts = {**{name: len(rows) for name, rows in fake.data.items()}, "rs_ids": 2}
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+        pages = await collect(client.pages("rs_ids", manifest=manifest, limit=2000))
+    assert [p.metrics.rows for p in pages] == [1, 1, 1] and pages[-1].body["nextCursor"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_series_day_chain_is_capped_at_its_snapshot_rows_plus_one():
+    fake, clock = world(series={"2026-09-23": 1}, page_rows={"rs_series_day": 1})
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+        # More rows behind the day than the manifest promised (the double does not tie them to the fingerprint).
+        fake.series["2026-09-23"] = make_rows("rs_series_day", 5)
+        with pytest.raises(ContractError) as caught:
+            await collect(client.pages("rs_series_day", manifest=manifest, day="2026-09-23"))
+    # snapshotDays promised 1 row: 2 pages are allowed, the second one's cursor ends it.
+    assert len(only(fake.calls, "rs_series_day")) == 2 and "2" in str(caught.value)
+
+
+@pytest.mark.asyncio
 async def test_empty_page_with_a_cursor_is_a_contract_error():
     fake, clock = world(sizes={"rs_ids": 3}, page_rows={"rs_ids": 1})
     _rewrite_rows_page(fake, "rs_ids", lambda page, params: {**page, "rows": []})
@@ -392,7 +453,8 @@ async def test_more_rows_than_limit_is_a_contract_error():
     ("change", "error"),
     [
         (lambda page, params: {**page, "fingerprint": "e" * 64}, DriftError),
-        (lambda page, params: {**page, "asOf": "2026-09-23T12:31:00.000Z"}, DriftError),
+        # The brief's P2-2a v2 page check: only the fingerprint is drift; another resource or asOf is a contract error.
+        (lambda page, params: {**page, "asOf": "2026-09-23T12:31:00.000Z"}, ContractError),
         (lambda page, params: {**page, "resource": "rs_rows"}, ContractError),
         (lambda page, params: {**page, "version": "pick-export-v3"}, ContractError),
         (lambda page, params: {**page, "rows": {"a": 1}}, ContractError),
@@ -407,9 +469,11 @@ async def test_v2_page_echo_is_checked_on_every_page(change, error):
     _rewrite_rows_page(fake, "rs_ids", lambda page, params: change(page, params) if len(fake.calls) == 4 else page)
     async with make_client(fake, clock) as client:
         manifest = await client.manifest_when_free()
-        with pytest.raises(error):
+        with pytest.raises(error) as caught:
             await collect(client.pages("rs_ids", manifest=manifest))
     assert len(only(fake.calls, "rs_ids")) == 3
+    # A contract error is never drift: the dry-run and the mirror run start over only on drift.
+    assert isinstance(caught.value, DriftError) == (error is DriftError)
 
 
 @pytest.mark.asyncio
@@ -486,6 +550,11 @@ def _row(change):
     return lambda body: {**body, "rows": [change(body["rows"][0])]}
 
 
+def _meta_at(section, key, value):
+    """The manifest with meta[section][key] replaced."""
+    return _row(lambda row: {**row, "meta": {**row["meta"], section: {**row["meta"][section], key: value}}})
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "change",
@@ -504,6 +573,8 @@ def _row(change):
         _row(lambda row: {**row, "version": "pick-export-v1"}),
         _row(lambda row: {**row, "latestSnapshot": "2026-09-22"}),
         _row(lambda row: {**row, "snapshotDays": list(reversed(row["snapshotDays"]))}),
+        # A day twice (latestSnapshot still the last): Manifest.snapshot_days would keep one entry and the wrong row cap.
+        _row(lambda row: {**row, "snapshotDays": [*row["snapshotDays"], {**row["snapshotDays"][-1], "rows": 1}]}),
         _row(lambda row: {**row, "snapshotDays": [{**row["snapshotDays"][0], "extra": 1}]}),
         _row(lambda row: {**row, "meta": {**row["meta"], "extra": 1}}),
         _row(lambda row: {**row, "meta": {**row["meta"], "scrub": {"rs_rows.title": "1"}}}),
@@ -511,6 +582,15 @@ def _row(change):
         _row(lambda row: {**row, "meta": {**row["meta"], "warnings": [{"source": "x"}]}}),
         _row(lambda row: {**row, "sourceRevision": 5}),
         _row(lambda row: {**row, "asOf": "2026-09-23T12:31:00.000Z"}),
+        _row(lambda row: {**row, "x ROWVALUE=1": 1}),
+        # Content now goes through contracts.parse_manifest: every nested shape of MANIFEST_SHAPE, forbidden names, NUL.
+        _meta_at("control", "postedStates", {"pub": 0}),
+        _meta_at("control", "rankCounts", {"kd": [1]}),
+        _meta_at("rules", "glossary", [{"g": "x", "d": "y", "items": [{"t": "a", "extra": 1}]}]),
+        _meta_at("rules", "ruleHints", {"x_usd": "a"}),
+        _meta_at("rules", "postedPoolUrl", "a\x00b"),
+        _meta_at("growthBaseline", "1", {"baselineDay": None}),
+        _meta_at("freshness", "rows", float("inf")),
     ],
 )
 async def test_manifest_contract(change):
@@ -521,6 +601,23 @@ async def test_manifest_contract(change):
         with pytest.raises(ContractError) as caught:
             await client.manifest_when_free()
     assert ROW_SENTINEL not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_a_new_theater_in_the_manifest_passes_the_client():
+    # Finding 7: a RealShort release adding a theater or platform fills rankCounts, bases and platforms with a new key.
+    def grow(row):
+        control = row["meta"]["control"]
+        facets = {**control["facetsPick"], "platforms": {"newplatform": 2}, "bases": {"newtheater": 1}}
+        control = {**control, "rankCounts": {"newtheater": 5}, "facetsPick": facets, "facetsAll": facets}
+        rules = {**row["meta"]["rules"], "basisLabels": {"newtheater": "新剧场"}, "sortLabels": {"newsort": "新排序"}}
+        return {**row, "meta": {**row["meta"], "control": control, "rules": rules}}
+
+    fake, clock = world()
+    _rewrite_manifest(fake, _row(grow))
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+    assert manifest.meta["control"]["rankCounts"] == {"newtheater": 5}
 
 
 @pytest.mark.asyncio
@@ -535,12 +632,14 @@ async def test_snapshot_days_outside_the_series_window_are_a_contract_error(day)
 
 
 @pytest.mark.asyncio
-async def test_manifest_as_of_echo_mismatch_is_drift():
+async def test_manifest_as_of_echo_mismatch_is_a_contract_error():
+    # The manifest page is a v2 page too: echoing another asOf answers a request that was not sent, not drift.
     fake, clock = world()
     _rewrite_manifest(fake, lambda body: {**body, "asOf": "2026-09-23T12:30:00.000Z"})
     async with make_client(fake, clock) as client:
-        with pytest.raises(DriftError):
+        with pytest.raises(ContractError) as caught:
             await client.manifest_when_free()
+    assert not isinstance(caught.value, DriftError) and len(only(fake.calls, "manifest")) == 1
 
 
 @pytest.mark.asyncio

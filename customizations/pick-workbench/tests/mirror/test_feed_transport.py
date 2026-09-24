@@ -107,6 +107,9 @@ async def test_one_request_has_a_total_time_limit():
         {"base_url": "https://user:pw@realshort.test"},
         {"base_url": "ftp://realshort.test"},
         {"base_url": "https://realshort.test?x=1"},
+        # urlsplit takes these hosts, httpx refuses them (InvalidURL) when the client is built: a ConfigError, not a traceback.
+        {"base_url": "https://exa\u00e9mple..test"},
+        {"base_url": "https://exa\x00mple.test"},
         {"export_token": " "},
         {"export_token": "two words"},
         {"bypass": "line\nbreak"},
@@ -189,7 +192,8 @@ async def test_metrics_measure_each_response():
     assert manifest.metrics.resource == "manifest" and manifest.metrics.rows == 1
     assert [m.resource for m in seen] == ["manifest", "rs_ids", "rs_ids"]
     line = first.line()
-    assert set(line) == {"resource", "page", "status", "elapsed_ms", "bytes", "wire_bytes", "rows", "retry_after"}
+    assert set(line) == {"resource", "page", "status", "elapsed_ms", "bytes", "wire_bytes", "rows", "retry_after", "retried"}
+    assert line["retried"] is False
 
 
 @pytest.mark.asyncio
@@ -242,6 +246,36 @@ async def test_large_bodies_are_parsed_off_the_event_loop(monkeypatch):
     small, large = threads
     assert small[0] < client_module.THREAD_PARSE_BYTES < large[0]
     assert small[1] is True and large[1] is False
+
+
+@pytest.mark.asyncio
+async def test_a_large_manifest_is_validated_off_the_event_loop(monkeypatch):
+    # 0.3: pydantic validation of a page runs in a worker thread too; meta.rules alone is tens of kilobytes in production.
+    from ggwork_pick.mirror import client as client_module
+    from ggwork_pick.mirror import contracts
+
+    threads = []
+    original = contracts.parse_manifest
+
+    def spy(manifest):
+        threads.append(threading.current_thread() is threading.main_thread())
+        return original(manifest)
+
+    monkeypatch.setattr(contracts, "parse_manifest", spy)
+    fake, clock = world()
+    async with make_client(fake, clock) as client:
+        await client.manifest_when_free()
+        original_manifest = fake._manifest
+
+        def padded(as_of):
+            status, headers, body = original_manifest(as_of)
+            page = json.loads(body)
+            page["rows"][0]["meta"]["rules"]["ruleHints"] = {"pad": "x" * client_module.THREAD_PARSE_BYTES}
+            return status, headers, json.dumps(page).encode()
+
+        fake._manifest = padded
+        await client.manifest_when_free()
+    assert threads == [True, False]
 
 
 def test_as_of_age_limit_leaves_margin_inside_realshorts_window():

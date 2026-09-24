@@ -22,7 +22,7 @@ from importlib import resources
 from operator import or_
 from types import MappingProxyType
 
-from ggwork_pick.mirror.contracts import ROW_RESOURCES
+from ggwork_pick.mirror.contracts import ODD_KEY, PATH_PART_MAX, ROW_RESOURCES
 
 RULES_FILE = "pan_rules.json"
 STEPS = ("entities", "form", "dots", "strip", "markup", "tags", "percent")
@@ -45,6 +45,9 @@ DATE_KEYS = (
 SCRUB_EXEMPT_KEYS = frozenset(IDENTITY_KEYS + DATE_KEYS)
 # export-v2-map.ts:230: nested exemptions by path from a row's root; only v1 rows have them.
 SCRUB_EXEMPT_PATHS = frozenset({"signals[*].source_ref", "signals[*].observed_at", "posted.last_post_on"})
+# A key written into a hit path as it is: the name shape meta.scrub's paths take (contracts.SCRUB_PATH). Any other key
+# is written ODD_KEY, as contracts' error paths do: paths get printed (--scan), and a key can hold the very text scanned for.
+_PLAIN_KEY = re.compile(rf"[A-Za-z0-9_]{{1,{PATH_PART_MAX}}}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,8 +248,13 @@ def scrub_text(text: str) -> tuple[str, int]:
     return (RULES.replacement, 1) if _recognised(text) else (text, 0)
 
 
+def _shown(key: str) -> str:
+    return key if _PLAIN_KEY.fullmatch(key) else ODD_KEY
+
+
 def _leaf_hits(value, at: str, rel: str) -> Iterator[tuple[str, int]]:
-    """(path, hits) for every string leaf that scrubs; at is the counted path, rel the path from the row root."""
+    """(path, hits) for every string leaf that scrubs; at is the counted path (keys as _shown writes them), rel the path
+    from the row root with keys as they are, for the exemptions."""
     if isinstance(value, str):
         hits = scrub_text(value)[1]
         if hits:
@@ -259,11 +267,15 @@ def _leaf_hits(value, at: str, rel: str) -> Iterator[tuple[str, int]]:
             here = f"{rel}.{key}" if rel else key
             exempt = here in SCRUB_EXEMPT_PATHS if rel else key in SCRUB_EXEMPT_KEYS
             if not exempt:
-                yield from _leaf_hits(item, f"{at}.{key}" if at else key, here)
+                yield from _leaf_hits(item, f"{at}.{_shown(key)}" if at else _shown(key), here)
 
 
 def scan_value(value, prefix: str = "") -> dict[str, int]:
-    """Hits by path over value's string leaves, exactly as scrubAllText(value, prefix) counts them; value is not touched."""
+    """Hits by path over value's string leaves, as scrubAllText(value, prefix) counts them; value is not touched.
+
+    A key that is not a plain name is written ODD_KEY: RealShort would write it as it is, but such a meta.scrub path
+    fails the contract anyway (SCRUB_PATH), so the paths only differ where they could never be compared.
+    """
     totals: dict[str, int] = {}
     for path, hits in _leaf_hits(value, prefix, ""):
         totals[path] = totals.get(path, 0) + hits
@@ -285,3 +297,30 @@ def scan_v1_row(row: dict) -> dict[str, int]:
 def scan_manifest_meta(meta: dict) -> dict[str, int]:
     """manifest.meta as finalizeManifest scrubs it (export-v2-map.ts:922-928): every key but scrub, under manifest.meta."""
     return scan_value({key: item for key, item in meta.items() if key != "scrub"}, "manifest.meta")
+
+
+def add_hits(first: dict[str, int], second: dict[str, int]) -> dict[str, int]:
+    """Two hit counts added up by path, as a new dict (addScrubCounts, export-v2-map.ts:644-646)."""
+    return {**first, **{path: first.get(path, 0) + hits for path, hits in second.items()}}
+
+
+def scan_v1_page(page: dict) -> dict[str, int]:
+    """A feed v1 page: rows[*] by v1's exemptions, under v1.rows[*]; the first page's rules Markdown apart, as v1.rules.
+
+    RealShort sends the rules unscrubbed (feed.ts:63), so they are counted on their own (U45); other page fields
+    (scope, freshness) are not scanned, as in G2.
+    """
+    totals: dict[str, int] = {}
+    for row in page.get("rows") or ():
+        found = {f"v1.rows[*].{path}" if path else "v1.rows[*]": hits for path, hits in scan_v1_row(row).items()}
+        totals = add_hits(totals, found)
+    rules = page.get("rules")
+    return totals if rules is None else add_hits(totals, scan_value(rules, "v1.rules"))
+
+
+def scan_v2_page(resource: str, page: dict) -> dict[str, int]:
+    """A feed v2 row page: every row as scan_row counts it, added up; paths as meta.scrub writes them."""
+    totals: dict[str, int] = {}
+    for row in page.get("rows") or ():
+        totals = add_hits(totals, scan_row(resource, row))
+    return totals

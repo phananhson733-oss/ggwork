@@ -14,13 +14,16 @@ import asyncio
 import json
 import re
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import partial
+from types import MappingProxyType
 from urllib.parse import SplitResult, urlsplit
 
 import httpx
 
+from ggwork_pick.mirror.contracts import COUNTED_RESOURCES, EXPORT_VERSION, MAX_LIMITS, ROW_RESOURCES, SERIES_RESOURCE
 from ggwork_pick.mirror.errors import (
     AsOfExpiredError,
     BusyError,
@@ -34,13 +37,8 @@ from ggwork_pick.mirror.errors import (
     SourceReadError,
 )
 from ggwork_pick.mirror.feed_shape import (
-    COUNTED_RESOURCES,
     ERROR_WORDS,
-    EXPORT_VERSION,
-    MAX_LIMITS,
     REASON_WORDS,
-    ROW_RESOURCES,
-    SERIES_RESOURCE,
     V1_MAX_PAGES,
     V1_PAGE_LIMIT,
     V1_VERSION,
@@ -58,6 +56,8 @@ from ggwork_pick.mirror.feed_shape import (
 __all__ = [
     "AS_OF_MAX_AGE",
     "COUNTED_RESOURCES",
+    "MAX_LIMITS",
+    "PAGE_LIMITS",
     "ROW_RESOURCES",
     "SERIES_RESOURCE",
     "V1_MAX_PAGES",
@@ -71,6 +71,22 @@ __all__ = [
     "select_as_of",
 ]
 
+# Rows asked per page (the brief's P2-2a): by default each resource's MAX_LIMITS, RealShort's maxLimit and also its
+# default, so no limit parameter goes out; a value below it is sent as limit. --limit overrides one run.
+PAGE_LIMITS: Mapping[str, int] = MappingProxyType(
+    {
+        "catalog_rows": 5000,
+        "catalog_signals": 5000,
+        "catalog_posted": 1000,
+        "catalog_accounts": 1000,
+        # 由 P1-6 实测确定（U47）：超门槛先试 --limit rs_rows=1000，通过的值写回这里（docs/pick-workbench/mirror-dry-run.md）
+        "rs_rows": 2000,
+        "rs_ids": 10000,
+        "rs_clicks14": 20000,
+        "rs_bill_orders": 5000,
+        "rs_series_day": 40000,
+    }
+)
 V2_PATH = "/api/pick-feed/v2/"
 V1_PATH = "/api/pick-feed"
 BYPASS_HEADER = "x-vercel-protection-bypass"
@@ -115,7 +131,12 @@ def _origin(base_url: object) -> str:
         raise ConfigError("base URL 只写源站：http(s)://主机[:端口]，不带账号")
     if parts.path not in ("", "/") or parts.query or parts.fragment:
         raise ConfigError("base URL 只写源站，不带路径、查询或锚点；路径由客户端拼")
-    return f"{parts.scheme}://{parts.netloc}"
+    origin = f"{parts.scheme}://{parts.netloc}"
+    try:
+        httpx.URL(origin)  # urlsplit takes hosts httpx refuses (a bad IDNA label, a control character)
+    except httpx.InvalidURL:
+        raise ConfigError("base URL 的主机名不合法（httpx 不收）") from None
+    return origin
 
 
 def _secret(value: object, what: str) -> str:
@@ -339,7 +360,9 @@ class FeedClient:
         """One manifest request at as_of; source_busy raises BusyError, which manifest_when_free waits out."""
         request = _Request(V2_PATH + "manifest", {"as_of": format_as_of(as_of)}, self._export_token, "manifest", 1, as_of, _MANIFEST)
         body, metrics = await self._fetch(request)
-        return parse_manifest(body, as_of=as_of, metrics=metrics, busy_sleeps=busy_sleeps)
+        check = partial(parse_manifest, body, as_of=as_of, metrics=metrics, busy_sleeps=busy_sleeps)
+        # pydantic over meta.rules and the rest: off the gateway's one event loop when the page is large (0.3).
+        return await asyncio.to_thread(check) if metrics.bytes > THREAD_PARSE_BYTES else check()
 
     async def manifest_when_free(self) -> Manifest:
         """Plan 5.2 step 3: sleep Retry-After on source_busy and choose a new as_of each time, 1200 seconds in all."""
@@ -357,14 +380,16 @@ class FeedClient:
     def pages(self, resource: str, *, manifest: Manifest, day: str | None = None, limit: int | None = None) -> AsyncIterator[Page]:
         """Every page of one row resource at the manifest's as_of and fp, one at a time (plan 5.2 step 6).
 
-        Arguments are checked here, before any request. The chain must end within row_cap + 1 pages: RealShort's
-        3 MB cut can make a page shorter than limit, but every page before the last has a row (export-v2-page.ts:223).
+        limit is this call's page size, else PAGE_LIMITS'. Arguments are checked here, before any request. The chain
+        must end within row_cap + 1 pages: RealShort's 3 MB cut can make a page shorter than limit, but every page
+        before the last has a row (export-v2-page.ts:223).
         """
         _check_row_arguments(resource, manifest, day, limit)
-        page_limit = limit or MAX_LIMITS[resource]
+        page_limit = limit if limit is not None else PAGE_LIMITS[resource]
+        sent = {"limit": str(page_limit)} if limit is not None or page_limit != MAX_LIMITS[resource] else {}
 
         def request(number: int, cursor: str | None) -> _Request:
-            params = {"as_of": manifest.as_of_text, "fp": manifest.fingerprint, **_cursor(cursor), **({"limit": str(limit)} if limit else {})}
+            params = {"as_of": manifest.as_of_text, "fp": manifest.fingerprint, **_cursor(cursor), **sent}
             params = {**params, **({"day": day} if day is not None else {})}
             return _Request(V2_PATH + resource, params, self._export_token, resource, number, manifest.as_of, _PAGE, day)
 
