@@ -18,7 +18,8 @@ down_revision = "0005"
 branch_labels = None
 depends_on = None
 
-logger = logging.getLogger(__name__)
+# Alembic loads revision files under generated module names ("0006_pick_mirror_py"); log under a stable one.
+logger = logging.getLogger("ggwork_pick.migrations")
 
 READER_ROLE_ENV = "PICK_MIRROR_READER_ROLE"
 DEFAULT_READER_ROLE = "pick_board_reader"

@@ -6,6 +6,7 @@ so the downgrade leaves it in place (U26, U27). The PostgreSQL halves skip when 
 """
 
 import json
+import logging
 from datetime import date
 
 import pg
@@ -439,10 +440,13 @@ async def test_applying_0006_again_grants_a_reader_younger_than_the_template(pg_
 
 @pytest.mark.parametrize("role", ["pick_board_reader_absent_4f1c9e", ""])
 @pytest.mark.asyncio
-async def test_a_missing_reader_role_is_skipped_without_failing(empty_pg_url, tmp_path, monkeypatch, role):
+async def test_a_missing_reader_role_is_skipped_without_failing(empty_pg_url, tmp_path, monkeypatch, caplog, role):
     # "" falls back to the default name, which this cluster does not have either.
     monkeypatch.setenv(pg.READER_ROLE_ENV, role)
-    await pg.migrate(empty_pg_url, tmp_path)
+    with caplog.at_level(logging.WARNING, logger="ggwork_pick.migrations"):
+        await pg.migrate(empty_pg_url, tmp_path)
+    # Production has the role: a skipped grant is worth a line in the gateway log, under a name one can filter on.
+    assert [record.name for record in caplog.records if pg.READER_ROLE_ENV in record.getMessage()] == ["ggwork_pick.migrations"]
     engine = host_engine(empty_pg_url)
     try:
         assert await _scalar(engine, "select version_num from ggwp_alembic_version") == revisions.head()
