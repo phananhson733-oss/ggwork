@@ -203,6 +203,24 @@ describe("the list", () => {
     expect(titlesIn(root, "[data-replay-group]")).toEqual(["c-1", "c-2"]);
   });
 
+  it("the off-mirror box covers this page only, by global place", () => {
+    const personal = JSON.stringify(["sheet-upload", "Yy0x", "en"]);
+    const list = Array.from({ length: 25 }, (_, n) =>
+      n === 22 ? personal : shared(`k-${n + 1}`),
+    );
+    const a = answer({ identities: list, total: 25, limit: 5 });
+    const first = rowsData(a, { params: { page: "1", size: "20" } });
+    const root = show(first.data, first.req);
+    expect(root.querySelector('[data-replay-offsite="true"]')).toBeNull();
+    cleanup();
+    const second = rowsData(a, { params: { page: "2", size: "20" } });
+    const box = show(second.data, second.req).querySelector(
+      '[data-replay-offsite="true"]',
+    );
+    expect(box?.textContent).toContain("本页有 1 部不在镜像里");
+    expect(box?.textContent).toContain("第 23 位 · sheet-upload · Yy0x · en");
+  });
+
   it("an empty list and a page past the end say so", () => {
     const empty = rowsData(answer({ identities: [], total: 0 }));
     show(empty.data, empty.req);

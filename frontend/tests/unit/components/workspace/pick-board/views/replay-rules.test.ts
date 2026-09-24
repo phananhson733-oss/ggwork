@@ -371,6 +371,26 @@ describe("the near filter", () => {
     expect(filter.unmapped.map((u) => u.key)).toEqual(["theater"]);
   });
 
+  it("a display name two theaters share is listed, not given to the first", () => {
+    const twins = boardRules((raw) => {
+      for (const key of ["dramabox", "flareflow"] as const) {
+        const base = raw.platformRules[key];
+        if (!base) throw new Error(`the fixture has no ${key} rule`);
+        raw.platformRules[key] = { ...base, name: "TwinShort" };
+      }
+    });
+    const filter = nearFilter(
+      conditions({ theater: "TwinShort" }),
+      twins,
+      7,
+      [],
+    );
+    expect(filter.href).toBe("/workspace/pick-data?v=7");
+    expect(filter.unmapped).toEqual([
+      { key: "theater", label: "剧场：本页没有这个剧场", value: "TwinShort" },
+    ]);
+  });
+
   it("language: the locale back to the sheet's name; a name the feed kept as is; und is listed", () => {
     expect(near({ language: "en" }).href).toBe(
       `/workspace/pick-data?lang=${encodeURIComponent("英语")}&v=7`,
@@ -500,5 +520,18 @@ describe("the near filter", () => {
         conditions({ exclude_previous: true, exclude_selected: false }),
       ),
     ).toEqual(["exclude_previous"]);
+  });
+
+  it("a stored result without confirmed_eligible_only took the backend's default, true", () => {
+    // contracts.py: confirmed_eligible_only: bool = True; pickConditionsSchema keeps the key optional.
+    const full = conditions({ channel: "youtube", exclude_selected: false });
+    const stored = Object.fromEntries(
+      Object.entries(full).filter(([key]) => key !== "confirmed_eligible_only"),
+    ) as PickConditions;
+    expect("confirmed_eligible_only" in stored).toBe(false);
+    expect(agentOnlyConditions(stored)).toEqual([
+      "channel",
+      "confirmed_eligible_only",
+    ]);
   });
 });

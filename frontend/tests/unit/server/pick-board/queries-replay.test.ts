@@ -102,7 +102,8 @@ describe("loadRowsByKeys", () => {
     const rows = await loadRowsByKeys(["c-2", "gone", "c-2", "c-1"]);
     const [main] = sent(/WITH ORDINALITY/);
     expect(main?.text).toMatch(/unnest\(\$1::text\[\]\) WITH ORDINALITY/);
-    expect(main?.text).toMatch(/ORDER BY k\.ord/);
+    // The list's own order, ascending: nothing may follow k.ord (a DESC would reverse the page).
+    expect(main?.text).toMatch(/ORDER BY k\.ord\s*$/);
     expect(main?.values).toEqual([["c-2", "gone", "c-1"]]);
     expect(rows.map((r) => r.rowKey)).toEqual(["c-2", "c-1"]);
     // decorate: signals and posted tags for the page's keys, ReelShort metrics for none.
