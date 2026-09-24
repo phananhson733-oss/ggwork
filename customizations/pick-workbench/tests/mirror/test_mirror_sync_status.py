@@ -17,7 +17,7 @@ import pytest_asyncio
 from engines import host_engine
 from fake_realshort import EXPORT_TOKEN, FEED_TOKEN, v2_error
 from mirror_pairs import catalog_payload
-from run_world import BASE, fetch, make_sync, open_harness, world_fake
+from run_world import BASE, V1_RULES, fetch, make_sync, open_harness, world_fake
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -141,14 +141,44 @@ async def test_before_any_version_there_is_nothing_to_be_behind(harness):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("flag", "export_token", "enabled"),
-    [("1", EXPORT_TOKEN, True), ("0", EXPORT_TOKEN, False), ("", EXPORT_TOKEN, False), (" 1", EXPORT_TOKEN, False), ("1", "", False)],
+    ("flag", "export_token", "feed_token", "enabled"),
+    [
+        ("1", EXPORT_TOKEN, FEED_TOKEN, True),
+        ("0", EXPORT_TOKEN, FEED_TOKEN, False),
+        ("", EXPORT_TOKEN, FEED_TOKEN, False),
+        (" 1", EXPORT_TOKEN, FEED_TOKEN, False),
+        ("1", "", FEED_TOKEN, False),
+        ("1", EXPORT_TOKEN, "", False),  # not configured: no sync at all, the mirror's included
+    ],
 )
-async def test_enabled_says_whether_the_mirror_runs(harness, flag, export_token, enabled):
+async def test_enabled_says_whether_the_mirror_runs(harness, flag, export_token, feed_token, enabled):
     from ggwork_pick.service import SyncSettings
 
-    harness.service.sync_settings = SyncSettings(feed_url=BASE, feed_token=FEED_TOKEN, export_token=export_token, mirror_flag=flag)
+    harness.service.sync_settings = SyncSettings(feed_url=BASE, feed_token=feed_token, export_token=export_token, mirror_flag=flag)
     assert (await _sync_status(harness.service))["mirror"]["enabled"] is enabled
+
+
+@pytest.mark.asyncio
+async def test_current_is_the_latest_published_version(harness):
+    first = await _run(harness)
+    second = await _run(harness, gw.with_v1_row(gw.baseline(), 0, title="换了标题的剧"))
+    assert (first["details_json"]["outcome"], second["details_json"]["outcome"]) == ("paired", "paired")
+    mirror = (await _sync_status(harness.service))["mirror"]
+    assert mirror["current"]["id"] == second["details_json"]["version"] != first["details_json"]["version"]
+    assert mirror["behind"] is False
+
+
+@pytest.mark.asyncio
+async def test_behind_when_only_the_rules_moved(harness):
+    """Same v1 rows, new rules Markdown, the mirror half failing: the catalog is reused, the knowledge batch is new."""
+    paired = await _run(harness)
+    too_large = v2_error(500, "row_too_large", resource="rs_ids", key=["d-1"])
+    fake = world_fake(harness, intercept=lambda call: too_large if call.resource == "rs_ids" else None, v1_rules=f"{V1_RULES}\n\n补一条口径说明")
+    degraded = await make_sync(harness, fake).run("cron")
+    assert degraded["details_json"]["outcome"] == "degraded"
+    assert degraded["catalog_batch_id"] == paired["catalog_batch_id"] and degraded["knowledge_batch_id"] != paired["knowledge_batch_id"]
+    mirror = (await _sync_status(harness.service))["mirror"]
+    assert mirror["behind"] is True and mirror["current"]["id"] == paired["details_json"]["version"]
 
 
 # ---------------------------------------------------------------- 2. SQLite

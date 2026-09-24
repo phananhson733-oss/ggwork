@@ -112,6 +112,37 @@ async def test_drift_twice_in_v2_stage_degrades(harness):
     assert [b["status"] for b in staged] == ["failed", "failed", "published", "published"]
     assert await shared_current(harness.engine) == (result["catalog_batch_id"], result["knowledge_batch_id"])
     assert (await control(harness.engine))["consecutive_failures"] == 1
+    # The fold would read rs_series_day at a fingerprint the drift made stale (U29).
+    assert "series" not in details and "series_ms" not in details["stages"]
+
+
+@pytest.mark.asyncio
+async def test_manifest_drift_twice_publishes_nothing(harness):
+    changed = v2_error(409, "source_changed")
+    result, fake = await _run(harness, intercept=lambda c: changed if c.resource == "manifest" else None)
+    details = result["details_json"]
+    assert (result["status"], details["outcome"], details["reason"], details["attempts"]) == ("failed", "failed", "drift", 2)
+    assert details["drift"] == {"count": 2, "stages": ["manifest", "manifest"]}
+    assert harness.clock.sleeps == [90]
+    assert [c.resource for c in fake.calls] == ["manifest", "manifest"]
+    assert await batches(harness.engine) == [] and await versions(harness.engine) == []
+    assert "series" not in details
+    state = await control(harness.engine)
+    assert (state["consecutive_failures"], state["last_failure"]) == (1, "drift")
+
+
+@pytest.mark.asyncio
+async def test_manifest_drift_once_then_pairs(harness):
+    changed = v2_error(409, "source_changed")
+    result, fake = await _run(harness, intercept=lambda c: changed if c.resource == "manifest" and c.n == 1 else None)
+    details = result["details_json"]
+    assert (result["status"], details["outcome"], details["reason"], details["attempts"]) == ("success", "paired", None, 2)
+    assert details["drift"] == {"count": 1, "stages": ["manifest"]}
+    assert harness.clock.sleeps == [90]
+    assert {c.params["as_of"] for c in v1_calls(fake.calls)} == {details["as_of"]}
+    assert [v["status"] for v in await versions(harness.engine)] == ["published"]
+    assert "series" in details
+    assert (await control(harness.engine))["consecutive_failures"] == 0
 
 
 @pytest.mark.asyncio
@@ -384,3 +415,30 @@ async def test_retention_error_after_publishing_is_reported(harness, monkeypatch
     result, _ = await _run(harness)
     assert (result["status"], result["details_json"]["outcome"]) == ("success", "paired")
     assert result["details_json"]["retention_after"] == {"error": "RuntimeError"}
+
+
+@pytest.mark.asyncio
+async def test_the_v1_half_ends_at_the_run_deadline(harness, monkeypatch):
+    """The v1 half gets what is left of the 900 seconds from as_of (Budget.run_left), not a fresh 900."""
+    from ggwork_pick.mirror import run, run_v1
+
+    real_create, real_scan = run.create_version, run_v1.scanned_v1_page
+
+    async def late_version(conn, **arguments):
+        harness.clock.advance(900 - 0.3)  # all but 0.3 s of the run's 900 are gone before v1 starts
+        return await real_create(conn, **arguments)
+
+    async def slow_scan(scan, body):
+        await asyncio.sleep(3)
+        return await real_scan(scan, body)
+
+    monkeypatch.setattr(run, "create_version", late_version)
+    monkeypatch.setattr(run_v1, "scanned_v1_page", slow_scan)
+    result, fake = await _run(harness)
+    details = result["details_json"]
+    assert (result["status"], details["outcome"], details["reason"]) == ("failed", "failed", "v1")
+    assert "总时限" in result["error"]
+    assert [v["status"] for v in await versions(harness.engine)] == ["failed"]
+    assert await batches(harness.engine) == [] and v2_row_calls(fake.calls) == []
+    state = await control(harness.engine)
+    assert (state["consecutive_failures"], state["last_failure"]) == (1, "v1")
