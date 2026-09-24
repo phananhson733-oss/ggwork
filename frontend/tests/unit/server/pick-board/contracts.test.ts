@@ -58,13 +58,13 @@ function sourceFile(relativePath: string): ts.SourceFile {
   return file;
 }
 
-function nodesOf(file: ts.SourceFile): ts.Node[] {
+function nodesOf(root: ts.Node): ts.Node[] {
   const out: ts.Node[] = [];
   const visit = (node: ts.Node) => {
     out.push(node);
     ts.forEachChild(node, visit);
   };
-  visit(file);
+  visit(root);
   return out;
 }
 
@@ -344,6 +344,48 @@ describe("colors", () => {
   });
 });
 
+/** Template literals inside className attributes (nested ones included). */
+function classNameTemplates(file: ts.SourceFile): ts.TemplateExpression[] {
+  return nodesOf(file)
+    .filter(
+      (n): n is ts.JsxAttribute =>
+        ts.isJsxAttribute(n) && n.name.getText() === "className",
+    )
+    .flatMap((attr) => nodesOf(attr))
+    .filter((n): n is ts.TemplateExpression => ts.isTemplateExpression(n));
+}
+
+/** Text glued to a hole: `a${x}` or `${x}b`, which fuses two class names. */
+function gluedHoles(node: ts.TemplateExpression): string[] {
+  const pieces = [
+    node.head.text,
+    ...node.templateSpans.map((s) => s.literal.text),
+  ];
+  return pieces.flatMap((text, i) => {
+    const before = i < pieces.length - 1 && /\S$/.test(text);
+    const after = i > 0 && /^\S/.test(text);
+    return before || after ? [text] : [];
+  });
+}
+
+describe("class names", () => {
+  it("a className template never glues a class name to an interpolation", () => {
+    let seen = 0;
+    const offenders = componentFiles().flatMap((file) => {
+      const sf = sourceFile(file);
+      return classNameTemplates(sf).flatMap((node) => {
+        seen += 1;
+        return gluedHoles(node).map(
+          (text) =>
+            `${file}:${sf.getLineAndCharacterOfPosition(node.pos).line + 1}: "${text}"`,
+        );
+      });
+    });
+    expect(offenders).toEqual([]);
+    expect(seen).toBeGreaterThan(10);
+  });
+});
+
 describe("links and time", () => {
   it("no relative /admin/pick link outside the rule rewriter", () => {
     const rewriter = `${CORE_DIR}/rules.ts`;
@@ -366,6 +408,24 @@ describe("links and time", () => {
             ts.isIdentifier(n.expression) &&
             n.expression.text === "Date" &&
             (n.arguments?.length ?? 0) === 0,
+        )
+        .map(
+          (n) => `${file}:${sf.getLineAndCharacterOfPosition(n.pos).line + 1}`,
+        );
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("no Date.now(): the board's now is the version's as_of", () => {
+    const offenders = boardFiles().flatMap((file) => {
+      const sf = sourceFile(file);
+      return nodesOf(sf)
+        .filter(
+          (n) =>
+            ts.isPropertyAccessExpression(n) &&
+            ts.isIdentifier(n.expression) &&
+            n.expression.text === "Date" &&
+            n.name.text === "now",
         )
         .map(
           (n) => `${file}:${sf.getLineAndCharacterOfPosition(n.pos).line + 1}`,

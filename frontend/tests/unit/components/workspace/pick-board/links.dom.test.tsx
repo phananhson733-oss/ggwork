@@ -257,6 +257,27 @@ describe("the three GET forms submit to the board with v", () => {
     }
   });
 
+  it("the earlier-period form keeps the board, the page size and the version", () => {
+    const { container } = render(
+      <RankFilters
+        req={request({ tab: "rank", rk: "kw", size: "100" })}
+        meta={rankMeta()}
+        rules={rules}
+      />,
+    );
+    const form = container.querySelector("form");
+    const hidden = Array.from(
+      form?.querySelectorAll('input[type="hidden"]') ?? [],
+    ).map((input) => [input.getAttribute("name"), input.getAttribute("value")]);
+    expect(Object.fromEntries(hidden)).toEqual({
+      tab: "rank",
+      rk: "kw",
+      size: "100",
+      v: "7",
+    });
+    expect(form?.querySelector('select[name="week"]')).not.toBeNull();
+  });
+
   it("forms leave v out when the request has none", () => {
     const { container } = render(
       <Filters req={{ ...request(), v: null }} facets={FACETS} rules={rules} />,

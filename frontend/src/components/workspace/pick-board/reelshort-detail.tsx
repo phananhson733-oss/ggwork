@@ -2,7 +2,8 @@
 // 本地改动：素材与结算改读版本规则 rules.platformRules.reelshort（缺失时写「规则未知」）；删掉「我方分成」一组金额格与
 // 原 Usd 格，订单笔数挪进「本站信号」；明细表只留日期、推广类型、订单数、合并的原始行数（不显示推广标识与金额），
 // 截断时说明；「现在」取版本的 as_of（now 改名 asOf）；公开页是 ReelShort 站的绝对地址，新标签打开（★38）；
-// Link 加 prefetch={false}；可选的 seriesTrimmedBefore 说明曲线早于哪天的点已清理；整页拆成几个小组件（函数 <50 行）。
+// Link 加 prefetch={false}；可选的 seriesTrimmedBefore 在清理日落进曲线窗口时说明早于哪天的点已清理；明细行的 book_id
+// 不是正典 id 时在推广类型旁注明（兄弟资源同日同类型的行才分得开）；整页拆成几个小组件（函数 <50 行）。
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -317,6 +318,23 @@ function Head({ detail, req, requestedId, asOf, rules }: DetailProps) {
   );
 }
 
+const DAY_MS = 86_400_000;
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * 曲线下的清理说明。曲线画的是 as_of 所在 UTC 日往前 SERIES_DAYS 天（含当天，与 fillCalendar 同一算法），
+ * 清理日晚于画出来的第一天，才有画不出来的点；早于它的清理与这张图无关，不提。不像日期的值也不提。
+ */
+function trimmedNote(trimmedBefore: string | null, asOf: Date): string {
+  if (!trimmedBefore || !ISO_DAY.test(trimmedBefore)) return "";
+  const firstDay = new Date(asOf.getTime() - (SERIES_DAYS - 1) * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+  return trimmedBefore > firstDay
+    ? `早于 ${trimmedBefore} 的曲线点已清理。`
+    : "";
+}
+
 function Curves({
   detail,
   asOf,
@@ -327,9 +345,7 @@ function Curves({
   seriesTrimmedBefore: string | null;
 }) {
   const { row, series } = detail;
-  const trimmed = seriesTrimmedBefore
-    ? `早于 ${seriesTrimmedBefore} 的曲线点已清理。`
-    : "";
+  const trimmed = trimmedNote(seriesTrimmedBefore, asOf);
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Spark
@@ -409,7 +425,32 @@ function ClicksSection({ clicks }: { clicks: ReelshortDetail["clicks"] }) {
   );
 }
 
-function OrderRows({ bill }: { bill: readonly BillRow[] }) {
+/** 账单上的 book_id 不是这部正典剧自己时注明：同组同语种的兄弟资源同日同类型的行才分得开 */
+function SiblingId({
+  bookId,
+  canonicalId,
+}: {
+  bookId: string;
+  canonicalId: string;
+}) {
+  if (bookId === canonicalId) return null;
+  return (
+    <span
+      className="text-ink-dim ml-1 font-mono text-[11px]"
+      title="账单上的 book_id：同组同语种的另一个资源，订单归到这部正典剧"
+    >
+      {bookId}
+    </span>
+  );
+}
+
+function OrderRows({
+  bill,
+  canonicalId,
+}: {
+  bill: readonly BillRow[];
+  canonicalId: string;
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -432,7 +473,10 @@ function OrderRows({ bill }: { bill: readonly BillRow[] }) {
               className="border-line border-t"
             >
               <td className="py-2 whitespace-nowrap">{b.billDate}</td>
-              <td>{b.promotionType}</td>
+              <td>
+                {b.promotionType}
+                <SiblingId bookId={b.bookId} canonicalId={canonicalId} />
+              </td>
               <td className="text-right tabular-nums">
                 {formatInt(b.orderCnt)}
               </td>
@@ -450,9 +494,11 @@ function OrderRows({ bill }: { bill: readonly BillRow[] }) {
 function OrdersSection({
   bill,
   truncated,
+  canonicalId,
 }: {
   bill: readonly BillRow[];
   truncated: boolean;
+  canonicalId: string;
 }) {
   return (
     <Section title="订单明细（最近 50 行）">
@@ -465,7 +511,7 @@ function OrdersSection({
           这个版本里没有该剧的订单记录；不代表完整历史订单为零。
         </p>
       ) : (
-        <OrderRows bill={bill} />
+        <OrderRows bill={bill} canonicalId={canonicalId} />
       )}
     </Section>
   );
@@ -528,7 +574,10 @@ interface DetailProps {
   /** 版本的 as_of：上线天数与曲线的最后一天都按它算 */
   asOf: Date;
   rules: BoardRules;
-  /** pick_mirror.series_state.trimmed_before：早于它的曲线点已清理；没有就不提 */
+  /**
+   * pick_mirror.series_state.trimmed_before 原值（YYYY-MM-DD）：早于它的曲线点已清理。
+   * 何时提由本组件按 asOf 判（落进曲线窗口才提），页面原样传，不用自己比较；没有就传 null
+   */
   seriesTrimmedBefore?: string | null;
 }
 
@@ -554,7 +603,11 @@ export function ReelshortDetailView(props: DetailProps) {
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <ClicksSection clicks={detail.clicks} />
-        <OrdersSection bill={detail.bill} truncated={detail.billTruncated} />
+        <OrdersSection
+          bill={detail.bill}
+          truncated={detail.billTruncated}
+          canonicalId={detail.row.id}
+        />
       </div>
       {detail.postedRecords.length ? (
         <Section title={`我们的发布记录 · ${detail.postedRecords.length} 条`}>

@@ -1,7 +1,7 @@
 // PORTED_FROM: realshort@816ca2e src/components/admin/pick/reelshort-cells.tsx
 // 本地改动：删掉我方分成的金额格与 Delta 的金额模式（本页没有金额）；上线天数按版本的 as_of 算（PublishCells 的
 // now 改名 asOf）；剧名格的 Link 加 prefetch={false}；TagChips 的散列取模不再用 `!`（noUncheckedIndexedAccess）；
-// 表头的 hover 包装抽成 Hinted。
+// 表头的 hover 包装抽成 Hinted；剧名格 id 行的 cursor-help 前的空格留在模板里（prettier 会削掉字符串里的前导空格）。
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -125,7 +125,7 @@ export function TitleCell({
       {extra ? <div className="mt-1">{extra}</div> : null}
       {note ? <div className="text-helper mt-1 text-[12px]">{note}</div> : null}
       <div
-        className={`font-mono text-[11px] text-ink-dim${hint ? "cursor-help" : ""}`}
+        className={`text-ink-dim font-mono text-[11px] ${hint ? "cursor-help" : ""}`}
         title={hint}
       >
         {locale ? `${locale} · ` : ""}

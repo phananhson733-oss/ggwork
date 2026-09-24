@@ -125,6 +125,7 @@ describe("nothing on the board links to a pan or shows a code or an amount", () 
     expect(text).not.toContain("提取码");
     expect(container.querySelector(GLOSSARY_SELECTOR)).not.toBeNull();
     const pan = panDomainPattern();
+    expect(text).not.toMatch(pan);
     for (const href of hrefs(container)) expect(href).not.toMatch(pan);
   });
 

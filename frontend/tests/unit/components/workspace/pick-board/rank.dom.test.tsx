@@ -187,6 +187,32 @@ describe("orders table", () => {
     expect(text).toMatch(/上线日期/);
   });
 
+  it("warns about the 200-row cut only when merged rows outnumber the rows shown", () => {
+    const whole = render(
+      <OrdersTable
+        rows={[billRow()]}
+        totals={billTotals({ rows: 12, mergedRows: 1 })}
+        asOf={AS_OF}
+        source={undefined}
+        req={request()}
+      />,
+    );
+    expect(whole.container.textContent).not.toContain("只列了最近");
+    cleanup();
+    const cut = render(
+      <OrdersTable
+        rows={[billRow()]}
+        totals={billTotals({ rows: 12, mergedRows: 8 })}
+        asOf={AS_OF}
+        source={undefined}
+        req={request()}
+      />,
+    );
+    expect(cut.container.textContent).toContain(
+      "合并后共 8 行有订单，这里只列了最近 1 行",
+    );
+  });
+
   it("an empty ledger explains itself against the version time", () => {
     const { container } = render(
       <OrdersTable
@@ -222,6 +248,44 @@ describe("ReelShort tables and detail keep orders and drop money", () => {
     expect(container.querySelectorAll("thead tr:first-child th")).toHaveLength(
       4,
     );
+  });
+
+  it("the two header rows span the same columns as a body row", () => {
+    for (const candidates of [false, true]) {
+      const { container } = render(
+        <ReelshortTable
+          rows={[observeRow()]}
+          asOf={AS_OF}
+          req={request()}
+          candidates={candidates}
+        />,
+      );
+      const [groups, heads] = Array.from(
+        container.querySelectorAll("thead tr"),
+      );
+      const spanned = Array.from(groups?.querySelectorAll("th") ?? []).reduce(
+        (sum, th) => sum + Number(th.getAttribute("colspan") ?? "1"),
+        0,
+      );
+      const columns = heads?.querySelectorAll("th").length ?? 0;
+      expect(spanned).toBe(columns);
+      expect(
+        container.querySelectorAll("tbody tr:first-child td"),
+      ).toHaveLength(columns);
+      cleanup();
+    }
+  });
+
+  it("the id line under a title is dim and shows its hint as help", () => {
+    const { container } = render(
+      <ReelshortTable rows={[observeRow()]} asOf={AS_OF} req={request()} />,
+    );
+    const idLine = Array.from(
+      container.querySelectorAll("tbody td div[title]"),
+    ).find((div) => div.textContent === "en · demo0001");
+    expect(idLine?.getAttribute("title")).toContain("当前采集");
+    expect(idLine?.classList.contains("text-ink-dim")).toBe(true);
+    expect(idLine?.classList.contains("cursor-help")).toBe(true);
   });
 
   it("the detail lists orders with merged source rows and marks truncation", () => {
