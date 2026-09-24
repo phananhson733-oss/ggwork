@@ -1,0 +1,231 @@
+{
+  "about": [
+    "Shared cases for decoding a candidate identity into the pick-board row_key. Both sides read this file:",
+    "customizations/pick-workbench/tests/mirror/test_mirror_identity_cases.py checks row_key (gates.row_key_of) and identity (DramaInput.identity);",
+    "frontend/tests/unit/core/pick/identity.test.ts checks rowKeyFromSourceId against row_key and rowKeyFromIdentity against card_row_key.",
+    "identity is json.dumps([source, source_id, language], separators=(',', ':')) (ggwork_pick/contracts.py); source_id is",
+    "Buffer.from(rowKey).toString('base64url') (realshort@816ca2e src/lib/pick/feed-map.ts:316): base64url, no padding.",
+    "row_key: base64url alphabet only, decodes, strict UTF-8 (a leading BOM is kept), and re-encoding gives source_id back; else null.",
+    "card_row_key: row_key when it also passes isRowKey (non-empty, <= 120 UTF-16 units, not all whitespace, no C0 control or DEL), else null.",
+    "Expected values are written by design (the key that was encoded, or null), not by running either decoder."
+  ],
+  "cases": [
+    {
+      "name": "ascii",
+      "source_id": "Yy0x",
+      "identity": "[\"realshort-pick\",\"Yy0x\",\"en\"]",
+      "row_key": "c-1",
+      "card_row_key": "c-1"
+    },
+    {
+      "name": "goodshort-base64-id",
+      "source_id": "Z29vZHNob3J0LW1xaysrbi9MK1dmL3hEQzBHNDNDUlE9PQ",
+      "identity": "[\"realshort-pick\",\"Z29vZHNob3J0LW1xaysrbi9MK1dmL3hEQzBHNDNDUlE9PQ\",\"en\"]",
+      "row_key": "goodshort-mqk++n/L+Wf/xDC0G43CRQ==",
+      "card_row_key": "goodshort-mqk++n/L+Wf/xDC0G43CRQ=="
+    },
+    {
+      "name": "han-characters",
+      "source_id": "c2hvcnRtYXgtODQ1MjI377yI5bey6K6-572u5a6a5pe277yJ",
+      "identity": "[\"realshort-pick\",\"c2hvcnRtYXgtODQ1MjI377yI5bey6K6-572u5a6a5pe277yJ\",\"en\"]",
+      "row_key": "shortmax-845227\uff08\u5df2\u8bbe\u7f6e\u5b9a\u65f6\uff09",
+      "card_row_key": "shortmax-845227\uff08\u5df2\u8bbe\u7f6e\u5b9a\u65f6\uff09"
+    },
+    {
+      "name": "trailing-space",
+      "source_id": "c2hvcnRtYXgtODU2MDQ5IA",
+      "identity": "[\"realshort-pick\",\"c2hvcnRtYXgtODU2MDQ5IA\",\"en\"]",
+      "row_key": "shortmax-856049 ",
+      "card_row_key": "shortmax-856049 "
+    },
+    {
+      "name": "leading-space",
+      "source_id": "IGthbG9zLTE",
+      "identity": "[\"realshort-pick\",\"IGthbG9zLTE\",\"en\"]",
+      "row_key": " kalos-1",
+      "card_row_key": " kalos-1"
+    },
+    {
+      "name": "astral-character",
+      "source_id": "5YmnLfCggIA",
+      "identity": "[\"realshort-pick\",\"5YmnLfCggIA\",\"en\"]",
+      "row_key": "\u5267-\ud840\udc00",
+      "card_row_key": "\u5267-\ud840\udc00"
+    },
+    {
+      "name": "leading-bom",
+      "source_id": "77u_a2Fsb3MtMQ",
+      "identity": "[\"realshort-pick\",\"77u_a2Fsb3MtMQ\",\"en\"]",
+      "row_key": "\ufeffkalos-1",
+      "card_row_key": "\ufeffkalos-1"
+    },
+    {
+      "name": "max-length",
+      "source_id": "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh",
+      "identity": "[\"realshort-pick\",\"YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh\",\"en\"]",
+      "row_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "card_row_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "over-max-length",
+      "source_id": "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ",
+      "identity": "[\"realshort-pick\",\"YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ\",\"en\"]",
+      "row_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "card_row_key": null
+    },
+    {
+      "name": "astral-over-max-length",
+      "source_id": "8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgA",
+      "identity": "[\"realshort-pick\",\"8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgPCggIDwoICA8KCAgA\",\"en\"]",
+      "row_key": "\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00\ud840\udc00",
+      "card_row_key": null
+    },
+    {
+      "name": "empty",
+      "source_id": "",
+      "identity": "[\"realshort-pick\",\"\",\"en\"]",
+      "row_key": "",
+      "card_row_key": null
+    },
+    {
+      "name": "space-only",
+      "source_id": "IA",
+      "identity": "[\"realshort-pick\",\"IA\",\"en\"]",
+      "row_key": " ",
+      "card_row_key": null
+    },
+    {
+      "name": "ideographic-space-only",
+      "source_id": "44CA",
+      "identity": "[\"realshort-pick\",\"44CA\",\"en\"]",
+      "row_key": "\u3000",
+      "card_row_key": null
+    },
+    {
+      "name": "c0-control",
+      "source_id": "YQFi",
+      "identity": "[\"realshort-pick\",\"YQFi\",\"en\"]",
+      "row_key": "a\u0001b",
+      "card_row_key": null
+    },
+    {
+      "name": "nul",
+      "source_id": "YQBi",
+      "identity": "[\"realshort-pick\",\"YQBi\",\"en\"]",
+      "row_key": "a\u0000b",
+      "card_row_key": null
+    },
+    {
+      "name": "delete",
+      "source_id": "YX9i",
+      "identity": "[\"realshort-pick\",\"YX9i\",\"en\"]",
+      "row_key": "a\u007fb",
+      "card_row_key": null
+    },
+    {
+      "name": "zero-trailing-bits",
+      "source_id": "YS0",
+      "identity": "[\"realshort-pick\",\"YS0\",\"en\"]",
+      "row_key": "a-",
+      "card_row_key": "a-"
+    },
+    {
+      "name": "non-zero-trailing-bits",
+      "source_id": "YS1",
+      "identity": "[\"realshort-pick\",\"YS1\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "padded",
+      "source_id": "YS0=",
+      "identity": "[\"realshort-pick\",\"YS0=\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "padded-two",
+      "source_id": "YWI==",
+      "identity": "[\"realshort-pick\",\"YWI==\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "standard-plus",
+      "source_id": "YS+i",
+      "identity": "[\"realshort-pick\",\"YS+i\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "standard-slash",
+      "source_id": "YS/i",
+      "identity": "[\"realshort-pick\",\"YS/i\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "length-one-mod-four",
+      "source_id": "YS1iY",
+      "identity": "[\"realshort-pick\",\"YS1iY\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "single-character",
+      "source_id": "Y",
+      "identity": "[\"realshort-pick\",\"Y\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "inner-space",
+      "source_id": "YS 1i",
+      "identity": "[\"realshort-pick\",\"YS 1i\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "trailing-newline",
+      "source_id": "YS1i\n",
+      "identity": "[\"realshort-pick\",\"YS1i\\n\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "non-ascii-character",
+      "source_id": "YS1i\u5267",
+      "identity": "[\"realshort-pick\",\"YS1i\u5267\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "not-utf8",
+      "source_id": "_w",
+      "identity": "[\"realshort-pick\",\"_w\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "utf8-surrogate",
+      "source_id": "7aCA",
+      "identity": "[\"realshort-pick\",\"7aCA\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "overlong-utf8",
+      "source_id": "wIA",
+      "identity": "[\"realshort-pick\",\"wIA\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    },
+    {
+      "name": "truncated-utf8",
+      "source_id": "5Yk",
+      "identity": "[\"realshort-pick\",\"5Yk\",\"en\"]",
+      "row_key": null,
+      "card_row_key": null
+    }
+  ]
+}
