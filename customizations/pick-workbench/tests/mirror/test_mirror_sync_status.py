@@ -7,9 +7,12 @@ and the shared catalog's source_as_of for the P3 banner. On SQLite, null. The ru
 double end to end, so every state here is one a real run leaves.
 """
 
+import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import gate_world as gw
 import httpx
@@ -21,11 +24,15 @@ from mirror_pairs import catalog_payload
 from run_world import BASE, V1_RULES, fetch, make_sync, open_harness, world_fake
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_frontend_contract import _shape
 
 from ggwork_pick.imports import Importer
 from ggwork_pick.repository import PickRepository, stamp
 
 RUN_STATUSES = {"running", "success", "failed"}  # frontend/src/core/pick/api.ts:58
+# /sync as the gateway answers it, parsed by frontend/tests/unit/core/pick/sync-schema.test.ts (P2 final review seams-3).
+# Regenerate with PICK_WRITE_CONTRACT=1 and PICK_TEST_PG_URL set: the mirror answers need PostgreSQL.
+SYNC_FIXTURE = Path(__file__).resolve().parents[4] / "frontend/tests/unit/core/pick/fixtures/backend-sync.json"
 MIRROR_KEYS = {
     "enabled",
     "current",
@@ -202,8 +209,8 @@ async def test_a_failed_mirror_read_leaves_the_rest_of_sync(harness, monkeypatch
 # ---------------------------------------------------------------- 2. SQLite
 
 
-@pytest.mark.asyncio
-async def test_sqlite_has_no_mirror(tmp_path):
+async def _sqlite_sync_status(tmp_path) -> dict:
+    """/sync from a SQLite gateway after one v1 sync, the mirror switched on (it cannot run there)."""
     from test_realshort_sync import TOKEN, feed_row, feed_transport
 
     from ggwork_pick.service import PickService, SyncSettings
@@ -214,9 +221,14 @@ async def test_sqlite_has_no_mirror(tmp_path):
     try:
         service.sync_transport = feed_transport([feed_row(1), feed_row(2)])
         assert (await service.realshort_sync().run("cron"))["status"] == "success"
-        status = await _sync_status(service)
+        return await _sync_status(service)
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_has_no_mirror(tmp_path):
+    status = await _sqlite_sync_status(tmp_path)
     assert status["mirror"] is None
     assert status["current"]["rows"] == 2 and status["runs"][0]["status"] == "success"
 
@@ -294,3 +306,62 @@ async def test_lock_stuck_needs_all_three_conditions(harness):
     left = (await fetch(harness.engine, "SELECT lock_holder_since FROM pick_mirror.control WHERE id = 1"))[0]["lock_holder_since"]
     assert left < datetime.now(UTC) - timedelta(minutes=80)
     assert (await _sync_status(harness.service))["mirror"]["lock_stuck"] is None
+
+
+# ---------------------------------------------------------------- 6. the frontend's fixture (seams-3)
+
+
+def _contract_shape(answers: dict):
+    """What the fixture pins: every key and value type of each answer, runs' details_json aside (the frontend never
+    reads it, and each run outcome words it differently)."""
+
+    def without_details(runs: list[dict]) -> list[dict]:
+        return [{key: value for key, value in run.items() if key != "details_json"} for run in runs]
+
+    return _shape({name: {**answer, "runs": without_details(answer["runs"])} for name, answer in answers.items()})
+
+
+async def _every_field_set(harness) -> dict:
+    """/sync with every mirror field holding a value: a paired run, the curve's reach, a degraded run counting a
+    failure, and a mirror lock another session has held for 81 minutes."""
+    from ggwork_pick.mirror.connection import open_dedicated
+    from ggwork_pick.mirror.lock import try_mirror_lock
+
+    await _run(harness)
+    await _execute(harness.engine, "UPDATE pick_mirror.series_state SET through = DATE '2026-09-22', trimmed_before = DATE '2026-06-21' WHERE id = 1")
+    too_large = v2_error(500, "row_too_large", resource="rs_ids", key=["d-1"])
+    await _run(harness, intercept=lambda call: too_large if call.resource == "rs_ids" else None)
+    other = await open_dedicated(harness.dsn)
+    try:
+        assert await try_mirror_lock(other, now=datetime.now(UTC), holder="backfill")
+        await _held_since(harness, other, 81)
+        return await _sync_status(harness.service)
+    finally:
+        await other.close()
+
+
+@pytest.mark.asyncio
+async def test_sync_answers_match_the_frontend_fixture(harness, monkeypatch, tmp_path):
+    """The real /sync answers the frontend's sync-schema parses: before any version, every mirror field set (its times in
+    both notations: as_of as RealShort writes it, the rest as stamp()), a failed mirror read, and SQLite's null."""
+    from ggwork_pick import routes
+    from ggwork_pick.service import SyncSettings
+
+    harness.service.sync_settings = SyncSettings(feed_url=BASE, feed_token=FEED_TOKEN, export_token=EXPORT_TOKEN, mirror_flag="1")
+    answers = {"before_any_version": await _sync_status(harness.service), "every_field_set": await _every_field_set(harness)}
+
+    async def broken(repo, **options):
+        raise RuntimeError("synthetic read failure")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(routes, "mirror_status", broken)
+        answers["read_error"] = await _sync_status(harness.service)
+    answers["sqlite"] = await _sqlite_sync_status(tmp_path)
+    mirror = answers["every_field_set"]["mirror"]
+    assert set(mirror) == MIRROR_KEYS and all(value is not None for value in mirror.values()) and mirror["enabled"] is True
+    assert mirror["current"]["as_of"].endswith(":00.000Z") and mirror["current"]["published_at"].endswith("+00:00")
+    assert answers["before_any_version"]["mirror"]["current"] is None and answers["read_error"]["mirror"] == {"error": "RuntimeError"}
+    assert answers["sqlite"]["mirror"] is None
+    if os.environ.get("PICK_WRITE_CONTRACT"):
+        SYNC_FIXTURE.write_text(json.dumps(answers, ensure_ascii=False, indent=2) + "\n")
+    assert _contract_shape(json.loads(SYNC_FIXTURE.read_text())) == _contract_shape(answers)
