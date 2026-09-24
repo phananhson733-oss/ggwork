@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,8 @@ SHARED_OWNER = "system:shared"
 # A shared batch a candidate snapshot used within this window keeps its rows so the card can still 换一批.
 RETAIN_REFERENCED = timedelta(days=30)
 DATA_AS_OF_KEYS = ("source_as_of", "published_at", "freshness", "scope", "shared")
+
+logger = logging.getLogger(__name__)
 
 
 class ConflictError(ValueError):
@@ -136,6 +139,20 @@ class PickRepository:
         """When the data behind a result or tool answer was captured; one shape for the UI and the model."""
         info = await self.batch_info(batch_id)
         return {key: info[key] for key in DATA_AS_OF_KEYS} if info else None
+
+    async def frozen_data_as_of(self, record: dict) -> dict | None:
+        """The data_as_of a result froze when it was written (P2-5b), for every reader of that result (P2-8a).
+
+        A batch's own values move on when a later run reuses it (U10), so the result's are read first. A result from
+        before the mirror froze nothing and falls back to its batch; so does a stored value not in the exact
+        DATA_AS_OF_KEYS shape, which the frontend's strict schema would refuse.
+        """
+        frozen = record.get("data_as_of_json")
+        if isinstance(frozen, dict) and set(frozen) == set(DATA_AS_OF_KEYS):
+            return {key: frozen[key] for key in DATA_AS_OF_KEYS}
+        if frozen is not None:
+            logger.warning("[pick] result %s froze a data_as_of of another shape; its batch's is used", record.get("id"))
+        return await self.data_as_of(record["catalog_batch_id"])
 
     async def current_batch(self, kind: str) -> dict | None:
         async with self.session_factory() as session:

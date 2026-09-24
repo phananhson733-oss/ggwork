@@ -106,7 +106,8 @@ def build_router(service):
         status = run.status if run else "unknown"
         if status not in {"pending", "running", "success", "error", "timeout", "interrupted"}:
             status = "unknown"
-        data_as_of = await PickRepository(service.session_factory, record["owner_id"]).data_as_of(record["catalog_batch_id"])
+        # The data_as_of the result froze; a later run reusing its batch does not move it (P2-8a).
+        data_as_of = await PickRepository(service.session_factory, record["owner_id"]).frozen_data_as_of(record)
         return {**result_view(record), "run_status": status, "data_as_of": data_as_of}
 
     @router.get("/sync")

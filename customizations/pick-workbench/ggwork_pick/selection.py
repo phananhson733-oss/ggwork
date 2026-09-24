@@ -19,6 +19,10 @@ class PostedDataUnavailable(ValueError):
     """The pinned catalog batch carries no publication records, so "not posted" cannot be checked."""
 
 
+def ranking_version_for(conditions: PickConditions) -> str:
+    return RANK_RANKING_VERSION if conditions.sort == "rank" else RANKING_VERSION
+
+
 def _matched_total(record: dict) -> int | None:
     items = record["ordered_items_json"]
     if not items:
@@ -172,6 +176,12 @@ def candidate_item(row, conditions, matched_total: int | None = None):
     return item
 
 
+def _request_hash(conditions: PickConditions, parent_result_id: str | None, use_latest: bool) -> str:
+    """What a repeated tool call must repeat to get the first call's result back."""
+    request = {"conditions": conditions.model_dump(), "parent_result_id": parent_result_id, "use_latest": use_latest}
+    return hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
 class SelectionService:
     def __init__(self, repository: PickRepository):
         self.repository = repository
@@ -230,19 +240,41 @@ class SelectionService:
         parent_result_id: str | None = None,
         use_latest: bool = False,
         pinned_versions: Pin | tuple[str | None, str | None] | None = None,
-    ):
+    ) -> dict:
+        """The result view alone; query_with_record also hands back the stored row."""
+        view, _ = await self.query_with_record(
+            filters,
+            thread_id=thread_id,
+            run_id=run_id,
+            call_id=call_id,
+            parent_result_id=parent_result_id,
+            use_latest=use_latest,
+            pinned_versions=pinned_versions,
+        )
+        return view
+
+    async def query_with_record(
+        self,
+        filters: dict,
+        *,
+        thread_id: str,
+        run_id: str,
+        call_id: str,
+        parent_result_id: str | None = None,
+        use_latest: bool = False,
+        pinned_versions: Pin | tuple[str | None, str | None] | None = None,
+    ) -> tuple[dict, dict]:
+        """(result view, stored row). The view cannot carry the frozen data_as_of: the frontend's result schema is
+        strict (U51). A repeated call returns the row the first call wrote, so the tool answers with what it froze.
+        """
         parent = await self._parent(parent_result_id, thread_id)
         effective, pin, excluded = await self._scope(filters, parent, use_latest=use_latest, pinned_versions=pinned_versions)
-        request_hash = hashlib.sha256(
-            json.dumps(
-                {"conditions": effective.model_dump(), "parent_result_id": parent_result_id, "use_latest": use_latest}, sort_keys=True, ensure_ascii=False
-            ).encode()
-        ).hexdigest()
+        request_hash = _request_hash(effective, parent_result_id, use_latest)
         old = await self.repository.result_for_call(run_id, call_id)
         if old is not None:
             if old["thread_id"] != thread_id or old["request_hash"] != request_hash:
                 raise ValueError("重复工具调用的参数不同")
-            return result_view(old)
+            return result_view(old), old
         rows = await self.repository.catalog_rows(pin.catalog_id)
         matches = matching_rows(rows, effective, excluded)
         items = [candidate_item(row, effective, len(matches)) for row in matches[: effective.limit]]
@@ -257,7 +289,7 @@ class SelectionService:
                 catalog_batch_id=pin.catalog_id,
                 knowledge_batch_id=pin.knowledge_id,
                 rule_version=RULE_VERSION,
-                ranking_version=RANK_RANKING_VERSION if effective.sort == "rank" else RANKING_VERSION,
+                ranking_version=ranking_version_for(effective),
                 conditions_json=effective.model_dump(),
                 ordered_items_json=items,
                 created_at=stamp(),
@@ -267,7 +299,7 @@ class SelectionService:
                 data_as_of_json=pin.data_as_of,
             )
         )
-        return result_view(record)
+        return result_view(record), record
 
     async def count(self, filters: dict, *, parent: dict | None = None, pinned_versions=None) -> dict:
         """Aggregate the same filter as a query, without persisting a candidate snapshot.
