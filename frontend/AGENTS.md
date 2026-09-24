@@ -170,7 +170,9 @@ routes, writes the detailed result to `.next/performance-results.json`, and comp
 totals with `performance-budgets.json`. Fix route ownership or split points when a
 budget fails; do not raise a ceiling without documenting and reviewing the measured
 regression. `/workspace/pick-data` refuses the static-demo user, so its figure is the
-route's JS/CSS (pick-board.css is global), not a rendered board.
+route's JS/CSS on the access notice: pick-board.css via its layout, utilities from the
+global pick-board-theme.css, and the page's client chunks (glossary, queyu button)
+even though the notice does not render them.
 
 Chat archive is a thread metadata flag (`deerflow_archived === true`), independent
 of run status. Sidebar and Chats explicitly request the Gateway's optional
