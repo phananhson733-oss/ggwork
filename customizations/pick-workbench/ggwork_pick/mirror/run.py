@@ -57,7 +57,7 @@ from ggwork_pick.mirror.run_result import (
 from ggwork_pick.mirror.run_v1 import V1Failed, V1Staged, stage_v1
 from ggwork_pick.mirror.run_v2 import Budget, Built, MirrorDeadline, build_mirror
 from ggwork_pick.mirror.series import fold_series
-from ggwork_pick.mirror.versions import MirrorBuildError, MirrorVersion, create_version, describe_error, mark_failed
+from ggwork_pick.mirror.versions import MirrorBuildError, MirrorVersion, create_version, mark_failed
 from ggwork_pick.mirror.writer import MirrorRecordError
 from ggwork_pick.repository import SHARED_OWNER, PickRepository, stamp
 from ggwork_pick.sync import (
@@ -75,7 +75,7 @@ from ggwork_pick.sync import (
 )
 from ggwork_pick.sync import FeedError as V1FeedError
 
-__all__ = ["LOCK_STUCK_AFTER", "MirrorLimits", "MirrorSync", "clean_leftovers", "tolerate_permission"]
+__all__ = ["LOCK_STUCK_AFTER", "MirrorLimits", "MirrorSync", "clean_leftovers", "describe_db_error", "permission_refused", "sqlstate", "tolerate_permission"]
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +90,9 @@ COPY_TIMEOUT = 60
 STATEMENT_TIMEOUT = 120
 ALERT_AFTER = 3
 DEFAULT_DB_SIZE_CAP = 6 * 2**30  # PICK_DB_SIZE_CAP_BYTES when unset (SyncSettings.db_size_cap)
-# A cleanup the database refused for want of privilege (42501: an orphan schema another role owns, say) is recorded in
-# details_json and the run goes on; anything else stops the run.
+# A cleanup step refused for want of privilege (42501: an orphan schema another role owns, say, raised by asyncpg or
+# through the ORM; or a PermissionError on a blob) is recorded in details_json and the run goes on; anything else stops
+# the run.
 PERMISSION_SQLSTATES = frozenset({"42501"})
 _DB_SIZE = "SELECT pg_database_size(current_database())"
 
@@ -117,28 +118,52 @@ class MirrorLimits:
     min_free_bytes: int = MIN_FREE_BYTES
 
 
+def sqlstate(exc: BaseException) -> str | None:
+    """A database error's SQLSTATE, raised by asyncpg itself or wrapped by SQLAlchemy (DBAPIError.orig)."""
+    for candidate in (exc, getattr(exc, "orig", None)):
+        state = getattr(candidate, "sqlstate", None)
+        if isinstance(state, str):
+            return state
+    return None
+
+
+def permission_refused(exc: BaseException) -> bool:
+    """The database (42501) or the file system (PermissionError) refused for want of privilege."""
+    return isinstance(exc, PermissionError) or sqlstate(exc) in PERMISSION_SQLSTATES
+
+
+def describe_db_error(exc: BaseException) -> str:
+    """The error class and SQLSTATE only: PostgreSQL's own message can quote a value, the file system's a path."""
+    state = sqlstate(exc)
+    return f"{type(exc).__name__}（SQLSTATE {state}）" if state is not None else type(exc).__name__
+
+
 async def tolerate_permission(step: str, action: Callable[[], Awaitable]) -> tuple[object | None, str | None]:
-    """(action's result, None), or (None, safe text) when the database refused it for want of privilege (42501)."""
+    """(action's result, None), or (None, safe text) when it was refused for want of privilege (permission_refused).
+    The text names the step, the error class and the SQLSTATE, never the database's or the file system's message."""
     try:
         return await action(), None
     except Exception as exc:
-        if getattr(exc, "sqlstate", None) not in PERMISSION_SQLSTATES:
+        if not permission_refused(exc):
             raise
-        text = f"{step}：{describe_error(exc)}"
-        logger.warning("[pick-mirror] %s; the run goes on without it", text)
+        text = f"{step}：{describe_db_error(exc)}"
+        logger.warning("[pick-mirror] %s; going on without it", text)
         return None, text
 
 
 async def clean_leftovers(conn, repo: PickRepository, *, data_dir: Path, clock: Callable[[], datetime] = _utc_now) -> dict:
     """What a dead run left (U9, U41), under the mirror lock held on `conn` as sync or cleanup: building versions failed,
     pickm_v* schemas no building or published version claims dropped, the shared owner's importing batches failed and
-    their unused blobs deleted. The admin cleanup command calls this too. Returns details_json's cleanup (safe)."""
+    their unused blobs deleted. The admin cleanup command calls this too. A step refused for want of privilege is
+    recorded in errors and the next one still runs; any other error raises. Returns details_json's cleanup (safe)."""
     if repo.owner_id != SHARED_OWNER:
         raise ValueError("遗留清理只处理共享属主的批次：传 PickRepository.shared(...)")
-    report, error = await tolerate_permission("leftover_versions", lambda: clean_leftover_versions(conn, clock=clock))
-    paths = await repo.fail_leftover_staged()
-    await asyncio.to_thread(delete_blobs, data_dir, paths)
-    return {"versions": report.details() if report is not None else None, "blobs_deleted": len(paths), "errors": [error] if error else []}
+    report, versions_error = await tolerate_permission("leftover_versions", lambda: clean_leftover_versions(conn, clock=clock))
+    found, batches_error = await tolerate_permission("leftover_batches", repo.fail_leftover_staged)
+    paths = found or []
+    _, blobs_error = await tolerate_permission("leftover_blobs", lambda: asyncio.to_thread(delete_blobs, data_dir, paths))
+    errors = [error for error in (versions_error, batches_error, blobs_error) if error]
+    return {"versions": report.details() if report is not None else None, "blobs_deleted": 0 if blobs_error else len(paths), "errors": errors}
 
 
 def _failure_code(exc: BaseException) -> str:

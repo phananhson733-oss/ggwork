@@ -4,6 +4,7 @@ The switch cases run on either dialect where they can; the rest are PostgreSQL o
 """
 
 import asyncio
+import io
 import json
 import threading
 import time
@@ -14,7 +15,6 @@ import pytest_asyncio
 from engines import host_engine
 from fake_realshort import EXPORT_TOKEN, FEED_TOKEN, Clock, v2_error
 from run_world import BASE, WorldRealShort, control, fetch, make_sync, open_harness, world_fake
-from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -119,9 +119,11 @@ def test_settings_read_the_environment():
 # ---------------------------------------------------------------- accept-empty (plan 1575, U40)
 
 
-async def _accept_empty(engine) -> None:
-    async with engine.begin() as conn:
-        await conn.execute(text("UPDATE pick_mirror.control SET accept_empty_once = true, accept_empty_set_at = now() WHERE id = 1"))
+async def _accept_empty(harness) -> None:
+    """The operator's command (python -m ggwork_pick.mirror.admin accept-empty), its body run in process."""
+    from ggwork_pick.mirror.admin import EXIT_OK, accept_empty
+
+    assert await accept_empty(harness.dsn, out=io.StringIO(), err=io.StringIO()) == EXIT_OK
 
 
 @pytest.mark.asyncio
@@ -130,7 +132,7 @@ async def test_accept_empty_consumed_once(harness):
     outcomes = []
     for world, accept in ((gw.baseline(), False), (emptied, False), (emptied, True), (gw.baseline(), False), (emptied, False)):
         if accept:
-            await _accept_empty(harness.engine)
+            await _accept_empty(harness)
         result, _ = await _run(harness, world)
         outcomes.append((result["details_json"]["outcome"], result["details_json"]["reason"], (await control(harness.engine))["accept_empty_once"]))
         harness.clock.advance(600)
