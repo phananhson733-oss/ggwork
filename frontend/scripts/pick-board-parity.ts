@@ -57,6 +57,7 @@ import {
   loadReelshortDetail,
 } from "@/server/pick-board/queries-reelshort";
 
+import type { Collations } from "./pick-board-parity-collation";
 import {
   RULE_LABELS,
   compareCase,
@@ -275,6 +276,16 @@ export function formatReport(report: ParityReport): string[] {
   ];
 }
 
+/** 两边都知道、并且不同时才给出两边的 collation；否则 null，先后差异一律不放行 */
+export function differentCollations(
+  rs: string | null,
+  mirror: string | null,
+): Collations | null {
+  return rs !== null && mirror !== null && rs !== mirror
+    ? { rs, mirror }
+    : null;
+}
+
 /** 版本 platformRules 里本地 PLATFORMS 没有的剧场键，按版本里的顺序 */
 export function platformGap(
   platformRules: Readonly<Record<string, unknown>>,
@@ -371,18 +382,15 @@ async function compareInScope(
   if (mismatch) throw new Stop(3, mismatch);
   const started = Date.now();
   const mirror = await runMirror(doc);
-  const collationDiffers =
-    doc.collation !== null &&
-    facts.collation !== null &&
-    doc.collation !== facts.collation;
+  const collations = differentCollations(doc.collation, facts.collation);
   const report = compareSnapshot({
     rsCases: doc.cases,
     mirror,
-    ctx: { scrub: facts.scrub, collationDiffers },
+    ctx: { scrub: facts.scrub, collations },
   });
   const lines = [
     ...header,
-    `collation：RealShort ${doc.collation ?? "未知"}，镜像 ${facts.collation ?? "未知"}${collationDiffers ? "（不同：剧名排序进白名单）" : ""}`,
+    `collation：RealShort ${doc.collation ?? "未知"}，镜像 ${facts.collation ?? "未知"}${collations ? "（不同：主排序键相同、各按自己 collation 排的先后进白名单）" : ""}`,
     `镜像这边耗时 ${((Date.now() - started) / 1000).toFixed(1)} 秒`,
     ...formatReport(report),
   ];

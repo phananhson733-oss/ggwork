@@ -10,7 +10,7 @@
 | 脚本 | 在哪跑 | 读什么 |
 |---|---|---|
 | `frontend/scripts/pick-board-snapshot.rs.ts`（纯函数部分在 `pick-board-snapshot-core.rs.ts`，两个文件一起用） | 临时复制进 RealShort 检出 | RealShort 生产 Neon（`.env.local` 的 `DATABASE_URL`） |
-| `frontend/scripts/pick-board-parity.ts`（比对规则在 `pick-board-parity-compare.ts`） | 工作台 `frontend/` | 镜像，以 `pick_board_reader` 身份，经 `PICK_MIRROR_READER_URL` 与 `PICK_MIRROR_CA_PEM` |
+| `frontend/scripts/pick-board-parity.ts`（比对规则在 `pick-board-parity-compare.ts`，collation 放行在 `pick-board-parity-collation.ts`） | 工作台 `frontend/` | 镜像，以 `pick_board_reader` 身份，经 `PICK_MIRROR_READER_URL` 与 `PICK_MIRROR_CA_PEM` |
 | `frontend/scripts/pick-board-drift.sh` | 工作台，任意目录 | RealShort 检出的 git 历史 |
 
 快照脚本的正本在工作台仓库，**不在 RealShort 仓库提交、不开 PR**：往 RealShort 提交会触发它的生产部署，也会改变 fingerprint 里的 `VERCEL_GIT_COMMIT_SHA`（批判 A5）。
@@ -121,7 +121,10 @@ PICK_MIRROR_CA_PEM="$(cat "$SCRATCH/supabase-ca.pem")" \
 - **payload、posts 里白名单之外的键**：导出只保留 `SIGNAL_PAYLOAD_KEYS` 与 `POSTED_POST_KEYS`；单测钉住这两个列表与 `contracts.py` 一致。
 - **「分成」改名「订单」**。
 - **timestamptz 按毫秒比**。
-- **collation 不同时的剧名排序**：两边 `datcollate` 不同时才放行，并且只放行剧场行列表（先后不同的两项剧名不同）与语种计数（语种名不同）里的先后差异。
+- **collation 不同时的剧名排序**：两边 `datcollate` 都知道并且不同时才放行。只看剧场行列表（选剧、全部剧库、剧场榜）与语种计数，先后对调的每一对都要同时满足：
+  - 主排序键相同：选剧与全部剧库是证据日期与剧单日期；日榜是名次；周榜是周数；评级榜是评级与剧单日期；其余剧场榜是证据日期与剧单日期；语种计数是条数；
+  - RealShort 的先后正是按 RealShort 的 collation 比剧名、平台、行键得出的先后（剧场榜不比平台，语种计数只比语种名），镜像的先后也正是按镜像的 collation 得出的。
+  - collation 的模型：`C`、`POSIX`、`C.UTF-8`、`ucs_basic` 按码点比，其余用 ICU（`Intl.Collator`）近似 glibc。近似不准时只会多报，这时在两边库上各用 `SELECT '甲' < '乙'` 核一下那一对。
 
 不在白名单里的：
 

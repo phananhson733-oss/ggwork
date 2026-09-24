@@ -12,13 +12,20 @@
  * - payload、posts 里导出键白名单之外的键；
  * - 「分成」改名「订单」；
  * - timestamptz 按毫秒比；
- * - 两边库的 collation 不同时，剧场行列表与语种计数里文字不同的两项之间的先后。
+ * - 两边库的 collation 不同时，剧场行列表与语种计数里、主排序键相同的两项之间由 collation 造成的先后
+ *   （判断见 pick-board-parity-collation.ts）。
  * bill_rank 排序（ReelShort 预估分成榜）不进白名单：镜像按 bill_rank 排，与 RealShort 的顺序必须相同。
  *
  * 打印出来的值：RealShort 的文字一律只给长度与摘要（原文可能带网盘信息），网盘与金额字段两边都不给值。
  */
 import { createHash } from "node:crypto";
 
+import {
+  collationExplains,
+  inversions,
+  type Collations,
+  type OrderedItems,
+} from "./pick-board-parity-collation";
 import {
   MONEY_KEYS,
   PAN_KEYS,
@@ -95,7 +102,8 @@ export type CaseComparison = Readonly<{
 export type CompareContext = Readonly<{
   /** 版本 meta.scrub：字段路径 → 清洗次数 */
   scrub: Readonly<Record<string, number>>;
-  collationDiffers: boolean;
+  /** 两边库的 datcollate 不同时是两边各自的名字；相同或有一边不知道时 null */
+  collations: Collations | null;
 }>;
 
 type EntityKind =
@@ -480,50 +488,21 @@ function keysOf(items: readonly Json[]): string[] | null {
   return new Set(strings).size === strings.length ? strings : null;
 }
 
-/** 可以因 collation 放行先后的列表：剧场行比剧名，语种计数比语种名 */
-function collationField(item: Json | undefined): string | null {
-  if (!isJsonObject(item)) return null;
-  if ("rowKey" in item && "sourceTable" in item) return "title";
-  return "lang" in item && "n" in item ? "lang" : null;
-}
-
-function inversions(before: readonly string[], after: readonly string[]) {
-  const position = new Map(after.map((key, i) => [key, i]));
-  return before.flatMap((a, i) =>
-    before
-      .slice(i + 1)
-      .filter((b) => (position.get(b) ?? 0) < (position.get(a) ?? 0))
-      .map((b): [string, string] => [a, b]),
-  );
-}
-
-function collationExplains(
-  w: Walk,
-  pairs: readonly [string, string][],
-  items: ReadonlyMap<string, Json>,
-): boolean {
-  if (!w.ctx.collationDiffers) return false;
-  return pairs.every(([a, b]) => {
-    const left = items.get(a);
-    const right = items.get(b);
-    const field = collationField(left);
-    if (!field || field !== collationField(right)) return false;
-    const x = isJsonObject(left) ? left[field] : null;
-    const y = isJsonObject(right) ? right[field] : null;
-    return typeof x === "string" && typeof y === "string" && x !== y;
-  });
-}
-
 function compareOrder(
   w: Walk,
   rsOrder: readonly string[],
   mirrorOrder: readonly string[],
-  items: ReadonlyMap<string, Json>,
+  items: OrderedItems,
 ): CaseComparison {
   const first = rsOrder.findIndex((key, i) => mirrorOrder[i] !== key);
   if (first < 0) return EMPTY;
-  if (collationExplains(w, inversions(rsOrder, mirrorOrder), items))
-    return allow(w, "collation", "先后不同的两项只差在剧名 / 语种名的排序上");
+  const pairs = inversions(rsOrder, mirrorOrder);
+  if (collationExplains(w.ctx.collations, pairs, items))
+    return allow(
+      w,
+      "collation",
+      "先后不同的每一对主排序键相同，各按自己库的 collation 排",
+    );
   return fail(
     w,
     `顺序不同：第 ${first + 1} 项 RealShort 是 ${rsOrder[first]}，镜像是 ${mirrorOrder[first]}`,
@@ -550,7 +529,7 @@ function compareKeyed(
     w,
     common,
     mirrorKeys.filter((k) => rsBy.has(k)),
-    rsBy,
+    { rs: rsBy, mirror: mirrorBy },
   );
   const items = common.map((k) =>
     compareValue(stepIndex(w, k), rsBy.get(k) ?? null, mirrorBy.get(k) ?? null),
