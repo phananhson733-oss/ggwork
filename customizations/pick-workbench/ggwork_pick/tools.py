@@ -46,10 +46,8 @@ def _catalog_unavailable() -> str:
 
 async def _pin_latest(task, repo):
     if not task.versions_refreshed:
-        catalog = await repo.current_batch("catalog")
-        knowledge = await repo.current_batch("knowledge")
-        task.catalog_id = catalog["id"] if catalog else None
-        task.knowledge_id = knowledge["id"] if knowledge else None
+        # One read, like the run's first pin: never a new catalog beside an old version.
+        task.repin(await repo.current_pin())
         task.versions_refreshed = True
 
 
@@ -86,7 +84,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
             call_id=runtime.tool_call_id,
             parent_result_id=task.reference_id,
             use_latest=task.versions_refreshed,
-            pinned_versions=(task.catalog_id, task.knowledge_id),
+            pinned_versions=task.pin(),
         )
         task.produced_result_ids.add(result["id"])
         task.known_titles.update(item["title"] for item in result["items"])
@@ -110,10 +108,11 @@ async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> st
 
     async def work():
         parent = await _bound_parent(task, repo, requested)
-        counted = await SelectionService(repo).count(requested, parent=parent, pinned_versions=(task.catalog_id, task.knowledge_id))
+        # data_as_of comes with the count: the parent's frozen value for 换一批, the run's pin otherwise.
+        counted = await SelectionService(repo).count(requested, parent=parent, pinned_versions=task.pin())
         if PickConditions.model_validate(counted["conditions"]).filters_posted:
             task.posted_checked = True
-        return json.dumps({**counted, "data_as_of": await repo.data_as_of(counted["catalog_batch_id"])}, ensure_ascii=False)
+        return json.dumps(counted, ensure_ascii=False)
 
     return await _answer(work)
 

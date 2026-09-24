@@ -404,6 +404,13 @@ class PickRepository:
             leftovers = list(ids)
         return await self.fail_staged(leftovers)
 
+    async def current_pin(self):
+        """The (catalog, knowledge, mirror version) a run works on and its data_as_of, read in one statement (U7)."""
+        # pin.py builds on stamp() and SHARED_OWNER from this module, so it is imported where it is used.
+        from ggwork_pick.pin import read_pin
+
+        return await read_pin(self.session_factory, self.owner_id)
+
     async def result(self, result_id: str) -> dict:
         # The model passes result ids too; one the drivers cannot send is simply not found.
         result_id = storable(result_id)
