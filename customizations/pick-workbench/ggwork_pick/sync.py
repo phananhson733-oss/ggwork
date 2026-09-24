@@ -21,6 +21,7 @@ from pathlib import Path
 import httpx
 from pydantic import ValidationError
 
+from ggwork_pick.feed_url import HTTPS_REQUIRED, secure_enough
 from ggwork_pick.imports import Importer, decode_payload
 from ggwork_pick.repository import PickRepository
 
@@ -195,6 +196,8 @@ async def pull_v1(
     min_free_bytes: int = MIN_FREE_BYTES,
 ) -> dict:
     """The whole v1 pull: fetch, prune, disk check, Importer, prune; the run record's values. Raises what pull_error names."""
+    if not secure_enough(base_url):
+        raise FeedError(f"RealShort feed 地址{HTTPS_REQUIRED}")
     async with httpx.AsyncClient(base_url=base_url.rstrip("/"), transport=transport, timeout=httpx.Timeout(60.0, connect=10.0)) as client:
         async with asyncio.timeout(deadline_seconds):
             meta, rows = await fetch_feed(client, token)

@@ -23,6 +23,7 @@ from urllib.parse import SplitResult, urlsplit
 
 import httpx
 
+from ggwork_pick.feed_url import HTTPS_REQUIRED, cleartext_allowed
 from ggwork_pick.mirror.contracts import COUNTED_RESOURCES, EXPORT_VERSION, MAX_LIMITS, ROW_RESOURCES, SERIES_RESOURCE
 from ggwork_pick.mirror.errors import (
     AsOfExpiredError,
@@ -131,6 +132,8 @@ def _origin(base_url: object) -> str:
     parts = _split(base_url)
     if parts is None or parts.scheme not in ("http", "https") or parts.username or parts.password:
         raise ConfigError("base URL 只写源站：http(s)://主机[:端口]，不带账号")
+    if parts.scheme == "http" and not cleartext_allowed(parts.hostname):
+        raise ConfigError(f"base URL {HTTPS_REQUIRED}")
     if parts.path not in ("", "/") or parts.query or parts.fragment:
         raise ConfigError("base URL 只写源站，不带路径、查询或锚点；路径由客户端拼")
     origin = f"{parts.scheme}://{parts.netloc}"

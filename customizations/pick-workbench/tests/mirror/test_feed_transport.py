@@ -100,12 +100,20 @@ async def test_one_request_has_a_total_time_limit():
     assert "0.05" in str(caught.value) and caught.value.resource == "manifest"
 
 
+@pytest.mark.parametrize("base", ["http://127.0.0.1:8123", "http://localhost:3000", "http://[::1]:3000", "http://realshort.test", BASE])
+def test_cleartext_only_to_local_or_test_hosts(base):
+    FeedClient(base_url=base, export_token=EXPORT_TOKEN)
+
+
 @pytest.mark.parametrize(
     "options",
     [
         {"base_url": "https://realshort.test/api"},
         {"base_url": "https://user:pw@realshort.test"},
         {"base_url": "ftp://realshort.test"},
+        # security-4: the export token never goes out in cleartext to a real host.
+        {"base_url": "http://realshort.example.com"},
+        {"base_url": "http://10.0.0.5:8080"},
         {"base_url": "https://realshort.test?x=1"},
         # urlsplit takes these hosts, httpx refuses them (InvalidURL) when the client is built: a ConfigError, not a traceback.
         {"base_url": "https://exa\u00e9mple..test"},
