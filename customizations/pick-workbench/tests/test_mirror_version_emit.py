@@ -44,6 +44,16 @@ def test_the_switch_is_off_by_default():
     assert PickService("unused").sync_settings.emits_mirror_version is False
 
 
+def test_nothing_to_add_to_without_a_data_as_of():
+    """No data_as_of stays null: a bare {"mirror_version": ...} would fail the frontend's strict schema, which needs
+    shared, source_as_of and published_at, and with it the thread's whole results list."""
+    from ggwork_pick.repository import with_mirror_version
+
+    for version in (3, None):
+        assert with_mirror_version(None, version, emit=True) is None
+        assert with_mirror_version(None, version, emit=False) is None
+
+
 def _switch(service, *, on: bool) -> None:
     from ggwork_pick.service import SyncSettings
 
@@ -159,3 +169,20 @@ async def test_switched_off_no_answer_carries_the_key(world):
     # The replay keeps its own top-level mirror_version either way; its data_as_of is the frozen value alone.
     replay = (await client.get("/api/pick/replay", params={"result_id": card["id"]}, headers=ALICE)).json()
     assert MIRROR_VERSION not in replay["data_as_of"] and replay[MIRROR_VERSION] == record[MIRROR_VERSION]
+
+
+@pytest.mark.asyncio
+async def test_a_result_with_no_data_as_of_answers_null_with_the_switch_on(world):
+    """A result from before P2 froze nothing and falls back to its batch's row. With that row gone as well (no code path
+    deletes one: prune_shared keeps it as history, so only a hand cleanup), every reader answers null, not the key alone."""
+    from sqlalchemy import text
+
+    engine, service, shared, importer, client = world
+    _switch(service, on=True)
+    (version_a, pair_a, card), _ = await _old_card_then_new_pair(engine, service, shared, importer, degraded=False)
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE ggwp_candidate_sets SET data_as_of_json = NULL WHERE id = :id"), {"id": card["id"]})
+        await conn.execute(text("DELETE FROM ggwp_import_batches WHERE id = :id"), {"id": pair_a[0]["id"]})
+    record = await _alice(service).result(card["id"])
+    assert (record["data_as_of_json"], record["catalog_batch_id"], record[MIRROR_VERSION]) == (None, pair_a[0]["id"], version_a)
+    assert await _result_answers(client, service, record) == dict.fromkeys(("result", "results", "detail"), None)
