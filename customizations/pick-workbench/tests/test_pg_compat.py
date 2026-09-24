@@ -1,7 +1,7 @@
 """What SQLite accepts and PostgreSQL refuses (plan 6.7), one test per row of the audit table.
 
 Tests take pick_db_url or app_client and run on both dialects; the PostgreSQL half skips when
-PICK_TEST_PG_URL is unset. Migrations 0001-0004 on PostgreSQL are covered by test_pg_migrations.
+PICK_TEST_PG_URL is unset. The migrations on PostgreSQL are covered by test_pg_migrations and test_mirror_migrations.
 """
 
 import asyncio
