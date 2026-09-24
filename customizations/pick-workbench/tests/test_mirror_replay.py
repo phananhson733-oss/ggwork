@@ -261,3 +261,20 @@ async def test_replay_code_bugs_stay_errors_not_a_not_found(app_client, monkeypa
     monkeypatch.setattr(selection, "replay_view", broken)
     with pytest.raises(KeyError):
         await _replay(client, result["id"])
+
+
+@pytest.mark.asyncio
+async def test_replay_errors_outside_the_rerun_are_not_a_conflict(app_client, monkeypatch):
+    """Only the re-run itself answers 409; a ValueError elsewhere (a corrupt JSON column, say) stays a 500."""
+    from ggwork_pick.repository import PickRepository
+
+    client, service = app_client
+    await _import(service, _catalog(2))
+    result = await _query(service, {}, "c1")
+
+    async def corrupt(self, record):
+        raise json.JSONDecodeError("corrupt", "", 0)
+
+    monkeypatch.setattr(PickRepository, "frozen_data_as_of", corrupt)
+    with pytest.raises(json.JSONDecodeError):
+        await _replay(client, result["id"])

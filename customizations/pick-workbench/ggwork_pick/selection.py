@@ -26,6 +26,10 @@ class ReplayGone(Exception):
     """The result's catalog batch no longer holds rows (pruned past retention): the replay answers 410."""
 
 
+class ReplayUnrunnable(Exception):
+    """This code cannot re-run the result's stored conditions any more: the replay answers 409."""
+
+
 def ranking_version_for(conditions: PickConditions) -> str:
     return RANK_RANKING_VERSION if conditions.sort == "rank" else RANKING_VERSION
 
@@ -378,7 +382,7 @@ class SelectionService:
         """GET /api/pick/replay: the owner's result re-run on its own batch, with the data_as_of it froze.
 
         LookupError when the owner has no such result; ReplayGone when its batch is no longer published (pruned);
-        ValidationError or ValueError when this code cannot run the stored conditions any more.
+        ReplayUnrunnable when this code cannot run the stored conditions any more. Any other error propagates.
         """
         record = await self.repository.result(result_id)
         try:
@@ -386,7 +390,11 @@ class SelectionService:
             rows = await self.repository.catalog_rows(record["catalog_batch_id"])
         except LookupError:
             raise ReplayGone("这份候选用的剧库批次已过保留期被清理，无法回放") from None
-        view = await asyncio.to_thread(replay_view, record, rows)
+        try:
+            view = await asyncio.to_thread(replay_view, record, rows)
+        except ValueError:
+            # Pydantic's ValidationError included; only the re-run's refusals are a 409, not a ValueError anywhere.
+            raise ReplayUnrunnable("这份候选的条件已不能按当前规则重跑，无法回放") from None
         return {**view, "data_as_of": await self.repository.frozen_data_as_of(record)}
 
     async def detail(self, result_id: str, item_id: str):
