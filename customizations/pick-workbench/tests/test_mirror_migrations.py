@@ -8,6 +8,7 @@ so the downgrade leaves it in place (U26, U27). The PostgreSQL halves skip when 
 import json
 import logging
 from datetime import date
+from types import SimpleNamespace
 
 import pg
 import pytest
@@ -15,6 +16,7 @@ import revisions
 import sqlalchemy as sa
 from engines import host_engine
 from sqlalchemy import inspect, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 
@@ -125,6 +127,12 @@ async def _schema_exists(engine, schema: str) -> bool:
 async def _insert(engine, table: str, row: dict) -> None:
     async with engine.begin() as conn:
         await conn.execute(text(f"insert into {table} ({', '.join(row)}) values ({', '.join(':' + key for key in row)})"), row)
+
+
+async def _refused(engine, statement: str, params: dict, constraint: str) -> None:
+    with pytest.raises(IntegrityError, match=constraint):
+        async with engine.begin() as conn:
+            await conn.execute(text(statement), params)
 
 
 def _decoded(row: dict) -> dict:
@@ -362,9 +370,7 @@ async def test_pick_mirror_series_arrays_stay_aligned(pg_db_url):
         async with engine.begin() as conn:
             await conn.execute(text(series), {"d": "d1", "days": days, "cents": [1.5, 2.0], "promoters": [1, 2]})
         for cents, promoters in (([1.5], [1, 2]), ([1.5, 2.0], [1, 2, 3])):
-            with pytest.raises(IntegrityError, match="pick_mirror_series_aligned"):
-                async with engine.begin() as conn:
-                    await conn.execute(text(series), {"d": "d2", "days": days, "cents": cents, "promoters": promoters})
+            await _refused(engine, series, {"d": "d2", "days": days, "cents": cents, "promoters": promoters}, "pick_mirror_series_aligned")
         assert await _scalar(engine, "select count(*) from pick_mirror.series") == 1
     finally:
         await engine.dispose()
@@ -389,11 +395,10 @@ async def test_control_and_series_state_hold_exactly_one_row(pg_db_url):
             }
         ]
         assert [dict(row) for row in state] == [{"id": 1, "through": None, "trimmed_before": None, "updated_at": None}]
-        for table in ("control", "series_state"):
-            for row_id, constraint in ((1, f"{table}_pkey"), (2, f"pick_mirror_{table}_singleton")):
-                with pytest.raises(IntegrityError, match=constraint):
-                    async with engine.begin() as conn:
-                        await conn.execute(text(f"insert into pick_mirror.{table} (id) values (:i)"), {"i": row_id})
+        refusals = [(table, 1, f"{table}_pkey") for table in ("control", "series_state")]
+        refusals += [(table, 2, f"pick_mirror_{table}_singleton") for table in ("control", "series_state")]
+        for table, row_id, constraint in refusals:
+            await _refused(engine, f"insert into pick_mirror.{table} (id) values (:i)", {"i": row_id}, constraint)
     finally:
         await engine.dispose()
 
@@ -445,8 +450,9 @@ async def test_a_missing_reader_role_is_skipped_without_failing(empty_pg_url, tm
     monkeypatch.setenv(pg.READER_ROLE_ENV, role)
     with caplog.at_level(logging.WARNING, logger="ggwork_pick.migrations"):
         await pg.migrate(empty_pg_url, tmp_path)
-    # Production has the role: a skipped grant is worth a line in the gateway log, under a name one can filter on.
-    assert [record.name for record in caplog.records if pg.READER_ROLE_ENV in record.getMessage()] == ["ggwork_pick.migrations"]
+    # Production has the role: a skipped grant is worth a line in the gateway log, under a name and prefix one can filter on.
+    skipped = [record for record in caplog.records if pg.READER_ROLE_ENV in record.getMessage()]
+    assert [(record.name, record.getMessage().startswith("[pick-mirror] ")) for record in skipped] == [("ggwork_pick.migrations", True)]
     engine = host_engine(empty_pg_url)
     try:
         assert await _scalar(engine, "select version_num from ggwp_alembic_version") == revisions.head()
@@ -493,3 +499,45 @@ async def test_the_0006_downgrade_drops_registered_version_schemas_and_keeps_pic
         assert await _scalar(engine, "select count(*) from pick_mirror.versions") == 0
     finally:
         await engine.dispose()
+
+
+def _migration(revision: str):
+    from alembic.script import ScriptDirectory
+
+    return ScriptDirectory.from_config(revisions.config()).get_revision(revision).module
+
+
+class _Bind:
+    """A PostgreSQL bind answering each query, in order, with the given rows."""
+
+    def __init__(self, *answers: list[tuple]):
+        self.dialect = postgresql.dialect()
+        self._answers = iter(answers)
+
+    def execute(self, statement, params=None):
+        rows = next(self._answers)
+        return SimpleNamespace(
+            first=lambda: rows[0] if rows else None,
+            scalar=lambda: rows[0][0] if rows else None,
+            scalars=lambda: SimpleNamespace(all=lambda: [row[0] for row in rows]),
+        )
+
+
+# Reserved words pass the name check; unquoted, "current_user" would even grant the migrating role itself.
+@pytest.mark.parametrize("role", ["select", "user", "window", "current_user"])
+def test_a_reader_role_named_like_a_keyword_is_quoted_in_the_grants(monkeypatch, role):
+    migration = _migration("0006")
+    executed = []
+    monkeypatch.setattr(migration, "op", SimpleNamespace(execute=executed.append))
+    monkeypatch.setenv(pg.READER_ROLE_ENV, role)
+    migration._grant_reader(_Bind([(1,)]), migration._reader_role())
+    readable = "pick_mirror.versions, pick_mirror.series, pick_mirror.series_state"
+    assert executed == [f'GRANT USAGE ON SCHEMA pick_mirror TO "{role}"', f'GRANT SELECT ON {readable} TO "{role}"']
+
+
+def test_the_downgrade_only_ever_drops_schemas_of_the_writers_own_shape():
+    # The CHECK on versions already refuses other names; this is the second fence, for a table whose check was dropped.
+    migration = _migration("0006")
+    names = ["pickm_v000001", "deerflow", "pickm_v1", "pickm_v0000001", "PICKM_V000002", "pickm_v000002; drop", "public", "pickm_v000003"]
+    assert migration._registered_version_schemas(_Bind([("pick_mirror.versions",)], [(name,) for name in names])) == ["pickm_v000001", "pickm_v000003"]
+    assert migration._registered_version_schemas(_Bind([(None,)])) == []

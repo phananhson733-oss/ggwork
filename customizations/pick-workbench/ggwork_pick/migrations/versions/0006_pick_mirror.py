@@ -118,7 +118,7 @@ def _reader_role() -> str:
 def _grant_reader(bind, role: str) -> None:
     # GRANT to a missing role fails the statement and so the whole migration transaction: skip it instead.
     if bind.execute(sa.text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": role}).first() is None:
-        logger.warning("%s 指定的角色不存在，跳过 pick_mirror 的只读授权", READER_ROLE_ENV)
+        logger.warning("[pick-mirror] the role %s names does not exist; pick_mirror read grants skipped", READER_ROLE_ENV)
         return
     quoted = bind.dialect.identifier_preparer.quote(role)
     op.execute(f"GRANT USAGE ON SCHEMA pick_mirror TO {quoted}")
