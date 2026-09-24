@@ -194,12 +194,19 @@ async def test_a_renewed_reference_keeps_its_window_and_a_dropped_version_does_n
     assert min(point[1] for point in await points(world.conn)) == date(2026, 6, 18)
 
 
+def _trim_history_ids(day: date) -> tuple[str, ...]:
+    """d-a every day; d-gone only early on; d-edge only on the day before the cutoff (06-23) and on the cutoff itself."""
+    gone = ("d-gone",) if day < date(2026, 6, 5) else ()
+    edge = ("d-edge",) if day in (date(2026, 6, 22), date(2026, 6, 23)) else ()
+    return ("d-a", *gone, *edge)
+
+
 @pytest.mark.asyncio
 async def test_every_trimmed_point_is_before_trimmed_before_and_every_later_point_is_kept(world):
-    history = snapshots(span(date(2026, 6, 1), ago(1)), lambda day: ("d-a", "d-gone") if day < date(2026, 6, 5) else ("d-a",))
+    history = snapshots(span(date(2026, 6, 1), ago(1)), _trim_history_ids)
     await seed(world.conn, history)
     await set_state(world.conn, ago(1), date(2026, 6, 1))
-    world.serve(snapshots([D], one))
+    world.serve(snapshots([D], one))  # d-gone and d-edge are not in the new day: only the whole-table trim reaches them
     before = await points(world.conn)
     await world.fold()
     after = await points(world.conn)
@@ -209,6 +216,8 @@ async def test_every_trimmed_point_is_before_trimmed_before_and_every_later_poin
     removed = before - after
     assert removed and all(point[1] < trimmed_before for point in removed)
     assert {point for point in before if point[1] >= trimmed_before} <= after
+    # The boundary of the whole-table trim: the day before the cutoff goes, the cutoff day stays.
+    assert {point[1] for point in after if point[0] == "d-edge"} == {date(2026, 6, 23)}
     # A drama left without points loses its row rather than keeping empty arrays.
     assert await world.conn.fetchval("SELECT count(*) FROM pick_mirror.series WHERE drama_id = 'd-gone'") == 0
 
@@ -265,6 +274,31 @@ async def test_a_day_whose_rows_differ_from_snapshot_days_is_not_merged(world, c
     assert await untouched(world) == before
     assert await world.conn.fetchval(TEMP_TABLE) is None
     assert "d-a" not in json.dumps(outcome.details(), ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_only_the_days_that_passed_their_count_are_merged_page_after_page(world):
+    # One row a page, as RealShort's 3 MB cut can make it: every day of the run is staged in the one temp table.
+    world.fake.page_rows = {"rs_series_day": 1}
+    earlier = snapshots([ago(2)], lambda day: ("d-x",))
+    await seed(world.conn, earlier)
+    await set_state(world.conn, ago(2))
+    promised = snapshots([ago(1), D], lambda day: ("d-a", "d-b", "d-c") if day < D else ("d-a", "d-b", "d-c", "d-x"))
+    world.serve(promised)
+    manifest = await world.client.manifest_when_free()
+    world.serve({**promised, text(D): promised[text(D)][1:]})  # D is staged in full, d-a short of snapshotDays
+    row_x = "SELECT * FROM pick_mirror.series WHERE drama_id = 'd-x'"
+    before_x = tuple(await world.conn.fetchrow(row_x))
+    from ggwork_pick.mirror.series import fold_series
+
+    outcome = await fold_series(world.conn, manifest=manifest, client=world.client, clock=world.clock)
+    assert outcome.folded == (text(ago(1)),) and text(D) in outcome.error
+    assert world.series_calls() == [text(ago(1))] * 3 + [text(D)] * 3
+    # D's staged rows never reach the curve: through stops at D-1, and so do the points.
+    assert await points(world.conn) == as_points({**earlier, text(ago(1)): promised[text(ago(1))]})
+    # d-x is only in D: its row is not even rewritten.
+    assert tuple(await world.conn.fetchrow(row_x)) == before_x
+    assert (await state(world.conn))[0] == ago(1)
 
 
 @pytest.mark.asyncio

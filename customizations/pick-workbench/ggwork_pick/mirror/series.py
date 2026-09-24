@@ -86,9 +86,10 @@ _STATE = "SELECT through, trimmed_before FROM pick_mirror.series_state WHERE id 
 _SET_STATE = "UPDATE pick_mirror.series_state SET through = $1::date, trimmed_before = $2::date, updated_at = $3::timestamptz WHERE id = 1"
 _OLDEST_PUBLISHED = "SELECT min((as_of AT TIME ZONE 'UTC')::date) FROM pick_mirror.versions WHERE status = 'published'"
 _BACKEND = "SELECT pg_backend_pid()"
-# $1 cutoff, $2 now, $3 the days being merged: their old points give way to the new ones.
+# $1 cutoff, $2 now, $3 the days being merged: only their staged rows are taken (a day cut short or off by a row may still
+# be in the temp table), and their old points give way to the new ones.
 _UPSERT = f"""
-WITH touched AS (SELECT DISTINCT drama_id FROM pg_temp.{_TEMP}),
+WITH touched AS (SELECT DISTINCT drama_id FROM pg_temp.{_TEMP} WHERE day = ANY($3::date[])),
 kept AS (
     SELECT o.drama_id, u.d, u.rc, u.p
     FROM pick_mirror.series AS o
@@ -99,7 +100,7 @@ kept AS (
 merged AS (
     SELECT drama_id, d, rc, p FROM kept
     UNION ALL
-    SELECT drama_id, day, rc, p FROM pg_temp.{_TEMP} WHERE day >= $1::date
+    SELECT drama_id, day, rc, p FROM pg_temp.{_TEMP} WHERE day = ANY($3::date[]) AND day >= $1::date
 )
 INSERT INTO pick_mirror.series AS s (drama_id, days, revenue_cents, promoters, updated_at)
 SELECT drama_id, array_agg(d ORDER BY d), array_agg(rc ORDER BY d), array_agg(p ORDER BY d), $2::timestamptz
@@ -332,7 +333,8 @@ async def _fold(conn, *, manifest: Manifest, client: FeedClient, clock, max_days
 
 
 async def _stage_days(conn, *, client: FeedClient, manifest: Manifest, days: Sequence[str], clock, deadline: datetime) -> _Staged:
-    """Day after day until one fails or the deadline passes: through may never jump over a day that was not merged."""
+    """Day after day until one fails or the deadline passes: through may never jump over a day that was not merged. Rows
+    of the day that failed stay in the temp table; the merge takes only the days listed, and the table goes with the fold."""
     staged = _Staged()
     for day in days:
         if clock() >= deadline:
@@ -340,7 +342,6 @@ async def _stage_days(conn, *, client: FeedClient, manifest: Manifest, days: Seq
         try:
             rows = await _stage_day(conn, client, manifest, day)
         except Exception as exc:
-            await conn.execute(_FORGET_DAY, date.fromisoformat(day), timeout=STATEMENT_TIMEOUT)
             logger.warning("[pick-mirror] curve day %s not folded: %s", day, describe(exc), exc_info=_unexpected(exc))
             return replace(staged, error=f"{day} 未合并：{describe(exc)}")
         staged = replace(staged, days=(*staged.days, day), rows=(*staged.rows, rows))

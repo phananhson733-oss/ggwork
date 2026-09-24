@@ -40,6 +40,7 @@ EXTENSION_API = Path(__file__).resolve().parents[4] / "backend/packages/extensio
 D = AS_OF_DAY
 AS_OF = datetime(2026, 9, 23, 12, 32, tzinfo=UTC)
 VARIABLES = ("PICK_DATABASE_URL", "PGSSLMODE", "PICK_REALSHORT_FEED_URL", "PICK_REALSHORT_EXPORT_TOKEN")
+ADVISORY_HERE = "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())"
 
 
 def ago(days: int):
@@ -158,6 +159,57 @@ async def test_backfill_renews_on_400_as_of_or_409_and_asks_for_that_day_again(d
 
 
 @pytest.mark.asyncio
+async def test_a_409_on_the_second_page_of_a_day_starts_that_day_again_without_doubling_it(dsn):
+    target, refused = text(ago(1)), []
+
+    def once(call):
+        if call.resource == "rs_series_day" and call.params.get("day") == target and "cursor" in call.params and not refused:
+            refused.append(call.n)
+            return v2_error(409, "source_changed")
+        return None
+
+    world = await open_world(dsn, intercept=once, holder="backfill")
+    try:
+        world.fake.page_rows = {"rs_series_day": 1}  # RealShort's 3 MB cut: a day in several pages
+        series = snapshots(span(ago(2), D), lambda day: ("d-a", "d-b", "d-c"))
+        world.serve(series)
+        outcome = await backfill(world)
+        assert refused and outcome.renewals == 1 and world.clock.sleeps == [90]
+        assert world.series_calls().count(target) == 2 + 3  # page 1 and the refused page 2, then the whole day again
+        # The first attempt's page 1 is forgotten: the day matches snapshotDays and no point is there twice.
+        assert outcome.merged == tuple(series) and await points(world.conn) == as_points(series)
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
+async def test_backfill_refuses_a_connection_without_the_mirror_lock(dsn):
+    world = await open_world(dsn, holder=None)
+    try:
+        world.serve(snapshots(span(ago(1), D), one))
+        with pytest.raises(RuntimeError, match="镜像锁"):
+            await backfill(world)
+        assert world.fake.calls == [] and await points(world.conn) == set() and await state(world.conn) == (None, None)
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
+async def test_backfill_names_the_days_realshort_has_no_snapshot_for(dsn):
+    from ggwork_pick.mirror.series import EXIT_OK, run_backfill
+
+    world = await open_world(dsn, holder=None)
+    try:
+        world.serve(snapshots([ago(3), ago(1), D], one))  # no snapshot on D-2
+        out, err = io.StringIO(), io.StringIO()
+        code = await run_backfill(dsn=dsn, client=world.client, lookback_days=90, clock=world.clock, sleep=world.clock.sleep, out=out, err=err)
+        assert code == EXIT_OK, err.getvalue()
+        assert f"缺天 1 个：{text(ago(2))}" in out.getvalue().splitlines()[-1]
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
 async def test_backfill_gives_up_after_repeated_drift_and_keeps_what_it_merged(dsn):
     from ggwork_pick.mirror.series import BACKFILL_MAX_RESTARTS, EXIT_FAILED, run_backfill
 
@@ -227,8 +279,8 @@ async def test_backfill_logs_days_and_row_counts_only_and_releases_the_lock(dsn)
         lines = out.getvalue().splitlines()
         assert len(lines) == 3 and lines[0].startswith(text(ago(1))) and " 2 " in lines[0] and lines[1].startswith(text(D))
         assert "d-a" not in out.getvalue() + err.getvalue() and err.getvalue() == ""
-        advisory = "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'"
-        assert await world.conn.fetchval(advisory) == 0
+        # This test's database only: pg_locks lists the whole cluster, where other test sessions may hold theirs.
+        assert await world.conn.fetchval(ADVISORY_HERE) == 0
         holder = await world.conn.fetchrow("SELECT lock_holder, lock_holder_since FROM pick_mirror.control WHERE id = 1")
         assert tuple(holder) == (None, None)
     finally:
