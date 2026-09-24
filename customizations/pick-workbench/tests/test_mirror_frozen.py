@@ -3,7 +3,7 @@
 Sources: plan:1622 and plan 2.5 items 1, 5 and 9; brief P2-8a tests 8-10 (U51). The scenario: batch pair A is published
 with version v1 (as_of t1), result C1 freezes t1 and v1's freshness, then the same content pairs again with v2 (t2),
 which rewrites the batch's source_as_of. C1 must keep answering with t1 everywhere: the results routes, the query
-and detail tools. Those run on PostgreSQL only, since only it has pick_mirror; the last test, on a stored
+and detail tools, the replay. Those run on PostgreSQL only, since only it has pick_mirror; the last test, on a stored
 value of another shape, runs on both dialects. Synthetic data only.
 """
 
@@ -104,18 +104,20 @@ async def _turn(world, run_id: str, reference: str | None = None, call_id: str =
 
 
 async def _answers(world, record: dict) -> dict:
-    """What C1 answers with, per reader: the two results routes and the detail tool in a new turn."""
+    """What C1 answers with, per reader: the two results routes, the replay, and the detail tool in a new turn."""
     from ggwork_pick.tools import get_drama_detail_tool
 
     client = world.client
     single = (await client.get(f"/api/pick/results/{record['id']}", headers=ALICE)).json()
     listed = (await client.get("/api/pick/results", params={"thread_id": "t"}, headers=ALICE)).json()["results"]
+    replay = (await client.get("/api/pick/replay", params={"result_id": record["id"]}, headers=ALICE)).json()
     runtime = await _turn(world, "r-detail", reference=record["id"], call_id="d1")
     item_id = record["ordered_items_json"][0]["item_id"]
     detail = json.loads(await get_drama_detail_tool.coroutine(result_id=record["id"], item_id=item_id, runtime=runtime))
     return {
         "result": single["data_as_of"],
         "results": next(row for row in listed if row["id"] == record["id"])["data_as_of"],
+        "replay": replay["data_as_of"],
         "detail": detail["data_as_of"],
     }
 
@@ -133,7 +135,9 @@ async def test_an_old_result_keeps_its_frozen_data_as_of(world):
     batch_now = await _alice(world).data_as_of(pair[0]["id"])
     assert batch_now["source_as_of"] == LATER_TEXT and batch_now != frozen
     answers = await _answers(world, record)
-    assert answers == {"result": frozen, "results": frozen, "detail": frozen}
+    assert answers == {"result": frozen, "results": frozen, "replay": frozen, "detail": frozen}
+    replay = (await world.client.get("/api/pick/replay", params={"result_id": record["id"]}, headers=ALICE)).json()
+    assert replay["mirror_version"] == version_1
     # The frontend reads freshness under the v1 names (frontend/src/core/pick/format.ts:22-23); the keys stay DATA_AS_OF_KEYS.
     assert tuple(answers["result"]) == DATA_AS_OF_KEYS
     assert {"catalogImportedAt", "reelshortSyncedAt"} <= set(answers["result"]["freshness"])
@@ -158,7 +162,7 @@ async def test_a_result_that_froze_nothing_falls_back_to_its_batch(world):
         await session.execute(update(candidate_sets).where(candidate_sets.c.id == record["id"]).values(data_as_of_json=null()))
     batch_now = await _alice(world).data_as_of(pair[0]["id"])
     answers = await _answers(world, await _alice(world).result(record["id"]))
-    assert answers == {"result": batch_now, "results": batch_now, "detail": batch_now}
+    assert answers == {"result": batch_now, "results": batch_now, "replay": batch_now, "detail": batch_now}
     assert batch_now["source_as_of"] == LATER_TEXT
 
 

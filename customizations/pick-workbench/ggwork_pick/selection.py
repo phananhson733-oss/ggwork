@@ -1,5 +1,6 @@
 """Deterministic filtering and immutable candidate snapshots."""
 
+import asyncio
 import copy
 import hashlib
 import json
@@ -13,10 +14,16 @@ RULE_VERSION = "pick-rules-v1"
 RANKING_VERSION = "evidence-date-v1"
 RANK_RANKING_VERSION = "signal-rank-v1"
 RANKING_VERSIONS = frozenset({RANKING_VERSION, RANK_RANKING_VERSION})
+# The replay's ordered identity list stops here; total and truncated say how many there were (plan:1620).
+REPLAY_LIMIT = 2000
 
 
 class PostedDataUnavailable(ValueError):
     """The pinned catalog batch carries no publication records, so "not posted" cannot be checked."""
+
+
+class ReplayGone(Exception):
+    """The result's catalog batch no longer holds rows (pruned past retention): the replay answers 410."""
 
 
 def ranking_version_for(conditions: PickConditions) -> str:
@@ -124,6 +131,51 @@ def matching_rows(rows, conditions: PickConditions, excluded: set[str]):
         # Date-only ordering is intentionally not a cross-source performance score.
         matches.sort(key=_latest_date, reverse=True)
     return matches
+
+
+def unmappable_conditions(conditions: PickConditions) -> list[str]:
+    """The result's conditions the data page has no filter for (plan 2.5 item 4), in a fixed order.
+
+    query means title plus tags here and title or an exact key there; the exclusions come back through the replay
+    list itself. confirmed_eligible_only filters only with a channel.
+    """
+    present = (
+        ("tags", bool(conditions.tags)),
+        ("posted_account", bool(conditions.posted_account)),
+        ("channel", conditions.channel is not None),
+        ("confirmed_eligible_only", conditions.channel is not None and conditions.confirmed_eligible_only),
+        ("query", bool(conditions.query)),
+        ("exclude_selected", conditions.exclude_selected),
+        ("exclude_previous", conditions.exclude_previous),
+    )
+    return [name for name, active in present if active]
+
+
+def replay_view(record: dict, rows) -> dict:
+    """The stored result re-run on its own batch rows with the identities it excluded (plan 2.5 item 4).
+
+    Rule or ranking versions other than this code's are flagged, not refused (U36). Raises ValidationError or
+    ValueError when this code can no longer run the stored conditions. Pure and CPU-bound: run it off the loop.
+    """
+    conditions = PickConditions.model_validate(record["conditions_json"])
+    excluded = record.get("excluded_json")
+    identities = [row["identity"] for row in matching_rows(rows, conditions, frozenset(excluded or ()))]
+    return {
+        "result_id": record["id"],
+        "catalog_batch_id": record["catalog_batch_id"],
+        "knowledge_batch_id": record["knowledge_batch_id"],
+        # Null where the result had no paired version, and always on SQLite, which has no pick_mirror (U35).
+        "mirror_version": record.get("mirror_version"),
+        "limit": conditions.limit,
+        "total": len(identities),
+        "identities": identities[:REPLAY_LIMIT],
+        "truncated": len(identities) > REPLAY_LIMIT,
+        "shown": identities[: conditions.limit],
+        # Results from before P2 recorded no exclusions: exclude_selected and 换一批 cannot be redone for them.
+        "excluded_reproducible": excluded is not None,
+        "ranking_reproducible": record["rule_version"] == RULE_VERSION and record["ranking_version"] == ranking_version_for(conditions),
+        "unmappable": unmappable_conditions(conditions),
+    }
 
 
 def _posted_warnings(row, conditions) -> list[str]:
@@ -321,6 +373,21 @@ class SelectionService:
             "by_language": dict(sorted(by_language.items(), key=lambda kv: (-kv[1], kv[0]))),
             "data_as_of": pin.data_as_of if pin.data_as_of is not None else await self.repository.data_as_of(pin.catalog_id),
         }
+
+    async def replay(self, result_id: str) -> dict:
+        """GET /api/pick/replay: the owner's result re-run on its own batch, with the data_as_of it froze.
+
+        LookupError when the owner has no such result; ReplayGone when its batch is no longer published (pruned);
+        ValidationError or ValueError when this code cannot run the stored conditions any more.
+        """
+        record = await self.repository.result(result_id)
+        try:
+            # catalog_rows reads only a readable, published batch (its _require_batch): a pruned one raises here.
+            rows = await self.repository.catalog_rows(record["catalog_batch_id"])
+        except LookupError:
+            raise ReplayGone("这份候选用的剧库批次已过保留期被清理，无法回放") from None
+        view = await asyncio.to_thread(replay_view, record, rows)
+        return {**view, "data_as_of": await self.repository.frozen_data_as_of(record)}
 
     async def detail(self, result_id: str, item_id: str):
         record = await self.repository.result(result_id)
