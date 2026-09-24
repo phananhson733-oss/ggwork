@@ -66,6 +66,11 @@ REALSHORT_HOSTS = [
     "123684.com", "123865.com", "123912.com", "lanzou.com", "lanzoui.com", "drive.uc.cn", "cloud.189.cn", "pan.xunlei.com", "caiyun.139.com",
     "yun.139.com", "weiyun.com", "jianguoyun.com", "mypikpak.com", "pan.wo.cn", "ctfile.com", "ilanzou.com", "feijipan.com", "lanzn.com",
     "wenshushu.cn", "cowtransfer.com", "yunpan.360.cn",
+    "fast.uc.cn", "anxia.com", "123952.com", "400gb.com", "pipipan.com", "545c.com", "90pan.com", "089u.com", "474b.com",
+    "t00y.com", "306t.com", "47ks.com", "4765.com", "77tj.com", "feijix.com", "fjpan.com", "wss.cc", "c-t.work",
+    "yunpan.cn", "yunpan.com", "pan.360.cn", "quqi.com", "musetransfer.com", "tmp.link", "airportal.cn", "airportal.link", "easychuan.cn",
+    "filez.com", "box.lenovo.com", "vdisk.weibo.com", "v.disk.weibo.com", "vdisk.cn", "kuaipan.cn", "dbank.com", "dbank.vmall.com", "pan.sohu.net",
+    "fhrl.wostore.cn",
 ]
 # (table, key columns, JSON column): every JSON column of the ggwp tables, in the order of both scripts.
 JSON_COLUMNS = [
@@ -107,8 +112,8 @@ def test_the_scripts_and_the_runbook_use_one_pattern_that_keeps_the_old_one():
     assert runbook_pan() == f"PAN='{pattern}'"
     assert set(OLD_PATTERN.split("|")) <= set(pattern.split("|"))
     # Every share host RealShort scrubs is found by one of the host branches (grep -i and ~* ignore ASCII case). Only branches made of
-    # letters, digits, \. and [a-z] count: splitting on | also leaves bits of the 密码 group such as a lone ":".
-    hosts = [re.compile(alt, re.IGNORECASE) for alt in pattern.split("|") if re.fullmatch(r"(?:[A-Za-z0-9]|\\\.|\[a-z\])+", alt)]
+    # letters, digits, -, \. and [a-z] count: splitting on | also leaves bits of the 密码 group such as a lone ":".
+    hosts = [re.compile(alt, re.IGNORECASE) for alt in pattern.split("|") if re.fullmatch(r"(?:[A-Za-z0-9-]|\\\.|\[a-z\])+", alt)]
     for host in REALSHORT_HOSTS:
         assert any(p.search(f"share.{host.upper()}/s/1AbC") for p in hosts), host
     # Every backslash escape takes one or more backslashes, whatever the number of JSON layers.
