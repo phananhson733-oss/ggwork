@@ -1,8 +1,8 @@
 """The weekly pan check's runbook, docs/pick-workbench/supabase.md section 6, as the tests read and run it.
 
-Shared by test_pan_runbook_sql.py (the two SQL scripts, the host's threads) and test_pan_runbook_disk.py (the container's
-disk). Shell commands are taken from the runbook text and run with bash after its PAN= line, a test directory standing in
-for the gateway volume at /data.
+Shared by test_pan_runbook_sql.py (the two SQL scripts, the host's threads), test_pan_runbook_disk.py (the container's
+disk) and test_pan_runbook_text.py (the pattern, the runbook's text). Shell commands are taken from the runbook text and
+run with bash after its PAN= line, a test directory standing in for the gateway volume at /data.
 """
 
 import os
@@ -29,6 +29,30 @@ PASSWORD_TAB = "密碼\t= cd34"
 # U+000B, which JSON always writes as an escape, and U+00A0, which ensure_ascii escapes.
 PASSWORD_VT = "密码" + chr(0x0B) + "：ab12"
 PASSWORD_NBSP = "密码" + chr(0xA0) + "：cd34"
+
+# (table, key columns, JSON column): every JSON column pan-redact.sql rewrites, in the order of both scripts.
+JSON_COLUMNS = [
+    ("ggwp_drama_versions", "batch_id, identity", "payload_json"),
+    ("ggwp_candidate_sets", "id", "ordered_items_json"),
+    ("ggwp_candidate_sets", "id", "conditions_json"),
+    ("ggwp_selections", "id", "snapshot_json"),
+    ("ggwp_selection_commands", "owner_id, request_id", "receipt_json"),
+    ("ggwp_answer_checks", "id", "notes_json"),
+    ("ggwp_import_batches", "id", "validation_json"),
+    ("ggwp_knowledge_versions", "batch_id, document_id", "metadata_json"),
+    ("ggwp_candidate_sets", "id", "data_as_of_json"),
+    ("ggwp_sync_runs", "id", "details_json"),
+]
+# Checked, never rewritten: the identities a query excluded, which 换一批 replays against.
+KEPT_JSON_COLUMNS = [("ggwp_candidate_sets", "id", "excluded_json")]
+# pan-redact.sql clears the first eleven; the last three it never changes (the runbook stops and discusses).
+LOCATIONS = [
+    *(f"{table}.{column}" for table, _, column in JSON_COLUMNS),
+    *(f"ggwp_knowledge_versions.{c}" for c in ("title", "text", "source_ref")),
+    *(f"{table}.{column}" for table, _, column in KEPT_JSON_COLUMNS),
+]
+# One UPDATE per rewritten JSON column, then the knowledge title.
+REDACTED_NONE = [0] * (len(JSON_COLUMNS) + 1)
 
 
 def feed_transport(rows, *, scope: str) -> httpx.MockTransport:

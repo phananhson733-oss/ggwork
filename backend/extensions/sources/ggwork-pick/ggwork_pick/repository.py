@@ -2,16 +2,18 @@
 
 import hashlib
 import json
+import logging
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import delete, insert, or_, select, text, update
+from sqlalchemy import delete, insert, literal, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from ggwork_pick.contracts import storable
+from ggwork_pick.mirror import publish as pairing
 from ggwork_pick.models import answer_checks, candidate_sets, drama_versions, import_batches, knowledge_versions, selection_commands, selections, sync_runs
 
 # Batches published by the scheduled source sync. Every user can read them; nobody can log in as this owner
@@ -19,11 +21,42 @@ from ggwork_pick.models import answer_checks, candidate_sets, drama_versions, im
 SHARED_OWNER = "system:shared"
 # A shared batch a candidate snapshot used within this window keeps its rows so the card can still 换一批.
 RETAIN_REFERENCED = timedelta(days=30)
+# Also exactly the keys a result freezes (P2-5b), which stored_data_as_of checks. P4-1's optional mirror_version comes
+# from the result's own column (plan P4-1), beside these: added here, it would turn every frozen row into a fallback.
 DATA_AS_OF_KEYS = ("source_as_of", "published_at", "freshness", "scope", "shared")
+
+logger = logging.getLogger(__name__)
+
+
+def stored_data_as_of(record: dict) -> dict | None:
+    """The data_as_of a result froze, in the DATA_AS_OF_KEYS shape the frontend's strict schema accepts.
+
+    None when it froze nothing (every result from before P2, quietly) or a value of another shape (logged with the
+    result id only), so each reader falls back to the batch: its readers here and 换一批 carrying it on (selection).
+    """
+    frozen = record.get("data_as_of_json")
+    if isinstance(frozen, dict) and set(frozen) == set(DATA_AS_OF_KEYS):
+        return {key: frozen[key] for key in DATA_AS_OF_KEYS}
+    if frozen is not None:
+        logger.warning("[pick] result %s froze a data_as_of of another shape; its batch's is used", record.get("id"))
+    return None
 
 
 class ConflictError(ValueError):
     """A replay changed its payload or a client edited an obsolete version."""
+
+
+class StagedDuplicateError(ValueError):
+    """The same content is still importing: a mirror run staged it and has not ended, or died and left it (review flow-2).
+
+    Only a holder of the mirror lock may fail such a batch (clean_leftovers); an import that meets one stops with this
+    fixed text, which pull_error shows as it is, instead of the unique constraint's IntegrityError."""
+
+    def __init__(self):
+        super().__init__(
+            "同内容的批次还处于暂存状态（镜像运行未结束，或中断后留下的遗留），本次不发布；"
+            "确认没有镜像同步在跑后，在 gateway 上执行 python -m ggwork_pick.mirror.admin cleanup 再同步"
+        )
 
 
 def stamp(moment: datetime | None = None) -> str:
@@ -43,6 +76,14 @@ def _fits(table, values: dict) -> dict:
         if length is not None and isinstance(value, str) and len(value) > length:
             raise ValueError(f"{key} 超过 {length} 个字符")
     return values
+
+
+async def _live_blob_paths(session, paths: set[str]) -> set[str]:
+    """Paths a batch that can still be read or published uses; failed and pruned batches hold no blob."""
+    rows = await session.execute(
+        select(import_batches.c.raw_blob_path).where(import_batches.c.raw_blob_path.in_(paths), import_batches.c.status.in_(("importing", "published")))
+    )
+    return set(rows.scalars())
 
 
 class BatchRowCache:
@@ -128,6 +169,15 @@ class PickRepository:
         info = await self.batch_info(batch_id)
         return {key: info[key] for key in DATA_AS_OF_KEYS} if info else None
 
+    async def frozen_data_as_of(self, record: dict) -> dict | None:
+        """The data_as_of a result froze when it was written (P2-5b), for every reader of that result (P2-8a).
+
+        A batch's own values move on when a later run reuses it (U10), so the result's are read first. A result from
+        before the mirror froze nothing and falls back to its batch; so does a stored value of another shape.
+        """
+        frozen = stored_data_as_of(record)
+        return frozen if frozen is not None else await self.data_as_of(record["catalog_batch_id"])
+
     async def current_batch(self, kind: str) -> dict | None:
         async with self.session_factory() as session:
             row = (
@@ -187,25 +237,24 @@ class PickRepository:
             return [dict(row) for row in rows.mappings()]
 
     async def publish_import(
-        self, *, kind: str, content_hash: str, raw_blob_path: str, rows: list[dict], source_as_of: str | None = None, meta: dict | None = None
+        self,
+        *,
+        kind: str,
+        content_hash: str,
+        raw_blob_path: str,
+        rows: list[dict],
+        source_as_of: str | None = None,
+        meta: dict | None = None,
+        stage: bool = False,
     ) -> dict:
-        """Rows are validated by the Importer (DramaInput, strict UTF-8 knowledge); the feed's metadata is not."""
+        """Rows are validated by the Importer (DramaInput, strict UTF-8 knowledge); the feed's metadata is not.
+
+        stage=True is the mirror run's v1 half (P2-5a): a new batch is written as importing, invisible to every reader
+        until publish_mirror_pair or publish_agent_only flips it, and content identical to a published batch writes
+        nothing now, returning what the reuse would have written as "deferred" for the publish to write.
+        """
         source_as_of, meta = storable(source_as_of), storable(meta)
-        batch_id = uuid4().hex
-        now = stamp()
-        batch = dict(
-            id=batch_id,
-            owner_id=self.owner_id,
-            kind=kind,
-            content_hash=content_hash,
-            raw_blob_path=raw_blob_path,
-            status="published",
-            source_as_of=source_as_of,
-            created_at=now,
-            published_at=now,
-            validation_json={**(meta or {}), "rows": len(rows)},
-        )
-        _fits(import_batches, batch)
+        batch = self._new_batch(kind, content_hash, raw_blob_path, len(rows), source_as_of=source_as_of, meta=meta, stage=stage)
         for row in rows:
             if kind == "catalog":
                 _fits(drama_versions, {"identity": row["identity"]})
@@ -214,50 +263,217 @@ class PickRepository:
         async with self.session_factory() as session:
             try:
                 async with session.begin():
-                    await session.execute(insert(import_batches).values(**batch))
-                    if kind == "catalog":
-                        if rows:
-                            await session.execute(insert(drama_versions), [dict(batch_id=batch_id, identity=row["identity"], payload_json=row) for row in rows])
-                    elif kind == "knowledge":
-                        if rows:
-                            await session.execute(insert(knowledge_versions), [dict(batch_id=batch_id, **row) for row in rows])
-                    else:
-                        raise ValueError("未知资料类型")
-                return batch
+                    await self._insert_batch(session, batch, rows)
+                return {**batch, "staged": True, "deferred": None} if stage else batch
             except IntegrityError:
-                existing = (
-                    (
-                        await session.execute(
-                            select(import_batches).where(
-                                import_batches.c.owner_id == self.owner_id,
-                                import_batches.c.kind == kind,
-                                import_batches.c.content_hash == content_hash,
-                                import_batches.c.status == "published",
-                            )
-                        )
-                    )
-                    .mappings()
-                    .first()
-                )
+                # A leftover importing batch with this content is not reused: fail_leftover_staged clears it first.
+                existing = await self._duplicate(session, kind, content_hash, "published")
                 if existing is None:
+                    if await self._duplicate(session, kind, content_hash, "importing") is not None:
+                        raise StagedDuplicateError() from None
                     raise
-        return await self._reuse(dict(existing), kind, source_as_of=source_as_of, meta=meta)
+        return await self._reuse(existing, kind, source_as_of=source_as_of, meta=meta, stage=stage)
 
-    async def _reuse(self, existing: dict, kind: str, *, source_as_of: str | None, meta: dict | None) -> dict:
-        """Identical content seen again: record when, and make it current if a newer batch replaced it (A, B, then A)."""
+    async def stage_import(self, **batch) -> dict:
+        """publish_import(stage=True), under the plan's name."""
+        return await self.publish_import(**batch, stage=True)
+
+    def _new_batch(self, kind: str, content_hash: str, raw_blob_path: str, rows: int, *, source_as_of, meta, stage: bool) -> dict:
+        now = stamp()
+        batch = dict(
+            id=uuid4().hex,
+            owner_id=self.owner_id,
+            kind=kind,
+            content_hash=content_hash,
+            raw_blob_path=raw_blob_path,
+            status="importing" if stage else "published",
+            source_as_of=source_as_of,
+            created_at=now,
+            published_at=None if stage else now,
+            validation_json={**(meta or {}), "rows": rows},
+        )
+        return _fits(import_batches, batch)
+
+    @staticmethod
+    async def _insert_batch(session, batch: dict, rows: list[dict]) -> None:
+        await session.execute(insert(import_batches).values(**batch))
+        if batch["kind"] == "catalog":
+            if rows:
+                await session.execute(insert(drama_versions), [dict(batch_id=batch["id"], identity=row["identity"], payload_json=row) for row in rows])
+        elif batch["kind"] == "knowledge":
+            if rows:
+                await session.execute(insert(knowledge_versions), [dict(batch_id=batch["id"], **row) for row in rows])
+        else:
+            raise ValueError("未知资料类型")
+
+    async def _duplicate(self, session, kind: str, content_hash: str, status: str) -> dict | None:
+        existing = (
+            (
+                await session.execute(
+                    select(import_batches).where(
+                        import_batches.c.owner_id == self.owner_id,
+                        import_batches.c.kind == kind,
+                        import_batches.c.content_hash == content_hash,
+                        import_batches.c.status == status,
+                    )
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return dict(existing) if existing is not None else None
+
+    async def _reuse(self, existing: dict, kind: str, *, source_as_of: str | None, meta: dict | None, stage: bool = False) -> dict:
+        """Identical content seen again: record when, and make it current if a newer batch replaced it (A, B, then A).
+
+        A staged run writes nothing yet: the values go back as "deferred", and only the publish that ends the run
+        writes them, together with its own published_at. A run that fails leaves the batch exactly as it was.
+        """
+        deferred = {}
+        if source_as_of is not None:
+            deferred["source_as_of"] = source_as_of
+        if meta is not None:
+            deferred["validation_json"] = {**meta, "rows": (existing["validation_json"] or {}).get("rows")}
+        if stage:
+            return {**existing, "staged": False, "deferred": deferred}
         current = await self.current_batch(kind)
-        values = {}
+        values = dict(deferred)
         if current is None or current["id"] != existing["id"]:
             values["published_at"] = stamp()
-        if source_as_of is not None:
-            values["source_as_of"] = source_as_of
-        if meta is not None:
-            values["validation_json"] = {**meta, "rows": (existing["validation_json"] or {}).get("rows")}
         if not values:
             return existing
         async with self.session_factory() as session, session.begin():
             await session.execute(update(import_batches).where(import_batches.c.id == existing["id"]).values(**_fits(import_batches, values)))
         return {**existing, **values}
+
+    # ---- the mirror run's publish (P2-5a; only the shared repository may call these) ----
+
+    def _require_shared(self) -> None:
+        """Shared writes go only through PickRepository.shared() (brief 0.3); a user's repository never touches the mirror."""
+        if self.owner_id != SHARED_OWNER:
+            raise RuntimeError("镜像发布与失败计数只能经共享仓库写入")
+
+    async def publish_mirror_pair(
+        self,
+        *,
+        version_id: int,
+        schema_name: str,
+        batches: list[dict],
+        t: datetime,
+        accept_empty_used: bool,
+        accept_empty_seen: datetime | None,
+        reader_role: str | None = None,
+    ) -> dict:
+        """Make the staged pair and the built version current in one transaction (plan 5.2 step 9).
+
+        The caller has made sure its dedicated connection is idle: an uncommitted DDL there would hold the GRANT here
+        until the ORM's statement timeout (brief 0.3). t is one instant: the batches store stamp(t), the version t.
+        accept_empty_used and accept_empty_seen have no default: the run passes whether G9 passed on accept-empty and the
+        accept_empty_set_at it read, so a one-time pass is never left unconsumed by omission.
+        """
+        self._require_shared()
+        catalog_id, knowledge_id = pairing.pair_ids(batches)
+        pairing.check_schema_name(schema_name)
+        role = pairing.reader_role(reader_role)
+        updates = self._batch_updates(batches, pairing.check_moment(t))
+        async with self._write() as session:
+            if not pairing.is_postgres(session):
+                raise RuntimeError("镜像版本只在 PostgreSQL 上发布")
+            granted = await pairing.grant_reader(session, schema_name, role)
+            await pairing.publish_batches(session, self.owner_id, updates)
+            await pairing.flip_version(session, version_id=version_id, schema_name=schema_name, t=t, catalog_id=catalog_id, knowledge_id=knowledge_id)
+            await pairing.settle_control(session, accept_empty_used=accept_empty_used, accept_empty_seen=accept_empty_seen)
+        return {"version": version_id, "catalog_batch_id": catalog_id, "knowledge_batch_id": knowledge_id, "published_at": stamp(t), "reader_granted": granted}
+
+    async def publish_agent_only(self, *, batches: list[dict], reason: str, t: datetime) -> int | None:
+        """Publish the staged v1 batches without a version and count the failure, in one transaction (U10, U11).
+
+        Returns the new consecutive_failures; None on SQLite, which has no pick_mirror (U35).
+        """
+        self._require_shared()
+        pairing.check_reason(reason)
+        updates = self._batch_updates(batches, pairing.check_moment(t))
+        if not updates:
+            raise ValueError("降级发布至少需要一个批次")
+        async with self._write() as session:
+            await pairing.publish_batches(session, self.owner_id, updates)
+            if not pairing.is_postgres(session):
+                return None
+            return await pairing.record_failure(session, reason, t)
+
+    async def record_mirror_failure(self, *, reason: str, t: datetime) -> int | None:
+        """The one writer of the failure count besides publish_agent_only (U11); None on SQLite."""
+        self._require_shared()
+        pairing.check_reason(reason)
+        pairing.check_moment(t)
+        async with self.session_factory() as session, session.begin():
+            if not pairing.is_postgres(session):
+                return None
+            return await pairing.record_failure(session, reason, t)
+
+    def _batch_updates(self, batches: list[dict], t: datetime) -> list[tuple[str, dict]]:
+        published_at = stamp(t)
+        return [(batch["id"], _fits(import_batches, pairing.batch_values(batch, published_at))) for batch in batches]
+
+    async def fail_staged(self, batch_ids) -> list[str]:
+        """This run's staged batches failed: they become failed, lose their rows and free their content-hash slot.
+
+        Only batches of this owner still importing are touched; a reused published batch is left alone and whatever
+        was deferred for it is simply dropped. Returns the raw blob paths no importing or published batch still uses,
+        for the caller to delete.
+        """
+        ids = sorted({batch_id for batch_id in batch_ids if isinstance(batch_id, str)})
+        if not ids:
+            return []
+        async with self.session_factory() as session, session.begin():
+            doomed = (
+                await session.execute(
+                    select(import_batches.c.id, import_batches.c.raw_blob_path).where(
+                        import_batches.c.id.in_(ids), import_batches.c.owner_id == self.owner_id, import_batches.c.status == "importing"
+                    )
+                )
+            ).all()
+            if not doomed:
+                return []
+            doomed_ids = [row.id for row in doomed]
+            await session.execute(
+                update(import_batches)
+                .where(import_batches.c.id.in_(doomed_ids), import_batches.c.status == "importing")
+                .values(status="failed", content_hash=literal("failed-") + import_batches.c.id)
+            )
+            await session.execute(delete(drama_versions).where(drama_versions.c.batch_id.in_(doomed_ids)))
+            await session.execute(delete(knowledge_versions).where(knowledge_versions.c.batch_id.in_(doomed_ids)))
+            paths = {row.raw_blob_path for row in doomed}
+            live = await _live_blob_paths(session, paths)
+        CATALOG_CACHE.evict(doomed_ids)
+        return sorted(paths - live)
+
+    async def fail_leftover_staged(self) -> list[str]:
+        """Under the mirror lock: importing batches a dead run left behind (U9), handled like fail_staged."""
+        async with self.session_factory() as session:
+            ids = (
+                await session.execute(select(import_batches.c.id).where(import_batches.c.owner_id == self.owner_id, import_batches.c.status == "importing"))
+            ).scalars()
+            leftovers = list(ids)
+        return await self.fail_staged(leftovers)
+
+    async def failed_blob_paths(self) -> list[str]:
+        """Raw blob paths of this owner's failed batches that no importing or published batch uses: a process that died
+        between failing a batch and deleting its blob left the file behind (the cleanup command deletes these)."""
+        async with self.session_factory() as session:
+            rows = await session.execute(
+                select(import_batches.c.raw_blob_path).where(import_batches.c.owner_id == self.owner_id, import_batches.c.status == "failed").distinct()
+            )
+            paths = set(rows.scalars())
+            live = await _live_blob_paths(session, paths) if paths else set()
+        return sorted(paths - live)
+
+    async def current_pin(self):
+        """The (catalog, knowledge, mirror version) a run works on and its data_as_of, read in one statement (U7)."""
+        # pin.py builds on stamp() and SHARED_OWNER from this module, so it is imported where it is used.
+        from ggwork_pick.pin import read_pin
+
+        return await read_pin(self.session_factory, self.owner_id)
 
     async def result(self, result_id: str) -> dict:
         # The model passes result ids too; one the drivers cannot send is simply not found.
@@ -479,7 +695,9 @@ class PickRepository:
     async def prune_shared(self, kind: str, keep: int, *, referenced_within: timedelta = RETAIN_REFERENCED) -> list[str]:
         """Drop rows of old shared batches no recent candidate snapshot uses; the batch row stays as history.
 
-        Returns the raw blob paths that no live batch uses any more, for the caller to delete.
+        A batch a still-published mirror version is paired with keeps its rows too (U25): after a few degraded runs
+        the current version's pair can fall out of the newest `keep`. Returns the raw blob paths that no live batch
+        uses any more, for the caller to delete.
         """
         cutoff = stamp(datetime.now(UTC) - referenced_within)
         column = candidate_sets.c.catalog_batch_id if kind == "catalog" else candidate_sets.c.knowledge_batch_id
@@ -492,6 +710,7 @@ class PickRepository:
                 )
             ).all()
             referenced = set((await session.execute(select(column).where(candidate_sets.c.created_at >= cutoff).distinct())).scalars())
+            referenced |= await pairing.paired_batch_ids(session, kind)
             victims = [batch for batch in batches[keep:] if batch.id not in referenced]
             if not victims:
                 return []
@@ -501,13 +720,7 @@ class PickRepository:
                 # Free the content-hash slot so identical content can be published again later.
                 await session.execute(update(import_batches).where(import_batches.c.id == batch.id).values(status="pruned", content_hash="pruned-" + batch.id))
             paths = {batch.raw_blob_path for batch in victims}
-            live = set(
-                (
-                    await session.execute(
-                        select(import_batches.c.raw_blob_path).where(import_batches.c.raw_blob_path.in_(paths), import_batches.c.status != "pruned")
-                    )
-                ).scalars()
-            )
+            live = await _live_blob_paths(session, paths)
         # After the commit: a reader that passed the owner check before it may still put the rows back, but a
         # pruned batch never passes that check again, and the cache holds two batches at most.
         CATALOG_CACHE.evict(batch.id for batch in victims)

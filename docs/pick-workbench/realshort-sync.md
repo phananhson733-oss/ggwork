@@ -97,6 +97,10 @@ P2 镜像读 RealShort 的 feed v2（realshort#67：manifest 加八个行资源�
   - 数据库时间没有在 Neon 控制台上看；请求耗时合计约 120 s，是它的上限。
 - 合并：#67 于 2026-09-24 10:48 UTC 以 merge commit c45c520 合并。生产部署后 v2 不带 token 返回 404，v1 返回 401；10:50 UTC 工作台手动同步成功，8,141 部。
 
+## 镜像写入（P2）
+
+开关 `PICK_MIRROR_ENABLED=1` 打开后，同一个定时改为镜像同步（v1 批次与 `pick_mirror` 版本一起发布）。上线核验、回填时间窗、值守与回滚见 [mirror-runbook.md](mirror-runbook.md)。回滚到 v1 之后必须跑一次 `mirror.admin cleanup`。
+
 ## 已知限制
 
 - 候选池以外的剧（没有信号的、已下架的）不在工作台里。

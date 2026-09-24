@@ -46,6 +46,19 @@ class ConflictError(ValueError):
     """A replay changed its payload or a client edited an obsolete version."""
 
 
+class StagedDuplicateError(ValueError):
+    """The same content is still importing: a mirror run staged it and has not ended, or died and left it (review flow-2).
+
+    Only a holder of the mirror lock may fail such a batch (clean_leftovers); an import that meets one stops with this
+    fixed text, which pull_error shows as it is, instead of the unique constraint's IntegrityError."""
+
+    def __init__(self):
+        super().__init__(
+            "同内容的批次还处于暂存状态（镜像运行未结束，或中断后留下的遗留），本次不发布；"
+            "确认没有镜像同步在跑后，在 gateway 上执行 python -m ggwork_pick.mirror.admin cleanup 再同步"
+        )
+
+
 def stamp(moment: datetime | None = None) -> str:
     """A stored timestamp; the tables keep them as ISO strings and compare them as text.
 
@@ -254,8 +267,10 @@ class PickRepository:
                 return {**batch, "staged": True, "deferred": None} if stage else batch
             except IntegrityError:
                 # A leftover importing batch with this content is not reused: fail_leftover_staged clears it first.
-                existing = await self._published_duplicate(session, kind, content_hash)
+                existing = await self._duplicate(session, kind, content_hash, "published")
                 if existing is None:
+                    if await self._duplicate(session, kind, content_hash, "importing") is not None:
+                        raise StagedDuplicateError() from None
                     raise
         return await self._reuse(existing, kind, source_as_of=source_as_of, meta=meta, stage=stage)
 
@@ -291,7 +306,7 @@ class PickRepository:
         else:
             raise ValueError("未知资料类型")
 
-    async def _published_duplicate(self, session, kind: str, content_hash: str) -> dict | None:
+    async def _duplicate(self, session, kind: str, content_hash: str, status: str) -> dict | None:
         existing = (
             (
                 await session.execute(
@@ -299,7 +314,7 @@ class PickRepository:
                         import_batches.c.owner_id == self.owner_id,
                         import_batches.c.kind == kind,
                         import_batches.c.content_hash == content_hash,
-                        import_batches.c.status == "published",
+                        import_batches.c.status == status,
                     )
                 )
             )

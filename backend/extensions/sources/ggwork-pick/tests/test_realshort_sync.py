@@ -331,6 +331,18 @@ async def test_a_stalled_feed_hits_the_deadline_and_a_cancelled_run_is_closed(se
 
 
 @pytest.mark.asyncio
+async def test_a_cleartext_feed_url_is_refused_before_the_token_goes_out(service):
+    """security-4: an http:// feed URL to a real host would send the feed token in cleartext; nothing is requested."""
+    from ggwork_pick.sync import RealShortSync
+
+    seen = []
+    sync = RealShortSync(service, base_url="http://realshort.example.com", token=TOKEN, transport=feed_transport([feed_row(1)], seen=seen))
+    result = await sync.run("manual")
+    assert result["status"] == "failed" and "https" in result["error"]
+    assert seen == []
+
+
+@pytest.mark.asyncio
 async def test_restart_closes_runs_left_running_by_a_dead_process(service):
     from ggwork_pick.repository import PickRepository
 

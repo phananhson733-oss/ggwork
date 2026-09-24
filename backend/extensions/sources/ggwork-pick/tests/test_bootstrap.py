@@ -1,4 +1,5 @@
 import pytest
+import revisions
 from engines import host_engine
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -26,7 +27,7 @@ async def test_private_migrations_persist_and_are_repeatable(tmp_path):
             "ggwp_sync_runs",
             "ggwp_answer_checks",
         }
-        assert (await conn.execute(text("select version_num from ggwp_alembic_version"))).scalar_one() == "0004"
+        assert (await conn.execute(text("select version_num from ggwp_alembic_version"))).scalar_one() == revisions.head()
     await engine.dispose()
     second = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
     await service.initialize(async_sessionmaker(second, expire_on_commit=False))

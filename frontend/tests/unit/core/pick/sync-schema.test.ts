@@ -108,6 +108,27 @@ describe("syncStatusSchema", () => {
     }
   });
 
+  it("keeps a mirror the gateway could not read, as its error class", () => {
+    // routes.mirror_view: a failed read of pick_mirror answers { error: <class> }, the rest of /sync still 200.
+    const parsed = syncStatusSchema.parse(
+      status({ mirror: { error: "OperationalError" } }),
+    );
+    expect(parsed.mirror).toEqual({ error: "OperationalError" });
+    expect(parsed.runs).toEqual([RUN]);
+  });
+
+  it("reads an error object with more keys, or a long text, as absent", () => {
+    for (const broken of [
+      { error: "OperationalError", enabled: true },
+      { error: "E".repeat(201) },
+      { error: 42 },
+    ]) {
+      expect(syncStatusSchema.parse(status({ mirror: broken })).mirror).toBe(
+        undefined,
+      );
+    }
+  });
+
   it("keeps the mirror schema itself strict, for its banners", () => {
     const noWarnings = { ...MIRROR, warnings: "catalog_import_incomplete" };
     expect(mirrorStatusSchema.safeParse(noWarnings).success).toBe(false);
