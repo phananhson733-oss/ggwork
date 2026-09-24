@@ -114,3 +114,12 @@
 - 前端eslint/tsc通过。本轮产品代码未变，无需重建主实例；QA开发前端在验证后停止。
 - 再次确认主实例批次0、候选0，Colima数据盘100%且7个其他项目容器仍在运行。剩余真实业务资料/问题集和共享Docker处理需要用户输入或外部状态变化。
 - 完成审计见acceptance.md末节。保留完整目标，不把原生合成资料验证缩减成全目标完成。
+
+
+## 镜像写入（P2）上线（2026-09-24）
+
+- RealShort Production 配好 `PICK_EXPORT_TOKEN` 并重新部署；生产 dry-run `--scan` 全部门槛通过（整次 132.9 s，manifest 22.5 s，0 命中）。
+- ggwork main 1db08b6 部署到 Railway，迁移到 0006；回填曲线 15 天（RealShort 只保留到 2026-09-10）；打开 `PICK_MIRROR_ENABLED=1`。
+- 首次镜像同步 114 s，配对发布版本 1，八道闸门全过；智能体 10 题与 P0-6 逐题一致。数字见 [realshort-sync.md](realshort-sync.md)「镜像写入（P2）」，值守与回滚见 [mirror-runbook.md](mirror-runbook.md)。
+- 资料页（P3）还没上线：镜像已经有数据，页面上线前只能经 `/api/pick/sync` 的 `mirror` 字段看状态。
+

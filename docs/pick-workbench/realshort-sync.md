@@ -79,7 +79,7 @@ P2 镜像读 RealShort 的 feed v2（realshort#67：manifest 加八个行资源�
 | RealShort Vercel，只配 Production | `PICK_EXPORT_TOKEN` | v2 的 Bearer；没配时 v2 路由返回 404 |
 | Railway gateway | `PICK_REALSHORT_EXPORT_TOKEN` | 拉 v2；与上一行是同一个值 |
 
-- 截至 2026-09-24，Production 还没配 `PICK_EXPORT_TOKEN`，v2 对外返回 404。
+- 2026-09-24 16:40 UTC 起，RealShort Production 配了 `PICK_EXPORT_TOKEN`（只配 Production，用同一个提交 c45c520 重新部署），v2 不带 token 返回 401；Railway 的 `PICK_REALSHORT_EXPORT_TOKEN` 是同一个值。
 - 实测和镜像上线前 `--scan` 的一次性流程（临时凭据、bypass、收尾）见 [mirror-dry-run.md](mirror-dry-run.md)。
 - **轮换**：先改 RealShort 的 `PICK_EXPORT_TOKEN`（需要重新部署），再改 Railway 的 `PICK_REALSHORT_EXPORT_TOKEN`，最后点一次「立即同步」确认。
 
@@ -100,6 +100,15 @@ P2 镜像读 RealShort 的 feed v2（realshort#67：manifest 加八个行资源�
 ## 镜像写入（P2）
 
 开关 `PICK_MIRROR_ENABLED=1` 打开后，同一个定时改为镜像同步（v1 批次与 `pick_mirror` 版本一起发布）。上线核验、回填时间窗、值守与回滚见 [mirror-runbook.md](mirror-runbook.md)。回滚到 v1 之后必须跑一次 `mirror.admin cleanup`。
+
+**上线记录（2026-09-24，UTC）**：
+
+- 16:28 生产 dry-run `--scan`（入口 `python -m ggwork_pick.mirror.client --dry-run`，Production 不给 bypass）：整次 132.9 s；manifest 22.5 s；行页最慢 3.75 s；最大页 2,995,895 字节（catalog_rows，离 3 MB 只差约 4 KB，是 RealShort 按字节截页的结果）；v1 8,143 行等于 total；八个资源与 rs_series_day 34,841 行全对；扫描 0 命中；严格行模型 52 页 0 失败；title 类 scrub 0；sourceRevision 非空；漂移、busy、read_failed 都是 0。
+- 18:23 以开关关闭部署 1db08b6，迁移 0004→0005→0006；[mirror-runbook.md](mirror-runbook.md) 第 2 节四项全部通过。
+- 18:27 回填 `--backfill 92`：RealShort 的 snapshotDays 从 2026-09-10 开始，合并 15 天，每天 1.8–2.7 s；through 2026-09-24，trimmed_before 2026-09-10，缺天 0；库 61 MB 到 100 MB，series 表 28 MB。
+- 18:29 设 `PICK_MIRROR_ENABLED=1`（Railway 自动重新部署）。
+- 18:32 手动同步：success、paired，版本 1（`pickm_v000001`，as_of 18:30）；整次 114 s（manifest 24.2 s、v1 10.3 s、v2 73.3 s、收尾 5.1 s）；八道闸门全过；网盘命中 v1、规则、镜像都是 0；`mirror.behind` 为 false，共享批次的 source_as_of 等于版本 as_of；`meta.scrub` 为空；reader 对新版本有 USAGE 和九张表的 SELECT；advisory 锁计数 0；库 188 MB。
+- 智能体 10 题验收：10 题都是 200，调用的工具与返回条数和 P0-6 切换那次逐题一致。
 
 ## 已知限制
 
