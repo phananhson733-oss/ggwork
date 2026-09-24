@@ -23,42 +23,59 @@ REF = "https://example.test/admin/pick?tab=row&row="
 
 # (row_key, has_signal, off_on, imported_at): c-1 and c-2 are candidates; c-3 has no signal; c-4 is delisted.
 CATALOG_ROWS = (("c-1", True, None, IMPORTED), ("c-2", True, None, IMPORTED_LAST), ("c-3", False, None, IMPORTED), ("c-4", True, "2026-09-01", IMPORTED))
-# (row_key, kind, ord): zz is no basis RealShort knows, so v1 leaves it out (queries-shared.ts:183).
-SIGNALS = (("c-1", "kd", 0), ("c-1", "kw", 1), ("c-1", "zz", 2), ("c-2", "sm", 0), ("c-4", "kd", 0))
-# (sd, row_keys, drama_ids, post_count, sched_count, views_total, metric_at, imported_at)
+# (row_key, kind, ord): zz is no basis RealShort knows, so v1 leaves it out (queries-shared.ts:183). c-1 has two kd
+# signals, as real rows do (catalog-tables.sql:45): rankCounts counts it once (queries-rank.ts:106, count DISTINCT).
+SIGNALS = (("c-1", "kd", 0), ("c-1", "kw", 1), ("c-1", "zz", 2), ("c-2", "sm", 0), ("c-4", "kd", 0), ("c-1", "kd", 3))
+# (sd, row_keys, drama_ids, post_count, sched_count, views_total, metric_at, imported_at). SD-1 is posted and has more
+# scheduled, SD-4 is posted and has none: each STATE_WHERE's post_count = 0 (queries-posted.ts:140-145) matters.
 POSTED = (
-    ("SD-1", ["c-1"], [], 2, 0, 100, "2026-09-20", POSTED_LAST),
+    ("SD-1", ["c-1"], [], 2, 1, 100, "2026-09-20", POSTED_LAST),
     ("SD-2", [], ["d-1"], 0, 1, 0, None, POSTED_EARLIER),
     ("SD-3", [], [], 0, 0, 7, "2026-09-18", POSTED_EARLIER),
+    ("SD-4", [], [], 1, 0, 3, "2026-09-19", POSTED_EARLIER),
 )
-# drama_id -> has_signal, (rs_clk, rs_bill, rs_gsc), clicks7, bill_orders, search_impressions, promoters_cnt, rr1, p1, rr7, p7
+# drama_id -> has_signal, (rs_clk, rs_bill, rs_gsc), clicks7, bill_orders, search_impressions, promoters_cnt, rr1, p1, rr7, p7.
+# has_signal is candidateFilter (queries-reelshort.ts:77). Each of loadRsCounts' filters (observe/queries.ts:533-570)
+# counts differently from its neighbours: d-3 and d-4 have promoters_cnt 0, d-4 is a candidate by its bill alone, d-2 has p1 and
+# no rr1, and clicks7, bill_orders and search_impressions are set on different rows.
 RS_ROWS = {
     "d-1": (True, (True, True, True), 3, 4, 5, 2, 1.5, 2, 3.0, None),
-    "d-2": (True, (True, False, False), 1, 0, 0, 1, None, None, 2.0, None),
-    "d-3": (False, (False, False, False), 0, 0, 0, 3, None, None, None, None),
+    "d-2": (True, (True, False, False), 1, 0, 0, 1, None, 1, 2.0, None),
+    "d-3": (False, (False, False, False), 0, 0, 0, 0, None, None, 1.0, None),
+    "d-4": (True, (False, True, False), 0, 7, 0, 0, None, None, None, None),
+    "d-5": (True, (True, False, False), 2, 0, 0, 4, None, None, None, None),
 }
+# rs_ids is every dramas row (export-v2.ts:430), so also d-6, a sibling that is no canonical row.
+RS_IDS = (*RS_ROWS, "d-6")
 # (bill_date, book_id, promotion_type, order_cnt, source_rows): book-x is in no rs_ids row, which RealShort allows.
 BILLS = (("2026-09-20", "d-1", "cps", 5, 2), ("2026-09-21", "book-x", "cps", 1, 1))
 
 # Counted by hand from the rows above.
-COUNTS = {"catalog_rows": 4, "catalog_signals": 5, "catalog_posted": 3, "catalog_accounts": 2, "rs_rows": 3, "rs_ids": 3, "rs_clicks14": 2, "rs_bill_orders": 2}
+COUNTS = {"catalog_rows": 4, "catalog_signals": 6, "catalog_posted": 4, "catalog_accounts": 2, "rs_rows": 5, "rs_ids": 6, "rs_clicks14": 2, "rs_bill_orders": 2}
 FRESHNESS = {
     "importedAt": IMPORTED_LAST,
     "rows": 4,
     "withSignal": 3,
-    "signals": 5,
-    "posted": 3,
-    "rsCanonical": 3,
-    "rsCandidates": 2,
+    "signals": 6,
+    "posted": 4,
+    "rsCanonical": 5,
+    "rsCandidates": 4,
     "rsSyncedAt": "2026-09-23T09:00:00.000Z",
 }
-RS_COUNTS = {"all": 3, "cand": 2, "growthD1": 1, "growthD7": 2, "growthDp1": 1, "growthDp7": 0, "pc": 3, "clk": 2, "gsc": 1, "bill": 1, "ledger": 3}
-RANK_COUNTS = {"kd": 2, "kw": 1, "sm": 1, "rs_rr": 3, "rs_growth": 2, "rs_cand": 2, "rs_pc": 3, "rs_clk": 2, "rs_gsc": 1, "rs_bill": 1, "rs_ledger": 3}
-POSTED_STATS = {"total": 3, "pubCount": 1, "postsSum": 2, "viewsSum": 107, "metricAt": "2026-09-20", "importedAt": POSTED_LAST, "accountCount": 2}
-POSTED_STATES = {"pub": 1, "sched": 1, "none": 1, "nomatch": 1}
+RS_COUNTS = {"all": 5, "cand": 4, "growthD1": 1, "growthD7": 3, "growthDp1": 2, "growthDp7": 0, "pc": 3, "clk": 3, "gsc": 1, "bill": 2, "ledger": 3}
+RANK_COUNTS = {"kd": 2, "kw": 1, "sm": 1, "rs_rr": 5, "rs_growth": 3, "rs_cand": 4, "rs_pc": 3, "rs_clk": 3, "rs_gsc": 1, "rs_bill": 2, "rs_ledger": 3}
+POSTED_STATS = {"total": 4, "pubCount": 2, "postsSum": 3, "viewsSum": 110, "metricAt": "2026-09-20", "importedAt": POSTED_LAST, "accountCount": 2}
+POSTED_STATES = {"pub": 2, "sched": 1, "none": 1, "nomatch": 2}
 LEDGER = {"rows": 3, "orders": 6}
 # What the v1 feed says of each candidate: its signal kinds in order and its posted records.
-V1_CANDIDATES = {"c-1": (("kd", "kw"), ("SD-1",)), "c-2": (("sm",), ()), "reelshort-d-1": (("clk", "bill", "gsc"), ("SD-2",)), "reelshort-d-2": (("clk",), ())}
+V1_CANDIDATES = {
+    "c-1": (("kd", "kw", "kd"), ("SD-1",)),
+    "c-2": (("sm",), ()),
+    "reelshort-d-1": (("clk", "bill", "gsc"), ("SD-2",)),
+    "reelshort-d-2": (("clk",), ()),
+    "reelshort-d-4": (("bill",), ()),
+    "reelshort-d-5": (("clk",), ()),
+}
 
 
 def b64url(row_key: str) -> str:
@@ -89,7 +106,7 @@ def _tables() -> dict:
         "catalog_posted": tuple(posted_row(n, *spec) for n, spec in enumerate(POSTED, 1)),
         "catalog_accounts": tuple(synthetic_row("catalog_accounts", n, id=f"a-{n}") for n in (1, 2)),
         "rs_rows": tuple(rs_row(n, drama_id, *spec) for n, (drama_id, spec) in enumerate(RS_ROWS.items(), 1)),
-        "rs_ids": tuple(synthetic_row("rs_ids", n, id=f"d-{n}") for n in (1, 2, 3)),
+        "rs_ids": tuple(synthetic_row("rs_ids", n, id=drama_id) for n, drama_id in enumerate(RS_IDS, 1)),
         "rs_clicks14": (synthetic_row("rs_clicks14", 1, drama_id="d-1", day="2026-09-20"), synthetic_row("rs_clicks14", 2, drama_id="d-2", day="2026-09-21")),
         "rs_bill_orders": tuple(bill_row(n, *spec) for n, spec in enumerate(BILLS, 1)),
     }

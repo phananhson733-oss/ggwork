@@ -17,6 +17,7 @@ from mirror_rows import TABLES, NoSql, synthetic_row
 
 from ggwork_pick.mirror import gates
 from ggwork_pick.mirror.contracts import ODD_KEY
+from ggwork_pick.mirror.gate_result import id_part
 
 NUL = "\x00"
 LONE_SURROGATE = chr(0xD83D)
@@ -70,7 +71,7 @@ def test_v1_baseline_passes():
     world = baseline()
     scan = v1_scan(world)
     assert scan.pages == 2
-    assert len(scan.rows) == 4
+    assert len(scan.rows) == len(gw.V1_CANDIDATES)
     result = gates.v1_text_gate(scan)
     assert result.ok
     assert result.as_json() == "pass"
@@ -194,6 +195,7 @@ def test_manifest_meta_is_scanned_except_scrub():
     scan = gates.scan_mirror_meta(gates.MirrorTextScan(), meta)
     assert scan.found.paths == {"manifest.meta.rules.ruleHints.hint": 1}
     assert scan.found.rows == (("manifest",),)
+    assert scan.hits == 1  # details_json's scrub_hits.mirror (P2-5c)
     assert gates.scan_mirror_meta(gates.MirrorTextScan(), {"scrub": {"x": PAN}}).found.total == 0
 
 
@@ -238,7 +240,7 @@ def test_mirror_text_needs_every_row_and_the_meta_scanned():
             scan = gates.scan_mirror_page(scan, table, list(world.tables[table]))
     result = gates.mirror_text_gate(scan, gw.COUNTS)
     assert not result.ok
-    assert result.detail == {"unscanned": {"rs_ids": {"manifest": 3, "scanned": 0}, "manifest.meta": {"manifest": 1, "scanned": 0}}}
+    assert result.detail == {"unscanned": {"rs_ids": {"manifest": gw.COUNTS["rs_ids"], "scanned": 0}, "manifest.meta": {"manifest": 1, "scanned": 0}}}
 
 
 def test_scans_return_new_objects():
@@ -294,7 +296,7 @@ def test_row_counts_gate_names_each_table_off():
     assert gates.row_counts_gate(gw.COUNTS, gw.COUNTS).ok
     # A count that is not a plain int is off, and never echoed.
     result = gates.row_counts_gate(gw.COUNTS, {**gw.COUNTS, "rs_ids": "3"})
-    assert result.detail["tables"] == {"rs_ids": {"manifest": None, "mirror": 3}}
+    assert result.detail["tables"] == {"rs_ids": {"manifest": None, "mirror": gw.COUNTS["rs_ids"]}}
 
 
 @pytest.mark.parametrize(
@@ -360,6 +362,21 @@ def test_v1_consistency_differences_fail(change, path, row_id):
 def test_v1_consistency_baseline_passes_without_the_database():
     world = baseline()
     assert gates.v1_consistency_gate(_candidates(world), PAIRS, v1_scan(world)).as_json() == "pass"
+
+
+def test_row_ids_never_carry_pan_text():
+    # U37: details_json reaches every signed-in user. A row is named by its key (U49), but a key that holds pan text is
+    # shown as the replacement, scrubbed before the cut so that no piece of it slips past ID_PART_MAX either.
+    world = gw.with_row(baseline(), "catalog_posted", 0, sd=PAN, who=[PAN])
+    mirror = gates.mirror_text_gate(text_scan(world), gw.COUNTS).as_json()
+    assert mirror["rows"] == [["catalog_posted", gw.REPLACEMENT]]
+    v1 = with_v1(baseline(), [*baseline().v1_rows, {**v1_row("c-9"), "source_id": PAN}])
+    consistency = gates.v1_consistency_gate(_candidates(v1), PAIRS, v1_scan(v1)).as_json()
+    assert consistency["paths"] == {"v1.source_id": 1}
+    assert consistency["rows"] == [gw.REPLACEMENT]
+    assert "pan.baidu" not in json.dumps([mirror, consistency], ensure_ascii=False)
+    assert id_part("x" * 190 + PAN) == gw.REPLACEMENT
+    assert id_part("c-1") == "c-1"
 
 
 @pytest.mark.asyncio
