@@ -242,9 +242,7 @@ PYTHONPATH=customizations/pick-workbench backend/.venv/bin/python -m ggwork_pick
 
 ## 超门槛时的两级退路
 
-1. 先用 `--limit rs_rows=1000` 复测（服务端上限 2000），RealShort 不用改。
-   - 通过的话，把 1000 写进 `customizations/pick-workbench/ggwork_pick/mirror/client.py` 的 `PAGE_LIMITS["rs_rows"]`（U47）。
-   - 同时改 `customizations/pick-workbench/tests/mirror/test_feed_client.py` 的 `test_page_limits_default_to_each_resources_server_maximum`：它现在断言缺省值等于服务端上限。
+1. 第 1 级已经用上：2026-09-24 的 P1-6 实测里，`--limit rs_rows=1000` 通过，1000 已写进 `customizations/pick-workbench/ggwork_pick/mirror/client.py` 的 `PAGE_LIMITS["rs_rows"]`（U47；服务端上限 2000），`customizations/pick-workbench/tests/mirror/test_feed_client.py` 的 `test_page_limits_are_the_server_maxima_but_rs_rows_1000` 钉住它。之后的 dry-run 不带 `--limit` 就按 1000 拉。
 2. 还是不过：把 rs_rows 改成每天只拉一次（plan:1496）。这要改 P2 的编排（5c），RealShort 仍然不用改。
 
 超门槛的若是别的资源，不在这两级预案里，记下数字交评审。

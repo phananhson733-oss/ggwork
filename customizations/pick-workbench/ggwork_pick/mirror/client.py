@@ -79,8 +79,9 @@ PAGE_LIMITS: Mapping[str, int] = MappingProxyType(
         "catalog_signals": 5000,
         "catalog_posted": 1000,
         "catalog_accounts": 1000,
-        # 由 P1-6 实测确定（U47）：超门槛先试 --limit rs_rows=1000，通过的值写回这里（docs/pick-workbench/mirror-dry-run.md）
-        "rs_rows": 2000,
+        # P1-6 实测定为 1000（U47，2026-09-24）：服务端上限 2000 时 RealShort 按 3 MB 截页，约 1,250 行一页、单页 2.6–25.4 s；
+        # 1000 行一页单页 1.9–2.6 s（docs/pick-workbench/realshort-sync.md「feed v2（镜像用）」）
+        "rs_rows": 1000,
         "rs_ids": 10000,
         "rs_clicks14": 20000,
         "rs_bill_orders": 5000,
