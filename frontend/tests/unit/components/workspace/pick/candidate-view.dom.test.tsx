@@ -232,14 +232,23 @@ describe("row check links (P4-1)", () => {
     expect(link.parentElement?.parentElement).toBe(container);
   });
 
-  it("does not offer replay until the replay view ships (critique A4)", () => {
-    expect(REPLAY_LINK_ENABLED).toBe(false);
+  it("offers replay with the replay view (P4-2, critique A4): pinned to the result's version", () => {
+    expect(REPLAY_LINK_ENABLED).toBe(true);
     renderView(synced);
-    expect(screen.queryByRole("link", { name: /回放/ })).toBeNull();
+    const link = screen.getByRole("link", { name: "回放这份候选" });
+    expect(link.getAttribute("href")).toBe(
+      `/workspace/pick-data?result=${synced.id}&v=7`,
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+
+  it("replays an unpaired shared result on the current version, never a personal one (U28)", () => {
+    renderView({ ...synced, data_as_of: { ...SHARED, mirror_version: null } });
     expect(
-      screen
-        .getAllByRole("link")
-        .some((link) => link.getAttribute("href")?.includes("result=")),
-    ).toBe(false);
+      screen.getByRole("link", { name: "回放这份候选" }).getAttribute("href"),
+    ).toBe(`/workspace/pick-data?result=${synced.id}`);
+    cleanup();
+    renderView({ ...synced, data_as_of: { ...SHARED, shared: false } });
+    expect(screen.queryByRole("link", { name: /回放/ })).toBeNull();
   });
 });

@@ -126,15 +126,22 @@ describe("itemCheckHref", () => {
   });
 });
 
-describe("replayLink (P4-2 turns it on; critique A4)", () => {
+describe("replayLink (on with the replay view, P4-2; critique A4)", () => {
   const result: Pick<PickResult, "id" | "data_as_of"> = {
     id: RESULT_ID,
     data_as_of: asOf(),
   };
 
-  it("stays off until the replay view ships", () => {
-    expect(REPLAY_LINK_ENABLED).toBe(false);
-    expect(replayLink(result)).toBeNull();
+  it("is on now that the replay view ships", () => {
+    expect(REPLAY_LINK_ENABLED).toBe(true);
+    expect(replayLink(result)).toBe(replayHref(RESULT_ID, 7));
+    // The link the card gives is the one the page replays: tab pick, the result, its version.
+    const req = parsed(replayHref(RESULT_ID, 7));
+    expect([req.tab, req.result, req.v]).toEqual(["pick", RESULT_ID, 7]);
+  });
+
+  it("can still be switched off", () => {
+    expect(replayLink(result, false)).toBeNull();
   });
 
   it("when on, shows for a shared result, with or without a version", () => {

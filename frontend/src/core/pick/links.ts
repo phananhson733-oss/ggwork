@@ -19,10 +19,11 @@ const VERSION_MAX = 999_999;
 const RESULT_ID = /^[0-9a-f]{32}$/;
 
 /**
- * The replay link waits for the replay view (P4-2): until then a `result=` link
- * lands on a page that ignores it (critique A4). P4-2 sets this to true.
+ * The replay link ships with the replay view (P4-2, critique A4): the page
+ * replays `tab=pick&result=`. Kept as a switch so the link can be taken off the
+ * cards without touching the view.
  */
-export const REPLAY_LINK_ENABLED = false;
+export const REPLAY_LINK_ENABLED = true;
 
 export function isMirrorVersion(value: unknown): value is number {
   return (
