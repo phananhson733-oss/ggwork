@@ -39,6 +39,9 @@ EXPECTED_GUIDANCE_PATHS = {
     "backend/packages/harness/deerflow/utils/AGENTS.md",
     "frontend/src/AGENTS.md",
     "scripts/AGENTS.md",
+    # 选剧工作台扩展：源目录与 deerflow extensions 安装出的托管副本逐字节相同
+    "customizations/pick-workbench/AGENTS.md",
+    "backend/extensions/sources/ggwork-pick/AGENTS.md",
 }
 
 
