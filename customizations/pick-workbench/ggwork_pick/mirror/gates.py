@@ -159,7 +159,11 @@ class V1Row:
 
 @dataclass(frozen=True, slots=True)
 class V1Scan:
-    """The whole v1 pull so far (G2, and G8's rows). Built by scan_v1_page only, a new one per page."""
+    """The whole v1 pull so far (G2, and G8's rows). Built by scan_v1_page only, a new one per page.
+
+    Each attempt, a drift retry included, starts from a new V1Scan(): one carried over holds the last attempt's rows,
+    which G8 reports as v1.duplicate, and the run degrades.
+    """
 
     pan_found: Findings = Findings()
     nul_found: Findings = Findings()
@@ -264,11 +268,20 @@ def v1_text_gate(scan: V1Scan) -> GateResult:
 
 @dataclass(frozen=True, slots=True)
 class MirrorTextScan:
-    """The v2 pages and manifest.meta scanned so far (G5); scanned counts rows per resource, to prove every page was seen."""
+    """The v2 pages and manifest.meta scanned so far (G5); scanned counts rows per resource, to prove every page was seen.
+
+    Each attempt, a drift retry included, starts from a new MirrorTextScan(): counts carried over exceed manifest.counts,
+    G5 reports them as unscanned, and the run degrades.
+    """
 
     found: Findings = Findings()
     scanned: Mapping[str, int] = field(default_factory=no_hits)
     meta_scanned: bool = False
+
+    @property
+    def hits(self) -> int:
+        """Pan hits in the v2 rows and manifest.meta: details_json's scrub_hits.mirror (P2-5c)."""
+        return self.found.hits
 
 
 def _scan_v2_row(resource: str, found: Findings, row) -> Findings:
@@ -537,8 +550,9 @@ class MirrorGates:
 async def run_mirror_gates(conn, *, schema_name: str, manifest: Mapping, v1: V1Scan, text: MirrorTextScan, timeout: float = STATEMENT_TIMEOUT) -> MirrorGates:
     """G3-G9 over a finalized version on the dedicated connection; every gate runs, so details_json shows them all.
 
-    manifest is the manifest row as RealShort sent it (feed_shape.Manifest.row); v1 and text are the scans the run built
-    page by page. A statement that fails is a GateError (a mirror-side failure); the schema name is checked first.
+    manifest is the manifest row as RealShort sent it (feed_shape.Manifest.row); v1 and text are the scans this attempt
+    built page by page, each begun empty (V1Scan(), MirrorTextScan()). A statement that fails is a GateError (a
+    mirror-side failure); the schema name is checked first.
     """
     schema = check_schema_name(schema_name)
     bases = signal_kinds(manifest)

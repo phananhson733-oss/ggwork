@@ -83,10 +83,12 @@ def added(first: Mapping[str, int], second: Mapping[str, int]) -> MappingProxyTy
 
 
 def id_part(value):
-    """A key value as an identifier shows it: an int as it is; text made storable and cut; anything else a marker."""
+    """A key value as an identifier shows it: an int as it is; text made storable, scrubbed, then cut; anything else a
+    marker. Keys are exempt from the scrub in the rows (plan 394), not here: details_json reaches every signed-in user
+    (U37), so a key holding pan text is named by the replacement, scrubbed whole before the cut can split it."""
     if is_count(value):
         return value
-    return storable(value)[:ID_PART_MAX] if isinstance(value, str) else _NOT_TEXT
+    return pan.scrub_text(storable(value))[0][:ID_PART_MAX] if isinstance(value, str) else _NOT_TEXT
 
 
 def value_at(value, path: Sequence[str]):
