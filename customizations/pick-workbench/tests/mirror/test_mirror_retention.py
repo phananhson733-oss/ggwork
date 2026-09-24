@@ -4,6 +4,7 @@ PostgreSQL only: every test skips when PICK_TEST_PG_URL is unset.
 """
 
 import json
+import logging
 import re
 import time
 from datetime import UTC, datetime, timedelta
@@ -218,11 +219,15 @@ async def test_the_latest_three_and_the_grace_hour_never_go_even_over_the_cap(sy
         await _version(observer, n, published=T0 - timedelta(minutes=58 - 4 * (n - 3)), superseded=superseded)
     await _cite(observer, 1, at=T0 - timedelta(hours=1))
     await _cite(observer, 2, at=T0 - timedelta(hours=1))
+    caplog.set_level(logging.WARNING, logger="ggwork_pick.mirror.retention")
     report = await _prune(sync_conn)
     # Version 2 was superseded 58 minutes ago: in the grace hour with 3..13, twelve protected in all.
     assert report.dropped == (1,)
     assert report.kept == tuple(range(13, 1, -1)) and report.over_cap == 2
     assert report.details()["over_cap"] == 2
+    # The alert (U23) carries counts only.
+    warnings = [r.getMessage() for r in caplog.records if r.name == "ggwork_pick.mirror.retention" and r.levelno == logging.WARNING]
+    assert warnings == ["[pick-mirror] retention keeps 12 versions, 2 over the cap of 10 (U23)"]
 
 
 @pytest.mark.asyncio
@@ -373,6 +378,47 @@ async def test_a_version_that_stops_being_published_midway_keeps_its_schema(sync
     assert await sync_conn.fetchval("show lock_timeout") == "0" and not sync_conn.is_in_transaction()
 
 
+@pytest.mark.parametrize("step", ["prune", "clean"])
+@pytest.mark.asyncio
+async def test_any_other_database_error_is_raised_not_taken_for_a_reader(sync_conn, observer, step):
+    import asyncpg
+
+    await (_chain(observer, 6) if step == "prune" else _leftovers(observer))
+    target = _schema(2 if step == "prune" else 5)
+    row = "select status, dropped_at from pick_mirror.versions where schema_name = $1"
+    before = await observer.fetchrow(row, target)
+    failing = _FailsDrop(sync_conn, schema=target, error=asyncpg.exceptions.InsufficientPrivilegeError("synthetic"))
+    with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
+        await (_prune if step == "prune" else _clean)(failing)
+    assert await observer.fetchrow(row, target) == before and target in await _schemas(observer)
+    assert await sync_conn.fetchval("show lock_timeout") == "0" and not sync_conn.is_in_transaction()
+
+
+@pytest.mark.asyncio
+async def test_the_reference_window_is_the_one_passed_in(sync_conn, observer):
+    await _chain(observer, 5)
+    await _cite(observer, 1, at=T0 - timedelta(hours=12))
+    await _cite(observer, 2, at=T0 - timedelta(days=2))
+    report = await _prune(sync_conn, referenced_within=timedelta(days=1))
+    assert (report.kept, report.dropped) == ((5, 4, 3, 1), (2,))
+
+
+@pytest.mark.parametrize(
+    "options, cited, kept, dropped",
+    [
+        ({"keep_latest": 1}, (), (7,), (1, 2, 3, 4, 5, 6)),
+        ({"cap": 4}, (1, 2, 3, 4), (7, 6, 5, 4), (1, 2, 3)),
+    ],
+)
+@pytest.mark.asyncio
+async def test_keep_latest_and_the_cap_are_the_ones_passed_in(sync_conn, observer, options, cited, kept, dropped):
+    await _chain(observer, 7)
+    for n in cited:
+        await _cite(observer, n, at=T0 - timedelta(days=1))
+    report = await _prune(sync_conn, **options)
+    assert (report.kept, report.dropped, report.over_cap) == (kept, dropped, 0)
+
+
 def test_the_module_never_sets_a_session_level_setting():
     source = RETENTION_SOURCE.read_text()
     assert "SET LOCAL lock_timeout" in source
@@ -449,6 +495,10 @@ async def test_the_details_carry_version_numbers_and_codes_only(sync_conn, obser
 # ---- leftovers of a run that never finished (U41, the schema half) ----
 
 
+# The registered leftovers whose schemas go: building 3 and 4 once failed, failed 5, and 8 and 9 cleared on paper only.
+LEFTOVER_SCHEMAS = tuple(_schema(n) for n in (3, 4, 5, 8, 9))
+
+
 async def _leftovers(observer) -> None:
     await _version(observer, 1, published=T0 - timedelta(hours=4), superseded=T0 - timedelta(hours=2))
     await _version(observer, 2, published=T0 - timedelta(hours=2))
@@ -460,6 +510,10 @@ async def _leftovers(observer) -> None:
     await observer.execute("update pick_mirror.versions set dropped_at = $1 where id = 6", T0 - timedelta(days=1))
     await _version(observer, 7, status="dropped", schema=False)
     await observer.execute("update pick_mirror.versions set dropped_at = $1 where id = 7", T0 - timedelta(days=2))
+    # Cleared on paper but the schema is still there: mark_failed's DROP was skipped, or a restore put it back.
+    await _version(observer, 8, status="failed")
+    await _version(observer, 9, status="dropped")
+    await observer.execute("update pick_mirror.versions set dropped_at = $1::timestamptz - (id - 5) * interval '1 day' where id in (8, 9)", T0)
     for name in (_schema(99), "pickm_v1234567", "pickm_vx", "pickm_v00000６"):
         await _create_schema(observer, name)
 
@@ -471,7 +525,7 @@ async def test_leftover_building_versions_fail_and_orphan_schemas_go(sync_conn, 
     await _leftovers(observer)
     report = await _clean(sync_conn)
     assert (report.skipped, report.failed_building, report.lock_busy) == (None, (3, 4), ())
-    assert report.dropped_schemas == (_schema(3), _schema(4), _schema(5), _schema(99))
+    assert report.dropped_schemas == LEFTOVER_SCHEMAS + (_schema(99),)
     rows = {row["id"]: (row["status"], row["dropped_at"], row["error"]) for row in await observer.fetch(VERSIONS)}
     assert rows == {
         1: ("published", None, None),
@@ -481,12 +535,15 @@ async def test_leftover_building_versions_fail_and_orphan_schemas_go(sync_conn, 
         5: ("failed", T0, "MirrorGateError"),
         6: ("failed", T0 - timedelta(days=1), None),
         7: ("dropped", T0 - timedelta(days=2), None),
+        # Their schemas went; the dropped_at already written stays as it was.
+        8: ("failed", T0 - timedelta(days=3), None),
+        9: ("dropped", T0 - timedelta(days=4), None),
     }
     assert await _schemas(observer) == sorted([_schema(1), _schema(2), "pickm_v1234567", "pickm_vx", "pickm_v00000６"])
     assert report.details() == {
         "skipped": None,
         "failed_building": [3, 4],
-        "dropped_schemas": [_schema(3), _schema(4), _schema(5), _schema(99)],
+        "dropped_schemas": [*LEFTOVER_SCHEMAS, _schema(99)],
         "lock_busy": [],
     }
     # A second pass finds nothing.
@@ -532,8 +589,11 @@ async def test_a_reader_on_an_orphan_skips_it_and_the_setting_does_not_stay(sync
     try:
         async with reader.transaction():
             await reader.fetchval(f"select count(*) from {_schema(99)}.meta")
+            started = time.monotonic()
             report = await _clean(sync_conn, lock_timeout=timedelta(milliseconds=200))
-        assert report.lock_busy == (_schema(99),) and report.dropped_schemas == (_schema(3), _schema(4), _schema(5))
+            # The timeout passed in, not the default five seconds.
+            assert time.monotonic() - started < 2
+        assert report.lock_busy == (_schema(99),) and report.dropped_schemas == LEFTOVER_SCHEMAS
         assert await sync_conn.fetchval("show lock_timeout") == "0" and not sync_conn.is_in_transaction()
     finally:
         await reader.close()
@@ -569,6 +629,21 @@ class _Recorder:
     async def fetchval(self, query, *args):
         self.sent.append(query)
         return await self.conn.fetchval(query, *args)
+
+
+class _FailsDrop(_Recorder):
+    """The DROP of one schema fails with `error` inside its transaction, as if the server had raised it."""
+
+    def __init__(self, conn, *, schema: str, error: Exception):
+        super().__init__(conn)
+        self.schema = schema
+        self.error = error
+
+    async def execute(self, query, *args):
+        if query.startswith("DROP SCHEMA") and self.schema in query:
+            self.sent.append(query)
+            raise self.error
+        return await super().execute(query, *args)
 
 
 class _ChangesRowBeforeDrop(_Recorder):
