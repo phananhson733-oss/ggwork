@@ -8,7 +8,8 @@
  * - 对账合并：RealShort 的原始账单行按（账单日, book_id, 推广类型）合并后再比，镜像多出 canonicalId 与合计的行数口径；
  *   证据页订单明细的 sameDayClicks 在 RealShort 恒为 0；
  * - 账单明细的顺序与 LIMIT 边界：订单对账与证据页订单明细不比顺序，截断那一天的行与合计不强求一致；
- * - 清洗占位「[网盘信息已移除]」：只在 meta.scrub 记过的字段路径上放行，按格子去重后不得超过它记的次数；
+ * - 清洗占位「[网盘信息已移除]」：只在 meta.scrub 记过的字段路径上放行，按格子去重后不得超过它记的次数。
+ *   快照那边是 SCRUBBED（RealShort 自己的清洗器认出的文本）或原文；SCRUBBED 对上的镜像不是清洗占位，照报；
  * - payload、posts 里导出键白名单之外的键；
  * - 「分成」改名「订单」；
  * - timestamptz 按毫秒比；
@@ -16,7 +17,8 @@
  *   （判断见 pick-board-parity-collation.ts）。
  * bill_rank 排序（ReelShort 预估分成榜）不进白名单：镜像按 bill_rank 排，与 RealShort 的顺序必须相同。
  *
- * 打印出来的值：RealShort 的文字一律只给长度与摘要（原文可能带网盘信息），网盘与金额字段两边都不给值。
+ * 打印出来的值：RealShort 的文字一律只给长度与摘要（清洗器没认出的网盘写法也可能在里面），网盘与金额字段两边都不给值；
+ * RealShort 清洗过、镜像却没清洗的格子，镜像那边也只给长度与摘要。
  */
 import { createHash } from "node:crypto";
 
@@ -29,6 +31,7 @@ import {
 import {
   MONEY_KEYS,
   PAN_KEYS,
+  SCRUBBED,
   isJsonObject,
   type Json,
   type JsonObject,
@@ -179,6 +182,7 @@ function showShape(value: Json | undefined): string {
 }
 
 function showRs(value: Json | undefined): string {
+  if (value === SCRUBBED) return "‹快照已清洗›";
   return typeof value === "string"
     ? `‹文本 ${[...value].length} 字 #${shortHash(value)}›`
     : showShape(value);
@@ -204,6 +208,17 @@ function fail(w: Walk, what: string, rs?: Json, mirror?: Json): CaseComparison {
         ...(rs === undefined ? {} : { rs: showRs(rs) }),
         ...(mirror === undefined ? {} : { mirror: showMirror(mirror) }),
       };
+  return {
+    findings: [{ caseId: w.caseId, path: w.path, rule: null, what, ...values }],
+    charges: [],
+  };
+}
+
+/** 两边的文字都只给长度与摘要：镜像这边这格本该清洗而没有清洗，原文可能带网盘信息 */
+function failHidden(w: Walk, what: string, mirror: Json): CaseComparison {
+  const values = isSensitive(w)
+    ? {}
+    : { rs: showRs(SCRUBBED), mirror: showRs(mirror) };
   return {
     findings: [{ caseId: w.caseId, path: w.path, rule: null, what, ...values }],
     charges: [],
@@ -374,6 +389,15 @@ function compareStrings(
   rs: string,
   mirror: string,
 ): CaseComparison | null {
+  if (rs === SCRUBBED)
+    return mirror === PAN_SCRUB_REPLACEMENT
+      ? chargeScrub(w, rs)
+      : failHidden(
+          w,
+          "RealShort 的清洗器认出这格有网盘信息（快照已清洗），镜像却不是清洗占位",
+          mirror,
+        );
+  // 快照清洗器没认出、导出却清洗了：导出清洗的是它自己规范化过的值（比如整串标签），照样按 meta.scrub 记数
   if (mirror === PAN_SCRUB_REPLACEMENT) return chargeScrub(w, rs);
   if (rs.includes("分成") && rs.replaceAll("分成", "订单") === mirror)
     return allow(w, "rename", "「分成」改名「订单」");

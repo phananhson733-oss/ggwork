@@ -33,6 +33,7 @@ import {
   type Finding,
 } from "../../../scripts/pick-board-parity-compare";
 import {
+  SCRUBBED,
   SNAPSHOT_FORMAT,
   STRIPPED,
   type Json,
@@ -181,7 +182,7 @@ describe("compareCase and settleScrub: pan scrub placeholders", () => {
   const ctx: CompareContext = { scrub, collations: null };
 
   it("lets a placeholder through on a meta.scrub path, charged once per cell", () => {
-    const rs = list([rsRow({ title: PAN_TEXT })]);
+    const rs = list([rsRow({ title: SCRUBBED })]);
     const mirror = list([pickRow({ title: PAN_SCRUB_REPLACEMENT })]);
     const a = compareCase("pick", rs, mirror, ctx);
     const b = compareCase("pick.platform.kalos", rs, mirror, ctx);
@@ -197,10 +198,37 @@ describe("compareCase and settleScrub: pan scrub placeholders", () => {
     });
   });
 
+  it("fails a cell RealShort's scrubber flagged but the mirror kept, printing neither", () => {
+    const { findings, charges } = compareCase(
+      "pick",
+      list([rsRow({ title: SCRUBBED })]),
+      list([pickRow({ title: PAN_TEXT })]),
+      ctx,
+    );
+    expect(failures(findings).map((f) => f.path)).toEqual([
+      "page.rows[kalos-a].title",
+    ]);
+    expect(JSON.stringify(findings)).not.toMatch(/pan\.example|zz99/);
+    expect(charges).toEqual([]);
+  });
+
+  it("still charges a placeholder where the snapshot kept RealShort's text", () => {
+    // The export scrubs its own normalized value (a whole tag list, say);
+    // the loader's piece of it may not trip the scrubber on its own.
+    const { findings, charges } = compareCase(
+      "pick",
+      list([rsRow({ title: "资源在群里" })]),
+      list([pickRow({ title: PAN_SCRUB_REPLACEMENT })]),
+      ctx,
+    );
+    expect(failures(findings)).toEqual([]);
+    expect(charges.map((c) => c.key)).toEqual(["catalog_rows.title"]);
+  });
+
   it("fails when more cells are scrubbed than meta.scrub counted", () => {
     const rs = list([
-      rsRow({ title: PAN_TEXT }),
-      rsRow({ rowKey: "kalos-b", title: PAN_TEXT }),
+      rsRow({ title: SCRUBBED }),
+      rsRow({ rowKey: "kalos-b", title: SCRUBBED }),
     ]);
     const mirror = list([
       pickRow({ title: PAN_SCRUB_REPLACEMENT }),
@@ -215,7 +243,7 @@ describe("compareCase and settleScrub: pan scrub placeholders", () => {
   it("fails a placeholder on a path meta.scrub does not name", () => {
     const { findings } = compareCase(
       "pick",
-      list([rsRow({ reoffNote: PAN_TEXT })]),
+      list([rsRow({ reoffNote: SCRUBBED })]),
       list([pickRow({ reoffNote: PAN_SCRUB_REPLACEMENT })]),
       ctx,
     );
@@ -226,12 +254,12 @@ describe("compareCase and settleScrub: pan scrub placeholders", () => {
 
   it("maps signal payloads, posts and ReelShort rows to their export paths", () => {
     const rsList = list([
-      rsRow({ signals: [signal([["2026-09-01", 3, PAN_TEXT]])] }),
+      rsRow({ signals: [signal([["2026-09-01", 3, SCRUBBED]])] }),
       rsRow({
         rowKey: "reelshort-rs0001",
         platform: "reelshort",
-        title: PAN_TEXT,
-        rs: { id: "rs0001", revenueCents: 1, title: PAN_TEXT },
+        title: SCRUBBED,
+        rs: { id: "rs0001", revenueCents: 1, title: SCRUBBED },
       }),
     ]);
     const mirrorList = list([
@@ -254,7 +282,7 @@ describe("compareCase and settleScrub: pan scrub placeholders", () => {
     });
     const posted = compareCase(
       "posted.record1",
-      { record: record(PAN_TEXT), links: {} },
+      { record: record(SCRUBBED), links: {} },
       { record: record(PAN_SCRUB_REPLACEMENT), links: {} },
       ctx,
     );
@@ -277,7 +305,7 @@ describe("compareCase and settleScrub: pan scrub placeholders", () => {
     });
     const ranked = compareCase(
       "rank.kd",
-      { meta: {}, page: { rows: [rankRow(PAN_TEXT, rsRow())] } },
+      { meta: {}, page: { rows: [rankRow(SCRUBBED, rsRow())] } },
       {
         meta: {},
         page: { rows: [rankRow(PAN_SCRUB_REPLACEMENT, pickRow())] },
@@ -286,7 +314,7 @@ describe("compareCase and settleScrub: pan scrub placeholders", () => {
     );
     const listed = compareCase(
       "pick.basis.kd",
-      list([rsRow({ signals: [signal(h(PAN_TEXT))] })]),
+      list([rsRow({ signals: [signal(h(SCRUBBED))] })]),
       list([pickRow({ signals: [signal(h(PAN_SCRUB_REPLACEMENT))] })]),
       ctx,
     );

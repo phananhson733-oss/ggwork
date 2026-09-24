@@ -69,7 +69,11 @@ git status --short                          # 又是空的
 - `source_revision` 为 null 的版本（本地导出的）：不设 `VERCEL_GIT_COMMIT_SHA`。
 - 脚本先核对：当前目录是 RealShort 检出；`VERCEL_GIT_COMMIT_SHA` 等于 HEAD；不在忙时段。然后在开头和结尾各调一次 `export-v2` 的 `checkSource`（内部读 `readSourceSnapshot`）：fingerprint 不是 `--fp`（409），或有来源正在写（503），就退出 3，不写文件。
 - `--only <正则>` 只跑 id 匹配的用例（`globals` 总会跑），用来补跑或省预算。
-- 快照是 0600、不覆盖已有文件。里面有 RealShort 的业务数据，但没有网盘链接、提取码和任何金额：这些字段在落盘前换成占位，网盘只留 `hasPan`。
+- 快照是 0600、不覆盖已有文件（`--out` 已存在时开跑前就退出 2）。里面有 RealShort 的业务数据，但没有网盘链接、提取码和任何金额：
+  - 网盘字段与金额字段在落盘前换成占位，网盘只留 `hasPan`；
+  - 其余每个文本值都过一遍 RealShort 自己的 `scrubPanText`（导出清洗用的同一个；开跑前拿一条网盘链接自检，认不出就退出 2），认出网盘信息的整串换成「[快照清洗：网盘信息]」；
+  - 对象的键（行键、来源名这类标识）不过清洗器。
+- 结尾会打印清洗了多少格。
 - 复制进去的那段时间不要跑 RealShort 的测试：`tests/admin-contracts.test.ts` 会扫 `scripts/`。
 
 退出码：0 成功；1 未预期的错误；2 参数、目录、检出或时段不对；3 fingerprint 核对不通过。
@@ -94,7 +98,7 @@ PICK_MIRROR_CA_PEM="$(cat "$SCRATCH/supabase-ca.pem")" \
 - 本地剧场键差集，即版本 `platformRules` 的键减去本地 `PLATFORMS`。不为空说明 RealShort 新加了剧场，要补移植。
 - 两边库的 collation。
 - 白名单外差异，逐条列出：用例、路径、原因。
-  - RealShort 那边的文字只打印长度和摘要，因为原文可能带网盘信息。
+  - RealShort 那边的文字只打印长度和摘要，因为清洗器没认出的网盘写法也可能在里面。
   - 网盘字段和金额字段两边都不打印值。
 - 白名单内差异，按规则计数。
 - 清洗占位的用量：每个 `meta.scrub` 路径上观察到的格子数，和 `meta.scrub` 记的次数。
@@ -113,7 +117,8 @@ PICK_MIRROR_CA_PEM="$(cat "$SCRATCH/supabase-ca.pem")" \
   - 订单对账和证据页订单明细不比顺序；
   - 哪边取满了 LIMIT（对账 200 行，明细 50 行），那边最早的账单日及更早的行可以缺，那一天的 `orderCnt` 与 `sourceRows` 可以不同；
   - 证据页的 `billTruncated` 只容许「RealShort 为真、镜像为假」。
-- **清洗占位**：镜像是「[网盘信息已移除]」、RealShort 是原文的格子，只在 `meta.scrub` 记过的字段路径上放行。
+- **清洗占位**：镜像是「[网盘信息已移除]」的格子，只在 `meta.scrub` 记过的字段路径上放行。快照那边通常是「[快照清洗：网盘信息]」；也可能是原文，因为导出清洗的是它自己规范化过的值（比如整串标签），拆开以后未必认得出。
+  - 快照是「[快照清洗：网盘信息]」、镜像却不是清洗占位：白名单外，两边的文字都只打印长度和摘要；
   - 同一格子在几个用例里出现，只算一次；
   - 总数不得超过 `meta.scrub` 记的次数；
   - 榜单行的 `dayNote` 记到它取自的那个信号 `payload.h` 格子上。
@@ -167,3 +172,4 @@ git -C "$RS_REPO" status --short     # 空
 4. 先跑快照脚本，再对同一版本跑 parity。
 
 P4-3 实现时在 fixture 的 v3 上这样跑过：73 个用例，没有白名单外差异；改动镜像里一个剧名后退出 1；换成 v2 时退出 3。这些文件都不进仓库。
+假 RealShort 检出还要有 `src/lib/pick/export-v2-map.ts`，导出 `scrubPanText(text) → {text, hits}`。

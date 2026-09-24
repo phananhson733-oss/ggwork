@@ -5,11 +5,14 @@
  * 常量是 request.ts 的副本，工作台单测钉住两边相同。
  */
 
-export const SNAPSHOT_FORMAT = "pick-board-snapshot/1";
+/** 2：网盘与金额之外的文本也过 RealShort 自己的 scrubPanText，认出的整串换成 SCRUBBED */
+export const SNAPSHOT_FORMAT = "pick-board-snapshot/2";
 /** 每个用例的列表只留前 50 行（方案 P4-3） */
 export const ROW_LIMIT = 50;
 /** 落盘前替换网盘与金额字段的占位；parity 把它们当「被删字段」 */
 export const STRIPPED = "[不进快照]";
+/** 落盘前被 RealShort 的 scrubPanText 认出网盘信息的文本整串换成它；parity 把它对上镜像的清洗占位，按 meta.scrub 记数 */
+export const SCRUBBED = "[快照清洗：网盘信息]";
 export const GLOBALS_CASE_ID = "globals";
 
 // prettier-ignore
@@ -340,16 +343,25 @@ export function toJson(value: unknown): Json {
 const PAN_LINK = /^https?:\/\//i;
 
 /**
- * 落盘前去掉网盘链接、提取码与金额：值换成 STRIPPED，键留着（parity 据此认出「被删字段」）。
- * 有 panUrl 的对象补 hasPan，判断与导出的 has_pan 相同（export-v2.ts HAS_PAN_SQL：pan_url ~* '^https?://'）。
+ * 落盘前去掉网盘链接、提取码与金额：
+ * - 网盘与金额字段的值换成 STRIPPED，键留着（parity 据此认出「被删字段」）；有 panUrl 的对象补 hasPan，
+ *   判断与导出的 has_pan 相同（export-v2.ts HAS_PAN_SQL：pan_url ~* '^https?://'）；
+ * - 其余每个文本值（剧名、备注、payload.h 的格子、posts 的链接……）交给 isPanText（RealShort 的 scrubPanText），
+ *   认出网盘信息的整串换成 SCRUBBED。对象的键是标识，不动。
  */
-export function stripSensitive(value: Json): Json {
+export function stripSensitive(
+  value: Json,
+  isPanText: (text: string) => boolean,
+): Json {
+  if (typeof value === "string") return isPanText(value) ? SCRUBBED : value;
   if (Array.isArray(value))
-    return (value as readonly Json[]).map(stripSensitive);
+    return (value as readonly Json[]).map((v) => stripSensitive(v, isPanText));
   if (!isJsonObject(value)) return value;
   const entries = Object.entries(value).map(([key, child]): [string, Json] => [
     key,
-    PAN_KEYS.has(key) || MONEY_KEYS.has(key) ? STRIPPED : stripSensitive(child),
+    PAN_KEYS.has(key) || MONEY_KEYS.has(key)
+      ? STRIPPED
+      : stripSensitive(child, isPanText),
   ]);
   const url = value.panUrl;
   return "panUrl" in value

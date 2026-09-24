@@ -1,9 +1,11 @@
 /**
- * scripts/pick-board-snapshot.rs.ts is copied into a RealShort checkout and run
- * there (P4-3, critique A5); here only its pure parts are tested: arguments,
- * the case list, JSON normalization, what is stripped before anything is
- * written, the case dispatcher over fake loaders, and the guards. Nothing here
- * talks to RealShort or to a database.
+ * scripts/pick-board-snapshot.rs.ts (with pick-board-snapshot-core.rs.ts) is
+ * copied into a RealShort checkout and run there (P4-3, critique A5). Tested
+ * here: arguments, the case list, JSON normalization, what is stripped and
+ * scrubbed before anything is written, the case dispatcher over fake loaders,
+ * the guards, and the orchestration over a fake RealShort (both fingerprint
+ * checks, nothing written unless both pass). Nothing here talks to RealShort
+ * or to a database.
  */
 import { describe, expect, it } from "@rstest/core";
 
@@ -30,6 +32,8 @@ import {
   ROW_LIMIT,
   RS_BASES,
   RS_RANKS,
+  SCRUBBED,
+  SNAPSHOT_FORMAT,
   STRIPPED,
   THEATER_BASES,
   deriveCases,
@@ -43,9 +47,13 @@ import {
   type Json,
 } from "../../../scripts/pick-board-snapshot-core.rs";
 import {
+  Stop,
   busyWindow,
   checkHead,
   checkSourceProblem,
+  takeSnapshot,
+  type RealShort,
+  type SnapshotDeps,
 } from "../../../scripts/pick-board-snapshot.rs";
 
 const FP = "a".repeat(64);
@@ -273,6 +281,10 @@ describe("toJson", () => {
   });
 });
 
+/** Stands in for RealShort's scrubPanText: flags a pan host or an extraction code */
+const isPanText = (text: string) => /pan\.example|提取码/.test(text);
+const noPanText = () => false;
+
 describe("stripSensitive", () => {
   it("keeps only whether a pan link exists, never the link or the code", () => {
     const rows: Json = [
@@ -280,17 +292,47 @@ describe("stripSensitive", () => {
       { rowKey: "b", panUrl: "HTTP://pan.example/s/2", panPw: "" },
       { rowKey: "c", panUrl: "", panPw: "cd34" },
       { rowKey: "d", panUrl: "ftp://pan.example/3", panPw: "" },
+      // has_pan is `pan_url ~* '^https?://'`: a link after other text is not one
+      { rowKey: "e", panUrl: "链接 https://pan.example/s/9", panPw: "" },
     ];
-    const out = stripSensitive({ rows });
+    const out = stripSensitive({ rows }, noPanText);
     expect(out).toEqual({
       rows: [
         { rowKey: "a", panUrl: STRIPPED, panPw: STRIPPED, hasPan: true },
         { rowKey: "b", panUrl: STRIPPED, panPw: STRIPPED, hasPan: true },
         { rowKey: "c", panUrl: STRIPPED, panPw: STRIPPED, hasPan: false },
         { rowKey: "d", panUrl: STRIPPED, panPw: STRIPPED, hasPan: false },
+        { rowKey: "e", panUrl: STRIPPED, panPw: STRIPPED, hasPan: false },
       ],
     });
     expect(JSON.stringify(out)).not.toMatch(/pan\.example|ab12|cd34/);
+  });
+
+  it("replaces every text RealShort's own scrubber flags, wherever it is", () => {
+    const input: Json = {
+      rows: [
+        {
+          rowKey: "a",
+          title: "资源 https://pan.example/s/1",
+          note: "普通备注",
+          signals: [{ payload: { h: [["2026-09-01", 3, "提取码 zz99"]] } }],
+          posted: [{ posts: [{ url: "https://pan.example/x", views: 3 }] }],
+        },
+      ],
+    };
+    const out = stripSensitive(input, isPanText);
+    expect(out).toEqual({
+      rows: [
+        {
+          rowKey: "a",
+          title: SCRUBBED,
+          note: "普通备注",
+          signals: [{ payload: { h: [["2026-09-01", 3, SCRUBBED]] } }],
+          posted: [{ posts: [{ url: SCRUBBED, views: 3 }] }],
+        },
+      ],
+    });
+    expect(JSON.stringify(out)).not.toMatch(/pan\.example|zz99/);
   });
 
   it("drops every money field and the promotion value wherever it is", () => {
@@ -302,7 +344,7 @@ describe("stripSensitive", () => {
       },
       other: { billUsd30: 7, revenueCents: 100 },
     };
-    const out = stripSensitive(input);
+    const out = stripSensitive(input, noPanText);
     expect(out).toEqual({
       rs: {
         id: "1",
@@ -514,4 +556,176 @@ describe("guards", () => {
 
 it("isDailyRank agrees with the daily ranks the script derives second days for", () => {
   expect(["kd", "qc", "qr"].every(isDailyRank)).toBe(true);
+});
+
+/* The orchestration over a fake RealShort: the two fingerprint checks bracket
+ * every loader call, and nothing is written unless both pass. */
+
+const CLEAR = new Date("2026-09-25T07:00:00Z");
+const SHA = "0123456789abcdef0123456789abcdef01234567";
+const PASS = { fingerprint: FP, problem: null };
+const SNAP_ARGS = {
+  asOf: AS_OF,
+  fp: FP,
+  out: "/scratch/snap.json",
+  only: /^pick$/,
+  ignoreWindow: false,
+};
+
+type RsFn = (...args: readonly unknown[]) => unknown;
+
+function fakeQueries(calls: string[]): Record<string, RsFn> {
+  const row = {
+    rowKey: "kalos-a",
+    platform: "kalos",
+    title: "资源 https://pan.example/s/1",
+    panUrl: "https://pan.example/s/2",
+    panPw: "ab12",
+    billUsd: 3.25,
+  };
+  const answers: Record<string, unknown> = {
+    loadPickRows: { rows: [row], total: 1, hasMore: false },
+    loadFacets: { langs: [] },
+    loadFreshness: { rows: 1 },
+    loadPostedStats: { total: 0 },
+    loadAccounts: [],
+    loadObserveSources: {},
+  };
+  const names = [
+    ...["loadPickRows", "loadFacets", "loadFreshness", "loadRankMeta"],
+    ...["loadRankRows", "loadGrowthDiagnosis", "loadRsRank", "loadPostedList"],
+    ...["loadPostedRecord", "loadPostedStats", "loadAccounts", "loadRowDetail"],
+    ...["loadReelshortDetail", "loadObserveSources"],
+  ];
+  return Object.fromEntries(
+    names.map((name): [string, RsFn] => [
+      name,
+      async () => {
+        calls.push(name);
+        return answers[name] ?? null;
+      },
+    ]),
+  );
+}
+
+function fakeRealShort(checks: readonly unknown[], calls: string[]): RealShort {
+  return {
+    queries: fakeQueries(calls),
+    request: {
+      parsePickRequest: (p) => parsePickRequest(p as URLSearchParams),
+      isRsRank: (k) => isRsRank(String(k)),
+      reelshortId: (k) => reelshortId(String(k)),
+    },
+    exportV2: {
+      exportContext: () => ({}),
+      checkSource: async () => {
+        const n = calls.filter((c) => c === "checkSource").length;
+        calls.push("checkSource");
+        return checks[Math.min(n, checks.length - 1)];
+      },
+    },
+    exportMap: {
+      scrubPanText: (text) => ({
+        text: "[网盘信息已移除]",
+        hits: isPanText(String(text)) ? 1 : 0,
+      }),
+    },
+    db: {
+      getDb: () => ({ execute: async () => ({ rows: [{ c: "C.UTF-8" }] }) }),
+    },
+  } as unknown as RealShort;
+}
+
+function harness(checks: readonly unknown[], now = CLEAR) {
+  const calls: string[] = [];
+  const writes: [string, string][] = [];
+  const deps: SnapshotDeps = {
+    now: () => now,
+    loadRealShort: async () => {
+      calls.push("load");
+      return fakeRealShort(checks, calls);
+    },
+    sourceRevision: SHA,
+    write: (file, text) => {
+      writes.push([file, text]);
+    },
+    progress: () => undefined,
+  };
+  return { calls, writes, deps };
+}
+
+async function stopped(run: Promise<unknown>): Promise<Stop> {
+  const error = await run.then(
+    () => null,
+    (e: unknown) => e,
+  );
+  if (!(error instanceof Stop)) throw new Error("expected a Stop");
+  return error;
+}
+
+describe("takeSnapshot", () => {
+  it("writes one snapshot between two passing checks, with text scrubbed", async () => {
+    const { calls, writes, deps } = harness([PASS]);
+    const doc = await takeSnapshot(SNAP_ARGS, deps);
+    expect(calls[0]).toBe("load");
+    expect(calls[1]).toBe("checkSource");
+    expect(calls.at(-1)).toBe("checkSource");
+    expect(calls.filter((c) => c === "checkSource")).toHaveLength(2);
+    expect(writes.map(([file]) => file)).toEqual([SNAP_ARGS.out]);
+    const text = writes[0]?.[1] ?? "";
+    expect(JSON.parse(text)).toEqual(doc);
+    expect(doc.format).toBe(SNAPSHOT_FORMAT);
+    expect([doc.sourceRevision, doc.collation]).toEqual([SHA, "C.UTF-8"]);
+    expect(doc.cases.map((c) => c.id)).toEqual([GLOBALS_CASE_ID, "pick"]);
+    expect(text).toContain(SCRUBBED);
+    expect(text).not.toMatch(/pan\.example|ab12|3\.25/);
+  });
+
+  it("refuses to start inside a busy window without loading RealShort", async () => {
+    const { calls, writes, deps } = harness(
+      [PASS],
+      new Date("2026-09-25T06:10:00Z"),
+    );
+    expect((await stopped(takeSnapshot(SNAP_ARGS, deps))).code).toBe(2);
+    expect([calls, writes]).toEqual([[], []]);
+  });
+
+  it("stops before any loader when the opening check fails (409)", async () => {
+    const moved = { fingerprint: "b".repeat(64), problem: { status: 409 } };
+    const { calls, writes, deps } = harness([moved]);
+    expect((await stopped(takeSnapshot(SNAP_ARGS, deps))).code).toBe(3);
+    expect(calls).toEqual(["load", "checkSource"]);
+    expect(writes).toEqual([]);
+  });
+
+  it.each([
+    ["the fingerprint moved", { fingerprint: "b".repeat(64), problem: null }],
+    [
+      "a source is writing (503)",
+      { fingerprint: FP, problem: { status: 503 } },
+    ],
+  ])("writes nothing when, at the closing check, %s", async (_, closing) => {
+    const { calls, writes, deps } = harness([PASS, closing]);
+    expect((await stopped(takeSnapshot(SNAP_ARGS, deps))).code).toBe(3);
+    expect(calls).toContain("loadPickRows");
+    expect(calls.at(-1)).toBe("checkSource");
+    expect(writes).toEqual([]);
+  });
+
+  it("refuses a RealShort whose scrubber does not flag a known pan link", async () => {
+    const { calls, writes, deps } = harness([PASS]);
+    const blind: SnapshotDeps = {
+      ...deps,
+      loadRealShort: async () => {
+        const rs = fakeRealShort([PASS], calls);
+        return {
+          ...rs,
+          exportMap: { scrubPanText: (t: unknown) => ({ text: t, hits: 0 }) },
+        } as RealShort;
+      },
+    };
+    expect((await stopped(takeSnapshot(SNAP_ARGS, blind))).code).toBe(2);
+    expect(calls).not.toContain("checkSource");
+    expect(writes).toEqual([]);
+  });
 });

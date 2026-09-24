@@ -16,7 +16,8 @@
  *
  * 只读 RealShort 生产 Neon（三个环境共用一条 DATABASE_URL）；用例串行，避开写库与同步时段（busyWindow），打印总耗时。
  * 开头与结尾各核一次 fingerprint（export-v2 的 checkSource，内部读 readSourceSnapshot）：不一致就退出、不写文件。
- * 快照里没有网盘链接、提取码与任何金额：落盘前换成 STRIPPED，网盘只留 hasPan（与导出同一个判断）。
+ * 快照里没有网盘链接、提取码与任何金额：网盘与金额字段落盘前换成 STRIPPED，网盘只留 hasPan（与导出同一个判断）；
+ * 其余文本值逐个过 RealShort 自己的 scrubPanText（导出清洗用的同一个，开跑前自检一次），认出的整串换成 SCRUBBED。
  * RealShort 的模块在 main 里按路径动态 import。
  */
 import { execFileSync } from "node:child_process";
@@ -26,6 +27,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   ROW_LIMIT,
+  SCRUBBED,
   SNAPSHOT_FORMAT,
   deriveCases,
   isJsonObject,
@@ -97,7 +99,7 @@ export function checkHead(
     : "RealShort 检出的 HEAD 不是 VERCEL_GIT_COMMIT_SHA：先 git checkout 版本的 sourceRevision";
 }
 
-/* ---------------------------------------------------------------- main：只在 RealShort 检出里跑 */
+/* ---------------------------------------------------------------- RealShort 的模块 */
 
 type RsRequest = CaseRequest;
 
@@ -105,6 +107,7 @@ const RS_MODULES = {
   queries: "src/lib/pick/queries.ts",
   request: "src/lib/pick/request.ts",
   exportV2: "src/lib/pick/export-v2.ts",
+  exportMap: "src/lib/pick/export-v2-map.ts",
   db: "src/db/index.ts",
 } as const;
 
@@ -116,11 +119,13 @@ const RS_EXPORTS = {
     "loadReelshortDetail", "loadObserveSources"],
   request: ["parsePickRequest", "isRsRank", "reelshortId"],
   exportV2: ["exportContext", "checkSource"],
+  exportMap: ["scrubPanText"],
   db: ["getDb"],
 } as const;
 
 type RsFn = (...args: readonly unknown[]) => unknown;
-type RealShort = {
+/** 动态 import 进来、核过导出的 RealShort 模块；单测用假的 */
+export type RealShort = {
   readonly [K in keyof typeof RS_EXPORTS]: Readonly<
     Record<(typeof RS_EXPORTS)[K][number], RsFn>
   >;
@@ -170,15 +175,12 @@ async function loadRealShort(root: string): Promise<RealShort> {
       string,
       unknown
     >;
-  const [queries, request, exportV2, db] = await Promise.all(
-    Object.values(RS_MODULES).map(load),
-  );
-  const modules = { queries, request, exportV2, db };
-  for (const [name, names] of Object.entries(RS_EXPORTS)) {
-    const mod = modules[name as keyof RealShort];
-    const absent = names.filter(
-      (fn: string) => typeof mod?.[fn] !== "function",
-    );
+  const names = Object.keys(RS_MODULES) as (keyof typeof RS_MODULES)[];
+  const loaded = await Promise.all(names.map((name) => load(RS_MODULES[name])));
+  const modules = Object.fromEntries(names.map((name, i) => [name, loaded[i]]));
+  for (const [name, fns] of Object.entries(RS_EXPORTS)) {
+    const mod = modules[name];
+    const absent = fns.filter((fn: string) => typeof mod?.[fn] !== "function");
     if (absent.length)
       throw new Stop(
         2,
@@ -215,6 +217,24 @@ function rsLoaders(
   };
 }
 
+/** 一定该被认出来的网盘文本：RealShort 的清洗器认不出它，就不能拿它清快照 */
+const PAN_SELF_TEST = "链接：https://pan.baidu.com/s/1AbCdEfG 提取码：ab12";
+
+/** RealShort 自己的 scrubPanText（导出清洗用的同一个）包成「认不认得出网盘信息」；先自检一次 */
+function panDetector(rs: RealShort): (text: string) => boolean {
+  const detect = (text: string): boolean => {
+    const result = rs.exportMap.scrubPanText(text);
+    if (!isJsonObject(result) || typeof result.hits !== "number")
+      throw new Stop(2, "RealShort 的 scrubPanText 返回的不是 {text, hits}");
+    return result.hits > 0;
+  };
+  if (!detect(PAN_SELF_TEST))
+    throw new Stop(2, "RealShort 的 scrubPanText 认不出网盘链接：不拿它清快照");
+  return detect;
+}
+
+/* ---------------------------------------------------------------- 编排 */
+
 async function readCollation(rs: RealShort): Promise<string | null> {
   const { sql } = await import("drizzle-orm");
   const { rows } = await (rs.db.getDb() as RsDb).execute(
@@ -224,65 +244,92 @@ async function readCollation(rs: RealShort): Promise<string | null> {
   return isJsonObject(first) && typeof first.c === "string" ? first.c : null;
 }
 
-async function checkSourceAt(rs: RealShort, fp: string, when: string) {
+async function checkSourceAt(
+  rs: RealShort,
+  fp: string,
+  when: string,
+  now: Date,
+) {
   const result = await rs.exportV2.checkSource(
     fp,
-    rs.exportV2.exportContext(new Date()),
+    rs.exportV2.exportContext(now),
   );
   const problem = checkSourceProblem(result, fp);
   if (problem) throw new Stop(3, `${when}核对：${problem}；快照作废，不写文件`);
 }
 
+/** 跑用例要用的：loaders、落盘前的网盘判断、进度输出 */
+type Runner<Req extends CaseRequest, Meta> = Readonly<{
+  loaders: BoardLoaders<Req, Meta>;
+  isPanText: (text: string) => boolean;
+  progress: (line: string) => void;
+}>;
+
 async function runSerially<Req extends CaseRequest, Meta>(
-  loaders: BoardLoaders<Req, Meta>,
+  run: Runner<Req, Meta>,
   cases: readonly SnapshotCase[],
   done: readonly CaseRecord[],
 ): Promise<CaseRecord[]> {
   let records = [...done];
   for (const kase of cases) {
     const started = Date.now();
-    const result = stripSensitive(await runCase(loaders, kase));
+    const raw = await runCase(run.loaders, kase);
+    const result = stripSensitive(raw, run.isPanText);
     const ms = Date.now() - started;
     records = [...records, { id: kase.id, query: kase.query, ms, result }];
-    process.stderr.write(`[${records.length}] ${kase.id} ${ms}ms\n`);
+    run.progress(`[${records.length}] ${kase.id} ${ms}ms`);
   }
   return records;
 }
 
 async function runAll<Req extends CaseRequest, Meta>(
-  loaders: BoardLoaders<Req, Meta>,
+  run: Runner<Req, Meta>,
   only: RegExp | null,
 ): Promise<CaseRecord[]> {
-  const first = await runSerially(
-    loaders,
-    selectCases(staticCases(), only),
-    [],
-  );
+  const first = await runSerially(run, selectCases(staticCases(), only), []);
   const results = new Map(first.map((r) => [r.id, r.result]));
-  return runSerially(loaders, selectCases(deriveCases(results), only), first);
+  return runSerially(run, selectCases(deriveCases(results), only), first);
 }
 
-async function snapshot(args: SnapshotArgs): Promise<SnapshotDoc> {
-  const window = args.ignoreWindow ? null : busyWindow(new Date());
+/** 快照要的外部依赖；main 给真的，单测给假的 */
+export type SnapshotDeps = Readonly<{
+  now: () => Date;
+  /** 核对检出并载入 RealShort 的模块 */
+  loadRealShort: () => Promise<RealShort>;
+  sourceRevision: string | null;
+  /** 只在开头与结尾的核对都通过之后调一次 */
+  write: (file: string, text: string) => void;
+  progress: (line: string) => void;
+}>;
+
+/** 时段 → 载入 → 开头核对 → collation 与全部用例 → 结尾核对 → 写文件；任何一步不通过就抛 Stop、不写 */
+export async function takeSnapshot(
+  args: SnapshotArgs,
+  deps: SnapshotDeps,
+): Promise<SnapshotDoc> {
+  const window = args.ignoreWindow ? null : busyWindow(deps.now());
   if (window)
     throw new Stop(
       2,
       `现在在「${window}」的时段里：避开后再跑，或加 --ignore-window`,
     );
-  const root = process.cwd();
-  checkCheckout(root);
-  const rs = await loadRealShort(root);
-  const startedAt = new Date();
-  await checkSourceAt(rs, args.fp, "开头");
+  const rs = await deps.loadRealShort();
+  const isPanText = panDetector(rs);
+  const startedAt = deps.now();
+  await checkSourceAt(rs, args.fp, "开头", startedAt);
   const collation = await readCollation(rs);
-  const cases = await runAll(rsLoaders(rs, new Date(args.asOf)), args.only);
-  await checkSourceAt(rs, args.fp, "结尾");
-  const finishedAt = new Date();
-  return {
+  const loaders = rsLoaders(rs, new Date(args.asOf));
+  const cases = await runAll(
+    { loaders, isPanText, progress: deps.progress },
+    args.only,
+  );
+  await checkSourceAt(rs, args.fp, "结尾", deps.now());
+  const finishedAt = deps.now();
+  const doc: SnapshotDoc = {
     format: SNAPSHOT_FORMAT,
     asOf: args.asOf,
     fingerprint: args.fp,
-    sourceRevision: commitSha(),
+    sourceRevision: deps.sourceRevision,
     collation,
     rowLimit: ROW_LIMIT,
     startedAt: startedAt.toISOString(),
@@ -290,20 +337,35 @@ async function snapshot(args: SnapshotArgs): Promise<SnapshotDoc> {
     elapsedMs: finishedAt.getTime() - startedAt.getTime(),
     cases,
   };
+  deps.write(args.out, `${JSON.stringify(doc)}\n`);
+  return doc;
 }
+
+/* ---------------------------------------------------------------- main：只在 RealShort 检出里跑 */
 
 async function main(): Promise<number> {
   const parsed = parseSnapshotArgs(process.argv.slice(2));
   if (!parsed.ok) throw new Stop(2, parsed.error);
-  const doc = await snapshot(parsed.args);
-  // wx：不覆盖已有文件；0600：只有自己能读（快照里有 RealShort 的业务数据）
-  writeFileSync(parsed.args.out, `${JSON.stringify(doc)}\n`, {
-    mode: 0o600,
-    flag: "wx",
+  const { args } = parsed;
+  // 先挡住：跑完几分钟的生产查询再发现写不了就白跑了
+  if (existsSync(args.out)) throw new Stop(2, "--out 指的文件已经存在");
+  const root = process.cwd();
+  const doc = await takeSnapshot(args, {
+    now: () => new Date(),
+    loadRealShort: async () => {
+      checkCheckout(root);
+      return loadRealShort(root);
+    },
+    sourceRevision: commitSha(),
+    // wx：不覆盖已有文件；0600：只有自己能读（快照里有 RealShort 的业务数据）
+    write: (file, text) =>
+      writeFileSync(file, text, { mode: 0o600, flag: "wx" }),
+    progress: (line) => process.stderr.write(`${line}\n`),
   });
+  const scrubbed = JSON.stringify(doc).split(SCRUBBED).length - 1;
   process.stdout.write(
     `快照：${doc.cases.length} 个用例，耗时 ${(doc.elapsedMs / 1000).toFixed(1)} 秒，` +
-      `开头与结尾的 fingerprint 核对都通过；写到 ${parsed.args.out}\n`,
+      `开头与结尾的 fingerprint 核对都通过；网盘信息清洗 ${scrubbed} 格；写到 ${args.out}\n`,
   );
   return 0;
 }
