@@ -1752,7 +1752,7 @@ export function getDb() {
 - 不可映射条件的清单；
 - 回放接口返回 410 或 404 时显示相应提示；
 - 智能体默认条件（不带任何筛选）的候选集合，与选剧 tab 默认视图的 row_key 集合完全相同；
-- 智能体 `sort=rank` 且 `signal_kind` 为日榜（kd/qc/qr）时的前 N 个，与榜单 tab 该榜最新一天去掉已下架行之后的相对顺序相同。榜单 tab 含已下架行（`rs:src/lib/pick/queries-rank.ts:54`），智能体候选池不含；同名次时智能体按 identity、榜单按剧名，这两处差异写进页面的「与智能体语义不同」说明。
+- 智能体 `sort=rank` 且 `signal_kind` 为日榜（kd/qc/qr）时的前 N 个，与榜单 tab 该榜最新一天去掉已下架行之后的相对顺序相同。榜单 tab 含已下架行（`rs:src/lib/pick/queries-rank.ts:54`），智能体候选池不含；同名次时智能体按 identity、榜单按剧名，这两处差异写进页面的「与智能体语义不同」说明。这一条没有写成自动测试，移到 P4-4 第 3 步：夹具（gate_world）的 v1 行没有名次，按名次排序会被后端拒绝；手写带名次的 v1 行，或让夹具的 `catalog_signals.rank` 与 `h` 最新一天的名次对上，都是夹具作者自证（批判 B22）。
 
 #### P4-3：核对脚本与移植漂移检查
 
@@ -1777,6 +1777,7 @@ export function getDb() {
 1. 逐个 tab 对照 RealShort 旧选剧台：计数、facet 标签、榜单顺序、单条发布记录、两类证据页。
 2. 用 Playwright 把每个 tab 走一遍：`frontend/tests/e2e-pick/pick-data-board.spec.ts`（P3-1 已建）在本机 QA 实例上运行，用 QA 账号 `PICK_E2E_EMAIL`，不指向生产实例（`docs/pick-workbench/local-run.md:97`）。生产上的逐 tab 核对由第 1 步人工完成。
 3. 从 3 张真实候选卡进入核对和回放，确认列表与卡片一致。
+   - 其中至少一张是 `sort=rank`、依据为日榜（kd/qc/qr）的候选：回放的前 N 个，与榜单 tab 该榜最新一天去掉已下架行之后的相对顺序相同（同名次除外，两边的差异页面上已写明）。这是 P4-2 测试清单的最后一条，自动测试做不了（见 P4-2）。
 4. 更新文档：
    - `docs/pick-workbench/realshort-sync.md`：链路、变量、失败行为、保留规则；
    - `docs/pick-workbench/progress.md`；

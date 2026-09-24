@@ -16,6 +16,10 @@ import "server-only";
  * resolveBoard is resolveVersion with the board's rules and the per-version
  * cache of step 2 (meta.rules / meta.sources); freshnessOf and sourcesOf turn
  * what it returns into the header's and the footer's shapes without a query.
+ *
+ * The replay (P4-2): loadReplay asks the gateway for the agent's list and the
+ * result's conditions; loadRowsByKeys and loadMissingKeys read that list's
+ * rows from the pinned version.
  */
 
 export {
@@ -30,8 +34,10 @@ export {
   loadCandidatePool,
   loadFacets,
   loadFreshness,
+  loadMissingKeys,
   loadPickRows,
   loadRowDetail,
+  loadRowsByKeys,
   type PickFacets,
   type PickFreshness,
   type RowDetail,
@@ -98,6 +104,12 @@ export {
   type SearchParamsRecord,
 } from "./auth";
 export { type GatewayResult, getPickSync } from "./gateway";
+export {
+  loadReplay,
+  REPLAY_LIMIT,
+  type ReplayAnswer,
+  type ReplayLoad,
+} from "./replay";
 export {
   MirrorBusy,
   MirrorError,

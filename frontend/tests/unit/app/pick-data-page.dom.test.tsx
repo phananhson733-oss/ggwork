@@ -5,299 +5,81 @@
  * (@/server/pick-board) is replaced by doubles that record their calls; the
  * views and the ported components render for real. The page is awaited
  * first and its element rendered after, as projects-page.dom.test does.
+ * The replay branch (P4-2) is in pick-data-page-replay.dom.test.tsx; both
+ * files share pick-data-page.support.tsx.
  */
 import { afterEach, beforeEach, describe, expect, it, rs } from "@rstest/core";
-import { cleanup, render, screen, within } from "@testing-library/react";
-import type { PropsWithChildren, ReactElement, ReactNode } from "react";
+import { cleanup, screen, within } from "@testing-library/react";
 
 import * as pageModule from "@/app/workspace/pick-data/page";
 import * as errors from "@/server/pick-board/errors";
-import type * as ErrorsModule from "@/server/pick-board/errors";
 
+import { boardRules } from "../components/workspace/pick-board/fixtures";
+
+import type * as Support from "./pick-data-page.support";
 import {
-  accounts,
-  billRow,
-  billTotals,
-  boardRules,
-  observeRow,
-  pickRow,
-  postedLinks,
-  postedRecord,
-  rankMeta,
-  rankRow,
-  reelshortDetail,
-  rowDetail,
-} from "../components/workspace/pick-board/fixtures";
+  AS_OF,
+  MIRROR,
+  NOW,
+  RESULT,
+  dataCallsOf,
+  readyBoard,
+  renderWith,
+  resetState,
+  syncWith,
+  tabLinks,
+  type Board,
+  type PageState,
+} from "./pick-data-page.support";
 
-const state = rs.hoisted(() => ({
-  calls: [] as string[],
-  nextPath: "",
-  access: { kind: "ok", user: { id: "u-1" } } as unknown,
-  resolved: null as unknown,
-  sync: null as unknown,
-  scope: null as unknown,
-  loaders: {} as Record<string, (...args: unknown[]) => unknown>,
-}));
+const state = rs.hoisted(
+  (): PageState => ({
+    calls: [],
+    nextPath: "",
+    access: null,
+    resolved: null,
+    sync: null,
+    scope: null,
+    loaders: {},
+  }),
+);
 
-rs.mock("@/server/pick-board", () => {
-  const errors = rs.requireActual<typeof ErrorsModule>(
-    "@/server/pick-board/errors",
-  );
-  const recorded =
-    (name: string) =>
-    async (...args: unknown[]) => {
-      state.calls.push(name);
-      const loader = state.loaders[name];
-      if (!loader) throw new Error(`unexpected call: ${name}`);
-      return loader(...args);
-    };
-  return {
-    ...errors,
-    PICK_DATA_PATH: "/workspace/pick-data",
-    pickDataNextPath: (raw: Record<string, string>) =>
-      `/workspace/pick-data?${new URLSearchParams(raw).toString()}`,
-    requireBoardUser: async (nextPath: string) => {
-      state.calls.push("requireBoardUser");
-      state.nextPath = nextPath;
-      if (state.access instanceof Error) throw state.access;
-      return state.access;
-    },
-    resolveBoard: async (v: number | null) => {
-      state.calls.push(`resolveBoard:${String(v)}`);
-      if (state.resolved instanceof Error) throw state.resolved;
-      return state.resolved;
-    },
-    getPickSync: async () => {
-      state.calls.push("getPickSync");
-      return state.sync;
-    },
-    setBoardScope: (scope: unknown) => {
-      state.calls.push("setBoardScope");
-      state.scope = scope;
-    },
-    freshnessOf: (raw: unknown) => raw,
-    sourcesOf: () => ({}),
-    loadCandidatePool: recorded("loadCandidatePool"),
-    loadPickRows: recorded("loadPickRows"),
-    loadFacets: recorded("loadFacets"),
-    loadRowDetail: recorded("loadRowDetail"),
-    loadRankMeta: recorded("loadRankMeta"),
-    loadRankRows: recorded("loadRankRows"),
-    loadRsRank: recorded("loadRsRank"),
-    loadGrowthDiagnosis: recorded("loadGrowthDiagnosis"),
-    loadPostedList: recorded("loadPostedList"),
-    loadPostedRecord: recorded("loadPostedRecord"),
-    loadPostedStats: recorded("loadPostedStats"),
-    loadAccounts: recorded("loadAccounts"),
-    loadReelshortDetail: recorded("loadReelshortDetail"),
-  };
-});
-
-rs.mock("next/link", () => ({
-  default: ({
-    href,
-    children,
-    ...rest
-  }: PropsWithChildren<{ href: string }>) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}));
-
-rs.mock("@/components/workspace/workspace-container", () => ({
-  WorkspaceContainer: ({ children }: PropsWithChildren) => (
-    <div>{children}</div>
-  ),
-  WorkspaceHeader: () => <div />,
-  WorkspaceBody: ({ children }: PropsWithChildren) => <main>{children}</main>,
-}));
-
-rs.mock("@/components/ui/scroll-area", () => ({
-  ScrollArea: ({ children }: PropsWithChildren) => (
-    <div data-testid="scroll">{children}</div>
-  ),
-}));
-
-rs.mock("@/components/workspace/pick/data-imports", () => ({
-  DataImports: () => <div data-testid="data-imports" />,
-}));
+// Factories run while the imports above are evaluated, before this module's
+// own constants exist: each one reaches the support module itself.
+rs.mock("@/server/pick-board", () =>
+  rs
+    .requireActual<typeof Support>("./pick-data-page.support")
+    .pickBoardMock(state),
+);
+rs.mock("next/navigation", () =>
+  rs.requireActual<typeof Support>("./pick-data-page.support").navigationMock(),
+);
+rs.mock("next/link", () =>
+  rs.requireActual<typeof Support>("./pick-data-page.support").linkMock(),
+);
+rs.mock("@/components/workspace/workspace-container", () =>
+  rs
+    .requireActual<typeof Support>("./pick-data-page.support")
+    .workspaceContainerMock(),
+);
+rs.mock("@/components/ui/scroll-area", () =>
+  rs.requireActual<typeof Support>("./pick-data-page.support").scrollAreaMock(),
+);
+rs.mock("@/components/workspace/pick/data-imports", () =>
+  rs
+    .requireActual<typeof Support>("./pick-data-page.support")
+    .dataImportsMock(),
+);
 
 const PickDataPage = pageModule.default;
-
-const AS_OF = "2026-09-24T03:40:00+00:00";
-const NOW = new Date("2026-09-24T06:00:00Z");
-
-const FRESHNESS = {
-  importedAt: new Date("2026-09-24T01:00:00Z"),
-  rows: 120,
-  withSignal: 30,
-  signals: 44,
-  posted: 9,
-  rsCanonical: 500,
-  rsCandidates: 12,
-  rsSyncedAt: new Date("2026-09-24T02:00:00Z"),
-};
-
-type Board = Record<string, unknown>;
-
-function readyBoard(patch: Board = {}): Board {
-  return {
-    state: "ready",
-    scope: {
-      schema: "pickm_v000007",
-      asOf: AS_OF,
-      versionId: 7,
-      rules: boardRules(),
-    },
-    current: {
-      id: 7,
-      asOf: AS_OF,
-      publishedAt: "2026-09-24T03:52:00+00:00",
-      agentCatalogBatchId: "b-cat",
-      agentKnowledgeBatchId: "b-kn",
-    },
-    latestSnapshot: "2026-09-23",
-    freshness: FRESHNESS,
-    warnings: [],
-    sources: {},
-    series: { through: "2026-09-23", trimmedBefore: "2026-06-01" },
-    requestedV: null,
-    pinned: false,
-    pruned: false,
-    ignoredV: false,
-    unreadable: false,
-    ...patch,
-  };
-}
-
-const MIRROR = {
-  enabled: true,
-  current: {
-    id: 7,
-    as_of: "2026-09-24T03:40:00.000Z",
-    latest_snapshot: "2026-09-23",
-    published_at: "2026-09-24T03:52:00.000000+00:00",
-  },
-  series_through: "2026-09-23",
-  trimmed_before: "2026-06-01",
-  behind: false,
-  consecutive_failures: 0,
-  last_failure_at: null,
-  last_failure: null,
-  alert: false,
-  warnings: [],
-  lock_stuck: null,
-  shared_source_as_of: "2026-09-24T03:40:00.000Z",
-};
-
-function syncWith(patch: Record<string, unknown> = {}) {
-  return {
-    ok: true,
-    data: {
-      configured: true,
-      current: {
-        id: "b-cat",
-        shared: true,
-        source_as_of: "2026-09-24T03:40:00.000Z",
-        published_at: null,
-      },
-      runs: [],
-      mirror: MIRROR,
-      ...patch,
-    },
-  };
-}
-
-const FACETS = {
-  platforms: { kalos: 1 },
-  langs: [{ lang: "英语", n: 1 }],
-  bases: { kd: 1 },
-  posted: { no: 1, yes: 0, pool: 0 },
-};
-
-function defaultLoaders(): Record<string, (...args: unknown[]) => unknown> {
-  return {
-    loadCandidatePool: () => 42,
-    loadPickRows: () => ({ rows: [pickRow()], total: 1, hasMore: false }),
-    loadFacets: () => FACETS,
-    loadRowDetail: () => rowDetail(),
-    loadRankMeta: () => rankMeta(),
-    loadRankRows: () => ({ rows: [rankRow()], total: 1, hasMore: false }),
-    loadRsRank: (_req: unknown, rank: unknown) =>
-      rank === "rs_ledger"
-        ? {
-            kind: "ledger",
-            rows: [billRow()],
-            totals: billTotals(),
-            source: undefined,
-          }
-        : {
-            kind: "rows",
-            rows: [observeRow()],
-            total: 1,
-            hasMore: false,
-            sort: "rr",
-          },
-    loadGrowthDiagnosis: () => null,
-    loadPostedList: () => ({
-      rows: [postedRecord()],
-      total: 1,
-      hasMore: false,
-      counts: { "": 1, pub: 1, sched: 0, none: 0, nomatch: 0 },
-      links: postedLinks(),
-    }),
-    loadPostedRecord: () => ({
-      record: postedRecord(),
-      links: postedLinks(),
-    }),
-    loadPostedStats: () => ({
-      total: 1,
-      pubCount: 1,
-      postsSum: 2,
-      viewsSum: 30,
-      metricAt: "2026-09-22",
-      importedAt: new Date("2026-09-23T00:00:00Z"),
-      accountCount: 2,
-    }),
-    loadAccounts: () => accounts(),
-    loadReelshortDetail: () => reelshortDetail(),
-  };
-}
-
-async function renderPage(
-  params: Record<string, string> = {},
-): Promise<HTMLElement> {
-  const element: ReactElement = await PickDataPage({
-    searchParams: Promise.resolve(params),
-  });
-  return render(element as ReactNode as ReactElement).container;
-}
-
-const dataCalls = () =>
-  state.calls.filter(
-    (name) =>
-      name.startsWith("load") ||
-      name.startsWith("resolveBoard") ||
-      name === "getPickSync",
-  );
-
-function tabLinks(root: HTMLElement): HTMLAnchorElement[] {
-  const nav = root.querySelector('[data-board-tabs="true"]');
-  if (!nav) throw new Error("no tab bar");
-  return Array.from(nav.querySelectorAll("a"));
-}
+const renderPage = (params: Record<string, string> = {}) =>
+  renderWith(PickDataPage, params);
+const dataCalls = () => dataCallsOf(state);
 
 beforeEach(() => {
   rs.useFakeTimers({ toFake: ["Date"] });
   rs.setSystemTime(NOW);
-  state.calls = [];
-  state.nextPath = "";
-  state.access = { kind: "ok", user: { id: "u-1" } };
-  state.resolved = readyBoard();
-  state.sync = syncWith();
-  state.scope = null;
-  state.loaders = defaultLoaders();
+  resetState(state);
 });
 
 afterEach(() => {
@@ -315,6 +97,10 @@ describe("generateMetadata", () => {
       searchParams: Promise.resolve({ tab: "imports" }),
     });
     expect(imports.title).toBe("选剧资料 · 同步与导入");
+    const replay = await pageModule.generateMetadata({
+      searchParams: Promise.resolve({ result: RESULT }),
+    });
+    expect(replay.title).toBe("选剧资料 · 回放候选");
     expect(state.calls).toEqual([]);
   });
 
@@ -436,11 +222,9 @@ describe("each tab takes its branch", () => {
     ).toBeTruthy();
   });
 
-  it("pick with a result id still shows the list, and no link carries result", async () => {
-    const root = await renderPage({
-      tab: "pick",
-      result: "0123456789abcdef0123456789abcdef",
-    });
+  it("a result on another tab is ignored, and no link carries it", async () => {
+    const root = await renderPage({ tab: "all", result: RESULT });
+    expect(dataCalls()).not.toContain("loadReplay");
     expect(dataCalls()).toContain("loadPickRows");
     const hrefs = Array.from(root.querySelectorAll("a")).map(
       (a) => a.getAttribute("href") ?? "",
