@@ -2,6 +2,7 @@
 
 import csv
 import io
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -18,9 +19,21 @@ from ggwork_pick.mirror.status import mirror_status
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import ReplayGone, ReplayUnrunnable, SelectionService, result_view
 
+logger = logging.getLogger(__name__)
+
 MANUAL_SYNC_COOLDOWN = timedelta(minutes=5)
 # After a failure the button stays usable, but a broken source is not hammered by repeated clicks.
 FAILED_SYNC_BACKOFF = timedelta(minutes=1)
+
+
+async def mirror_view(service, shared: PickRepository) -> dict | None:
+    """/sync's mirror key (P2-8b). It is extra to the v1 sync status, so a failure to read it is reported as
+    {"error": <class>} (logged by class only: a database message can quote a value) instead of failing the request."""
+    try:
+        return await mirror_status(shared, enabled=service.mirror_enabled(), sync_running=service.sync_lock.locked(), now=datetime.now(UTC))
+    except Exception as exc:
+        logger.warning("[pick-mirror] reading the mirror status for /sync failed: %s", type(exc).__name__)
+        return {"error": type(exc).__name__}
 
 
 class SaveInput(StrictInput):
@@ -119,7 +132,7 @@ def build_router(service):
         shared = PickRepository.shared(service.session_factory)
         runs = await shared.sync_runs()
         # The mirror's state (P2-8b): null on SQLite; judged on the shared batches, not on this user's current.
-        mirror = await mirror_status(shared, enabled=service.mirror_enabled(), sync_running=service.sync_lock.locked(), now=datetime.now(UTC))
+        mirror = await mirror_view(service, shared)
         return {"configured": service.sync_settings.configured, "current": info, "runs": runs, "mirror": mirror}
 
     @router.post("/sync", status_code=202)

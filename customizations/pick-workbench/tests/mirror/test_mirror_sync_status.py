@@ -7,6 +7,7 @@ and the shared catalog's source_as_of for the P3 banner. On SQLite, null. The ru
 double end to end, so every state here is one a real run leaves.
 """
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
@@ -179,6 +180,23 @@ async def test_behind_when_only_the_rules_moved(harness):
     assert degraded["catalog_batch_id"] == paired["catalog_batch_id"] and degraded["knowledge_batch_id"] != paired["knowledge_batch_id"]
     mirror = (await _sync_status(harness.service))["mirror"]
     assert mirror["behind"] is True and mirror["current"]["id"] == paired["details_json"]["version"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_mirror_read_leaves_the_rest_of_sync(harness, monkeypatch, caplog):
+    """The mirror key is extra: if it cannot be read, /sync still answers with the v1 status and names the error class."""
+    from ggwork_pick import routes
+
+    async def broken(repo, **options):
+        raise RuntimeError("relation pick_mirror.control: row 'secret-looking value'")
+
+    caplog.set_level(logging.WARNING, logger="ggwork_pick.routes")
+    paired = await _run(harness)
+    monkeypatch.setattr(routes, "mirror_status", broken)
+    status = await _sync_status(harness.service)
+    assert status["mirror"] == {"error": "RuntimeError"}
+    assert status["current"]["id"] == paired["catalog_batch_id"] and status["runs"][0]["status"] == "success"
+    assert "RuntimeError" in caplog.text and "secret-looking" not in caplog.text
 
 
 # ---------------------------------------------------------------- 2. SQLite
