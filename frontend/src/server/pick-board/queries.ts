@@ -4,6 +4,7 @@
 // loadFreshness 改读版本的 freshness（meta，按版本缓存），另给纯函数 freshnessOf 让页面直接用 resolveVersion
 // 带回来的那份；证据页对上的 ReelShort 行改从 rs_ids 取（原 dramas）；新增按版本缓存的候选池 N
 // （loadCandidatePool，页头「智能体候选池」）。类型 PickFacets / PickFreshness / SiteDrama / RowDetail 回到本文件。
+// 文件末尾的 loadRowsByKeys / loadMissingKeys 是回放（P4-2）用的，工作台新增，RealShort 没有。
 import "server-only";
 
 import { sql, type SQL } from "drizzle-orm";
@@ -418,4 +419,47 @@ export async function loadRowDetail(rowKey: string): Promise<RowDetail | null> {
       payStart: filled?.pay_start === true,
     },
   };
+}
+
+// ---- 回放（P4-2）：以下两个 loader 是工作台新增，不是 RealShort 原有 ----------------------------------------
+
+/**
+ * 键名单绑成一个 text[] 参数（$1::text[]），不像 textArray 那样一个键一个占位符：回放的全名单最多 2000 个键。
+ * node-postgres 把 JS 数组写成数组字面量并转义引号与反斜杠；重复的键只留第一个（名单序不变）。
+ */
+function keyList(keys: readonly string[]): SQL {
+  return sql`${sql.param([...new Set(keys)])}::text[]`;
+}
+
+/**
+ * 回放这一页的行：按给定的 row_key 顺序从十个剧场的 union 取（WITH ORDINALITY 保序），再挂信号、发布记录与
+ * ReelShort 指标（与列表同一个 decorate）。名单由 gateway 的 /api/pick/replay 按智能体语义算好，这里不筛：
+ * 已下架的行照样取出（行上标下架）；当前版本已经没有的键不出现，由 loadMissingKeys 逐条列出。
+ * 只传当前页的键（批判 B10：RealShort 的这些函数按一页 200 个设计）。
+ */
+export async function loadRowsByKeys(
+  keys: readonly string[],
+): Promise<PickRow[]> {
+  if (keys.length === 0) return [];
+  const res = await getDb().execute<RawRow>(
+    sql`SELECT rows.*, k.ord FROM unnest(${keyList(keys)}) WITH ORDINALITY AS k(row_key, ord)
+        JOIN ${unionRows()} ON rows.row_key = k.row_key ORDER BY k.ord`,
+  );
+  return decorate(res.rows.map(toRowWithFlags));
+}
+
+/**
+ * 回放全名单里当前版本已经没有的 row_key，按名单顺序：一条 `unnest … EXCEPT (catalog_rows ∪ rs_rows)` 覆盖整份
+ * 名单（批判 B10），不随翻页重查。两张表的 row_key 都是主键。
+ */
+export async function loadMissingKeys(
+  keys: readonly string[],
+): Promise<string[]> {
+  if (keys.length === 0) return [];
+  const res = await getDb().execute<{ row_key: string }>(
+    sql`SELECT k.row_key FROM unnest(${keyList(keys)}) AS k(row_key)
+        EXCEPT (SELECT row_key FROM catalog_rows UNION ALL SELECT row_key FROM rs_rows)`,
+  );
+  const missing = new Set(res.rows.map((r) => r.row_key));
+  return [...new Set(keys)].filter((key) => missing.has(key));
 }
