@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 import { GatewayOfflineFallback } from "@/components/workspace/gateway-offline-fallback";
 import { AuthProvider } from "@/core/auth/AuthProvider";
-import { getServerSideUser } from "@/core/auth/server";
+import { getServerSideUserCached } from "@/core/auth/server";
 import { assertNever } from "@/core/auth/types";
 import { I18nProvider } from "@/core/i18n/context";
 import { detectLocaleServer } from "@/core/i18n/server";
@@ -18,7 +18,7 @@ export default async function WorkspaceLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const locale = await detectLocaleServer();
-  const result = await getServerSideUser();
+  const result = await getServerSideUserCached();
 
   let content: React.ReactNode;
 
