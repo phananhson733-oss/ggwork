@@ -279,13 +279,13 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         " VALUES ('alice', 'req-synthetic', 'h', %s::json, '2026-09-24T00:00:00.000000+00:00') RETURNING request_id",
         synthetic,
     )
-    # The mirror's columns have no writer yet (P2-5, P2-8): each gets the kind of value it will hold. The card freezes its
-    # batch's data_as_of, scope included; the first run's details carry a free-text reason; the card excluded an identity.
-    frozen = {"source_as_of": first["source_as_of"], "published_at": None, "freshness": None, "scope": SCOPE, "shared": True}
+    # The mirror's columns. Every query now freezes its batch's data_as_of, scope included (P2-5b): the card and the empty
+    # query both carry A's. The run details have no writer yet (P2-5c), so the first run gets a free-text reason by hand,
+    # and the card an excluded identity holding a hit (the queries here excluded nothing).
+    assert [(await alice.result(result["id"]))["data_as_of_json"]["scope"] for result in (card, empty)] == [SCOPE, SCOPE]
     excluded = [json.dumps(["synthetic", "k-pwd=1", "en"], separators=(",", ":"))]
     workbench.fetch(
-        "UPDATE deerflow.ggwp_candidate_sets SET data_as_of_json = %s::json, excluded_json = %s::json WHERE id = %s RETURNING id",
-        json.dumps(frozen, ensure_ascii=False),
+        "UPDATE deerflow.ggwp_candidate_sets SET excluded_json = %s::json WHERE id = %s RETURNING id",
         json.dumps(excluded, ensure_ascii=False),
         card["id"],
     )
@@ -310,7 +310,7 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         "ggwp_answer_checks.notes_json": 1,
         "ggwp_import_batches.validation_json": 1,
         "ggwp_knowledge_versions.metadata_json": 1,
-        "ggwp_candidate_sets.data_as_of_json": 1,
+        "ggwp_candidate_sets.data_as_of_json": 2,
         "ggwp_sync_runs.details_json": 1,
         "ggwp_knowledge_versions.title": 1,
         "ggwp_knowledge_versions.text": 1,
@@ -330,7 +330,7 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         "ggwp_candidate_sets.excluded_json": 1,
     }
     assert workbench.check() == (NOTHING | kept, [])
-    assert redacted == [12, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    assert redacted == [12, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1]
     hits = (LINK_NOTE, CODE_NOTE, PASSWORD_NEWLINE, PASSWORD_TAB, PASSWORD_VT, PASSWORD_NBSP, "pan.baidu", *answer_notes, SCOPE, "提取码 x7k2", KNOWLEDGE_FILE)
     assert after == {key: _redacted(text, *hits) for key, text in before.items()}
     changed = {key for key in before if after[key] != before[key]}

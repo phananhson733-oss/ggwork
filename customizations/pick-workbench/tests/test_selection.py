@@ -72,6 +72,7 @@ async def test_filters_snapshot_order_shortfall_and_call_retry(workspace):
 
 @pytest.mark.asyncio
 async def test_only_a_new_batch_request_inherits_the_parent_conditions_and_data(workspace):
+    from ggwork_pick.pin import Pin
     from ggwork_pick.selection import SelectionService
 
     repo, importer, batch, rows = workspace
@@ -80,7 +81,7 @@ async def test_only_a_new_batch_request_inherits_the_parent_conditions_and_data(
     rows[0]["title"] = "更新后的名字"
     new_batch = await importer.catalog(json.dumps(rows).encode(), "json")
     # A new question in the same thread: only its own conditions, on the data pinned for this run.
-    fresh = await service.query({"limit": 1}, thread_id="t1", run_id="r2", call_id="c2", parent_result_id=old["id"], pinned_versions=(new_batch["id"], None))
+    fresh = await service.query({"limit": 1}, thread_id="t1", run_id="r2", call_id="c2", parent_result_id=old["id"], pinned_versions=Pin(new_batch["id"], None))
     assert fresh["conditions"]["language"] is None
     assert fresh["catalog_batch_id"] == new_batch["id"]
     # 换一批: the parent's conditions and data version, minus the parent's items.
@@ -88,7 +89,7 @@ async def test_only_a_new_batch_request_inherits_the_parent_conditions_and_data(
     assert more["conditions"]["language"] == "en" and more["catalog_batch_id"] == batch["id"]
     assert [i["title"] for i in more["items"]] == ["合成样例3"]
     # exclude_previous does not stick to the next question.
-    after = await service.query({}, thread_id="t1", run_id="r4", call_id="c4", parent_result_id=more["id"], pinned_versions=(new_batch["id"], None))
+    after = await service.query({}, thread_id="t1", run_id="r4", call_id="c4", parent_result_id=more["id"], pinned_versions=Pin(new_batch["id"], None))
     assert after["conditions"]["exclude_previous"] is False and after["conditions"]["language"] is None
     newer = await service.query({"exclude_previous": True}, thread_id="t1", run_id="r5", call_id="c5", parent_result_id=old["id"], use_latest=True)
     assert newer["catalog_batch_id"] == new_batch["id"]
