@@ -24,6 +24,7 @@ RETAIN_REFERENCED = timedelta(days=30)
 # Also exactly the keys a result freezes (P2-5b), which stored_data_as_of checks. P4-1's optional mirror_version comes
 # from the result's own column (plan P4-1), beside these: added here, it would turn every frozen row into a fallback.
 DATA_AS_OF_KEYS = ("source_as_of", "published_at", "freshness", "scope", "shared")
+MIRROR_VERSION_KEY = "mirror_version"
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,17 @@ def stored_data_as_of(record: dict) -> dict | None:
     if frozen is not None:
         logger.warning("[pick] result %s froze a data_as_of of another shape; its batch's is used", record.get("id"))
     return None
+
+
+def with_mirror_version(data_as_of: dict | None, mirror_version: int | None, *, emit: bool) -> dict | None:
+    """data_as_of with P4-1's mirror_version after DATA_AS_OF_KEYS, as a new dict, when the switch emits it (U17).
+
+    Merged on the way out, after the frozen value's key set was checked; never stored. null stays null: a run that
+    published without a paired mirror has no version to link to. Nothing to add to when there is no data_as_of.
+    """
+    if not emit or data_as_of is None:
+        return data_as_of
+    return {**data_as_of, MIRROR_VERSION_KEY: mirror_version}
 
 
 class ConflictError(ValueError):
@@ -177,6 +189,11 @@ class PickRepository:
         """
         frozen = stored_data_as_of(record)
         return frozen if frozen is not None else await self.data_as_of(record["catalog_batch_id"])
+
+    async def result_data_as_of(self, record: dict, *, emit_mirror_version: bool) -> dict | None:
+        """What a result answers with (status_view, the query and detail tools): the data_as_of it froze and, while the
+        P4-1 switch is on, the mirror version its row recorded when it was written."""
+        return with_mirror_version(await self.frozen_data_as_of(record), record["mirror_version"], emit=emit_mirror_version)
 
     async def current_batch(self, kind: str) -> dict | None:
         async with self.session_factory() as session:

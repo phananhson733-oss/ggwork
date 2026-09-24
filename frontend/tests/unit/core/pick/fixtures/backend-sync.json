@@ -1,0 +1,578 @@
+{
+  "before_any_version": {
+    "configured": true,
+    "current": null,
+    "runs": [],
+    "mirror": {
+      "enabled": true,
+      "current": null,
+      "series_through": null,
+      "trimmed_before": null,
+      "behind": false,
+      "consecutive_failures": 0,
+      "last_failure_at": null,
+      "last_failure": null,
+      "alert": false,
+      "warnings": [],
+      "lock_stuck": null,
+      "shared_source_as_of": null
+    }
+  },
+  "every_field_set": {
+    "configured": true,
+    "current": {
+      "id": "6b932c62d6f44653be0b557163ddd789",
+      "status": "published",
+      "shared": true,
+      "source_as_of": "2026-09-23T12:42:00.000Z",
+      "published_at": "2026-09-23T12:44:56.789000+00:00",
+      "freshness": {
+        "catalogImportedAt": null,
+        "reelshortSyncedAt": null,
+        "catalogRows": 0,
+        "withSignal": 0,
+        "postedRecords": 0
+      },
+      "scope": "RealShort选剧候选池：有来源信号且未标注下架；不是全部剧库",
+      "rows": 6
+    },
+    "runs": [
+      {
+        "id": "52265d7d67f848e2891af9f436b33c78",
+        "source": "realshort",
+        "trigger": "cron",
+        "status": "success",
+        "started_at": "2026-09-24T19:12:38.065629+00:00",
+        "finished_at": "2026-09-24T19:12:38.131489+00:00",
+        "rows": 6,
+        "catalog_batch_id": "6b932c62d6f44653be0b557163ddd789",
+        "knowledge_batch_id": "0c5e51ae07ee4b2096b1062bf7b6d3c1",
+        "source_as_of": "2026-09-23T12:42:00.000Z",
+        "error": null,
+        "details_json": {
+          "mode": "mirror",
+          "gates": {
+            "v1_text": "pass"
+          },
+          "scrub_hits": {
+            "v1": 0,
+            "v1_rules": 0
+          },
+          "read_failed_retries": 0,
+          "paging_drift": 0,
+          "stages": {
+            "publish_ms": 0,
+            "manifest_ms": 0,
+            "v1_ms": 0,
+            "retention_after_ms": 0,
+            "series_ms": 0,
+            "cleanup_ms": 0,
+            "retention_ms": 0
+          },
+          "mirror_error": "RealShort feed v2 rs_ids 第 1 页 返回 HTTP 500（row_too_large）：rs_ids 有一行连同信封超过 4 MB，主键 [\"d-1\"]；不重试",
+          "as_of": "2026-09-23T12:42:00.000Z",
+          "version": 2,
+          "warnings": [
+            "catalog_import_incomplete"
+          ],
+          "attempts": 1,
+          "drift": {
+            "count": 0,
+            "stages": []
+          },
+          "retention_after": {
+            "versions": {
+              "skipped": null,
+              "kept": [
+                1
+              ],
+              "dropped": [],
+              "lock_busy": [],
+              "over_cap": 0
+            },
+            "batch_blobs_deleted": 0,
+            "errors": []
+          },
+          "series": {
+            "folded": [
+              "2026-09-23"
+            ],
+            "rows": {
+              "2026-09-23": 3
+            },
+            "missing": [],
+            "pending": 0,
+            "through": "2026-09-23",
+            "trimmed_before": "2026-06-23",
+            "needs_backfill": false,
+            "stopped": null,
+            "error": null
+          },
+          "capacity": {
+            "db_size_bytes": 9139891,
+            "db_size_cap": 6442450944,
+            "over_cap": false
+          },
+          "cleanup": {
+            "versions": {
+              "skipped": null,
+              "failed_building": [],
+              "dropped_schemas": [],
+              "lock_busy": []
+            },
+            "blobs_deleted": 0,
+            "errors": []
+          },
+          "retention": {
+            "versions": {
+              "skipped": null,
+              "kept": [
+                1
+              ],
+              "dropped": [],
+              "lock_busy": [],
+              "over_cap": 0
+            },
+            "batch_blobs_deleted": 0,
+            "errors": []
+          },
+          "cpu_ms": 30,
+          "outcome": "degraded",
+          "reason": "degraded:RowTooLargeError",
+          "consecutive_failures": 1,
+          "alert": false
+        }
+      },
+      {
+        "id": "fd682ff496af4388b356ebf6baa613ed",
+        "source": "realshort",
+        "trigger": "cron",
+        "status": "success",
+        "started_at": "2026-09-24T19:12:37.984033+00:00",
+        "finished_at": "2026-09-24T19:12:38.062413+00:00",
+        "rows": 6,
+        "catalog_batch_id": "6b932c62d6f44653be0b557163ddd789",
+        "knowledge_batch_id": "0c5e51ae07ee4b2096b1062bf7b6d3c1",
+        "source_as_of": "2026-09-23T12:32:00.000Z",
+        "error": null,
+        "details_json": {
+          "mode": "mirror",
+          "gates": {
+            "v1_text": "pass",
+            "row_counts": "pass",
+            "forbidden_columns": "pass",
+            "mirror_text": "pass",
+            "references": "pass",
+            "control_totals": "pass",
+            "v1_consistency": "pass",
+            "empty_tables": "pass"
+          },
+          "scrub_hits": {
+            "v1": 0,
+            "v1_rules": 0,
+            "mirror": 0
+          },
+          "read_failed_retries": 0,
+          "paging_drift": 0,
+          "stages": {
+            "publish_ms": 0,
+            "v2_ms": 0,
+            "finalize_ms": 0,
+            "gates_ms": 0,
+            "manifest_ms": 0,
+            "v1_ms": 0,
+            "retention_after_ms": 0,
+            "series_ms": 0,
+            "cleanup_ms": 0,
+            "retention_ms": 0
+          },
+          "copied": {
+            "catalog_rows": 4,
+            "catalog_signals": 6,
+            "catalog_posted": 4,
+            "catalog_accounts": 2,
+            "rs_rows": 5,
+            "rs_ids": 6,
+            "rs_clicks14": 2,
+            "rs_bill_orders": 2
+          },
+          "as_of": "2026-09-23T12:32:00.000Z",
+          "version": 1,
+          "warnings": [
+            "catalog_import_incomplete"
+          ],
+          "attempts": 1,
+          "drift": {
+            "count": 0,
+            "stages": []
+          },
+          "retention_after": {
+            "versions": {
+              "skipped": null,
+              "kept": [
+                1
+              ],
+              "dropped": [],
+              "lock_busy": [],
+              "over_cap": 0
+            },
+            "batch_blobs_deleted": 0,
+            "errors": []
+          },
+          "series": {
+            "folded": [],
+            "rows": {},
+            "missing": [],
+            "pending": 2,
+            "through": null,
+            "trimmed_before": null,
+            "needs_backfill": true,
+            "stopped": null,
+            "error": null
+          },
+          "capacity": {
+            "db_size_bytes": 8418995,
+            "db_size_cap": 6442450944,
+            "over_cap": false
+          },
+          "cleanup": {
+            "versions": {
+              "skipped": null,
+              "failed_building": [],
+              "dropped_schemas": [],
+              "lock_busy": []
+            },
+            "blobs_deleted": 0,
+            "errors": []
+          },
+          "retention": {
+            "versions": {
+              "skipped": null,
+              "kept": [],
+              "dropped": [],
+              "lock_busy": [],
+              "over_cap": 0
+            },
+            "batch_blobs_deleted": 0,
+            "errors": []
+          },
+          "cpu_ms": 34,
+          "outcome": "paired",
+          "reason": null,
+          "consecutive_failures": 0,
+          "alert": false
+        }
+      }
+    ],
+    "mirror": {
+      "enabled": true,
+      "current": {
+        "id": 1,
+        "as_of": "2026-09-23T12:32:00.000Z",
+        "latest_snapshot": "2026-09-23",
+        "published_at": "2026-09-23T12:34:56.789000+00:00"
+      },
+      "series_through": "2026-09-23",
+      "trimmed_before": "2026-06-23",
+      "behind": false,
+      "consecutive_failures": 1,
+      "last_failure_at": "2026-09-23T12:44:56.789000+00:00",
+      "last_failure": "degraded:RowTooLargeError",
+      "alert": false,
+      "warnings": [
+        "catalog_import_incomplete"
+      ],
+      "lock_stuck": {
+        "pid": 77102,
+        "holder": "backfill",
+        "since": "2026-09-24T17:51:38.136118+00:00"
+      },
+      "shared_source_as_of": "2026-09-23T12:42:00.000Z"
+    }
+  },
+  "read_error": {
+    "configured": true,
+    "current": {
+      "id": "6b932c62d6f44653be0b557163ddd789",
+      "status": "published",
+      "shared": true,
+      "source_as_of": "2026-09-23T12:42:00.000Z",
+      "published_at": "2026-09-23T12:44:56.789000+00:00",
+      "freshness": {
+        "catalogImportedAt": null,
+        "reelshortSyncedAt": null,
+        "catalogRows": 0,
+        "withSignal": 0,
+        "postedRecords": 0
+      },
+      "scope": "RealShort选剧候选池：有来源信号且未标注下架；不是全部剧库",
+      "rows": 6
+    },
+    "runs": [
+      {
+        "id": "52265d7d67f848e2891af9f436b33c78",
+        "source": "realshort",
+        "trigger": "cron",
+        "status": "success",
+        "started_at": "2026-09-24T19:12:38.065629+00:00",
+        "finished_at": "2026-09-24T19:12:38.131489+00:00",
+        "rows": 6,
+        "catalog_batch_id": "6b932c62d6f44653be0b557163ddd789",
+        "knowledge_batch_id": "0c5e51ae07ee4b2096b1062bf7b6d3c1",
+        "source_as_of": "2026-09-23T12:42:00.000Z",
+        "error": null,
+        "details_json": {
+          "mode": "mirror",
+          "gates": {
+            "v1_text": "pass"
+          },
+          "scrub_hits": {
+            "v1": 0,
+            "v1_rules": 0
+          },
+          "read_failed_retries": 0,
+          "paging_drift": 0,
+          "stages": {
+            "publish_ms": 0,
+            "manifest_ms": 0,
+            "v1_ms": 0,
+            "retention_after_ms": 0,
+            "series_ms": 0,
+            "cleanup_ms": 0,
+            "retention_ms": 0
+          },
+          "mirror_error": "RealShort feed v2 rs_ids 第 1 页 返回 HTTP 500（row_too_large）：rs_ids 有一行连同信封超过 4 MB，主键 [\"d-1\"]；不重试",
+          "as_of": "2026-09-23T12:42:00.000Z",
+          "version": 2,
+          "warnings": [
+            "catalog_import_incomplete"
+          ],
+          "attempts": 1,
+          "drift": {
+            "count": 0,
+            "stages": []
+          },
+          "retention_after": {
+            "versions": {
+              "skipped": null,
+              "kept": [
+                1
+              ],
+              "dropped": [],
+              "lock_busy": [],
+              "over_cap": 0
+            },
+            "batch_blobs_deleted": 0,
+            "errors": []
+          },
+          "series": {
+            "folded": [
+              "2026-09-23"
+            ],
+            "rows": {
+              "2026-09-23": 3
+            },
+            "missing": [],
+            "pending": 0,
+            "through": "2026-09-23",
+            "trimmed_before": "2026-06-23",
+            "needs_backfill": false,
+            "stopped": null,
+            "error": null
+          },
+          "capacity": {
+            "db_size_bytes": 9139891,
+            "db_size_cap": 6442450944,
+            "over_cap": false
+          },
+          "cleanup": {
+            "versions": {
+              "skipped": null,
+              "failed_building": [],
+              "dropped_schemas": [],
+              "lock_busy": []
+            },
+            "blobs_deleted": 0,
+            "errors": []
+          },
+          "retention": {
+            "versions": {
+              "skipped": null,
+              "kept": [
+                1
+              ],
+              "dropped": [],
+              "lock_busy": [],
+              "over_cap": 0
+            },
+            "batch_blobs_deleted": 0,
+            "errors": []
+          },
+          "cpu_ms": 30,
+          "outcome": "degraded",
+          "reason": "degraded:RowTooLargeError",
+          "consecutive_failures": 1,
+          "alert": false
+        }
+      },
+      {
+        "id": "fd682ff496af4388b356ebf6baa613ed",
+        "source": "realshort",
+        "trigger": "cron",
+        "status": "success",
+        "started_at": "2026-09-24T19:12:37.984033+00:00",
+        "finished_at": "2026-09-24T19:12:38.062413+00:00",
+        "rows": 6,
+        "catalog_batch_id": "6b932c62d6f44653be0b557163ddd789",
+        "knowledge_batch_id": "0c5e51ae07ee4b2096b1062bf7b6d3c1",
+        "source_as_of": "2026-09-23T12:32:00.000Z",
+        "error": null,
+        "details_json": {
+          "mode": "mirror",
+          "gates": {
+            "v1_text": "pass",
+            "row_counts": "pass",
+            "forbidden_columns": "pass",
+            "mirror_text": "pass",
+            "references": "pass",
+            "control_totals": "pass",
+            "v1_consistency": "pass",
+            "empty_tables": "pass"
+          },
+          "scrub_hits": {
+            "v1": 0,
+            "v1_rules": 0,
+            "mirror": 0
+          },
+          "read_failed_retries": 0,
+          "paging_drift": 0,
+          "stages": {
+            "publish_ms": 0,
+            "v2_ms": 0,
+            "finalize_ms": 0,
+            "gates_ms": 0,
+            "manifest_ms": 0,
+            "v1_ms": 0,
+            "retention_after_ms": 0,
+            "series_ms": 0,
+            "cleanup_ms": 0,
+            "retention_ms": 0
+          },
+          "copied": {
+            "catalog_rows": 4,
+            "catalog_signals": 6,
+            "catalog_posted": 4,
+            "catalog_accounts": 2,
+            "rs_rows": 5,
+            "rs_ids": 6,
+            "rs_clicks14": 2,
+            "rs_bill_orders": 2
+          },
+          "as_of": "2026-09-23T12:32:00.000Z",
+          "version": 1,
+          "warnings": [
+            "catalog_import_incomplete"
+          ],
+          "attempts": 1,
+          "drift": {
+            "count": 0,
+            "stages": []
+          },
+          "retention_after": {
+            "versions": {
+              "skipped": null,
+              "kept": [
+                1
+              ],
+              "dropped": [],
+              "lock_busy": [],
+              "over_cap": 0
+            },
+            "batch_blobs_deleted": 0,
+            "errors": []
+          },
+          "series": {
+            "folded": [],
+            "rows": {},
+            "missing": [],
+            "pending": 2,
+            "through": null,
+            "trimmed_before": null,
+            "needs_backfill": true,
+            "stopped": null,
+            "error": null
+          },
+          "capacity": {
+            "db_size_bytes": 8418995,
+            "db_size_cap": 6442450944,
+            "over_cap": false
+          },
+          "cleanup": {
+            "versions": {
+              "skipped": null,
+              "failed_building": [],
+              "dropped_schemas": [],
+              "lock_busy": []
+            },
+            "blobs_deleted": 0,
+            "errors": []
+          },
+          "retention": {
+            "versions": {
+              "skipped": null,
+              "kept": [],
+              "dropped": [],
+              "lock_busy": [],
+              "over_cap": 0
+            },
+            "batch_blobs_deleted": 0,
+            "errors": []
+          },
+          "cpu_ms": 34,
+          "outcome": "paired",
+          "reason": null,
+          "consecutive_failures": 0,
+          "alert": false
+        }
+      }
+    ],
+    "mirror": {
+      "error": "RuntimeError"
+    }
+  },
+  "sqlite": {
+    "configured": true,
+    "current": {
+      "id": "36fcdc76aaa4475ab8a5625ec7ec0087",
+      "status": "published",
+      "shared": true,
+      "source_as_of": "2026-09-23T03:00:00.000Z",
+      "published_at": "2026-09-24T19:12:38.195393+00:00",
+      "freshness": {
+        "catalogImportedAt": "2026-09-22T03:19:21.327Z",
+        "reelshortSyncedAt": "2026-09-23T00:05:56.475Z"
+      },
+      "scope": "test scope",
+      "rows": 2
+    },
+    "runs": [
+      {
+        "id": "d7cb7fb9bc614b5888cc71c5894905ac",
+        "source": "realshort",
+        "trigger": "cron",
+        "status": "success",
+        "started_at": "2026-09-24T19:12:38.190924+00:00",
+        "finished_at": "2026-09-24T19:12:38.199939+00:00",
+        "rows": 2,
+        "catalog_batch_id": "36fcdc76aaa4475ab8a5625ec7ec0087",
+        "knowledge_batch_id": "d6125d661d3c4dbab2fcab1892fd1571",
+        "source_as_of": "2026-09-23T03:00:00.000Z",
+        "error": null,
+        "details_json": {
+          "mirror_disabled": "not_postgresql"
+        }
+      }
+    ],
+    "mirror": null
+  }
+}

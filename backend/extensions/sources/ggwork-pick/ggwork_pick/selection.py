@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from ggwork_pick.contracts import PickConditions
 from ggwork_pick.pin import Pin, as_pin
-from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of
+from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of, with_mirror_version
 
 RULE_VERSION = "pick-rules-v1"
 RANKING_VERSION = "evidence-date-v1"
@@ -360,11 +360,12 @@ class SelectionService:
         )
         return result_view(record), record
 
-    async def count(self, filters: dict, *, parent: dict | None = None, pinned_versions=None) -> dict:
+    async def count(self, filters: dict, *, parent: dict | None = None, pinned_versions=None, emit_mirror_version: bool = False) -> dict:
         """Aggregate the same filter as a query, without persisting a candidate snapshot.
 
         data_as_of is the pin's: a derived count's pin is the parent's frozen value, and a pin without one (a parent
-        from before P2, or pinned_versions given as a bare pair) falls back to the catalog batch.
+        from before P2, or pinned_versions given as a bare pair) falls back to the catalog batch. With the P4-1 switch on
+        it carries the pin's mirror version as well: the parent's for a derived count, this run's otherwise.
         """
         conditions, pin, excluded = await self._scope(filters, parent, use_latest=False, pinned_versions=pinned_versions)
         matches = matching_rows(await self.repository.catalog_rows(pin.catalog_id), conditions, excluded)
@@ -378,8 +379,11 @@ class SelectionService:
             "total": len(matches),
             "by_theater": dict(sorted(by_theater.items(), key=lambda kv: (-kv[1], kv[0]))),
             "by_language": dict(sorted(by_language.items(), key=lambda kv: (-kv[1], kv[0]))),
-            "data_as_of": pin.data_as_of if pin.data_as_of is not None else await self.repository.data_as_of(pin.catalog_id),
+            "data_as_of": with_mirror_version(await self._pin_data_as_of(pin), pin.mirror_version, emit=emit_mirror_version),
         }
+
+    async def _pin_data_as_of(self, pin: Pin) -> dict | None:
+        return pin.data_as_of if pin.data_as_of is not None else await self.repository.data_as_of(pin.catalog_id)
 
     async def replay(self, result_id: str) -> dict:
         """GET /api/pick/replay: the owner's result re-run on its own batch, with the data_as_of it froze.

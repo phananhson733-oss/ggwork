@@ -44,6 +44,11 @@ def _catalog_unavailable() -> str:
     )
 
 
+def _emits_mirror_version(task) -> bool:
+    """The P4-1 switch (PICK_EMIT_MIRROR_VERSION, read at startup with the service's other settings)."""
+    return task.service.sync_settings.emits_mirror_version
+
+
 async def _pin_latest(task, repo):
     if not task.versions_refreshed:
         # One read, like the run's first pin: never a new catalog beside an old version.
@@ -90,8 +95,10 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
         task.known_titles.update(item["title"] for item in result["items"])
         if PickConditions.model_validate(result["conditions"]).filters_posted:
             task.posted_checked = True
-        # What the result froze, also on a repeated call after a later publish rewrote its batch (P2-8a, U51).
-        return json.dumps({**result, "data_as_of": await repo.frozen_data_as_of(record)}, ensure_ascii=False)
+        # What the result froze, also on a repeated call after a later publish rewrote its batch (P2-8a, U51); with the
+        # P4-1 switch on, and the mirror version its row recorded.
+        data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
+        return json.dumps({**result, "data_as_of": data_as_of}, ensure_ascii=False)
 
     return await _answer(work)
 
@@ -109,8 +116,9 @@ async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> st
 
     async def work():
         parent = await _bound_parent(task, repo, requested)
-        # data_as_of comes with the count: the parent's frozen value for 换一批, the run's pin otherwise.
-        counted = await SelectionService(repo).count(requested, parent=parent, pinned_versions=task.pin())
+        # data_as_of comes with the count: the parent's frozen value for 换一批, the run's pin otherwise; so does the
+        # mirror version while the P4-1 switch is on.
+        counted = await SelectionService(repo).count(requested, parent=parent, pinned_versions=task.pin(), emit_mirror_version=_emits_mirror_version(task))
         if PickConditions.model_validate(counted["conditions"]).filters_posted:
             task.posted_checked = True
         return json.dumps(counted, ensure_ascii=False)
@@ -138,7 +146,8 @@ async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) 
         task, repo, record = await _owned_result(runtime, result_id)
         detail = await SelectionService(repo).detail(result_id, item_id)
         task.known_titles.add(detail["item"]["title"])
-        return json.dumps({**detail, "data_as_of": await repo.frozen_data_as_of(record)}, ensure_ascii=False)
+        data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
+        return json.dumps({**detail, "data_as_of": data_as_of}, ensure_ascii=False)
 
     return await _answer(work)
 

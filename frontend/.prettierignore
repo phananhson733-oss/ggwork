@@ -5,3 +5,5 @@ playwright-report/
 test-results/
 # 由 customizations/pick-workbench/tests/test_frontend_contract.py 用 json.dumps 生成，排版以生成器为准
 tests/unit/core/pick/fixtures/backend-result.json
+# 由 customizations/pick-workbench/tests/mirror/test_mirror_sync_status.py 用 json.dumps 生成，排版以生成器为准
+tests/unit/core/pick/fixtures/backend-sync.json

@@ -22,6 +22,9 @@ STOP_GRACE_SECONDS = 20
 # and the export token is set. Switched on without the other two, the run stays v1 and its details_json says why.
 MIRROR_FLAG_ENV = "PICK_MIRROR_ENABLED"
 EXPORT_TOKEN_ENV = "PICK_REALSHORT_EXPORT_TOKEN"
+# P4-1 (U17): data_as_of carries mirror_version only when this is exactly "1". Off by default, so the backend can deploy
+# before every open tab has the frontend whose strict schema accepts the key; switched on after an interval.
+EMIT_MIRROR_VERSION_ENV = "PICK_EMIT_MIRROR_VERSION"
 DB_SIZE_CAP_ENV = "PICK_DB_SIZE_CAP_BYTES"
 NOT_POSTGRESQL = "not_postgresql"
 MISSING_EXPORT_TOKEN = "missing_export_token"
@@ -49,13 +52,15 @@ def _size_cap(raw: str | None) -> int | None:
 
 @dataclass(frozen=True)
 class SyncSettings:
-    """Server-side only. feed_token reads v1 and export_token feed v2 (the mirror); the schedule runs in this process."""
+    """Server-side only. feed_token reads v1 and export_token feed v2 (the mirror); the schedule runs in this process.
+    mirror_version_flag is the P4-1 switch for data_as_of.mirror_version, read with the rest at startup."""
 
     feed_url: str = ""
     feed_token: str = field(default="", repr=False)
     export_token: str = field(default="", repr=False)
     mirror_flag: str = ""
     db_size_cap: int | None = None
+    mirror_version_flag: str = ""
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> SyncSettings:
@@ -67,11 +72,18 @@ class SyncSettings:
             # Exactly "1" (U39): not stripped, so " 1" or "true" leave the mirror off.
             mirror_flag=env.get(MIRROR_FLAG_ENV, ""),
             db_size_cap=_size_cap(env.get(DB_SIZE_CAP_ENV)),
+            # Exactly "1" as well, not stripped.
+            mirror_version_flag=env.get(EMIT_MIRROR_VERSION_ENV, ""),
         )
 
     @property
     def configured(self) -> bool:
         return bool(self.feed_url and self.feed_token)
+
+    @property
+    def emits_mirror_version(self) -> bool:
+        """Whether result, detail and count answers carry data_as_of.mirror_version (P4-1)."""
+        return self.mirror_version_flag == "1"
 
     def mirror_disabled(self, dialect: str | None) -> str | None:
         """Why the mirror does not run although the switch is exactly "1" (U31); None when it runs or is switched off."""

@@ -3,6 +3,11 @@ name: Pick Workbench Tests
 # The ggwork-pick extension suite and the pick entrypoint / create_user tests on both dialects:
 # SQLite and a postgres:17 service. test_bootstrap_sql runs docs/pick-workbench/supabase/*.sql with the runner's psql.
 # The PostgreSQL half skips only when PICK_TEST_PG_URL is unset, which never happens here.
+# pick-board-integration reads a mirror board_fixture.py builds, with the pick data board's reader code
+# (frontend/src/server/pick-board), as a LOGIN reader over password authentication (P2 final review seams-5).
+# frontend/package.json, pnpm-lock.yaml and rstest.config.ts decide that reader's driver and test runner; the
+# backend-*.json under frontend/tests/unit/core/pick/fixtures are what test_frontend_contract and test_mirror_sync_status
+# compare the backend's answers with.
 on:
   push:
     branches: [ 'main' ]
@@ -23,6 +28,14 @@ on:
       - 'docs/pick-workbench/supabase.md'
       - 'docs/pick-workbench/supabase/**'
       - '.github/workflows/pick-workbench-tests.yml'
+      - 'frontend/src/server/pick-board/**'
+      - 'frontend/src/core/pick-board/**'
+      - 'frontend/tests/unit/server/pick-board/**'
+      - 'customizations/pick-workbench/tests/mirror/board_fixture.py'
+      - 'frontend/package.json'
+      - 'frontend/pnpm-lock.yaml'
+      - 'frontend/rstest.config.ts'
+      - 'frontend/tests/unit/core/pick/fixtures/**'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -42,6 +55,14 @@ on:
       - 'docs/pick-workbench/supabase.md'
       - 'docs/pick-workbench/supabase/**'
       - '.github/workflows/pick-workbench-tests.yml'
+      - 'frontend/src/server/pick-board/**'
+      - 'frontend/src/core/pick-board/**'
+      - 'frontend/tests/unit/server/pick-board/**'
+      - 'customizations/pick-workbench/tests/mirror/board_fixture.py'
+      - 'frontend/package.json'
+      - 'frontend/pnpm-lock.yaml'
+      - 'frontend/rstest.config.ts'
+      - 'frontend/tests/unit/core/pick/fixtures/**'
   workflow_dispatch:
 
 concurrency:
@@ -104,3 +125,125 @@ jobs:
         env:
           PICK_TEST_PG_URL: postgresql://postgres:pick-ci@127.0.0.1:5432/postgres
         run: backend/.venv/bin/python -m pytest backend/tests/test_pick_cloud_entrypoint.py backend/tests/test_json_body_sanitizer.py backend/tests/test_create_user_cli.py -q -rs
+
+  pick-board-integration:
+    # board_fixture.py builds the mirror through the production paths on a postgres:17 service like the job above's,
+    # then rstest runs the two pick-board integration suites as its reader. Those suites skip themselves without
+    # PICK_BOARD_TEST_PG_URL, so the report must show every case passed and none skipped.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          # Throwaway CI database, as in the job above; the reader board_fixture.py creates logs in with a password.
+          POSTGRES_PASSWORD: pick-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PICK_TEST_PG_URL: postgresql://postgres:pick-ci@127.0.0.1:5432/postgres
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          # Must match backend/Dockerfile's UV_IMAGE tag; pinned by backend/tests/test_ci_uv_version_pin.py
+          version: "0.11.1"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --group dev --extra postgres
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Use pinned pnpm version
+        run: corepack prepare pnpm@10.26.2 --activate
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the mirror the board reads
+        working-directory: customizations/pick-workbench
+        # The reader URL (with its generated password) goes to a 0600 file only; stdout carries names only.
+        run: |
+          umask 077
+          ../../backend/.venv/bin/python tests/mirror/board_fixture.py up \
+            --url-file "$RUNNER_TEMP/pick-board-url" --data-dir "$RUNNER_TEMP/pick-board-data" > "$RUNNER_TEMP/pick-board.json"
+          jq -c '{database, role, versions}' "$RUNNER_TEMP/pick-board.json"
+
+      - name: Run the pick-board integration tests as the reader
+        working-directory: frontend
+        # Every *.integration.test.ts there runs, and the report must count exactly that many files.
+        run: |
+          shopt -s nullglob
+          suites=(tests/unit/server/pick-board/*.integration.test.ts)
+          if [ "${#suites[@]}" -eq 0 ]; then
+            echo "::error::no pick-board integration test files found"
+            exit 1
+          fi
+          status=0
+          PICK_BOARD_TEST_PG_URL="$(cat "$RUNNER_TEMP/pick-board-url")" pnpm exec rstest run --reporter json --silent=true \
+            "${suites[@]}" > "$RUNNER_TEMP/pick-board-rstest.json" || status=$?
+          node - "$RUNNER_TEMP/pick-board-rstest.json" "${#suites[@]}" <<'EOF'
+          const text = require("node:fs").readFileSync(process.argv[2], "utf8");
+          const expectedFiles = Number(process.argv[3]);
+          const report = JSON.parse(text.slice(text.indexOf("{")));
+          const { summary } = report;
+          console.log(
+            `pick-board integration: ${summary.testFiles} files, ${summary.tests} tests, ` +
+              `${summary.passedTests} passed, ${summary.failedTests} failed, ${summary.skippedTests} skipped`,
+          );
+          // A failing beforeAll fails the file and reports its cases as skipped; its error sits on the file.
+          const failed = [...report.files, ...report.tests].filter((entry) => entry.status === "fail");
+          for (const entry of failed) {
+            console.log(`FAIL ${entry.testPath}${entry.fullName ? ` > ${entry.fullName}` : ""}`);
+            for (const error of entry.errors ?? []) console.log(`  ${error.name}: ${error.message}`);
+          }
+          for (const error of report.unhandledErrors ?? []) console.log(`UNHANDLED ${error.name}: ${error.message}`);
+          const ran = summary.testFiles === expectedFiles && summary.tests > 0 && summary.passedTests === summary.tests;
+          if (report.status !== "pass") {
+            console.log("::error::pick-board integration tests failed");
+            process.exit(1);
+          }
+          if (!ran) {
+            console.log(
+              `::error::pick-board integration tests were skipped or missing: expected ${expectedFiles} files, every case passed ` +
+                "(a skip means the reader URL never reached them)",
+            );
+            process.exit(1);
+          }
+          EOF
+          exit "$status"
+
+      - name: Drop the mirror the board read
+        if: always()
+        working-directory: customizations/pick-workbench
+        run: |
+          if [ -s "$RUNNER_TEMP/pick-board.json" ]; then
+            ../../backend/.venv/bin/python tests/mirror/board_fixture.py down \
+              --database "$(jq -r .database "$RUNNER_TEMP/pick-board.json")" --role "$(jq -r .role "$RUNNER_TEMP/pick-board.json")"
+          fi
+          rm -rf "$RUNNER_TEMP/pick-board-url" "$RUNNER_TEMP/pick-board-data"
