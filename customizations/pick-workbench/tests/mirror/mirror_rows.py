@@ -134,6 +134,18 @@ class Recording:
         return self._conn.is_closed()
 
 
+class FakeCopy:
+    """A connection with only COPY and no database: it answers `status(records)`, asyncpg's "COPY n" by default."""
+
+    def __init__(self, status=lambda records: f"COPY {len(records)}"):
+        self._status = status
+        self.copied: tuple[tuple[str, int], ...] = ()
+
+    async def copy_records_to_table(self, table_name, *, records, **kwargs):
+        self.copied = (*self.copied, (table_name, len(records)))
+        return self._status(records)
+
+
 class NoSql:
     """A connection that must never be used: every attribute access is recorded and fails."""
 

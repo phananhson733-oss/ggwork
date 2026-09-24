@@ -4,11 +4,12 @@ Nothing here needs a database; the checks that must run before SQL is sent use a
 """
 
 import json
+import threading
 from datetime import UTC, datetime, timedelta, timezone
 from types import MappingProxyType
 
 import pytest
-from mirror_rows import MANIFEST, NoSql, parsed, synthetic_row
+from mirror_rows import MANIFEST, FakeCopy, NoSql, parsed, synthetic_row
 
 from ggwork_pick.mirror.contracts import RESOURCE_COLUMNS, row_values
 
@@ -181,3 +182,47 @@ async def test_copy_records_takes_one_page_as_a_sequence():
     assert conn.touched == []
     with pytest.raises(MirrorRecordError):
         check_records("meta", [{"key": "k", "value": "{}"}])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["COPY 2", "COPY 4", "COPY", "INSERT 0 3", "XCOPY 3", "COPY 3 3", None])
+async def test_copy_records_holds_copy_to_the_page(status):
+    from ggwork_pick.mirror.versions import MirrorBuildError
+    from ggwork_pick.mirror.writer import copy_records
+
+    records = [(f"key-{index}", '{"note": "v-9d2"}') for index in range(3)]
+    assert await copy_records(FakeCopy(), "pickm_v000001", "meta", records) == 3
+    conn = FakeCopy(status=lambda _: status)
+    with pytest.raises(MirrorBuildError) as failure:
+        await copy_records(conn, "pickm_v000001", "meta", records)
+    assert conn.copied == (("meta", 3),)
+    assert "pickm_v000001.meta" in str(failure.value)
+    assert "key-" not in str(failure.value) and "v-9d2" not in str(failure.value)
+
+
+class _ThreadSpy:
+    """Wraps a function and notes the thread each call ran on."""
+
+    def __init__(self, function):
+        self._function = function
+        self.threads: tuple[int, ...] = ()
+
+    def __call__(self, *args):
+        self.threads = (*self.threads, threading.get_ident())
+        return self._function(*args)
+
+
+@pytest.mark.asyncio
+async def test_page_work_runs_off_the_event_loop(monkeypatch):
+    from ggwork_pick.mirror import writer
+
+    spies = {name: _ThreadSpy(getattr(writer, name)) for name in ("records_for", "check_records", "meta_records")}
+    for name, spy in spies.items():
+        monkeypatch.setattr(writer, name, spy)
+    conn = FakeCopy()
+    assert await writer.copy_rows(conn, "pickm_v000001", "catalog_rows", parsed("catalog_rows", [synthetic_row("catalog_rows", 1)])) == 1
+    assert await writer.write_meta(conn, "pickm_v000001", MANIFEST) == 13
+    assert conn.copied == (("catalog_rows", 1), ("meta", 13))
+    loop_thread = threading.get_ident()
+    assert {name: len(spy.threads) for name, spy in spies.items()} == {"records_for": 1, "check_records": 2, "meta_records": 1}
+    assert [name for name, spy in spies.items() if loop_thread in spy.threads] == []

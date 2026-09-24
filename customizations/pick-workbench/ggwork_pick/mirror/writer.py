@@ -17,6 +17,7 @@ the SQLSTATE, never a value.
 
 import asyncio
 import math
+import re
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ COPY_TIMEOUT = 60
 FINALIZE_TIMEOUT = 120
 INT4_MIN = -(2**31)
 INT4_MAX = 2**31 - 1
+_COPY_STATUS = re.compile(r"COPY ([0-9]+)")
 # The meta table's keys, verbatim from the manifest (U2): meta's eight, then five of the top level.
 MANIFEST_META_KEYS = ("freshness", "rsCounts", "growthBaseline", "sources", "rules", "control", "scrub", "warnings")
 MANIFEST_TOP_KEYS = ("fingerprint", "sourceRevision", "latestSnapshot", "snapshotDays", "counts")
@@ -256,8 +258,9 @@ async def copy_records(conn, schema_name: str, table: str, records: Sequence[Seq
 
 
 def _copied(status: object, expected: int, where: str) -> int:
-    written = status.rpartition(" ")[2] if isinstance(status, str) else ""
-    if not written.isdigit() or int(written) != expected:
+    """The page's size, when COPY's own status ("COPY n") reports exactly that many rows."""
+    reported = _COPY_STATUS.fullmatch(status) if isinstance(status, str) else None
+    if reported is None or int(reported.group(1)) != expected:
         raise MirrorBuildError(f"写入镜像表 {where} 的行数与这一页不符")
     return expected
 
