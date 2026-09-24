@@ -1,0 +1,70 @@
+/*
+ * Pick-board palette, loaded only by the pick-data layout. The utilities that
+ * read these variables are mapped in styles/pick-board-theme.css; the values
+ * stay on the .pick-board container so no other route sees them.
+ *
+ * Light values are RealShort's admin palette (the admin-light block of its
+ * globals.css at 816ca2e). Dark values start from RealShort's dark palette at
+ * the same commit. That palette sits on a #0b0810 page, far darker than the
+ * workbench's dark background, so the panel, hover and raised surfaces follow
+ * the workbench's own card and muted surfaces instead: panels stay level with
+ * the page and outlined, as workbench cards are. ink-dim is one step lighter
+ * than RealShort's to keep its contrast on those surfaces.
+ */
+.pick-board {
+  --helper: #6f6579;
+  --ink-1: #1b1522;
+  --ink-2: #3e3546;
+  --ink-dim: #8e8397;
+  --brand: #c8204f;
+  --brand-hover: #e0305f;
+  --on-brand: #ffffff;
+  --gold: #8a5a00;
+  --line: rgb(27 21 34 / 10%);
+  --line-strong: rgb(27 21 34 / 16%);
+  --panel: #ffffff;
+  --panel-hover: #f8f6fa;
+  --raised: #f3f0f6;
+  --warning-surface: #fbf0d9;
+  --warning-ink: #8a5a00;
+  --warning-line: rgb(138 90 0 / 30%);
+  --success-surface: #e3f5e9;
+  --success-ink: #1f7a45;
+  --danger-surface: #fde7ec;
+  --danger-line: rgb(200 32 79 / 35%);
+  --info-surface: #e3eefb;
+  --info-ink: #1d4f8f;
+  --violet-surface: #ece6fb;
+  --violet-ink: #5b3fd6;
+  --chart-series-revenue: #c8204f;
+  --chart-series-promoters: #1f7a45;
+}
+
+.dark .pick-board {
+  --helper: #a398ab;
+  --ink-1: #f0eaf2;
+  --ink-2: #d3cbd8;
+  --ink-dim: #7a6f84;
+  --brand: #ff3d71;
+  --brand-hover: #ff6188;
+  --on-brand: #0b0810;
+  --gold: #ffc24b;
+  --line: rgb(255 255 255 / 10%);
+  --line-strong: rgb(255 255 255 / 15%);
+  --panel: var(--card);
+  --panel-hover: var(--muted);
+  --raised: var(--muted);
+  --warning-surface: #3a2e16;
+  --warning-ink: #e8c07d;
+  --warning-line: rgb(232 192 125 / 30%);
+  --success-surface: #16321f;
+  --success-ink: #7dd8a0;
+  --danger-surface: #3a1620;
+  --danger-line: rgb(255 61 113 / 40%);
+  --info-surface: #0f2438;
+  --info-ink: #7fb8ff;
+  --violet-surface: #1e1638;
+  --violet-ink: #b9a6ff;
+  --chart-series-revenue: #3987e5;
+  --chart-series-promoters: #199e70;
+}
