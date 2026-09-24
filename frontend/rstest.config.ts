@@ -10,6 +10,9 @@ const shared = {
   resolve: {
     alias: {
       "@": resolve(__dirname, "src"),
+      // src/server/** imports "server-only", whose real entry throws outside a
+      // react-server bundle; one alias here covers both projects below.
+      "server-only": resolve(__dirname, "tests/unit/support/server-only.ts"),
     },
   },
   output: {
