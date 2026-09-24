@@ -10,8 +10,14 @@ or a shape no check caught; the summary names its class and the innermost frame,
 Page iteration (walk) and bookkeeping (Tally) are kept apart. --scan also runs the Python pan scrub (mirror/pan.py) over
 every page it reads, in a worker thread, and reports only paths and counts: v1 rows by v1's exemptions, the v1 rules
 Markdown as v1.rules (U45), each v2 row by its resource's exemptions, manifest.meta as finalizeManifest scrubs it. Any
-hit fails the pan_scan gate (U20, U52), and so does a --scan without a v1 token: P1 step 7 counts v1.rules too. Its
-thread time is kept out of run_ms, which measures RealShort.
+hit fails the pan_scan gate (U20, U52), and so does a --scan without a v1 token: P1 step 7 counts v1.rules too. In the
+same thread every v2 page (rs_series_day included) and the manifest go through the strict models the mirror writes
+from (contracts.parse_page, contracts.parse_manifest): a failure never stops the pull, and the contract gate reports,
+per resource, how many pages failed and the first failing field path, never a value. Its thread time is kept out of
+run_ms, which measures RealShort.
+
+P1-6 (2026-09-24) set the gates as they are: page_time over the row pages only, the manifest under its own
+manifest_time, and a null sourceRevision a gate (source_revision) rather than a line to read.
 """
 
 import argparse
@@ -28,7 +34,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import NoReturn, TextIO
 
-from ggwork_pick.mirror import pan
+from ggwork_pick.mirror import contracts, pan
 from ggwork_pick.mirror.client import COUNTED_RESOURCES, MAX_LIMITS, ROW_RESOURCES, SERIES_RESOURCE, FeedClient, Manifest, Page, PageMetrics
 from ggwork_pick.mirror.errors import AsOfExpiredError, BusyTimeout, ConfigError, DriftError, FeedError
 from ggwork_pick.mirror.feed_shape import SERIES_DAY_SPAN
@@ -36,10 +42,17 @@ from ggwork_pick.mirror.feed_shape import SERIES_DAY_SPAN
 PROG = "python -m ggwork_pick.mirror.client"
 EXPORT_TOKEN_ENV = "PICK_REALSHORT_EXPORT_TOKEN"
 FEED_TOKEN_ENV = "PICK_REALSHORT_FEED_TOKEN"
-# Gates of plan 1490-1496: every page under 15 seconds and 3,000,000 bytes, the whole pull under 3 minutes.
+# Gates of plan 1490-1496: every row page under 15 seconds, every page under 3,000,000 bytes, the whole pull under 3
+# minutes. The manifest's time has a gate of its own: P1-6 measured 22.7-25.5 s for its thirteen queries at once
+# (rs:src/lib/pick/export-v2.ts:455-469), and the user took that with a 45-second gate (2026-09-24).
 PAGE_MS_LIMIT = 15_000
+MANIFEST_MS_LIMIT = 45_000
 PAGE_BYTES_LIMIT = 3_000_000
 RUN_MS_LIMIT = 180_000
+SOURCE_REVISION_NULL = (
+    "manifest 的 sourceRevision 为 null：这个 RealShort 部署没有 VERCEL_GIT_COMMIT_SHA（rs:src/lib/pick/export-v2.ts:77），fingerprint 里也就没有构建版本"
+)
+WHOLE_RECORD = "整条记录"  # a contract failure at a page's or a row's top level, as PageContractError words it
 # A hit on one of these meta.scrub fields means RealShort's scrub rewrote drama names or descriptions: merging
 # realshort#67 would ship that (critique 1.2; the brief's P2-2a and P1 step 5). meta.scrub keys are "<resource>.<column>"
 # (toExportRow's hits); "*" stands for any one row resource, nothing deeper.
@@ -258,14 +271,50 @@ class Tally:
 
 
 @dataclass(frozen=True)
+class Found:
+    """One page's pass in the worker thread: pan hits by path; for a v2 page or the manifest, the resource held to the
+    strict contract and its first failing field path (None when it passed). v1 pages are not held to it."""
+
+    hits: Mapping[str, int]
+    checked: str | None = None
+    miss: str | None = None
+
+
+@dataclass(frozen=True)
+class Miss:
+    """A resource's pages that failed the strict contract: how many, and the first one's field path (never a value)."""
+
+    failures: int
+    first_path: str
+
+    def as_dict(self) -> dict:
+        return {"failures": self.failures, "first_path": self.first_path}
+
+
+@dataclass(frozen=True)
 class Scan:
-    """--scan's hits by path (never a value) and the thread time they took, which run_ms leaves out."""
+    """--scan's hits by path (never a value), its contract checks, and the thread time they took, which run_ms leaves out."""
 
     hits: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
     elapsed_ms: float = 0.0
+    checked: int = 0
+    misses: Mapping[str, Miss] = field(default_factory=lambda: MappingProxyType({}))
 
-    def add(self, hits: Mapping[str, int], elapsed_ms: float) -> "Scan":
-        return Scan(MappingProxyType(pan.add_hits(dict(self.hits), dict(hits))), round(self.elapsed_ms + elapsed_ms, 1))
+    def add(self, found: Found, elapsed_ms: float) -> "Scan":
+        return Scan(
+            hits=MappingProxyType(pan.add_hits(dict(self.hits), dict(found.hits))),
+            elapsed_ms=round(self.elapsed_ms + elapsed_ms, 1),
+            checked=self.checked + (found.checked is not None),
+            misses=_with_miss(self.misses, found),
+        )
+
+
+def _with_miss(misses: Mapping[str, Miss], found: Found) -> Mapping[str, Miss]:
+    if found.checked is None or found.miss is None:
+        return misses
+    before = misses.get(found.checked)
+    miss = Miss(1, found.miss) if before is None else Miss(before.failures + 1, before.first_path)
+    return MappingProxyType({**misses, found.checked: miss})
 
 
 @dataclass(frozen=True)
@@ -334,13 +383,36 @@ def scan_page(key: Key, body: Mapping) -> dict[str, int]:
     return pan.scan_v1_page(body) if key[0] == "v1" else pan.scan_v2_page(key[0], body)
 
 
+def contract_miss(check: Callable[[], object]) -> str | None:
+    """The first failing field path of a strict-contract parse, None when it passes; a PageContractError names no value."""
+    try:
+        check()
+    except contracts.PageContractError as exc:
+        return exc.path or WHOLE_RECORD
+    return None
+
+
+def inspect_page(key: Key, body: Mapping) -> Found:
+    """One page for --scan, in the worker thread: its pan hits and, for a v2 page, the strict row models."""
+    if key[0] == "v1":
+        return Found(scan_page(key, body))
+    resource = key[0]
+    return Found(scan_page(key, body), resource, contract_miss(lambda: contracts.parse_page(resource, body)))
+
+
+def inspect_manifest(manifest: Manifest) -> Found:
+    """manifest.meta's pan hits and the manifest held to the strict contract once more (the client did it already, so a
+    failure there has ended the pull with a ContractError before this runs)."""
+    return Found(pan.scan_manifest_meta(manifest.meta), contracts.MANIFEST, contract_miss(lambda: contracts.parse_manifest(dict(manifest.row))))
+
+
 async def _scanned(scan: Scan | None, timer, function, *args) -> Scan | None:
     """scan plus what function(*args) finds, run in a worker thread (0.3); None when --scan is off."""
     if scan is None:
         return None
     started = timer()
-    hits = await asyncio.to_thread(function, *args)
-    return scan.add(hits, (timer() - started) * 1000)
+    found = await asyncio.to_thread(function, *args)
+    return scan.add(found, (timer() - started) * 1000)
 
 
 async def pull_once(client: FeedClient, options: Options, timer) -> tuple[int, Pull | FeedError]:
@@ -354,11 +426,11 @@ async def pull_once(client: FeedClient, options: Options, timer) -> tuple[int, P
         return exc.waited, exc
     except FeedError as exc:
         return 0, exc
-    tally, scan = Tally(), await _scanned(Scan() if options.scan else None, timer, pan.scan_manifest_meta, manifest.meta)
+    tally, scan = Tally(), await _scanned(Scan() if options.scan else None, timer, inspect_manifest, manifest)
     try:
         async for key, page in walk(client, manifest, options):
             tally = tally.add(key, page)
-            scan = await _scanned(scan, timer, scan_page, key, page.body)
+            scan = await _scanned(scan, timer, inspect_page, key, page.body)
     except FeedError as exc:
         return sum(manifest.busy_sleeps), exc
     # From the moment the successful manifest request went out: busy waits before it are not the pull's time, nor --scan's.
@@ -415,28 +487,40 @@ def _title_hits(scrub: Mapping[str, int]) -> dict[str, int]:
 
 
 def evaluate_gates(pull: Pull, resources: Mapping[str, dict], series: Mapping[str, dict], *, v1_enabled: bool) -> dict:
-    """Plan 1490-1496 on the v2 pages and the manifest; v1 is reported, not gated (it is not the new endpoint), except
-    that pan_scan needs v1 read: P1 step 7 wants every path at 0, v1.rules included."""
-    manifest = pull.manifest.metrics
-    measured = [("manifest", manifest.elapsed_ms, manifest.bytes)]
-    measured = [*measured, *((_label(key), s.max_elapsed_ms, s.max_bytes) for key, s in pull.tally.stats.items() if key[0] != "v1")]
-    slowest, largest = max(measured, key=lambda item: item[1]), max(measured, key=lambda item: item[2])
+    """Plan 1490-1496 on the v2 pages and the manifest, with P1-6's changes (a manifest_time gate of its own, a null
+    sourceRevision failing); v1 is reported, not gated (it is not the new endpoint), except that pan_scan needs v1 read:
+    P1 step 7 wants every path at 0, v1.rules included."""
     mismatched = [name for name, s in resources.items() if not s["rows_match"]]
     mismatched = [*mismatched, *(f"{SERIES_RESOURCE}@{day}" for day, s in series.items() if not s["rows_match"])]
     hits = _title_hits(pull.manifest.meta["scrub"])
     return {
-        "page_time": {"ok": slowest[1] < PAGE_MS_LIMIT, "limit_ms": PAGE_MS_LIMIT, "worst_ms": slowest[1], "worst": slowest[0]},
-        "page_bytes": {"ok": largest[2] < PAGE_BYTES_LIMIT, "limit_bytes": PAGE_BYTES_LIMIT, "worst_bytes": largest[2], "worst": largest[0]},
-        "run_time": {"ok": pull.run_ms < RUN_MS_LIMIT, "limit_ms": RUN_MS_LIMIT, "run_ms": pull.run_ms},
+        **_time_and_size_gates(pull),
         "row_counts": {"ok": not mismatched, "mismatched": mismatched},
         "title_scrub": {"ok": not hits, "hits": hits, **({"blocks": BLOCKS_67} if hits else {})},
-        **({"pan_scan": _scan_gate(pull.scan, v1_scanned=v1_enabled)} if pull.scan is not None else {}),
+        "source_revision": {"ok": True} if pull.manifest.source_revision is not None else {"ok": False, "reason": SOURCE_REVISION_NULL},
+        **(_scan_gates(pull.scan, v1_scanned=v1_enabled) if pull.scan is not None else {}),
     }
 
 
-def _scan_gate(scan: Scan, *, v1_scanned: bool) -> dict:
+def _time_and_size_gates(pull: Pull) -> dict:
+    """page_time over the row pages (v2 resources and rs_series_day), manifest_time apart; page_bytes over both."""
+    manifest = pull.manifest.metrics
+    rows = [(_label(key), s.max_elapsed_ms, s.max_bytes) for key, s in pull.tally.stats.items() if key[0] != "v1"]
+    slowest = max(rows, key=lambda item: item[1], default=(None, 0.0, 0))
+    largest = max([("manifest", manifest.elapsed_ms, manifest.bytes), *rows], key=lambda item: item[2])
+    return {
+        "page_time": {"ok": slowest[1] < PAGE_MS_LIMIT, "limit_ms": PAGE_MS_LIMIT, "worst_ms": slowest[1], "worst": slowest[0]},
+        "manifest_time": {"ok": manifest.elapsed_ms < MANIFEST_MS_LIMIT, "limit_ms": MANIFEST_MS_LIMIT, "elapsed_ms": manifest.elapsed_ms},
+        "page_bytes": {"ok": largest[2] < PAGE_BYTES_LIMIT, "limit_bytes": PAGE_BYTES_LIMIT, "worst_bytes": largest[2], "worst": largest[0]},
+        "run_time": {"ok": pull.run_ms < RUN_MS_LIMIT, "limit_ms": RUN_MS_LIMIT, "run_ms": pull.run_ms},
+    }
+
+
+def _scan_gates(scan: Scan, *, v1_scanned: bool) -> dict:
     gate = {"ok": not scan.hits and v1_scanned, "paths": len(scan.hits), "hits": sum(scan.hits.values())}
-    return gate if v1_scanned else {**gate, "unscanned": list(V1_SCAN_PATHS), "reason": V1_UNSCANNED}
+    pan_scan = gate if v1_scanned else {**gate, "unscanned": list(V1_SCAN_PATHS), "reason": V1_UNSCANNED}
+    failures = {resource: miss.as_dict() for resource, miss in sorted(scan.misses.items())}
+    return {"pan_scan": pan_scan, "contract": {"ok": not failures, "pages": scan.checked, "failures": failures}}
 
 
 def _scan_summary(scan: Scan | None) -> dict:

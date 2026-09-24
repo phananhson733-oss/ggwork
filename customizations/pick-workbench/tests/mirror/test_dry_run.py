@@ -84,12 +84,14 @@ def test_dry_run_prints_metrics_not_rows(capsys, files):
     assert {c.headers.get("x-vercel-protection-bypass") for c in fake.calls} == {BYPASS}
 
 
-def test_dry_run_reports_warning_codes_and_null_revision_only(capsys, files):
+def test_dry_run_reports_warning_codes_and_a_null_revision_fails_its_gate(capsys, files):
+    # Warnings and non-title scrub hits are reported only; a null sourceRevision is a gate since P1-6 (2026-09-24).
     warning = {"code": "catalog_import_incomplete", "source": "pick_catalog", "status": "failed", "attemptedAt": f"{ROW_SENTINEL}-when"}
     fake, clock = world(sha=None, warnings=[warning], scrub={"catalog_rows.reoff_note": 3, "rs_rows.tag_list[*]": 1})
     code, lines, text = run(capsys, fake, clock, files=files)
     _, summary = summary_of(lines)
-    assert code == 0 and summary["warnings"] == ["catalog_import_incomplete"] and summary["source_revision_null"] is True
+    assert code == 1 and summary["failed_gates"] == ["source_revision"]
+    assert summary["warnings"] == ["catalog_import_incomplete"] and summary["source_revision_null"] is True
     assert summary["scrub"] == {"catalog_rows.reoff_note": 3, "rs_rows.tag_list[*]": 1} and summary["gates"]["title_scrub"]["ok"] is True
     assert ROW_SENTINEL not in text and "pick_catalog" not in text
 
@@ -350,13 +352,15 @@ def _patch_manifest(fake, change):
     fake._manifest = patched
 
 
-def test_slow_manifest_fails_the_page_time_gate(capsys, files):
-    # The manifest runs thirteen queries at once (rs:src/lib/pick/export-v2.ts:455-469): the page most likely to be slow.
+def test_a_slow_manifest_is_judged_by_manifest_time_not_page_time(capsys, files):
+    # The manifest runs thirteen queries at once (rs:src/lib/pick/export-v2.ts:455-469): P1-6 measured 22-25 s, and the
+    # user gave it its own 45-second gate; 15 s, a row page's limit, passes (test_mirror_dry_run_gates.py has the rest).
     fake, clock = world()
     _patch_manifest(fake, lambda page: (clock.advance(15), page)[1])
     code, lines, _ = run(capsys, fake, clock, files=files)
-    gate = lines[-1]["gates"]["page_time"]
-    assert code == 1 and gate == {"ok": False, "limit_ms": 15000, "worst_ms": 15000.0, "worst": "manifest"}
+    gates = lines[-1]["gates"]
+    assert code == 0 and gates["page_time"]["ok"] is True and gates["page_time"]["worst"] != "manifest"
+    assert gates["manifest_time"] == {"ok": True, "limit_ms": 45000, "elapsed_ms": 15000.0}
     assert lines[-1]["manifest"]["elapsed_ms"] == 15000.0
 
 

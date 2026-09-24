@@ -57,6 +57,33 @@ def _full_run_summary(tmp_path, *, v1: bool = True) -> dict:
     return json.loads(out.getvalue().splitlines()[-1])
 
 
+def _failing_gates(tmp_path) -> dict:
+    """The gates of a --scan run whose manifest has no sourceRevision and whose rs_rows pages break the row contract:
+    the keys only a failing source_revision or contract gate carries."""
+    folder = tmp_path / "secrets-failing"
+    folder.mkdir()
+    (folder / "export").write_text(EXPORT_TOKEN)
+    clock = Clock()
+    fake = FakeRealShort(now=clock, sha=None)
+    original = fake._rows
+
+    def broken(name, params, as_of):
+        status, headers, body = original(name, params, as_of)
+        page = json.loads(body)
+        if name == "rs_rows":
+            page["rows"][0]["title"] = 1
+        return status, headers, json.dumps(page).encode()
+
+    fake._rows = broken
+    out = io.StringIO()
+    options = dry_run.parse_args(["--dry-run", "--base-url", "https://realshort.test", "--token-file", str(folder / "export"), "--scan"])
+    secrets = dry_run.load_secrets(options, {dry_run.FEED_TOKEN_ENV: FEED_TOKEN})
+    code = asyncio.run(dry_run.dry_run(options, secrets, transport=fake.transport(), clock=clock, sleep=clock.sleep, timer=clock.timer, out=out))
+    gates = json.loads(out.getvalue().splitlines()[-1])["gates"]
+    assert code == dry_run.EXIT_GATES and not gates["source_revision"]["ok"] and gates["contract"]["failures"]
+    return gates
+
+
 def _summary_keys(summary: dict) -> set[str]:
     nested = ("retries", "gates", "scan", "v1", "manifest")
     keys = set(summary) - {"summary"}
@@ -80,6 +107,8 @@ def _failure_keys() -> set[str]:
 def test_the_handbook_names_every_output_field(doc, tmp_path):
     output = _section(doc, "输出")
     keys = _page_line_keys() | _summary_keys(_full_run_summary(tmp_path)) | set(_full_run_summary(tmp_path, v1=False)["gates"]["pan_scan"])
+    failing = _failing_gates(tmp_path)
+    keys |= set(failing["source_revision"]) | {key for entry in failing["contract"]["failures"].values() for key in entry}
     missing = sorted(key for key in keys | _failure_keys() if f"`{key}`" not in output)
     assert not missing, f"输出一节没写到这些字段：{missing}"
 
@@ -91,7 +120,9 @@ def test_the_handbook_exit_codes_are_the_dry_runs(doc):
 
 def test_the_handbook_thresholds_and_title_fields_are_the_dry_runs(doc):
     thresholds = _section(doc, "门槛")
-    assert f"{dry_run.PAGE_MS_LIMIT // 1000} 秒" in thresholds
+    assert f"{dry_run.PAGE_MS_LIMIT // 1000} 秒" in thresholds and f"manifest 少于 {dry_run.MANIFEST_MS_LIMIT // 1000} 秒" in thresholds
+    gated = {row.split("`gates.")[1].split("`")[0] for row in thresholds.splitlines() if "`gates." in row and "退出码 1" in row}
+    assert {"page_time", "manifest_time", "page_bytes", "run_time", "row_counts", "title_scrub", "pan_scan", "contract", "source_revision"} <= gated
     assert f"{dry_run.PAGE_BYTES_LIMIT:,} 字节" in thresholds
     assert f"{dry_run.RUN_MS_LIMIT // 60_000} 分钟" in thresholds
     assert all(f"`{field}`" in thresholds for field in dry_run.TITLE_SCRUB_FIELDS)
