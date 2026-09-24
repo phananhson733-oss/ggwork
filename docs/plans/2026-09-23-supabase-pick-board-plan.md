@@ -752,7 +752,7 @@ v1 也要顺手修两处：
    - 先取进程内的 `sync_lock`；
    - 再用 `asyncpg.connect(PICK_DATABASE_URL, server_settings={"search_path": "deerflow"}, command_timeout=None)` 开一条**不属于任何连接池**的独立连接，在它上面取 `pg_try_advisory_lock(hashtext('ggwp:mirror-sync'))`，一直持有到结束。镜像的 DDL、COPY、建索引、ANALYZE、闸门扫描都在这条连接上执行，每条语句用 `timeout=` 显式给超时（COPY 每页 60 秒、ANALYZE 与闸门 120 秒）。
    - 结束时在 `finally` 里先 `pg_advisory_unlock`，再 `close()` 这条连接。不能把持锁的连接放回池里：会话级 advisory lock 不随事务结束释放，放回池后锁一直挂着，之后每次同步都返回 `already_running`。
-   - 拿不到锁就返回 `already_running`。如果最近一次 running 的运行记录已超过 30 分钟，状态里标 `lock_stuck`，并记下持锁连接的 pid（`pg_locks` 查得到），供操作员 `pg_terminate_backend`。
+   - 拿不到锁就返回 `already_running`。如果最近一次 running 的运行记录已超过 30 分钟，状态里标 `lock_stuck`，并记下持锁连接的 pid（`pg_locks` 查得到），供操作员 `pg_terminate_backend`。（实现按终版 U14 以 `lock_holder_since` 判断，阈值 80 分钟：2026-09-25 决定 F7。）
 2. **遗留清理、保留清理与容量检查。** 都在拿到锁之后做。
    - 先按 5.5 最后几行清理上次中断留下的 `building` 版本和本流程建的 `importing` 批次；
    - 再按保留规则清掉旧版本和旧批次（3.6），腾出空间；
@@ -1793,7 +1793,7 @@ export function getDb() {
 | 3 | Supabase + ggwork | P0-5 演练（只在临时项目） | 删除临时项目 |
 | 4 | ggwork | P0-6 切换：备份，本机建管理员，改 Railway 变量，部署，验证 | 6.10 |
 | 5 | RealShort | P1 的 PR 合并前：在生产库执行 `observe-source-pick-catalog.sql`。P1-6 实测：Preview 指向生产库时在合并前做，否则合并后在 Production 的测量窗口做（见 P1-6 第 1 步）。实测通过后用临时文件重定向写入正式的 `PICK_EXPORT_TOKEN`（Production）。未过门槛不进入第 6 步 | 回滚 PR（v2 没人调用；v1 的变化只增不改）。token 可以单独删除 |
-| 6 | ggwork | 前提：P1-6 已确认首个真实 manifest 的 title、title_cn、description 没有清洗命中。合并 P2，部署；在 Railway 设置 `PICK_REALSHORT_EXPORT_TOKEN`，确认后再设 `PICK_MIRROR_ENABLED=1`；手动同步一次；执行曲线回填（命令写法见 5.6） | 把 `PICK_MIRROR_ENABLED` 改成 0，回到 v1 流程；遗留的 schema 由下一次拿到锁的镜像同步清理，或经 `railway ssh` 手动执行一次 `cd /app/backend && DEER_FLOW_HOME=/data python -m ggwork_pick.mirror.admin cleanup`（写法与环境检查同 6.8 第 8 步） |
+| 6 | ggwork | 前提：P1-6 已确认首个真实 manifest 的 title、title_cn、description 没有清洗命中。合并 P2（托管副本一起刷新，`test_managed_copy` 不带 `-k` 通过），以开关关闭部署，按 [mirror-runbook.md](../pick-workbench/mirror-runbook.md) 第 2 节核验迁移到 0006；在 Railway 设置 `PICK_REALSHORT_EXPORT_TOKEN`，确认后再设 `PICK_MIRROR_ENABLED=1`；手动同步一次；避开两档定时执行曲线回填（命令写法见 5.6，时间窗见手册第 3 节） | 把 `PICK_MIRROR_ENABLED` 改成 0，回到 v1 流程；**必须**经 `railway ssh` 执行一次 `cd /app/backend && DEER_FLOW_HOME=/data python -m ggwork_pick.mirror.admin cleanup`（写法与环境检查同 6.8 第 8 步），并确认共享属主没有 importing 批次（手册第 5 节）：被强杀的镜像运行留下的暂存批次会挡住同内容的 v1 导入 |
 | 7 | ggwork frontend | 合并 P3；在 Vercel 写入 `PICK_MIRROR_READER_URL`、`PICK_MIRROR_CA_PEM`（Production）；在仓库根目录 `vercel deploy --prod` | Vercel 即时回滚到上一个部署；或者删掉 reader 变量，资料页只剩 imports |
 | 8 | ggwork | 先部署 P4-1 的前端，间隔一段时间（例如第二天或非工作时间）再部署后端，并通知大家刷新页面：先上前端只保护新加载的页面，之前打开的标签页在后端开始发 `mirror_version` 后会解析失败，直到刷新（P4-1）。然后上 P4-2 到 P4-4 | 字段都是可选的，按反序回滚即可 |
 
