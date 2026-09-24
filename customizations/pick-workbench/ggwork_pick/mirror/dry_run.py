@@ -270,8 +270,9 @@ async def walk(client: FeedClient, manifest: Manifest, options: Options) -> Asyn
 class Interruption:
     """A run that drift or an expired as_of ended: why, and on which feed (critique 1.3 wants the drift rate).
 
-    cause: drift_409 (source_changed), drift_busy_503 (source_busy after the manifest), drift_echo (a page answering
-    for another as_of, fingerprint or build), as_of_expired_400 (RealShort refused the as_of), as_of_expired_local.
+    cause: drift_409 (source_changed), drift_busy_503 (source_busy after the manifest), drift_echo (a v2 page echoing
+    another fingerprint, a v1 page another capturedAt, fingerprint or build), as_of_expired_400 (RealShort refused the
+    as_of), as_of_expired_local.
     """
 
     run: int

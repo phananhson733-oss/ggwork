@@ -1,9 +1,10 @@
 """The shape of RealShort's feed responses, feed v2 (`pick-export-v2`) and v1 (`pick-feed-v1`), checked page by page.
 
 Frozen at RealShort 816ca2e (rs = realshort-pick-export-v2). Only envelopes, the manifest and the cursor chain are
-checked here; the rows themselves are P2-2b's strict models. What RealShort echoes back (as_of, fp, and on v1 the
-manifest's fingerprint and build SHA) differing is drift; anything else out of shape is a contract error.
-Error messages name fields, never values.
+checked here; the rows themselves are P2-2b's strict models. Drift is an echo that says the source moved: a v2 page with
+another fingerprint, a v1 page with another capturedAt, fingerprint or sourceRevision (plan 1520, 1523). A v2 page echoing
+another resource or asOf answers a request that was never sent: a contract error, like anything else out of shape
+(the brief's P2-2a page checks). Error messages name fields, never values.
 """
 
 import re
@@ -182,7 +183,7 @@ def require_keys(value: object, expected: frozenset[str], where: str) -> dict:
 
 
 def check_v2_page(body: object, *, resource: str, as_of_text: str, fp: str | None) -> dict:
-    """Envelope of any v2 page (rs:src/lib/pick/export-v2.ts:516, :534-538): resource is contract, asOf and fp are drift."""
+    """Envelope of any v2 page (rs:src/lib/pick/export-v2.ts:516, :534-538): resource and asOf are contract, fp is drift."""
     label = f"RealShort feed v2 {resource}"
     if not isinstance(body, dict) or body.get("ok") is not True or body.get("version") != EXPORT_VERSION:
         raise ContractError(f"{label} 的版本或格式不符", resource=resource)
@@ -190,7 +191,7 @@ def check_v2_page(body: object, *, resource: str, as_of_text: str, fp: str | Non
     if body["resource"] != resource:
         raise ContractError(f"{label} 回显的 resource 不是 {resource}", resource=resource)
     if body["asOf"] != as_of_text:
-        raise DriftError(f"{label} 回显的 asOf 与请求的 as_of 不同", resource=resource)
+        raise ContractError(f"{label} 回显的 asOf 与请求的 as_of 不同", resource=resource)
     if fp is not None and body["fingerprint"] != fp:
         raise DriftError(f"{label} 回显的 fingerprint 与 manifest 不同", resource=resource)
     if not isinstance(body["rows"], list) or not all(isinstance(row, dict) for row in body["rows"]):

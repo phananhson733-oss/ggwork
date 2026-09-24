@@ -9,7 +9,7 @@ import re
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
-from fake_realshort import BYPASS, EXPORT_TOKEN, FEED_TOKEN, ROW_SENTINEL, busy, v1_error, v2_error
+from fake_realshort import BYPASS, EXPORT_TOKEN, FEED_TOKEN, ROW_SENTINEL, busy, make_rows, v1_error, v2_error
 from mirror_harness import collect, make_client, only, world
 
 from ggwork_pick.mirror.client import COUNTED_RESOURCES, format_as_of, select_as_of
@@ -368,6 +368,30 @@ async def test_page_cap_is_manifest_rows_plus_one():
 
 
 @pytest.mark.asyncio
+async def test_a_chain_of_exactly_rows_plus_one_pages_is_accepted():
+    # The cap is counts + 1 pages, not ceil(counts / limit) + 2: the (counts + 1)th page still passes when it ends the chain.
+    fake, clock = world(sizes={"rs_ids": 3}, page_rows={"rs_ids": 1})
+    fake.counts = {**{name: len(rows) for name, rows in fake.data.items()}, "rs_ids": 2}
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+        pages = await collect(client.pages("rs_ids", manifest=manifest, limit=2000))
+    assert [p.metrics.rows for p in pages] == [1, 1, 1] and pages[-1].body["nextCursor"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_series_day_chain_is_capped_at_its_snapshot_rows_plus_one():
+    fake, clock = world(series={"2026-09-23": 1}, page_rows={"rs_series_day": 1})
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+        # More rows behind the day than the manifest promised (the double does not tie them to the fingerprint).
+        fake.series["2026-09-23"] = make_rows("rs_series_day", 5)
+        with pytest.raises(ContractError) as caught:
+            await collect(client.pages("rs_series_day", manifest=manifest, day="2026-09-23"))
+    # snapshotDays promised 1 row: 2 pages are allowed, the second one's cursor ends it.
+    assert len(only(fake.calls, "rs_series_day")) == 2 and "2" in str(caught.value)
+
+
+@pytest.mark.asyncio
 async def test_empty_page_with_a_cursor_is_a_contract_error():
     fake, clock = world(sizes={"rs_ids": 3}, page_rows={"rs_ids": 1})
     _rewrite_rows_page(fake, "rs_ids", lambda page, params: {**page, "rows": []})
@@ -392,7 +416,8 @@ async def test_more_rows_than_limit_is_a_contract_error():
     ("change", "error"),
     [
         (lambda page, params: {**page, "fingerprint": "e" * 64}, DriftError),
-        (lambda page, params: {**page, "asOf": "2026-09-23T12:31:00.000Z"}, DriftError),
+        # The brief's P2-2a v2 page check: only the fingerprint is drift; another resource or asOf is a contract error.
+        (lambda page, params: {**page, "asOf": "2026-09-23T12:31:00.000Z"}, ContractError),
         (lambda page, params: {**page, "resource": "rs_rows"}, ContractError),
         (lambda page, params: {**page, "version": "pick-export-v3"}, ContractError),
         (lambda page, params: {**page, "rows": {"a": 1}}, ContractError),
@@ -407,9 +432,11 @@ async def test_v2_page_echo_is_checked_on_every_page(change, error):
     _rewrite_rows_page(fake, "rs_ids", lambda page, params: change(page, params) if len(fake.calls) == 4 else page)
     async with make_client(fake, clock) as client:
         manifest = await client.manifest_when_free()
-        with pytest.raises(error):
+        with pytest.raises(error) as caught:
             await collect(client.pages("rs_ids", manifest=manifest))
     assert len(only(fake.calls, "rs_ids")) == 3
+    # A contract error is never drift: the dry-run and the mirror run start over only on drift.
+    assert isinstance(caught.value, DriftError) == (error is DriftError)
 
 
 @pytest.mark.asyncio
@@ -535,12 +562,14 @@ async def test_snapshot_days_outside_the_series_window_are_a_contract_error(day)
 
 
 @pytest.mark.asyncio
-async def test_manifest_as_of_echo_mismatch_is_drift():
+async def test_manifest_as_of_echo_mismatch_is_a_contract_error():
+    # The manifest page is a v2 page too: echoing another asOf answers a request that was not sent, not drift.
     fake, clock = world()
     _rewrite_manifest(fake, lambda body: {**body, "asOf": "2026-09-23T12:30:00.000Z"})
     async with make_client(fake, clock) as client:
-        with pytest.raises(DriftError):
+        with pytest.raises(ContractError) as caught:
             await client.manifest_when_free()
+    assert not isinstance(caught.value, DriftError) and len(only(fake.calls, "manifest")) == 1
 
 
 @pytest.mark.asyncio
