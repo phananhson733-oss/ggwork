@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { cache } from "react";
 
 import { isStaticWebsiteOnly } from "../static-mode";
 
@@ -99,3 +100,10 @@ export async function getServerSideUser(): Promise<AuthResult> {
     return { tag: "gateway_unavailable" };
   }
 }
+
+/**
+ * getServerSideUser deduplicated per server render: the workspace layout and
+ * a page that checks its own visitor (the pick data board) share one
+ * /auth/me round trip per request.
+ */
+export const getServerSideUserCached = cache(getServerSideUser);
