@@ -14,8 +14,9 @@ Two writers read, modify and write back the arrays, so both hold the mirror lock
   lands in details_json.series: the published version never depends on the curve.
 - backfill_series, `python -m ggwork_pick.mirror.series --backfill N` (main below): every day in snapshotDays from the
   first as_of day - N on, one transaction a day, so a run that is cut off resumes at the next day. as_of is chosen again
-  when it is 25 minutes old, on 400 reason=as_of and on 409 (U30; RealShort judges each request against its own now,
-  rs:src/lib/pick/export-v2-page.ts:27-35).
+  when it is 25 minutes old, on 400 reason=as_of and on 409, a page's or the manifest's (U30; RealShort judges each
+  request against its own now, rs:src/lib/pick/export-v2-page.ts:27-35); a fourth new as_of in a row with no day merged
+  ends the run.
 
 A day is fetched page by page into a session temp table, every statement committing on its own (no transaction spans an
 HTTP request: deerflow_app's idle_in_transaction_session_timeout is 5 minutes, bootstrap.sql:42), and is merged only when
@@ -58,7 +59,7 @@ FOLD_DEADLINE = timedelta(minutes=27)  # U38: no new day is fetched after as_of 
 SERIES_DAYS = 90  # rs:src/lib/observe/metrics.ts:28: a version's window starts at its as_of day - 90
 MIN_KEPT_DAYS = 92  # plan 3.2: the cutoff is never later than through - 92, so 93 days are kept
 BACKFILL_AS_OF_RENEW = AS_OF_MAX_AGE  # 25 minutes, 5 short of RealShort's 30
-BACKFILL_MAX_RESTARTS = 3  # 400 as_of or 409 on the same day: a fourth one ends the run
+BACKFILL_MAX_RESTARTS = 3  # a fourth new as_of in a row with no day merged (400 as_of, 409, 25 minutes) ends the run
 DRIFT_BACKOFF_SECONDS = 90  # plan 5.2 step 3: RealShort is mid-deploy or a source is writing
 MAX_LOOKBACK_DAYS = 366
 STATEMENT_TIMEOUT = 60.0
@@ -386,11 +387,12 @@ async def backfill_series(
     """Every day of snapshotDays after through, from the first as_of day - lookback_days on, one transaction a day.
 
     conn must hold the mirror lock. report(day, rows, seconds) is called after each merged day. A day whose rows do not
-    match, a busy timeout or any other failure raises; the days merged before it stay, so a second run goes on from there.
+    match, a fourth new as_of in a row with no day merged, a busy timeout or any other failure raises; the days merged
+    before it stay, so a second run goes on from there.
     """
     if not await holds_mirror_lock(conn, now=clock()):
         raise RuntimeError("本连接没有持有镜像锁，不回填曲线")
-    manifest = await client.manifest_when_free()
+    manifest, _ = await _new_manifest(client, sleep=sleep)
     start = manifest.as_of.astimezone(UTC).date() - timedelta(days=lookback_days)
     await _create_temp(conn)
     try:
@@ -407,35 +409,54 @@ def _backfill_todo(manifest: Manifest, through: date | None, start: date) -> tup
 async def _backfill_days(conn, *, client: FeedClient, manifest: Manifest, start: date, clock, sleep, report: Report | None) -> BackfillOutcome:
     state = await read_state(conn)
     outcome = BackfillOutcome(through=_text(state.through), trimmed_before=_text(state.trimmed_before))
-    failures = 0
+    stalls = 0  # new as_of chosen since the last merged day
     while todo := _backfill_todo(manifest, state.through, start):
-        if clock() - manifest.as_of >= BACKFILL_AS_OF_RENEW:
-            manifest, outcome = await client.manifest_when_free(), replace(outcome, renewals=outcome.renewals + 1)
-            continue
         day, began = todo[0], clock()
-        try:
-            rows = await _stage_day(conn, client, manifest, day)
-        except (AsOfExpiredError, DriftError) as exc:
-            failures = await _after_restartable(conn, day, exc, failures=failures, sleep=sleep)
-            manifest, outcome = await client.manifest_when_free(), replace(outcome, renewals=outcome.renewals + 1)
+        staged = await _attempt(conn, client, manifest, day, now=began)
+        if isinstance(staged, FeedError):
+            manifest, stalls = await _new_manifest(client, sleep=sleep, cause=staged, stalls=_stall(stalls, staged))
+            outcome = replace(outcome, renewals=outcome.renewals + 1)
             continue
         previous, state = state.through, await _merge(conn, days=[date.fromisoformat(day)], now=clock())
         await conn.execute(_EMPTY_TEMP, timeout=STATEMENT_TIMEOUT)
-        failures, outcome = 0, _merged(outcome, day, rows, previous=previous, state=state)
+        stalls, outcome = 0, _merged(outcome, day, staged, previous=previous, state=state)
         if report is not None:
-            report(day, rows, (clock() - began).total_seconds())
+            report(day, staged, (clock() - began).total_seconds())
     return outcome
 
 
-async def _after_restartable(conn, day: str, exc: FeedError, *, failures: int, sleep) -> int:
-    """as_of left RealShort's window or the source moved: forget the day's rows and start it again with a new as_of."""
-    await conn.execute(_FORGET_DAY, date.fromisoformat(day), timeout=STATEMENT_TIMEOUT)
-    if failures + 1 > BACKFILL_MAX_RESTARTS:
-        raise exc
-    logger.warning("[pick-mirror] backfill day %s starts again with a new as_of: %s", day, type(exc).__name__)
-    if isinstance(exc, DriftError):
-        await sleep(DRIFT_BACKOFF_SECONDS)
-    return failures + 1
+async def _attempt(conn, client: FeedClient, manifest: Manifest, day: str, *, now: datetime) -> int | FeedError:
+    """The day staged and counted (its rows), or why it needs a new as_of first: as_of is 25 minutes old, or a request got
+    400 as_of or 409. The rows of an attempt cut short are forgotten, so the day's next attempt cannot double them."""
+    if now - manifest.as_of >= BACKFILL_AS_OF_RENEW:
+        minutes = BACKFILL_AS_OF_RENEW.total_seconds() / 60
+        return AsOfExpiredError(f"{day} 没有开拉：as_of 选定后已满 {minutes:g} 分钟（换了 as_of 仍如此，说明回填与拉取的时钟不一致）", resource=SERIES_RESOURCE)
+    try:
+        return await _stage_day(conn, client, manifest, day)
+    except (AsOfExpiredError, DriftError) as exc:
+        await conn.execute(_FORGET_DAY, date.fromisoformat(day), timeout=STATEMENT_TIMEOUT)
+        return exc
+
+
+def _stall(stalls: int, cause: FeedError) -> int:
+    """One more new as_of with no day merged since the last; a fourth in a row raises its cause, and the run ends."""
+    if stalls + 1 > BACKFILL_MAX_RESTARTS:
+        raise cause
+    logger.warning("[pick-mirror] the backfill chooses a new as_of: %s", type(cause).__name__)
+    return stalls + 1
+
+
+async def _new_manifest(client: FeedClient, *, sleep, cause: FeedError | None = None, stalls: int = 0) -> tuple[Manifest, int]:
+    """A new as_of and its manifest; the client waits out busy. Drift first waits 90 seconds (plan 5.2 step 3), and a 409
+    on the manifest itself, a write landing while RealShort reads it (rs:src/lib/pick/export-v2.ts:497-504), is drift
+    too: it counts as one more new as_of."""
+    while True:
+        if isinstance(cause, DriftError):
+            await sleep(DRIFT_BACKOFF_SECONDS)
+        try:
+            return await client.manifest_when_free(), stalls
+        except DriftError as exc:
+            cause, stalls = exc, _stall(stalls, exc)
 
 
 def _merged(outcome: BackfillOutcome, day: str, rows: int, *, previous: date | None, state: SeriesState) -> BackfillOutcome:

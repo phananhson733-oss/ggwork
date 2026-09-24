@@ -182,6 +182,103 @@ async def test_a_409_on_the_second_page_of_a_day_starts_that_day_again_without_d
         await close_world(world)
 
 
+@pytest.mark.parametrize("refused", [pytest.param(1, id="first-manifest"), pytest.param(2, id="renewed-manifest")])
+@pytest.mark.asyncio
+async def test_a_409_on_the_manifest_is_drift_too(dsn, refused):
+    """RealShort answers the manifest itself with 409 when a write lands while it reads (rs:src/lib/pick/export-v2.ts:497-504)."""
+
+    def drift(call):
+        return v2_error(409, "source_changed") if call.resource == "manifest" and call.n == refused else None
+
+    world = await open_world(dsn, intercept=drift, holder="backfill")
+    try:
+        series = snapshots(span(ago(2), D), two)
+        world.serve(series)
+
+        def report(day, rows, seconds):
+            if day == text(ago(2)) and refused == 2:
+                world.clock.advance((AS_OF + timedelta(minutes=25) - world.clock()).total_seconds())
+
+        outcome = await backfill(world, report=report)
+        assert len(manifests(world)) == refused + 1 and world.clock.sleeps == [90]
+        assert outcome.renewals == refused - 1 and outcome.merged == tuple(series)
+        assert await points(world.conn) == as_points(series) and (await state(world.conn))[0] == D
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
+async def test_a_manifest_that_keeps_drifting_ends_the_backfill(dsn):
+    from ggwork_pick.mirror.errors import DriftError
+    from ggwork_pick.mirror.series import BACKFILL_MAX_RESTARTS
+
+    def drifting(call):
+        if call.resource != "manifest":
+            return None
+        # A 401 on the 20th manifest ends what would otherwise never end (the double never suspends).
+        return v2_error(401, "unauthorized") if call.n >= 20 else v2_error(409, "source_changed")
+
+    world = await open_world(dsn, intercept=drifting, holder="backfill")
+    try:
+        world.serve(snapshots(span(ago(1), D), one))
+        with pytest.raises(DriftError):
+            await backfill(world)
+        assert len(manifests(world)) == BACKFILL_MAX_RESTARTS + 1 and world.clock.sleeps == [90] * BACKFILL_MAX_RESTARTS
+        assert world.series_calls() == [] and await state(world.conn) == (None, None)
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
+async def test_restarts_are_counted_since_the_last_merged_day_not_for_the_whole_run(dsn):
+    from ggwork_pick.mirror.series import BACKFILL_MAX_RESTARTS
+
+    refused: set[str] = set()
+
+    def once_a_day(call):
+        day = call.params.get("day")
+        if call.resource != "rs_series_day" or day in refused:
+            return None
+        refused.add(day)
+        return v2_error(409, "source_changed")
+
+    world = await open_world(dsn, intercept=once_a_day, holder="backfill")
+    try:
+        series = snapshots(span(ago(BACKFILL_MAX_RESTARTS + 1), D), one)
+        world.serve(series)
+        outcome = await backfill(world)
+        # Every day drifts once: more new as_of in all than the limit, never more than one before a merge.
+        assert outcome.renewals == len(series) > BACKFILL_MAX_RESTARTS
+        assert outcome.merged == tuple(series) and await points(world.conn) == as_points(series)
+    finally:
+        await close_world(world)
+
+
+@pytest.mark.asyncio
+async def test_a_backfill_clock_ahead_of_the_feed_clock_gives_up_rather_than_renewing_for_ever(dsn):
+    from ggwork_pick.mirror.errors import AsOfExpiredError
+    from ggwork_pick.mirror.series import BACKFILL_MAX_RESTARTS, backfill_series
+
+    def stop_a_loop(call):
+        # The double never suspends, so no timeout could end an endless loop: a 401 on the 20th manifest does.
+        return v2_error(401, "unauthorized") if call.resource == "manifest" and call.n >= 20 else None
+
+    world = await open_world(dsn, intercept=stop_a_loop, holder="backfill")
+    try:
+        world.serve(snapshots(span(ago(1), D), one))
+
+        def ahead() -> datetime:
+            """Every as_of the client picks looks 30 minutes old by this clock: no day could ever start."""
+            return world.clock() + timedelta(minutes=30)
+
+        with pytest.raises(AsOfExpiredError):
+            await backfill_series(world.conn, client=world.client, lookback_days=90, clock=ahead, sleep=world.clock.sleep)
+        assert len(manifests(world)) == BACKFILL_MAX_RESTARTS + 1 and world.series_calls() == []
+        assert await points(world.conn) == set() and await state(world.conn) == (None, None)
+    finally:
+        await close_world(world)
+
+
 @pytest.mark.asyncio
 async def test_backfill_refuses_a_connection_without_the_mirror_lock(dsn):
     world = await open_world(dsn, holder=None)
