@@ -284,18 +284,44 @@ async def test_permission_error_in_cleanup_is_recorded_and_the_run_goes_on(harne
 
 
 @pytest.mark.asyncio
-async def test_other_cleanup_errors_fail_the_run(harness, monkeypatch):
+async def test_other_cleanup_errors_are_recorded_and_the_run_goes_on(harness, monkeypatch):
+    """F6 (the owner's call): an unexpected error in the cleanup before publishing is recorded as its step and class, the
+    run goes on and it is not counted, as retention after publishing already does."""
     from ggwork_pick.mirror import run
 
     async def broken(conn, **options):
-        raise RuntimeError("boom")
+        raise RuntimeError("boom with a value")
 
     monkeypatch.setattr(run, "clean_leftover_versions", broken)
-    with pytest.raises(RuntimeError):
-        await _run(harness)
-    [record] = await sync_runs(harness)
-    assert record["status"] == "failed" and record["error"] == "同步内部错误：RuntimeError"
+    result, _ = await _run(harness)
+    details = result["details_json"]
+    assert (result["status"], details["outcome"], details["consecutive_failures"]) == ("success", "paired", 0)
+    assert details["cleanup"] == {"error": "cleanup：RuntimeError"}
+    assert isinstance(details["retention"]["versions"], dict)
+    assert "boom" not in str(details)
     assert await advisory_locks(harness.engine) == 0
+
+
+@pytest.mark.asyncio
+async def test_other_retention_errors_before_publishing_are_recorded_and_the_run_goes_on(harness, monkeypatch):
+    from ggwork_pick.mirror import run
+
+    real, calls = run.prune_versions, []
+
+    async def first_fails(conn, **options):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("boom with a value")
+        return await real(conn, **options)
+
+    monkeypatch.setattr(run, "prune_versions", first_fails)
+    result, _ = await _run(harness)
+    details = result["details_json"]
+    assert (result["status"], details["outcome"], details["consecutive_failures"]) == ("success", "paired", 0)
+    assert details["retention"] == {"error": "retention：RuntimeError"}
+    assert isinstance(details["retention_after"]["versions"], dict)
+    assert "boom" not in str(details)
+    assert (await control(harness.engine))["consecutive_failures"] == 0
 
 
 @pytest.mark.asyncio

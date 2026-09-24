@@ -3,7 +3,8 @@
 One run, under the process's sync_lock and the mirror lock on a dedicated connection (P2-0):
 1. the run record first, so a run that cannot take the lock is still seen (U15); the lock taken as "sync" or, held by the
    backfill or the cleanup command, the run fails with who holds it, not counted (U46);
-2. leftovers of a dead run cleaned (clean_leftovers), version and batch retention, the disk check, the size cap (U43);
+2. leftovers of a dead run cleaned (clean_leftovers), version and batch retention (an unexpected error in either is
+   recorded by step and class and the run goes on, F6), the disk check, the size cap (U43);
 3. the manifest, waiting out source_busy (a busy past 20 minutes fails, counted, U42; a 409 is drift; any other manifest
    failure falls back to v1 without as_of, counted, U16). The 20 minutes are each attempt's: the drift retry's manifest
    waits afresh (the brief's loop), so a run can outlast U14's 51-minute estimate only when a drift and a second busy
@@ -106,8 +107,8 @@ COPY_TIMEOUT = 60
 STATEMENT_TIMEOUT = 120
 DEFAULT_DB_SIZE_CAP = 6 * 2**30  # PICK_DB_SIZE_CAP_BYTES when unset (SyncSettings.db_size_cap)
 # A cleanup step refused for want of privilege (42501: an orphan schema another role owns, say, raised by asyncpg or
-# through the ORM; or a PermissionError on a blob) is recorded in details_json and the run goes on; anything else stops
-# the run.
+# through the ORM; or a PermissionError on a blob) is recorded in details_json and the next step still runs; anything
+# else ends that step (cleanup or retention), is recorded by class, and the run goes on (_going_on; F6).
 PERMISSION_SQLSTATES = frozenset({"42501"})
 BLOB_OUTCOMES = ("deleted", "missing", "refused", "outside")
 _DB_SIZE = "SELECT pg_database_size(current_database())"
@@ -232,6 +233,16 @@ def _delete_one(root: Path, path: Path) -> str:
     except PermissionError:
         return "refused"
     return "deleted"
+
+
+async def _going_on(step: str, step_done: Awaitable[dict]) -> dict:
+    """step_done's report, or {"error": "<step>：<class and SQLSTATE>"} when it raised: never the error's own text."""
+    try:
+        return await step_done
+    except Exception as exc:
+        text = f"{step}：{describe_db_error(exc)}"
+        logger.warning("[pick-mirror] %s before publishing failed; the run goes on", text, exc_info=True)
+        return {"error": text}
 
 
 def _failure_code(exc: BaseException) -> str:
@@ -360,11 +371,13 @@ class MirrorSync:
         return outcome.with_details(capacity=capacity)
 
     async def _prepare(self, conn, repo: PickRepository) -> tuple[dict, dict]:
-        """Plan 5.2 step 2 before anything is read: leftovers, then version and batch retention (details, stage times)."""
+        """Plan 5.2 step 2 before anything is read: leftovers, then version and batch retention (details, stage times).
+        Neither stops the run (F6, the owner's call): an unexpected error is recorded as {"error": "<step>：<class>"},
+        not counted, as retention after publishing does; a refusal for want of privilege is recorded inside each step."""
         begun = self._timer()
-        cleanup = await clean_leftovers(conn, repo, data_dir=self.service.data_dir, clock=self._clock)
+        cleanup = await _going_on("cleanup", clean_leftovers(conn, repo, data_dir=self.service.data_dir, clock=self._clock))
         cleaned = self._timer()
-        retention = await self._retain(conn, repo)
+        retention = await _going_on("retention", self._retain(conn, repo))
         return {"cleanup": cleanup, "retention": retention}, {"cleanup_ms": ms(cleaned - begun), "retention_ms": ms(self._timer() - cleaned)}
 
     async def _retain(self, conn, repo: PickRepository) -> dict:
