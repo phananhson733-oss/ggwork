@@ -236,12 +236,12 @@ function NoticePage({ children }: { children: ReactNode }) {
   );
 }
 
-/** 解析不出可读的版本：只有「同步与导入」能点，下面一条提示 */
-function mirrorlessPage(notice: MirrorNoticeKind, req: PickRequest) {
+/** 解析不出可读的版本：只有「同步与导入」能点，下面一条提示（「打开当前版本」同样不带 result） */
+function mirrorlessPage(notice: MirrorNoticeKind, req0: PickRequest) {
   return (
     <NoticePage>
       <ImportsOnlyTabs />
-      <MirrorNotice notice={notice} req={req} />
+      <MirrorNotice notice={notice} req={{ ...req0, result: "" }} />
     </NoticePage>
   );
 }

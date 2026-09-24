@@ -735,6 +735,19 @@ describe("when the mirror cannot answer", () => {
     expect(current.getAttribute("href")).toBe("/workspace/pick-data?tab=all");
   });
 
+  it("gone while resolving: the link to the current version drops v and result", async () => {
+    state.resolved = new errors.MirrorVersionGone("3F000");
+    const root = await renderPage({
+      tab: "pick",
+      v: "5",
+      result: "0123456789abcdef0123456789abcdef",
+    });
+    expect(screen.getByText(/该版本刚被清理/)).toBeTruthy();
+    const current = within(root).getByText("打开当前版本");
+    expect(current.getAttribute("href")).toBe("/workspace/pick-data");
+    expect(state.calls).not.toContain("setBoardScope");
+  });
+
   it("a grant missing on a table while reading a tab is a notice too", async () => {
     state.loaders.loadFacets = () => {
       throw new errors.MirrorMisconfigured("permission", "42501");
