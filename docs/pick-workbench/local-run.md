@@ -60,6 +60,49 @@ URL 用 libpq 格式、不带查询参数。每个会话先建一个迁移到 he
 
 `test_bootstrap_sql.py` 用 PATH 上的 `psql` 执行 `docs/pick-workbench/supabase/` 下的脚本（任意较新的 psql 客户端即可；没有时该文件的 PG 用例直接失败，不会跳过）。它以一个 `NOSUPERUSER CREATEROLE`、持有独立测试库的替身角色登录，模拟 Supabase 的 `postgres`，脚本里的角色名和库名都换成带随机后缀的名字，结束时删掉。
 
+### 选剧资料页 e2e（本机 QA 实例）
+
+`frontend/tests/e2e-pick/pick-data-board.spec.ts` 用真的 gateway、镜像库和生产构建打开 `/workspace/pick-data` 的每个 tab，并发 10 个交替 `v=` 的请求，确认每个请求读到自己的版本（单测替身抓不到的：版本作用域漏到某个嵌套组件、两个请求共用一个作用域）。只对 localhost；数据全是 `board_fixture.py` 造的合成数据。缺账号或缺 `PICK_BOARD_FIXTURE_JSON` 时整套 skip，**skip 不算通过**。
+
+前端生产路径要求 TLS 且带 CA（`NODE_ENV=test` 以外不接受明文），所以本机 PG 要开 SSL，用自签 CA。以下 `<scratch>` 是仓库外的一次性目录，证书、URL 文件、数据目录都放那里，用完删掉。
+
+```bash
+# 1. 自签 CA 与服务端证书（IP SAN 要和读连接的主机一致）
+d=<scratch>/pick-e2e && mkdir -p "$d/tls" && cd "$d/tls" && umask 077
+openssl req -x509 -newkey rsa:2048 -nodes -days 7 -subj "/CN=pick-e2e-ca" -keyout ca.key -out ca.pem
+openssl req -newkey rsa:2048 -nodes -subj "/CN=127.0.0.1" -keyout server.key -out server.csr
+printf 'subjectAltName=IP:127.0.0.1,DNS:localhost\n' > san.ext
+openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 7 -extfile san.ext -out server.crt
+
+# 2. 开 SSL 的 postgres:17（私钥在容器里拷一份并改属主，postgres 不接受别人的私钥）
+docker run --rm -d --name pick-e2e-pg -e POSTGRES_PASSWORD=<本机随机口令> -p 5434:5432 -v "$d/tls":/tls:ro \
+  --entrypoint sh postgres:17 -c 'install -o postgres -m 600 /tls/server.key /tmp/server.key && exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tls/server.crt -c ssl_key_file=/tmp/server.key'
+
+# 3. 建镜像版本；--data-dir 就是 gateway 的 pick 数据目录（DEER_FLOW_HOME/pick）
+cd <仓库根>/customizations/pick-workbench && umask 077
+PICK_TEST_PG_URL=postgresql://postgres:<本机随机口令>@127.0.0.1:5434/postgres \
+  ../../backend/.venv/bin/python tests/mirror/board_fixture.py up \
+  --url-file "$d/reader.url" --data-dir "$d/home/pick" > "$d/board.json"
+```
+
+`board.json` 只有库名、角色名、数据目录和版本号（dropped / v1 / v2 / building / failed），没有口令；读连接只在 `reader.url`（0600）里。
+
+4. **gateway**：按 `supabase.md` 切换第 3 步的方式在 `backend/` 起 `app.gateway.pick_entrypoint`，但 `DEER_FLOW_HOME=$d/home`，`PICK_DATABASE_URL` 指向 `board.json` 里那个库（superuser 即可，只在本机），`PGSSLMODE=require`，不设 feed token（不会触发同步）。它监听 8001。
+5. **QA 账号**：打开前端的 `/setup` 建管理员，再用 `create_user --email <qa 邮箱>` 建一个普通用户并完成首次改密；这对邮箱口令就是 `PICK_E2E_EMAIL` / `PICK_E2E_PASSWORD`。
+6. **前端**（`frontend/`）：`DEER_FLOW_INTERNAL_GATEWAY_BASE_URL=http://127.0.0.1:8001` 要在 build 时就在；镜像读连接只在 start 时给，用文件读进环境、不上命令行：
+
+```bash
+export DEER_FLOW_INTERNAL_GATEWAY_BASE_URL=http://127.0.0.1:8001
+pnpm build
+PICK_MIRROR_READER_URL="$(cat "$d/reader.url")" PICK_MIRROR_CA_PEM="$(cat "$d/tls/ca.pem")" pnpm start -p 3008
+# 另一个 shell
+read -rs PICK_E2E_PASSWORD && export PICK_E2E_PASSWORD
+PICK_E2E_EMAIL=<qa 邮箱> PICK_BOARD_FIXTURE_JSON="$d/board.json" \
+  pnpm exec playwright test -c playwright.pick.config.ts tests/e2e-pick/pick-data-board.spec.ts
+```
+
+输出里每个用例都要是 passed；出现 skipped 就是环境没给全。跑完：停前端和 gateway，`board_fixture.py down --database <board.json 的 database> --role <board.json 的 role>`（同样的 `PICK_TEST_PG_URL`），`docker stop pick-e2e-pg`，删掉整个 `$d`。
+
 ## 当前原生调试入口
 
 Docker基础镜像下载期间，已启动相同配置的原生Gateway（127.0.0.1:8007）和生产前端（localhost:3007）。浏览器可打开 `http://localhost:3007/setup` 设置个人管理员。首次凭据由用户在浏览器亲自设置。
