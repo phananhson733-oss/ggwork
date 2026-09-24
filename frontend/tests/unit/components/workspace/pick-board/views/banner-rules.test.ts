@@ -160,6 +160,24 @@ describe("bannersFor", () => {
     });
   });
 
+  it("no current batch yet is not a personal import", () => {
+    expect(bannersFor(input({ sync: sync({ current: null }) }))).toEqual([]);
+  });
+
+  it("a personal import still shows when the mirror status cannot be read", () => {
+    const current = {
+      id: "b-mine",
+      shared: false,
+      source_as_of: null,
+      published_at: null,
+    };
+    const mirror = { error: "OperationalError" };
+    expect(keys(input({ sync: sync({ current, mirror }) }))).toEqual([
+      "personal",
+      "mirror-unreadable",
+    ]);
+  });
+
   it("behind: quotes the shared batch's time, never the user's own (B20)", () => {
     const current = {
       id: "b-mine",
@@ -228,6 +246,34 @@ describe("bannersFor", () => {
       new Date(Date.parse(AS_OF) + (h * 60 + m) * 60_000);
     expect(keys(input({ now: at(14, 1) }))).toEqual(["stale"]);
     expect(keys(input({ now: at(13, 59) }))).toEqual([]);
+  });
+
+  it("the 14-hour check reads the latest version, not a pinned older one", () => {
+    // A candidate card pins v5, captured 15 hours ago; v7 is fresh.
+    const v5 = {
+      ...board().scope,
+      versionId: 5,
+      asOf: "2026-09-23T15:00:00+00:00",
+    };
+    expect(
+      keys(input({ board: board({ pinned: true, requestedV: 5, scope: v5 }) })),
+    ).toEqual(["pinned"]);
+    // Both old: the stale line names the latest version and its time.
+    const staleV7 = { ...board().current, asOf: "2026-09-23T15:30:00+00:00" };
+    const list = bannersFor(
+      input({
+        board: board({
+          pinned: true,
+          requestedV: 5,
+          scope: { ...v5, asOf: "2026-09-23T03:40:00+00:00" },
+          current: staleV7,
+        }),
+      }),
+    );
+    expect(list.map((b) => b.key)).toEqual(["pinned", "stale"]);
+    expect(list[1]?.text).toBe(
+      "镜像最新版本 v7 采集于 2026-09-23 15:30 UTC，已超过 14 小时没有新版本；同步可能停了",
+    );
   });
 
   it("the stale banner gives way to the switched-off and alert banners", () => {

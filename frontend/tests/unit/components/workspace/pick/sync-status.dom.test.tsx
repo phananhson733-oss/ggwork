@@ -130,6 +130,17 @@ describe("SyncStatus with the mirror key", () => {
     );
   });
 
+  it("a stuck lock with no pid, holder or time still shows", async () => {
+    api.sync = sync({
+      ...MIRROR,
+      lock_stuck: { pid: null, holder: null, since: null },
+    });
+    renderWithClient(<SyncStatus />);
+    expect(await mirrorLine()).toContain(
+      "镜像同步锁被 未知进程 占着，自 时间未知 起超过 60 分钟没释放（进程 未知）",
+    );
+  });
+
   it("says so when the gateway could not read the mirror", async () => {
     api.sync = sync({ error: "OperationalError" });
     renderWithClient(<SyncStatus />);
