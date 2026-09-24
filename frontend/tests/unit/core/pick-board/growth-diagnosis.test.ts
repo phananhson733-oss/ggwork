@@ -1,8 +1,9 @@
 // PORTED_FROM: realshort@816ca2e tests/pick-growth-diagnosis.test.ts
-// 本地改动：node:test 换成 @rstest/core；原 :67-76「dp1 接线」读 observe/queries.ts 与 queries-rank.ts 的源码，挪到 P3-3 的集成测试。
+// 本地改动：node:test 换成 @rstest/core；原 :67-76「dp1 接线」的查询部分（observe/queries.ts 与 queries-rank.ts）挪到 P3-3 的集成测试，
+// 最后一条组件断言（reelshort-table 的对比采集时间）留在这里，改读工作台路径，P3-4 组件落地后运行。
 import assert from "node:assert/strict";
 
-import { test } from "@rstest/core";
+import { describe, test } from "@rstest/core";
 
 import {
   addUtcDays,
@@ -11,6 +12,8 @@ import {
 } from "@/core/pick-board/growth-diagnosis";
 import { SORT_LABELS, SORTS, comparisonValue } from "@/core/pick-board/metrics";
 import { GROWTH_SORTS } from "@/core/pick-board/request";
+
+import { COMPONENTS_DIR, LANDED, readSource } from "./ported-source";
 
 /** 2026-09-14 那天按「推广人数 7 天变化」排：基线日 09-07，保留期里第一个已校验快照是 09-10 */
 const base: GrowthFacts = {
@@ -130,4 +133,14 @@ test("dp1：白名单、标签、涨幅榜排序、可比值都认它；可比�
   );
   assert.equal(comparisonValue({ ...row, promotersCnt1: 10 }, "dp1"), 10);
   assert.equal(comparisonValue(row, "dp7"), 70);
+});
+
+describe.skipIf(!LANDED.components)("dp1 接线：组件（P3-4 落地后）", () => {
+  test("对比采集时间：d1 与 dp1 写昨天那行快照的时间，其余写 7 天前那行", () => {
+    assert.match(
+      readSource(`${COMPONENTS_DIR}/reelshort-table.tsx`),
+      /sort === "d1" \|\| sort === "dp1" \? r\.baseline1At : r\.baseline7At/,
+      "对比采集时间要写昨天那行",
+    );
+  });
 });

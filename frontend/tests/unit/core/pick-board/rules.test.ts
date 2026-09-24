@@ -148,6 +148,17 @@ describe("links", () => {
       );
   });
 
+  test("the #fragment of an /admin/pick doc is dropped before the query is rewritten", () => {
+    const rules = buildBoardRules(
+      withRule({ doc: "/admin/pick?tab=rank&rk=kd#top" }),
+      7,
+    );
+    assert.equal(
+      rules.platformRules.kalos?.doc,
+      "/workspace/pick-data?tab=rank&rk=kd&v=7",
+    );
+  });
+
   test("postedPoolUrl follows the same rule", () => {
     assert.equal(
       buildBoardRules({ ...raw(), postedPoolUrl: "javascript:void(0)" }, 7)
@@ -272,6 +283,34 @@ describe("labels and derived lists", () => {
     );
   });
 
+  test("a numeric label is shown as text; a null or boolean label falls back to the static one", () => {
+    const r = raw();
+    const built = buildBoardRules(
+      {
+        ...r,
+        basisLabels: { ...(r.basisLabels as Json), kd: 5 },
+        youtubeLabels: { ok: null, warn: true, no: 0 },
+        sortLabels: { ...(r.sortLabels as Json), rr: 12 },
+      },
+      7,
+    );
+    assert.equal(built.basisLabels.kd, "5");
+    assert.equal(built.sortLabels.rr, "12");
+    assert.equal(built.youtubeLabels.ok, YOUTUBE_LABEL.ok);
+    assert.equal(built.youtubeLabels.warn, YOUTUBE_LABEL.warn);
+    assert.equal(built.youtubeLabels.no, "0");
+  });
+
+  test("ruleHints and langLoc drop empty and non-text values and turn numbers into strings", () => {
+    const messy = { 剧单: "", 结算: null, 解禁: false, 报备: 3 };
+    const built = buildBoardRules(
+      { ...raw(), ruleHints: messy, langLoc: { ...messy, 英语: "en" } },
+      7,
+    );
+    assert.deepEqual(built.ruleHints, { 报备: "3" });
+    assert.deepEqual(built.langLoc, { 报备: "3", 英语: "en" });
+  });
+
   test("glossary items keep only what the page reads: ask is false or absent", () => {
     const r = raw();
     const glossary = [
@@ -314,6 +353,15 @@ describe("the result", () => {
   test("a version id outside 1..999999 is a caller bug", () => {
     for (const id of [0, -1, 1_000_000, 1.5, Number.NaN])
       assert.throws(() => buildBoardRules(raw(), id), RangeError, String(id));
+  });
+
+  test("both ends of 1..999999 are valid ids and land in the rewritten link", () => {
+    for (const id of [1, 999_999])
+      assert.equal(
+        buildBoardRules(raw(), id).platformRules.reelshort?.doc,
+        `/workspace/pick-data?tab=rank&rk=rs_rr&v=${id}`,
+        String(id),
+      );
   });
 });
 

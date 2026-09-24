@@ -6,7 +6,7 @@ import { queyuHref, QUEYU_INDEX } from "@/core/pick-board/queyu";
 import * as request from "@/core/pick-board/request";
 import { ROW_KEY_MAX, isRowKey } from "@/core/pick-board/row-key";
 
-import { readSource } from "./ported-source";
+import { readSource, stripComments } from "./ported-source";
 
 test("isRowKey：只拒空串、全空白、控制字符与超长；首尾空格是键的一部分", () => {
   assert.equal(ROW_KEY_MAX, 120);
@@ -38,9 +38,11 @@ test("request.ts 转出的是同一个判定，证据页的 row 参数按它收"
 
 test("row-key.ts 与 queyu.ts 不 import 任何模块：client 组件引它们时不会把 request.ts 与 metrics.ts 带进包", () => {
   for (const file of ["row-key.ts", "queyu.ts"]) {
-    const source = readSource(`src/core/pick-board/${file}`);
-    assert.doesNotMatch(source, /^\s*(import|export)\s[^;]*\sfrom\s/m, file);
-    assert.doesNotMatch(source, /\bimport\s*\(/, file);
+    const code = stripComments(readSource(`src/core/pick-board/${file}`));
+    // 任何 import 记号都不许有：`import "./request"` 这种只为副作用的导入也会把整个模块打进包
+    assert.doesNotMatch(code, /\bimport\b/, file);
+    assert.doesNotMatch(code, /\brequire\s*\(/, file);
+    assert.doesNotMatch(code, /\bfrom\s*["'`]/, `${file} 不许转出别的模块`);
   }
   assert.ok(!("queyuHref" in request), "request.ts 不再转出 queyuHref");
 });

@@ -19,9 +19,14 @@ test("dramaPath 是 ReelShort 公开站的绝对地址，slug 只编码一段", 
     dramaPath("ru", "дракон/2"),
     "https://dramashortstv.com/ru/drama/%D0%B4%D1%80%D0%B0%D0%BA%D0%BE%D0%BD%2F2",
   );
-  assert.ok(
-    dramaPath("../../x", "a").startsWith("https://dramashortstv.com/"),
-    "坏 locale 出不了这个站",
+  assert.equal(
+    dramaPath("a/b", "x"),
+    "https://dramashortstv.com/a%2Fb/drama/x",
+    "locale 也只占一段：带斜杠的坏 locale 被编码，改不了路径层级",
+  );
+  assert.equal(
+    dramaPath("../x", "a"),
+    "https://dramashortstv.com/..%2Fx/drama/a",
   );
 });
 

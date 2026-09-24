@@ -44,6 +44,33 @@ test("标签取版本里的写法；限剧单的前半句也跟着版本走", ()
   assert.equal(youtubeStatus(renamed, "kalos", true).label, "限单 · 在剧单");
 });
 
+test("可发 / 慎用 / 禁三种也取版本里的写法，不回落到静态标签", () => {
+  const renamed = buildBoardRules(
+    {
+      ...fixture,
+      youtubeLabels: {
+        only: "限单",
+        ok: "油管可发",
+        warn: "油管慎用",
+        no: "油管禁发",
+      },
+    },
+    7,
+  );
+  assert.deepEqual(youtubeStatus(renamed, "shortmax", false), {
+    label: "油管可发",
+    blocked: false,
+  });
+  assert.deepEqual(youtubeStatus(renamed, "touchshort", false), {
+    label: "油管慎用",
+    blocked: false,
+  });
+  assert.deepEqual(youtubeStatus(renamed, "moboreels", true), {
+    label: "油管禁发",
+    blocked: true,
+  });
+});
+
 test("规则里没有这个剧场，或剧场键不认识：规则未知，不拦也不崩", () => {
   const rest = Object.fromEntries(
     Object.entries(fixture.platformRules).filter(([k]) => k !== "touchshort"),
