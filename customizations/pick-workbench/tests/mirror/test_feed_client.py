@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import re
+import threading
 from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
@@ -746,6 +747,28 @@ async def test_odd_retry_after_falls_back_to_sixty(header):
     async with make_client(fake, clock) as client:
         await client.manifest_when_free()
     assert clock.sleeps == [60]
+
+
+@pytest.mark.asyncio
+async def test_large_bodies_are_parsed_off_the_event_loop(monkeypatch):
+    # Critique 1.9: the extension runs inside the gateway's single event loop; a 3 MB json.loads must not stall it.
+    from ggwork_pick.mirror import client as client_module
+
+    threads = []
+    original = client_module._parse_json
+
+    def spy(content):
+        threads.append((len(content), threading.current_thread() is threading.main_thread()))
+        return original(content)
+
+    monkeypatch.setattr(client_module, "_parse_json", spy)
+    fake, clock = world(sizes={"rs_ids": 800})
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+        await collect(client.pages("rs_ids", manifest=manifest))
+    small, large = threads
+    assert small[0] < client_module.THREAD_PARSE_BYTES < large[0]
+    assert small[1] is True and large[1] is False
 
 
 def test_as_of_age_limit_leaves_margin_inside_realshorts_window():

@@ -85,6 +85,8 @@ MAX_BODY_BYTES = 8_000_000
 DEFAULT_TIMEOUTS = httpx.Timeout(60.0, connect=10.0)
 # httpx's read timeout is per socket read; plan 5.1 gives one request 60 seconds in all (RealShort's maxDuration too).
 REQUEST_SECONDS = 60.0
+# The extension shares the gateway's one event loop (critique 1.9): a page body past this is parsed in a worker thread.
+THREAD_PARSE_BYTES = 64 * 1024
 _SECRET_TEXT = re.compile(r"^[\x21-\x7e]{1,4096}$")
 _SECONDS = re.compile(r"^[0-9]{1,4}$")  # str.isdigit() also takes digits int() refuses, such as "²"
 _MANIFEST, _PAGE = "manifest", "page"
@@ -383,7 +385,8 @@ class FeedClient:
         for attempt in range(1, READ_ATTEMPTS + 1):
             self._check_age(request)
             reply = await self._send(request)
-            parsed = _parse_json(reply.content)
+            large = len(reply.content) > THREAD_PARSE_BYTES
+            parsed = await asyncio.to_thread(_parse_json, reply.content) if large else _parse_json(reply.content)
             metrics = _metrics(request, reply, parsed, attempt)
             if self._on_response is not None:
                 self._on_response(metrics)
