@@ -15,7 +15,7 @@ from pydantic import Field, ValidationError
 from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
-from ggwork_pick.selection import result_view
+from ggwork_pick.selection import ReplayGone, ReplayUnrunnable, SelectionService, result_view
 
 MANUAL_SYNC_COOLDOWN = timedelta(minutes=5)
 # After a failure the button stays usable, but a broken source is not hammered by repeated clicks.
@@ -106,7 +106,8 @@ def build_router(service):
         status = run.status if run else "unknown"
         if status not in {"pending", "running", "success", "error", "timeout", "interrupted"}:
             status = "unknown"
-        data_as_of = await PickRepository(service.session_factory, record["owner_id"]).data_as_of(record["catalog_batch_id"])
+        # The data_as_of the result froze; a later run reusing its batch does not move it (P2-8a).
+        data_as_of = await PickRepository(service.session_factory, record["owner_id"]).frozen_data_as_of(record)
         return {**result_view(record), "run_status": status, "data_as_of": data_as_of}
 
     @router.get("/sync")
@@ -176,6 +177,23 @@ def build_router(service):
     async def get_result(request: Request, result_id: str):
         try:
             return await status_view(await repository(request).result(result_id))
+        except LookupError as exc:
+            raise api_error(exc) from None
+
+    @router.get("/replay")
+    async def replay(request: Request, result_id: str = Query(min_length=1, max_length=64)):
+        """The owner's result re-run on its own batch, for the data page's replay view (plan 2.5 item 4)."""
+        repo = repository(request)
+        try:
+            return await SelectionService(repo).replay(result_id)
+        except ReplayGone as exc:
+            raise HTTPException(410, str(exc)) from None
+        except ReplayUnrunnable as exc:
+            # A fixed text: the stored conditions are the owner's, but never echoed back.
+            raise HTTPException(409, str(exc)) from None
+        except (KeyError, IndexError):
+            # Code bugs stay 500s, not a polite "not found".
+            raise
         except LookupError as exc:
             raise api_error(exc) from None
 

@@ -77,7 +77,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
     requested = PickConditions.model_validate(filters).model_dump(exclude_unset=True)
 
     async def work():
-        result = await SelectionService(repo).query(
+        result, record = await SelectionService(repo).query_with_record(
             requested,
             thread_id=task.info.thread_id,
             run_id=task.info.run_id,
@@ -90,7 +90,8 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
         task.known_titles.update(item["title"] for item in result["items"])
         if PickConditions.model_validate(result["conditions"]).filters_posted:
             task.posted_checked = True
-        return json.dumps({**result, "data_as_of": await repo.data_as_of(result["catalog_batch_id"])}, ensure_ascii=False)
+        # What the result froze, also on a repeated call after a later publish rewrote its batch (P2-8a, U51).
+        return json.dumps({**result, "data_as_of": await repo.frozen_data_as_of(record)}, ensure_ascii=False)
 
     return await _answer(work)
 
@@ -134,10 +135,10 @@ async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) 
     await task_from_runtime(runtime).repository(runtime)
 
     async def work():
-        task, repo, _ = await _owned_result(runtime, result_id)
+        task, repo, record = await _owned_result(runtime, result_id)
         detail = await SelectionService(repo).detail(result_id, item_id)
         task.known_titles.add(detail["item"]["title"])
-        return json.dumps({**detail, "data_as_of": await repo.data_as_of(detail["catalog_batch_id"])}, ensure_ascii=False)
+        return json.dumps({**detail, "data_as_of": await repo.frozen_data_as_of(record)}, ensure_ascii=False)
 
     return await _answer(work)
 

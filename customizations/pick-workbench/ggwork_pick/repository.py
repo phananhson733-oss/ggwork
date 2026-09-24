@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -20,7 +21,25 @@ from ggwork_pick.models import answer_checks, candidate_sets, drama_versions, im
 SHARED_OWNER = "system:shared"
 # A shared batch a candidate snapshot used within this window keeps its rows so the card can still 换一批.
 RETAIN_REFERENCED = timedelta(days=30)
+# Also exactly the keys a result freezes (P2-5b), which stored_data_as_of checks. P4-1's optional mirror_version comes
+# from the result's own column (plan P4-1), beside these: added here, it would turn every frozen row into a fallback.
 DATA_AS_OF_KEYS = ("source_as_of", "published_at", "freshness", "scope", "shared")
+
+logger = logging.getLogger(__name__)
+
+
+def stored_data_as_of(record: dict) -> dict | None:
+    """The data_as_of a result froze, in the DATA_AS_OF_KEYS shape the frontend's strict schema accepts.
+
+    None when it froze nothing (every result from before P2, quietly) or a value of another shape (logged with the
+    result id only), so each reader falls back to the batch: its readers here and 换一批 carrying it on (selection).
+    """
+    frozen = record.get("data_as_of_json")
+    if isinstance(frozen, dict) and set(frozen) == set(DATA_AS_OF_KEYS):
+        return {key: frozen[key] for key in DATA_AS_OF_KEYS}
+    if frozen is not None:
+        logger.warning("[pick] result %s froze a data_as_of of another shape; its batch's is used", record.get("id"))
+    return None
 
 
 class ConflictError(ValueError):
@@ -136,6 +155,15 @@ class PickRepository:
         """When the data behind a result or tool answer was captured; one shape for the UI and the model."""
         info = await self.batch_info(batch_id)
         return {key: info[key] for key in DATA_AS_OF_KEYS} if info else None
+
+    async def frozen_data_as_of(self, record: dict) -> dict | None:
+        """The data_as_of a result froze when it was written (P2-5b), for every reader of that result (P2-8a).
+
+        A batch's own values move on when a later run reuses it (U10), so the result's are read first. A result from
+        before the mirror froze nothing and falls back to its batch; so does a stored value of another shape.
+        """
+        frozen = stored_data_as_of(record)
+        return frozen if frozen is not None else await self.data_as_of(record["catalog_batch_id"])
 
     async def current_batch(self, kind: str) -> dict | None:
         async with self.session_factory() as session:

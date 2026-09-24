@@ -78,7 +78,14 @@ async def test_nul_in_a_path_or_query_parameter_is_a_422(app_client):
     # Percent-decoding replaces invalid UTF-8, so only NUL can reach a parameter; PostgreSQL rejects it even in a WHERE.
     client, service = app_client
     await _result(service)
-    for url in ("/api/pick/results/%00", "/api/pick/results?thread_id=%00", "/api/pick/answer-checks?thread_id=t%00", "/api/pick/commands/%00"):
+    urls = (
+        "/api/pick/results/%00",
+        "/api/pick/results?thread_id=%00",
+        "/api/pick/answer-checks?thread_id=t%00",
+        "/api/pick/commands/%00",
+        "/api/pick/replay?result_id=%00",
+    )
+    for url in urls:
         assert (await client.get(url, headers=ALICE)).status_code == 422, url
     edit = {"request_id": "edit-1", "expected_version": 1, "note": "x"}
     assert (await client.patch("/api/pick/selections/%00", **_json(edit))).status_code == 422
