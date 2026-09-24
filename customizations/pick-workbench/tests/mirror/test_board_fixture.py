@@ -7,6 +7,7 @@ entry, read back as the reader it creates, and taken down at the end. Every valu
 import io
 import json
 import os
+import re
 import stat
 from contextlib import closing
 from pathlib import Path
@@ -142,7 +143,33 @@ def test_series_for_one_canonical_drama(board):
     state = _rows(board["reader"], "SELECT through::text, trimmed_before::text FROM pick_mirror.series_state WHERE id = 1")
     assert state == [("2026-09-23", "2026-06-25")]
     series = _rows(board["reader"], "SELECT drama_id, cardinality(days) FROM pick_mirror.series")
-    assert series == [("d-1", 3)]
+    assert series == [(bf.SERIES_DRAMA, 3)]
+
+
+def test_reelshort_ids_are_shaped_like_book_ids_and_resolve_as_realshort_does(board):
+    """reelshortId (request.ts) takes [a-z0-9]{6,40} only; a sibling resolves to its canonical, rs0007 to none."""
+    schema = f"pickm_v{board['info']['versions']['v2']:06d}"
+    drama_ids = [row[0] for row in _rows(board["reader"], f"SELECT drama_id FROM {schema}.rs_rows ORDER BY drama_id")]
+    assert drama_ids == ["rs0001", "rs0002", "rs0003", "rs0004", "rs0005"]
+    assert all(re.fullmatch(r"[a-z0-9]{6,40}", drama_id) for drama_id in drama_ids)
+    canonical = dict(_rows(board["reader"], f"SELECT id, canonical_id FROM {schema}.rs_ids WHERE id IN ('rs0006', 'rs0007')"))
+    assert canonical == {"rs0006": "rs0001", "rs0007": None}
+    bills = _rows(board["reader"], f"SELECT book_id, canonical_id FROM {schema}.rs_bill_orders ORDER BY bill_date")
+    assert bills == [("rs0001", "rs0001"), ("book-x", None)]
+    counts = _rows(board["reader"], f"SELECT value -> 'rs_ids' FROM {schema}.meta WHERE key = 'counts'")
+    assert counts == [(7,)]
+
+
+def test_v1_identities_name_the_mirror_row_keys(pg_cluster, board):
+    """The agent's v1 identities and the board's row keys are the same keys: replay (P4-2) maps one onto the other."""
+    info = board["info"]
+    admin = _admin_url(pg_cluster, info["database"])
+    schema = f"pickm_v{info['versions']['v2']:06d}"
+    catalog = _rows(admin, "SELECT agent_catalog_batch_id FROM pick_mirror.versions WHERE id = %s", info["versions"]["v2"])[0][0]
+    identities = {row[0] for row in _rows(admin, "SELECT identity FROM deerflow.ggwp_drama_versions WHERE batch_id = %s", catalog)}
+    keys = {row[0] for row in _rows(board["reader"], f"SELECT row_key FROM {schema}.rs_rows WHERE has_signal")}
+    for key in keys:
+        assert json.dumps(["realshort-pick", b64url(key), "英语"], ensure_ascii=False, separators=(",", ":")) in identities
 
 
 def test_down_refuses_names_it_did_not_make():

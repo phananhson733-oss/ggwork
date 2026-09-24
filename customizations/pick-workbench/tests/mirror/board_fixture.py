@@ -12,7 +12,13 @@ Versions, in id order:
   v2        published and current: c-1 renamed, shortmax's platformRules yt from ok to no
   building  created, never finalized nor granted
   failed    created, then failed (its schema dropped)
-plus pick_mirror.series for one canonical drama (d-1) and series_state through / trimmed_before.
+plus pick_mirror.series for one canonical drama (rs0001) and series_state through / trimmed_before.
+
+The ReelShort side is gate_world's, with its d-N ids renamed to ids shaped like RealShort's book ids (request.ts
+reelshortId only takes [a-z0-9]{6,40}), and what the board's query tests (P3-3) need on top: metrics_valid of each kind,
+a d1 tie that float8 arithmetic would break, publish dates for the buckets, exported bill ranks, one long tag list, a
+non-canonical sibling (rs0006) and an id with no canonical row (rs0007), bill rows tied to their canonical id, a
+theater row matched to rs0001, and signal payloads with distinct daily ranks and real week labels.
 
 From customizations/pick-workbench, with the backend venv's python and PICK_TEST_PG_URL naming a throwaway cluster as
 a superuser (the same variable the backend tests use):
@@ -70,6 +76,26 @@ AS_OF = {
     "failed": datetime(2026, 9, 24, 3, 39, tzinfo=UTC),
 }
 SERIES_DAYS = (date(2026, 9, 21), date(2026, 9, 22), date(2026, 9, 23))
+# gate_world's d-N as RealShort-shaped book ids; rs0006 is d-6, the sibling, and rs0007 has no canonical row at all.
+BOOK_IDS = {f"d-{n}": f"rs{n:04d}" for n in range(1, 7)}
+SIBLING = ("rs0006", "rs0001")
+NO_CANONICAL = "rs0007"
+SERIES_DRAMA = "rs0001"
+# rs_rows columns on top of gate_world's, per book id; the publish dates are days before the version's as_of.
+RS_EXTRA = {
+    "rs0001": {"metrics_valid": True, "bill_rank": 2, "tag_list": [f"标签{n}" for n in range(1, 11)]},
+    # rr − s1_rr ties at 1000.20 in numeric; in float8 1000.30 − 0.10 is 1000.1999999999999, so the tie breaks.
+    "rs0002": {"metrics_valid": True, "rr": 1000.30, "s1_rr": 0.10},
+    "rs0003": {"metrics_valid": True, "rr": 1000.20, "s1_rr": 0.00},
+    "rs0004": {"metrics_valid": False, "bill_rank": 1},
+}
+PUBLISHED_DAYS_BEFORE = {"rs0001": 5, "rs0002": 20}
+# catalog_signals payloads by gate_world's SIGNALS index: c-1's week list (kw), and kd ranks that differ on 2026-09-02.
+SIGNAL_PAYLOADS = {
+    1: {"h": [["2026-09-14", "9.14–9.20"], ["2026-09-07", "9.7–9.13"]], "weeks": 2},
+    4: {"h": [["2026-09-02", 1, ""]]},
+    5: {"h": [["2026-09-01", 2, ""]]},
+}
 SERIES_THROUGH = date(2026, 9, 23)
 SERIES_TRIMMED_BEFORE = date(2026, 6, 25)
 _MARK_DROPPED = "UPDATE pick_mirror.versions SET status = 'dropped', dropped_at = $2 WHERE id = $1 AND status = 'published'"
@@ -92,38 +118,88 @@ def as_of_text(moment: datetime) -> str:
 
 
 def _catalog_rows(world, title: str) -> list[dict]:
+    """Real theaters and one language; c-2 is matched to rs0001 (in_site_ids), as a same-title match would be."""
     rows = zip(world.tables["catalog_rows"], PLATFORMS, strict=True)
     return [
-        {**row, "platform": platform, "lang": LANGUAGE, "title": title if row["row_key"] == "c-1" else f"{row['row_key']} 的剧名"} for row, platform in rows
+        {
+            **row,
+            "platform": platform,
+            "lang": LANGUAGE,
+            "title": title if row["row_key"] == "c-1" else f"{row['row_key']} 的剧名",
+            **({"in_site_ids": ["rs0001"]} if row["row_key"] == "c-2" else {}),
+        }
+        for row, platform in rows
     ]
 
 
-def _rs_tables(world) -> dict:
-    """ReelShort rows with real-looking locale, slug and a canonical id: every drama is its own canonical."""
-    rs_rows = [
-        {**row, "platform": "reelshort", "lang": LANGUAGE, "title": f"{row['drama_id']} 的剧名", "locale": "en", "slug": f"{row['drama_id']}-slug"}
-        for row in world.tables["rs_rows"]
-    ]
-    rs_ids = [
-        {**row, "canonical_id": row["id"], "is_public_canonical": True, "locale": "en", "slug": f"{row['id']}-slug", "title": f"{row['id']} 的剧名"}
-        for row in world.tables["rs_ids"]
-    ]
-    return {"rs_rows": rs_rows, "rs_ids": rs_ids}
+def _book(drama_id: str | None) -> str | None:
+    return BOOK_IDS.get(drama_id, drama_id) if drama_id is not None else None
+
+
+def _rs_row(row: dict, as_of: datetime) -> dict:
+    book = _book(row["drama_id"])
+    days = PUBLISHED_DAYS_BEFORE.get(book)
+    published = {"publish_at": as_of_text(as_of - timedelta(days=days))} if days is not None else {}
+    names = {"row_key": f"reelshort-{book}", "drama_id": book, "title": f"{book} 的剧名", "slug": f"{book}-slug"}
+    return {**row, **names, "platform": "reelshort", "lang": LANGUAGE, "locale": "en", **published, **RS_EXTRA.get(book, {})}
+
+
+def _rs_id(row: dict, book: str, canonical: str | None) -> dict:
+    public = canonical == book
+    return {**row, "id": book, "canonical_id": canonical, "is_public_canonical": public, "locale": "en", "slug": f"{book}-slug", "title": f"{book} 的剧名"}
+
+
+def _canonical_of(book: str) -> str:
+    sibling, canonical = SIBLING
+    return canonical if book == sibling else book
+
+
+def _rs_ids(world) -> list[dict]:
+    """Every book id its own canonical but the sibling, which points at rs0001, and one id with no canonical row."""
+    books = [(row, _book(row["id"])) for row in world.tables["rs_ids"]]
+    rows = [_rs_id(row, book, _canonical_of(book)) for row, book in books]
+    return [*rows, _rs_id(world.tables["rs_ids"][-1], NO_CANONICAL, None)]
+
+
+def _rs_tables(world, as_of: datetime) -> dict:
+    """ReelShort rows with real-looking ids, locale and slug; bills, clicks and posted records follow the new ids."""
+    bills = [{**row, "book_id": _book(row["book_id"]), "canonical_id": BOOK_IDS.get(row["book_id"])} for row in world.tables["rs_bill_orders"]]
+    return {
+        "rs_rows": [_rs_row(row, as_of) for row in world.tables["rs_rows"]],
+        "rs_ids": _rs_ids(world),
+        "rs_bill_orders": bills,
+        "rs_clicks14": [{**row, "drama_id": _book(row["drama_id"])} for row in world.tables["rs_clicks14"]],
+        "catalog_posted": [{**row, "drama_ids": [_book(i) for i in row["drama_ids"]]} for row in world.tables["catalog_posted"]],
+        "catalog_signals": [{**row, "payload": SIGNAL_PAYLOADS.get(n, row["payload"])} for n, row in enumerate(world.tables["catalog_signals"])],
+    }
+
+
+def _v1_key(row_key: str) -> str:
+    drama = row_key.removeprefix("reelshort-")
+    return f"reelshort-{_book(drama)}" if drama != row_key else row_key
+
+
+def _v1_rows(title: str) -> list[dict]:
+    """gate_world's v1 candidates under the renamed ids: an identity names the row key the mirror has."""
+    import gate_world as gw
+
+    rows = [gw.v1_row(_v1_key(row_key), kinds, records) for row_key, (kinds, records) in gw.V1_CANDIDATES.items()]
+    # The v1 pull of the same moment shows the same title; its rules page names the moment, so each pair is distinct.
+    return [{**row, "title": title} if n == 0 else row for n, row in enumerate(rows)]
 
 
 def board_world(title: str, shortmax_yt: str, as_of: datetime):
-    """gate_world's baseline with real theaters and languages, one title and one YouTube rule chosen, at `as_of`."""
+    """gate_world's baseline with real theaters, languages and book ids, one title and one YouTube rule chosen, at `as_of`."""
     import gate_world as gw
 
     world = gw.baseline()
     world = gw.with_table(world, "catalog_rows", _catalog_rows(world, title))
-    for table, rows in _rs_tables(world).items():
+    for table, rows in _rs_tables(world, as_of).items():
         world = gw.with_table(world, table, rows)
+    world = gw.with_counts(world, rs_ids=len(world.tables["rs_ids"]))
     world = gw.with_manifest(world, ("asOf",), as_of_text(as_of))
     world = gw.with_manifest(world, ("meta", "rules", "platformRules", "shortmax", "yt"), shortmax_yt)
-    # The v1 pull of the same moment shows the same title; its rules page names the moment, so each pair is distinct.
-    world = gw.with_v1_row(world, 0, title=title)
-    return world
+    return gw.with_v1(world, _v1_rows(title))
 
 
 def _rules_text(as_of: datetime) -> str:
@@ -213,7 +289,7 @@ async def _versions(conn, shared, importer) -> dict[str, int]:
 
 async def _series(conn) -> None:
     moment = AS_OF["v2"] + timedelta(minutes=40)
-    await conn.execute(_SERIES, "d-1", list(SERIES_DAYS), [1250.0, 980.5, 1430.25], [3, 2, 4], moment)
+    await conn.execute(_SERIES, SERIES_DRAMA, list(SERIES_DAYS), [1250.0, 980.5, 1430.25], [3, 2, 4], moment)
     await conn.execute(_SERIES_STATE, SERIES_THROUGH, SERIES_TRIMMED_BEFORE, moment)
 
 
