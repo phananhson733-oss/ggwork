@@ -10,8 +10,9 @@ Two writers read, modify and write back the arrays, so both hold the mirror lock
 - fold_series, the sync's step 11 on its dedicated connection, after the version retention: at most three days a run,
   the earliest after through and contiguous, and no new day once as_of + 27 minutes has passed (U38). In effect the
   client stops at 25 (client.AS_OF_MAX_AGE): a day or page it refuses past that ends the fold the same way. A run that
-  fell back to v1 or timed out on busy has no manifest and does not fold; a degraded run does (U29). A failure only
-  lands in details_json.series: the published version never depends on the curve.
+  fell back to v1 or timed out on busy has no manifest and does not fold; a degraded run does (U29), except one over
+  the size cap (F10: series is {"skipped": "capacity"}). A failure only lands in details_json.series: the published
+  version never depends on the curve.
 - backfill_series, `python -m ggwork_pick.mirror.series --backfill [N]` (main below; N is 92 when left out): every day
   in snapshotDays from the first as_of day - N on, one transaction a day, so a run that is cut off resumes at the next
   day. as_of is chosen again when it is 25 minutes old, on 400 reason=as_of and on 409, a page's or the manifest's (U30;

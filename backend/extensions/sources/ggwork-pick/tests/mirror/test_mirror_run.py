@@ -213,6 +213,9 @@ async def test_db_size_cap_degrades_without_version(harness):
     assert await shared_current(harness.engine) == (result["catalog_batch_id"], result["knowledge_batch_id"])
     state = await control(harness.engine)
     assert (state["consecutive_failures"], state["last_failure"]) == (1, "capacity")
+    # F10 (the owner's call): a run over the size cap writes no curve into the nearly full database either.
+    assert details["series"] == {"skipped": "capacity"} and "series_ms" not in details["stages"]
+    assert [call for call in fake.calls if call.resource == "rs_series_day"] == []
 
 
 @pytest.mark.asyncio

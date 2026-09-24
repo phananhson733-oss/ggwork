@@ -13,7 +13,8 @@ One run, under the process's sync_lock and the mirror lock on a dedicated connec
 5. publish: the pair when both halves pass; the agent batches alone when only the mirror half failed (degraded, counted);
    nothing when the v1 half failed (counted). Drift repeats the attempt once after 90 s with a new as_of; the second drift
    in v2 degrades (U17), in v1 or the manifest publishes nothing;
-6. retention again, the curve fold when a manifest was read (U29), the ERROR log from the third failure in a row (U50).
+6. retention again, the curve fold when a manifest was read (U29) unless the run was over the size cap (F10: U43 wins,
+   details.series says skipped), the ERROR log from the third failure in a row (U50).
 The lock is released and the connection closed on the way out whatever happens, a cancellation included; a cancelled run
 fails what it built and staged under a shield, is recorded as failed and is not counted (U11).
 """
@@ -636,6 +637,9 @@ class MirrorSync:
         outcome = outcome.with_details(retention_after=retention).with_stages(retention_after_ms=ms(self._timer() - begun))
         if outcome.manifest is None:
             return outcome
+        if outcome.reason == CAPACITY:
+            # F10 (the owner's call, U43 over U29): over the size cap, nothing more goes into the nearly full database.
+            return outcome.with_details(series={"skipped": CAPACITY})
         begun = self._timer()
         folded = await fold_series(conn, manifest=outcome.manifest, client=client, clock=self._clock)
         return outcome.with_details(series=folded.details()).with_stages(series_ms=ms(self._timer() - begun))
