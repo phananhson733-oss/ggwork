@@ -230,7 +230,11 @@ async def test_transaction_settings_do_not_follow_a_pooled_connection(pg_db_url,
             assert (await conn.execute(text("select pg_backend_pid()"))).scalar_one() == pid
             assert (await conn.execute(text("show lock_timeout"))).scalar_one() == "0"
             assert (await conn.execute(text("show search_path"))).scalar_one() == pg.SCHEMA
-            assert (await conn.execute(text("select count(*) from pg_locks where locktype = 'advisory'"))).scalar_one() == 0
+            # Advisory locks are keyed per database; other databases on a shared test cluster may hold their own.
+            held = text(
+                "select count(*) from pg_locks where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())"
+            )
+            assert (await conn.execute(held)).scalar_one() == 0
     finally:
         await engine.dispose()
 
