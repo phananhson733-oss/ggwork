@@ -189,7 +189,8 @@ async def test_metrics_measure_each_response():
     assert manifest.metrics.resource == "manifest" and manifest.metrics.rows == 1
     assert [m.resource for m in seen] == ["manifest", "rs_ids", "rs_ids"]
     line = first.line()
-    assert set(line) == {"resource", "page", "status", "elapsed_ms", "bytes", "wire_bytes", "rows", "retry_after"}
+    assert set(line) == {"resource", "page", "status", "elapsed_ms", "bytes", "wire_bytes", "rows", "retry_after", "retried"}
+    assert line["retried"] is False
 
 
 @pytest.mark.asyncio

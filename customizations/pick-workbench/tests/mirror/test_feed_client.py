@@ -165,6 +165,8 @@ async def test_read_failed_once_recovers_on_the_retry():
         (page,) = await collect(client.pages("rs_ids", manifest=manifest))
     assert page.metrics.attempt == 2 and page.metrics.status == 200
     assert [(m.resource, m.status, m.error) for m in seen] == [("manifest", 200, None), ("rs_ids", 503, "read_failed"), ("rs_ids", 200, None)]
+    # The printed line says whether the request was the read_failed retry; "attempt" there is the dry-run's run number.
+    assert [m.line()["retried"] for m in seen] == [False, False, True] and not any("attempt" in m.line() for m in seen)
 
 
 @pytest.mark.asyncio

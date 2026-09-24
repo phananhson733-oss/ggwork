@@ -114,7 +114,8 @@ class PageMetrics:
     started: float = 0.0
 
     def line(self) -> dict:
-        """One stdout line of the dry-run: the eight metrics, plus day, attempt and error word when they say something."""
+        """One stdout line of the dry-run: the eight metrics and retried (this request repeated a read_failed one),
+        plus day and the error word when they say something. The dry-run adds the run as attempt (the brief's P2-2a)."""
         base = {
             "resource": self.resource,
             "page": self.page,
@@ -124,8 +125,9 @@ class PageMetrics:
             "wire_bytes": self.wire_bytes,
             "rows": self.rows,
             "retry_after": self.retry_after,
+            "retried": self.attempt > 1,
         }
-        optional = {"day": self.day, "attempt": self.attempt if self.attempt > 1 else None, "error": self.error}
+        optional = {"day": self.day, "error": self.error}
         return {**base, **{key: value for key, value in optional.items() if value is not None}}
 
 

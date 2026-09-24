@@ -1,7 +1,7 @@
 """`python -m ggwork_pick.mirror.client --dry-run`: one full pull, measured and thrown away (plan P1-6, 1486-1496).
 
-stdout gets one JSON line per HTTP response (metrics only: PageMetrics.line() plus the run number) and a summary line
-last. Nothing is written to disk; no database or app config is read. Tokens come from files or the environment, the
+stdout gets one JSON line per HTTP response (metrics only: PageMetrics.line() plus the run number, printed as both
+attempt and run) and a summary line last. Nothing is written to disk; no database or app config is read. Tokens come from files or the environment, the
 deployment-protection bypass only from a file: a secret on the command line ends up in shell history and `ps`.
 
 Exit status: 0 every gate passed, 1 a gate failed, 2 usage, 3 the pull itself failed, 4 an unexpected error (a bug,
@@ -12,7 +12,6 @@ Page iteration (walk) and bookkeeping (Tally) are kept apart, so --scan (after P
 
 import argparse
 import asyncio
-import fnmatch
 import json
 import os
 import re
@@ -36,11 +35,14 @@ FEED_TOKEN_ENV = "PICK_REALSHORT_FEED_TOKEN"
 PAGE_MS_LIMIT = 15_000
 PAGE_BYTES_LIMIT = 3_000_000
 RUN_MS_LIMIT = 180_000
-# A title-like hit means RealShort's scrub rewrote drama names: merging realshort#67 would ship that (critique 1.2).
-TITLE_SCRUB_PATTERNS = ("*.title", "*.title_cn", "*.description", "rs_ids.title", "catalog_posted.title", "*.book_title")
+# A hit on one of these meta.scrub fields means RealShort's scrub rewrote drama names or descriptions: merging
+# realshort#67 would ship that (critique 1.2; the brief's P2-2a and P1 step 5). meta.scrub keys are "<resource>.<column>"
+# (toExportRow's hits); "*" stands for any one row resource, nothing deeper.
+TITLE_SCRUB_FIELDS = ("*.title", "*.title_cn", "*.description", "rs_ids.title", "catalog_posted.title", "rs_bill_orders.book_title")
 BLOCKS_67 = "阻断 #67 合并"
-# RealShort redeploys often and the fingerprint carries the commit SHA (critique 1.3): start over up to three times.
-RERUNS = 3
+# RealShort redeploys often and the fingerprint carries the commit SHA (critique 1.3): the brief's P2-2a starts over
+# from the manifest at most twice, so a third drift ends the dry-run.
+RERUNS = 2
 DRIFT_BACKOFF_SECONDS = 90  # plan 5.2 step 3
 EXIT_OK, EXIT_GATES, EXIT_USAGE, EXIT_FETCH, EXIT_INTERNAL = 0, 1, 2, 3, 4
 _NUMBER = re.compile(r"^[0-9]{1,6}$")
@@ -164,7 +166,7 @@ class Recorder:
         self._run = run
 
     def __call__(self, metrics: PageMetrics) -> None:
-        line = {**metrics.line(), "run": self._run}
+        line = {"attempt": self._run, **metrics.line(), "run": self._run}
         self._lines.append(line)
         _emit(self._out, line)
 
@@ -186,6 +188,10 @@ def _is_manifest_busy(line: Mapping) -> bool:
 
 def _is_read_failed(line: Mapping) -> bool:
     return line.get("error") == "read_failed"
+
+
+def _is_retry(line: Mapping) -> bool:
+    return line["retried"] is True
 
 
 @dataclass(frozen=True)
@@ -342,13 +348,15 @@ async def pull_with_reruns(client: FeedClient, options: Options, recorder: Recor
 
 
 def retries(outcome: Outcome, recorder: Recorder) -> dict:
-    """Response counts from the printed lines; causes are per interrupted run. manifest_busy_503 are waits, not drift."""
+    """Response counts from the printed lines; causes are per interrupted run. manifest_busy_503 are waits, not drift;
+    read_failed_retries are the requests repeated after a read_failed (each page once at most)."""
     return {
         "drift_409": recorder.count(_is_409),
         "busy_503": recorder.count(_is_busy),
         "manifest_busy_503": recorder.count(_is_manifest_busy),
         "busy_wait_seconds": outcome.busy_wait_seconds,
         "read_failed_503": recorder.count(_is_read_failed),
+        "read_failed_retries": recorder.count(_is_retry),
         "as_of_expired": sum(item.cause.startswith("as_of_expired") for item in outcome.interruptions),
         "reruns": outcome.runs - 1,
         "causes": [asdict(item) for item in outcome.interruptions],
@@ -359,8 +367,13 @@ def _resource_summary(stats: Stats, expected: int) -> dict:
     return {**stats.as_dict(), "expected_rows": expected, "rows_match": stats.rows == expected}
 
 
+def _title_field(path: str) -> bool:
+    resource, _, column = path.partition(".")
+    return resource in ROW_RESOURCES and any(field in (path, f"*.{column}") for field in TITLE_SCRUB_FIELDS)
+
+
 def _title_hits(scrub: Mapping[str, int]) -> dict[str, int]:
-    return {path: count for path, count in scrub.items() if count > 0 and any(fnmatch.fnmatchcase(path, p) for p in TITLE_SCRUB_PATTERNS)}
+    return {path: count for path, count in scrub.items() if count > 0 and _title_field(path)}
 
 
 def evaluate_gates(pull: Pull, resources: Mapping[str, dict], series: Mapping[str, dict]) -> dict:

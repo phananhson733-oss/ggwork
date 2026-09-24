@@ -19,7 +19,8 @@ from ggwork_pick.mirror import dry_run
 EXTENSION_ROOT = Path(__file__).resolve().parents[2]
 EXTENSION_API = Path(__file__).resolve().parents[4] / "backend/packages/extension-api"
 BASE = "https://realshort.test"
-METRIC_KEYS = {"resource", "page", "status", "elapsed_ms", "bytes", "wire_bytes", "rows", "retry_after"}
+# The brief's P2-2a page line: attempt (the run, also printed as run), the eight metrics, retried (the read_failed retry).
+METRIC_KEYS = {"attempt", "resource", "page", "status", "elapsed_ms", "bytes", "wire_bytes", "rows", "retry_after", "retried"}
 SECRETS = (EXPORT_TOKEN, FEED_TOKEN, BYPASS, ROW_SENTINEL)
 
 
@@ -59,7 +60,7 @@ def test_dry_run_prints_metrics_not_rows(capsys, files):
     code, lines, text = run(capsys, fake, clock, env={"PICK_REALSHORT_FEED_TOKEN": FEED_TOKEN}, files=files)
     assert code == 0, lines[-1]
     pages, summary = summary_of(lines)
-    assert all(METRIC_KEYS <= set(line) and line["run"] == 1 for line in pages)
+    assert all(METRIC_KEYS <= set(line) and line["run"] == line["attempt"] == 1 and line["retried"] is False for line in pages)
     assert [(p["resource"], p["page"]) for p in pages][:4] == [("manifest", 1), ("v1", 1), ("catalog_rows", 1), ("catalog_rows", 2)]
     assert [p.get("day") for p in pages if p["resource"] == "rs_series_day"] == ["2026-09-23"]
     for secret in SECRETS:
@@ -78,7 +79,7 @@ def test_dry_run_prints_metrics_not_rows(capsys, files):
     assert summary["manifest"]["bytes"] > 0 and "elapsed_ms" in summary["manifest"]
     assert summary["as_of"] == "2026-09-23T12:32:00.000Z" and summary["source_revision_null"] is False
     assert summary["scrub"] == {} and summary["warnings"] == [] and summary["failed_gates"] == [] and summary["ok"] is True
-    counters = ("drift_409", "busy_503", "manifest_busy_503", "busy_wait_seconds", "read_failed_503", "as_of_expired", "reruns")
+    counters = ("drift_409", "busy_503", "manifest_busy_503", "busy_wait_seconds", "read_failed_503", "read_failed_retries", "as_of_expired", "reruns")
     assert summary["retries"] == {**dict.fromkeys(counters, 0), "causes": []}
     assert {c.headers.get("x-vercel-protection-bypass") for c in fake.calls} == {BYPASS}
 
@@ -113,6 +114,30 @@ def test_title_scrub_hits_fail_and_block_67(capsys, files, path):
     gate = summary["gates"]["title_scrub"]
     assert code == 1 and summary["ok"] is False and "title_scrub" in summary["failed_gates"]
     assert gate == {"ok": False, "hits": {path: 2}, "blocks": "阻断 #67 合并"}
+
+
+def test_the_six_title_fields_that_block_67_are_pinned():
+    # The brief's P2-2a and P1 step 5: exactly these six meta.scrub fields; "*" stands for any row resource's name.
+    fields = ("*.title", "*.title_cn", "*.description", "rs_ids.title", "catalog_posted.title", "rs_bill_orders.book_title")
+    assert dry_run.TITLE_SCRUB_FIELDS == fields
+    from ggwork_pick.mirror.contracts import RESOURCE_COLUMNS
+
+    # Each one names a real text column: meta.scrub counts toExportRow's hits as "<resource>.<column>".
+    text_columns = {(resource, c.name) for resource, columns in RESOURCE_COLUMNS.items() for c in columns if c.type == "text"}
+    for field in fields:
+        resource, _, column = field.partition(".")
+        assert any(c == column and resource in ("*", r) for r, c in text_columns), field
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["catalog_posted.posts[*].md.title", "rs_rows.tag_list[*]", "catalog_rows.reoff_note", "catalog_rows.book_title", "manifest.title", "title"],
+)
+def test_other_scrub_fields_do_not_block_67(capsys, files, path):
+    fake, clock = world(scrub={path: 2})
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    _, summary = summary_of(lines)
+    assert code == 0 and summary["gates"]["title_scrub"] == {"ok": True, "hits": {}} and summary["scrub"] == {path: 2}
 
 
 def test_row_count_mismatch_fails(capsys, files):
@@ -272,6 +297,7 @@ def test_drift_reruns_and_counts(capsys, files):
         "manifest_busy_503": 1,
         "busy_wait_seconds": 60,
         "read_failed_503": 0,
+        "read_failed_retries": 0,
         "as_of_expired": 0,
         "reruns": 2,
         "causes": [
@@ -280,7 +306,7 @@ def test_drift_reruns_and_counts(capsys, files):
         ],
     }
     assert clock.sleeps == [60, 90, 90]
-    assert {line["run"] for line in pages} == {1, 2, 3}
+    assert {line["run"] for line in pages} == {1, 2, 3} and all(line["attempt"] == line["run"] for line in pages)
     assert [(p["resource"], p["status"], p["run"]) for p in pages if p["status"] != 200] == [
         ("manifest", 503, 1),
         ("catalog_rows", 409, 1),
@@ -290,13 +316,24 @@ def test_drift_reruns_and_counts(capsys, files):
     assert summary["as_of"] == "2026-09-23T12:36:00.000Z"
 
 
-def test_drift_gives_up_after_three_reruns(capsys, files):
+def test_drift_gives_up_after_two_reruns(capsys, files):
+    # The brief's P2-2a dry-run: start over from the manifest at most twice; the third 409 exits non-zero (test 23).
+    assert dry_run.RERUNS == 2
     fake, clock = world(intercept=lambda call: v2_error(409, "source_changed") if call.resource == "catalog_rows" else None)
     code, lines, text = run(capsys, fake, clock, files=files)
     _, summary = summary_of(lines)
     assert code == 3 and summary["ok"] is False and summary["error_type"] == "DriftError"
-    assert summary["retries"]["drift_409"] == 4 and summary["retries"]["reruns"] == 3
+    assert summary["retries"]["drift_409"] == 3 and summary["retries"]["reruns"] == 2 and summary["runs"] == 3
     assert "409" in summary["error"] and EXPORT_TOKEN not in text
+
+
+def test_read_failed_retry_is_marked_on_its_line_and_counted(capsys, files):
+    fake, clock = world(intercept=lambda call: v2_error(503, "read_failed") if call.resource == "rs_ids" and call.n == 1 else None)
+    code, lines, _ = run(capsys, fake, clock, files=files)
+    pages, summary = summary_of(lines)
+    assert code == 0 and summary["ok"] is True
+    assert [(p["status"], p["retried"]) for p in pages if p["resource"] == "rs_ids"] == [(503, False), (200, True)]
+    assert (summary["retries"]["read_failed_503"], summary["retries"]["read_failed_retries"]) == (1, 1) and clock.sleeps == [5]
 
 
 def test_rerun_causes_name_the_echo_and_the_side(capsys, files):
