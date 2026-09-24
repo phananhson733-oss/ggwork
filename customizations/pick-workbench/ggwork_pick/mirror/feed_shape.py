@@ -8,7 +8,7 @@ Error messages name fields, never values.
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from types import MappingProxyType
 
@@ -130,9 +130,9 @@ class PageMetrics:
 
 @dataclass(frozen=True)
 class Page:
-    """One checked page: the parsed JSON as RealShort sent it and what it cost."""
+    """One checked page: the parsed JSON as RealShort sent it and what it cost. repr leaves the rows out."""
 
-    body: dict
+    body: dict = field(repr=False)
     metrics: PageMetrics
 
     @property
@@ -253,14 +253,25 @@ def _counts(value: object) -> Mapping[str, int]:
     return MappingProxyType({name: counts[name] for name in COUNTED_RESOURCES})
 
 
-def _snapshot_days(value: object) -> list[tuple[str, int]]:
+def _series_day(day: object, as_of: datetime) -> bool:
+    try:
+        check_series_day(day, as_of)
+    except ValueError:
+        return False
+    return True
+
+
+def _snapshot_days(value: object, as_of: datetime) -> list[tuple[str, int]]:
+    """[{day, rows}] over the days rs_series_day takes (rs:src/lib/pick/export-v2.ts:440-446): a day outside that
+    window could never be fetched, so it is a contract error here rather than a ValueError from pages() later."""
     if not isinstance(value, list):
         raise ContractError("manifest.snapshotDays 不是数组", resource="manifest")
     days = []
     for index, item in enumerate(value):
         entry = require_keys(item, SNAPSHOT_DAY_KEYS, f"manifest.snapshotDays[{index}]")
-        if not _real_day(entry["day"]) or not _count(entry["rows"]):
-            raise ContractError(f"manifest.snapshotDays[{index}] 的 day 或 rows 不符", resource="manifest")
+        if not _series_day(entry["day"], as_of) or not _count(entry["rows"]):
+            message = f"manifest.snapshotDays[{index}] 的 day 不是 as_of 当天往前 {SERIES_DAY_SPAN} 天内的真实日期，或 rows 不是非负整数"
+            raise ContractError(message, resource="manifest")
         days = [*days, (entry["day"], entry["rows"])]
     if any(earlier[0] >= later[0] for earlier, later in zip(days, days[1:])):
         raise ContractError("manifest.snapshotDays 不是按日期严格递增", resource="manifest")
@@ -285,7 +296,7 @@ def parse_manifest(body: object, *, as_of: datetime, metrics: PageMetrics, busy_
         raise ContractError("manifest 的 rows 必须恰好 1 个元素，nextCursor 为 null", resource="manifest")
     row = require_keys(page["rows"][0], MANIFEST_KEYS, "manifest")
     fingerprint = _manifest_identity(row, page, as_of_text)
-    days = _snapshot_days(row["snapshotDays"])
+    days = _snapshot_days(row["snapshotDays"], as_of)
     if row["latestSnapshot"] != (days[-1][0] if days else None):
         raise ContractError("manifest.latestSnapshot 不是 snapshotDays 的最后一天", resource="manifest")
     return Manifest(

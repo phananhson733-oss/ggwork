@@ -11,6 +11,7 @@ The same respond() serves httpx.MockTransport in process and http.server for the
 """
 
 import base64
+import gzip
 import hashlib
 import json
 import re
@@ -37,7 +38,7 @@ FP_RE = re.compile(r"^[0-9a-f]{64}$")  # export-v2-page.ts:24
 AS_OF_MAX_AGE = timedelta(minutes=30)  # export-v2-page.ts:18
 SERIES_DAY_SPAN = 93  # export-v2-page.ts:20
 
-# rs:src/lib/pick/export-v2-map.ts:109-114
+# rs:src/lib/pick/export-v2-map.ts:117-122
 CATALOG_SHAPED = [
     "row_key:text", "platform:text", "source_table:text", "title:text", "title_cn:text", "lang:text", "kind:text",
     "origin:text", "tags:text", "listed_on:day?", "episodes:int?", "pay_start:int?", "youtube:bool", "merged_rows:int",
@@ -266,6 +267,7 @@ class FakeRealShort:
         page_rows: dict[str, int] | None = None,
         counts: dict[str, int] | None = None,
         intercept: Callable[[Call], Reply | None] | None = None,
+        compress: bool = False,
     ):
         self.now = now
         self.export_token, self.feed_token, self.bypass, self.sha = export_token, feed_token, bypass, sha
@@ -276,6 +278,8 @@ class FakeRealShort:
         self.scrub, self.warnings = scrub or {}, warnings or []
         self.page_rows, self.counts, self.intercept = page_rows or {}, counts, intercept
         self.generation = 0
+        self.compress = compress  # gzip every non-empty body, as a CDN does for a client that accepts it
+        self.wire: list[tuple[str, int, int]] = []  # (path, body bytes, bytes sent) of every response
         self.calls: list[Call] = []
         self.raw_paths: list[str] = []  # every request that reached the deployment, deployment protection included
         self._lock = threading.Lock()
@@ -287,14 +291,21 @@ class FakeRealShort:
         def handler(request: httpx.Request) -> httpx.Response:
             headers = {k.lower(): v for k, v in request.headers.items()}
             status, out, body = self.respond(request.url.path, list(request.url.params.multi_items()), headers)
-            # Raw header bytes, as a socket would deliver them; httpx refuses non-ASCII str values.
-            return httpx.Response(status, headers={name: value.encode() for name, value in out.items()}, content=body)
+            # Raw header bytes, as a socket would deliver them; httpx refuses non-ASCII str values. A stream, not
+            # content=, so httpx counts the bytes as they arrive (num_bytes_downloaded), as it does off a socket.
+            return httpx.Response(status, headers={name: value.encode() for name, value in out.items()}, stream=httpx.ByteStream(body))
 
         return httpx.MockTransport(handler)
 
     def respond(self, path: str, query: list[tuple[str, str]], headers: dict[str, str]) -> Reply:
         with self._lock:
-            return self._respond(path, query, headers)
+            status, out, body = self._respond(path, query, headers)
+            if self.compress and body:
+                sent = gzip.compress(body, mtime=0)
+                self.wire.append((path, len(body), len(sent)))
+                return status, {**out, "content-encoding": "gzip"}, sent
+            self.wire.append((path, len(body), len(body)))
+            return status, out, body
 
     def _respond(self, path: str, query: list[tuple[str, str]], headers: dict[str, str]) -> Reply:
         self.raw_paths.append(path)

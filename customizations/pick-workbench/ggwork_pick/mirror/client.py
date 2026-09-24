@@ -15,7 +15,7 @@ import json
 import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from urllib.parse import SplitResult, urlsplit
 
@@ -36,6 +36,7 @@ from ggwork_pick.mirror.errors import (
 from ggwork_pick.mirror.feed_shape import (
     COUNTED_RESOURCES,
     ERROR_WORDS,
+    EXPORT_VERSION,
     MAX_LIMITS,
     REASON_WORDS,
     ROW_RESOURCES,
@@ -128,7 +129,7 @@ def _secret(value: object, what: str) -> str:
 class _Request:
     path: str
     params: dict[str, str]
-    token: str
+    token: str = field(repr=False)
     resource: str
     page: int
     as_of: datetime
@@ -146,7 +147,7 @@ class _Request:
 class _Reply:
     status: int
     headers: httpx.Headers
-    content: bytes
+    content: bytes = field(repr=False)
     wire_bytes: int
     started: float
     elapsed_ms: float
@@ -206,6 +207,33 @@ def _row_too_large(request: _Request, parsed: object, head: str) -> RowTooLargeE
     return RowTooLargeError(f"{head}（row_too_large）：{resource} 有一行连同信封超过 4 MB，主键 {shown}；不重试", resource=resource, key=key)
 
 
+# 401 and 404 either come from RealShort's own gate or from something in front of it (deployment protection, a wrong host).
+_CONFIG_HINTS = {
+    (401, True): "token 不对",
+    (401, False): "不是 RealShort 的 401 正文：多半被部署保护拦下，先检查 bypass，再检查 token",
+    (404, True): "RealShort 没配这条 feed 的 token",
+    (404, False): "不是 RealShort 的 404 正文：地址不对或路由不存在",
+}
+_CLOCK_HINT = "已过期，或本机时钟与 RealShort 偏差超过 2 分钟"
+
+
+def _from_realshort(request: _Request, parsed: object, word: str) -> bool:
+    """RealShort's own gate answer (rs:src/lib/pick/feed-http.ts:48-53): the fixed word, and on v2 the version too."""
+    if _word(parsed, "error", ERROR_WORDS) != word:
+        return False
+    return request.resource == "v1" or parsed.get("version") == EXPORT_VERSION
+
+
+def _bad_request(request: _Request, parsed: object, head: str, where: dict) -> FeedError:
+    """400: v2 names a fixed reason (export-v2-page.ts:94-112), v1 names none (feed-http.ts:60)."""
+    if request.resource == "v1":
+        return ContractError(f"{head}（bad_request）：参数不被接受；v1 的 400 不带原因，最可能是 as_of 不在 30 分钟窗口内（{_CLOCK_HINT}）", **where)
+    reason = _word(parsed, "reason", REASON_WORDS)
+    if reason == "as_of":
+        return AsOfExpiredError(f"{head}（as_of）：as_of 不在 RealShort 的 30 分钟窗口内（{_CLOCK_HINT}）", **where)
+    return ContractError(f"{head}（{reason or 'bad_request'}）：参数不被接受", **where)
+
+
 def classify(request: _Request, reply: _Reply, parsed: object) -> FeedError:
     """A non-200 response as an error (rs:src/lib/pick/feed-http.ts:6-14); only fixed words from the body are used."""
     status, word = reply.status, _word(parsed, "error", ERROR_WORDS)
@@ -214,12 +242,10 @@ def classify(request: _Request, reply: _Reply, parsed: object) -> FeedError:
     if 300 <= status < 400:
         return ConfigError(f"{head}：被部署保护拦下或地址不对（检查 bypass；不跟随跳转）", **where)
     if status in (401, 404):
-        return ConfigError(f"{head}：{'token 不对' if status == 401 else 'token 没配或地址不对'}", **where)
+        ours = _from_realshort(request, parsed, "unauthorized" if status == 401 else "not_found")
+        return ConfigError(f"{head}：{_CONFIG_HINTS[status, ours]}", **where)
     if status == 400:
-        reason = _word(parsed, "reason", REASON_WORDS)
-        if reason == "as_of":
-            return AsOfExpiredError(f"{head}（as_of）：as_of 已出 RealShort 的 30 分钟窗口", **where)
-        return ContractError(f"{head}（{reason or 'bad_request'}）：参数不被接受", **where)
+        return _bad_request(request, parsed, head, where)
     if status == 409 and word == "source_changed":
         return DriftError(f"{head}（source_changed）：来源在拉取途中变了", **where)
     if status == 503 and word == "source_busy":

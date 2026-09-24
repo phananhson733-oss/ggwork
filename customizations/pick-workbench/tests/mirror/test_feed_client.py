@@ -1,72 +1,22 @@
-"""The feed v1/v2 HTTP client (plan 4.1, 4.7, 5.2 steps 3-6; P2-2a).
+"""The feed v1/v2 HTTP client (plan 4.1, 4.7, 5.2 steps 3-6; P2-2a): as_of, busy and drift, v1, v2 pages, the manifest.
 
 The RealShort side is tests/mirror/fake_realshort.py, shaped after rs 816ca2e; each test names the rs line it leans on.
+Configuration, transport, secrets and metrics are in test_feed_transport.py.
 """
 
-import asyncio
 import json
-import logging
 import re
-import threading
 from datetime import UTC, datetime, timedelta, timezone
 
-import httpx
 import pytest
-from fake_realshort import (
-    BYPASS,
-    EXPORT_TOKEN,
-    FEED_TOKEN,
-    ROW_SENTINEL,
-    Clock,
-    FakeRealShort,
-    busy,
-    v1_error,
-    v2_error,
-)
+from fake_realshort import BYPASS, EXPORT_TOKEN, FEED_TOKEN, ROW_SENTINEL, busy, v1_error, v2_error
+from mirror_harness import collect, make_client, only, world
 
-from ggwork_pick.mirror.client import COUNTED_RESOURCES, FeedClient, format_as_of, select_as_of
-from ggwork_pick.mirror.errors import (
-    AsOfExpiredError,
-    BusyTimeout,
-    ConfigError,
-    ContractError,
-    DriftError,
-    FeedConnectionError,
-    FeedError,
-    RowTooLargeError,
-    SourceReadError,
-)
+from ggwork_pick.mirror.client import COUNTED_RESOURCES, format_as_of, select_as_of
+from ggwork_pick.mirror.errors import AsOfExpiredError, BusyTimeout, ConfigError, ContractError, DriftError, RowTooLargeError, SourceReadError
 
-BASE = "https://realshort.test"
 # rs:src/lib/pick/export-v2-page.ts:22 (what parseAsOf accepts) with the seconds RealShort echoes back (:30).
 ECHOED_AS_OF = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$")
-
-
-def make_client(fake: FakeRealShort, clock: Clock, **overrides) -> FeedClient:
-    options = {
-        "base_url": BASE,
-        "export_token": EXPORT_TOKEN,
-        "feed_token": FEED_TOKEN,
-        "bypass": None,
-        "transport": fake.transport(),
-        "clock": clock,
-        "sleep": clock.sleep,
-        "timer": clock.timer,
-    }
-    return FeedClient(**{**options, **overrides})
-
-
-def world(**fake_options) -> tuple[FakeRealShort, Clock]:
-    clock = Clock()
-    return FakeRealShort(now=clock, **fake_options), clock
-
-
-async def collect(generator) -> list:
-    return [page async for page in generator]
-
-
-def only(calls, resource):
-    return [call for call in calls if call.resource == resource]
 
 
 # --- as_of ---------------------------------------------------------------------------------------------
@@ -161,6 +111,27 @@ async def test_manifest_busy_gives_up_after_20_minutes():
         with pytest.raises(BusyTimeout):
             await client.manifest_when_free()
     assert sum(clock.sleeps) == 1200 and set(clock.sleeps) == {60}
+
+
+@pytest.mark.asyncio
+async def test_manifest_busy_sleeps_what_retry_after_says():
+    # RealShort always sends 60 today (rs:src/lib/pick/export-v2.ts:72); the client still honours the header (plan 5.2 step 3).
+    odd = v2_error(503, "source_busy", {"retry-after": "30"})
+    fake, clock = world(intercept=lambda call: odd if call.resource == "manifest" and call.n == 1 else None)
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+    assert clock.sleeps == [30] and manifest.busy_sleeps == (30,)
+
+
+@pytest.mark.asyncio
+async def test_busy_budget_adds_up_each_retry_after():
+    waits = {1: "1000", 2: "200", 3: "1"}
+    fake, clock = world(intercept=lambda call: v2_error(503, "source_busy", {"retry-after": waits[call.n]}) if call.resource == "manifest" else None)
+    async with make_client(fake, clock) as client:
+        with pytest.raises(BusyTimeout) as caught:
+            await client.manifest_when_free()
+    # 1000 + 200 is exactly the budget and is slept; one more second would pass it.
+    assert clock.sleeps == [1000, 200] and caught.value.waited == 1200
 
 
 @pytest.mark.asyncio
@@ -287,6 +258,28 @@ async def test_v1_keeps_every_sync_check(changes):
         manifest = await client.manifest_when_free()
         with pytest.raises(ContractError):
             await collect(client.v1_pages(manifest))
+
+
+@pytest.mark.asyncio
+async def test_v1_stops_after_40_pages():
+    fake, clock = world(v1_rows=1)
+    _rewrite_v1_page(fake, lambda page, cursor: {**page, "nextCursor": f"c{len(only(fake.calls, 'v1')):04d}"})
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+        with pytest.raises(ContractError) as caught:
+            await collect(client.v1_pages(manifest))
+    assert len(only(fake.calls, "v1")) == 40 and "40" in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_v1_400_names_the_likely_causes():
+    # rs:src/lib/pick/feed-http.ts:60: a v1 400 carries no reason, so the client cannot tell the as_of window apart.
+    fake, clock = world(intercept=lambda call: v1_error(400, "bad_request") if call.resource == "v1" else None)
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+        with pytest.raises(ContractError) as caught:
+            await collect(client.v1_pages(manifest))
+    assert "as_of" in str(caught.value) and "时钟" in str(caught.value)
 
 
 def test_v1_constants_match_sync():
@@ -517,6 +510,7 @@ def _row(change):
         _row(lambda row: {**row, "meta": {**row["meta"], "scrub": {"rs_rows.title ROWVALUE=x": 1}}}),
         _row(lambda row: {**row, "meta": {**row["meta"], "warnings": [{"source": "x"}]}}),
         _row(lambda row: {**row, "sourceRevision": 5}),
+        _row(lambda row: {**row, "asOf": "2026-09-23T12:31:00.000Z"}),
     ],
 )
 async def test_manifest_contract(change):
@@ -527,6 +521,17 @@ async def test_manifest_contract(change):
         with pytest.raises(ContractError) as caught:
             await client.manifest_when_free()
     assert ROW_SENTINEL not in str(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("day", ["2026-06-22", "2026-09-24"])
+async def test_snapshot_days_outside_the_series_window_are_a_contract_error(day):
+    # rs:src/lib/pick/export-v2.ts:440-446: snapshotDays runs from the as_of day back 92 days, the window day takes.
+    fake, clock = world(series={day: 1, "2026-09-23": 1})
+    async with make_client(fake, clock) as client:
+        with pytest.raises(ContractError) as caught:
+            await client.manifest_when_free()
+    assert "snapshotDays" in str(caught.value)
 
 
 @pytest.mark.asyncio
@@ -577,6 +582,8 @@ async def test_as_of_400_is_expired_not_contract():
         with pytest.raises(AsOfExpiredError) as caught:
             await collect(client.pages("rs_ids", manifest=manifest))
     assert not isinstance(caught.value, ContractError)
+    # Also what a local clock more than two minutes ahead of RealShort looks like: as_of lands in its future.
+    assert "时钟" in str(caught.value)
 
 
 @pytest.mark.asyncio
@@ -587,191 +594,3 @@ async def test_other_400_reasons_are_contract_errors():
         with pytest.raises(ContractError) as caught:
             await collect(client.pages("rs_ids", manifest=manifest))
     assert "limit" in str(caught.value)
-
-
-# --- configuration and transport -----------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_no_redirect_follow():
-    fake, clock = world(bypass=BYPASS)
-    async with make_client(fake, clock, bypass="wrong-bypass-value") as client:
-        with pytest.raises(ConfigError) as caught:
-            await client.manifest_when_free()
-    assert fake.raw_paths == ["/api/pick-feed/v2/manifest"] and fake.calls == []
-    assert caught.value.status == 307 and "sso" not in str(caught.value)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("reply", "error"),
-    [
-        (v2_error(401, "unauthorized"), ConfigError),
-        (v2_error(404, "not_found"), ConfigError),
-        ((418, {}, b"teapot"), FeedError),
-        ((500, {}, b"<html>boom</html>"), FeedError),
-        ((200, {}, b"<html>maintenance</html>"), FeedError),
-        ((503, {}, b"<html>vercel</html>"), FeedError),
-    ],
-    ids=["401", "404", "418", "500-other", "200-not-json", "503-html"],
-)
-async def test_other_statuses(reply, error):
-    fake, clock = world(intercept=lambda call: reply)
-    async with make_client(fake, clock) as client:
-        with pytest.raises(error) as caught:
-            await client.manifest_when_free()
-    assert type(caught.value) is error or error is ConfigError
-    assert str(reply[0]) in str(caught.value)
-
-
-@pytest.mark.asyncio
-async def test_connection_errors_name_the_class_only():
-    def refuse(request):
-        raise httpx.ConnectError(f"down {request.headers['authorization']}", request=request)
-
-    clock = Clock()
-    async with FeedClient(base_url=BASE, export_token=EXPORT_TOKEN, transport=httpx.MockTransport(refuse), clock=clock, sleep=clock.sleep) as client:
-        with pytest.raises(FeedError) as caught:
-            await client.manifest_when_free()
-    assert "ConnectError" in str(caught.value) and EXPORT_TOKEN not in str(caught.value)
-
-
-@pytest.mark.asyncio
-async def test_one_request_has_a_total_time_limit():
-    # httpx's read timeout is per socket read; plan 5.1 gives one request 60 seconds in all.
-    async def trickle(request):
-        await asyncio.sleep(1)
-        return httpx.Response(200, json={})
-
-    clock = Clock()
-    client = FeedClient(base_url=BASE, export_token=EXPORT_TOKEN, transport=httpx.MockTransport(trickle), clock=clock, sleep=clock.sleep, request_seconds=0.05)
-    async with client:
-        with pytest.raises(FeedConnectionError) as caught:
-            await client.manifest_when_free()
-    assert "0.05" in str(caught.value) and caught.value.resource == "manifest"
-
-
-@pytest.mark.parametrize(
-    "options",
-    [
-        {"base_url": "https://realshort.test/api"},
-        {"base_url": "https://user:pw@realshort.test"},
-        {"base_url": "ftp://realshort.test"},
-        {"base_url": "https://realshort.test?x=1"},
-        {"export_token": " "},
-        {"export_token": "two words"},
-        {"bypass": "line\nbreak"},
-        {"feed_token": ""},
-    ],
-)
-def test_bad_configuration_refused(options):
-    with pytest.raises(ConfigError) as caught:
-        FeedClient(**{"base_url": BASE, "export_token": EXPORT_TOKEN, **options})
-    assert "pw" not in str(caught.value) and "words" not in str(caught.value) and "break" not in str(caught.value)
-
-
-@pytest.mark.asyncio
-async def test_oversized_body_is_refused():
-    fake, clock = world(intercept=lambda call: (200, {}, b"[" + b"0," * 600 + b"0]"))
-    async with make_client(fake, clock, max_body_bytes=1000) as client:
-        with pytest.raises(ContractError):
-            await client.manifest_when_free()
-
-
-@pytest.mark.asyncio
-async def test_errors_never_contain_secrets(caplog):
-    caplog.set_level(logging.DEBUG)
-    secret_body = {"ok": False, "version": "pick-export-v2", "error": f"{ROW_SENTINEL} {EXPORT_TOKEN} {BYPASS}", "reason": ROW_SENTINEL}
-    replies = [
-        v2_error(401, "unauthorized"),
-        v2_error(404, "not_found"),
-        (500, {}, json.dumps(secret_body).encode()),
-        (400, {}, json.dumps(secret_body).encode()),
-        (503, {}, json.dumps(secret_body).encode()),
-        (302, {"location": f"https://sso.test/?{BYPASS}"}, b""),
-        (500, {}, json.dumps({**secret_body, "error": "row_too_large", "resource": ROW_SENTINEL, "key": {"v": ROW_SENTINEL}}).encode()),
-    ]
-    for reply in replies:
-        fake, clock = world(bypass=None, intercept=lambda call, reply=reply: reply)
-        async with make_client(fake, clock, bypass=BYPASS) as client:
-            with pytest.raises(FeedError) as caught:
-                await client.manifest_when_free()
-            text = f"{caught.value} {caught.value!r} {client!r}"
-        for secret in (EXPORT_TOKEN, FEED_TOKEN, BYPASS, ROW_SENTINEL):
-            assert secret not in text, (reply[0], secret)
-    for secret in (EXPORT_TOKEN, FEED_TOKEN, BYPASS, ROW_SENTINEL):
-        assert secret not in caplog.text
-
-
-# --- metrics -------------------------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_metrics_measure_each_response():
-    fake, clock = world(sizes={"rs_ids": 2}, page_rows={"rs_ids": 1})
-    original = fake._rows
-
-    def slow(name, params, as_of):
-        clock.advance(1.5)
-        return original(name, params, as_of)
-
-    fake._rows = slow
-    seen = []
-    async with make_client(fake, clock, on_response=seen.append) as client:
-        manifest = await client.manifest_when_free()
-        pages = await collect(client.pages("rs_ids", manifest=manifest))
-    first = pages[0].metrics
-    assert (first.resource, first.page, first.status, first.rows, first.retry_after, first.attempt) == ("rs_ids", 1, 200, 1, None, 1)
-    assert first.elapsed_ms == 1500.0 and pages[1].metrics.page == 2
-    assert first.bytes == len(json.dumps(pages[0].body, ensure_ascii=False, separators=(",", ":")).encode()) == first.wire_bytes
-    assert manifest.metrics.resource == "manifest" and manifest.metrics.rows == 1
-    assert [m.resource for m in seen] == ["manifest", "rs_ids", "rs_ids"]
-    line = first.line()
-    assert set(line) == {"resource", "page", "status", "elapsed_ms", "bytes", "wire_bytes", "rows", "retry_after"}
-
-
-@pytest.mark.asyncio
-async def test_busy_metrics_carry_retry_after():
-    fake, clock = world(intercept=lambda call: busy() if call.resource == "manifest" and call.n == 1 else None)
-    seen = []
-    async with make_client(fake, clock, on_response=seen.append) as client:
-        await client.manifest_when_free()
-    assert [(m.status, m.retry_after, m.error) for m in seen] == [(503, 60, "source_busy"), (200, None, None)]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("header", ["\u00b2", "soon", "999999"])
-async def test_odd_retry_after_falls_back_to_sixty(header):
-    odd = v2_error(503, "source_busy", {"retry-after": header})
-    fake, clock = world(intercept=lambda call: odd if call.resource == "manifest" and call.n == 1 else None)
-    async with make_client(fake, clock) as client:
-        await client.manifest_when_free()
-    assert clock.sleeps == [60]
-
-
-@pytest.mark.asyncio
-async def test_large_bodies_are_parsed_off_the_event_loop(monkeypatch):
-    # Critique 1.9: the extension runs inside the gateway's single event loop; a 3 MB json.loads must not stall it.
-    from ggwork_pick.mirror import client as client_module
-
-    threads = []
-    original = client_module._parse_json
-
-    def spy(content):
-        threads.append((len(content), threading.current_thread() is threading.main_thread()))
-        return original(content)
-
-    monkeypatch.setattr(client_module, "_parse_json", spy)
-    fake, clock = world(sizes={"rs_ids": 800})
-    async with make_client(fake, clock) as client:
-        manifest = await client.manifest_when_free()
-        await collect(client.pages("rs_ids", manifest=manifest))
-    small, large = threads
-    assert small[0] < client_module.THREAD_PARSE_BYTES < large[0]
-    assert small[1] is True and large[1] is False
-
-
-def test_as_of_age_limit_leaves_margin_inside_realshorts_window():
-    from ggwork_pick.mirror import client
-
-    assert client.AS_OF_MAX_AGE == timedelta(minutes=25) < timedelta(minutes=30)
