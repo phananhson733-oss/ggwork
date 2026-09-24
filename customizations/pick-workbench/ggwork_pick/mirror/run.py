@@ -29,6 +29,7 @@ from ggwork_pick.mirror.errors import BusyTimeout, ConfigError, DriftError, Feed
 from ggwork_pick.mirror.feed_shape import Manifest
 from ggwork_pick.mirror.gates import GateError
 from ggwork_pick.mirror.lock import LOCK_STUCK_AFTER, lock_status, mirror_lock
+from ggwork_pick.mirror.publish import ALERT_AFTER
 from ggwork_pick.mirror.retention import clean_leftover_versions, prune_versions
 from ggwork_pick.mirror.run_result import (
     AT_MANIFEST,
@@ -88,7 +89,6 @@ DRIFT_RETRY_DELAY = 90
 READ_FAILED_RETRY_DELAY = 5
 COPY_TIMEOUT = 60
 STATEMENT_TIMEOUT = 120
-ALERT_AFTER = 3
 DEFAULT_DB_SIZE_CAP = 6 * 2**30  # PICK_DB_SIZE_CAP_BYTES when unset (SyncSettings.db_size_cap)
 # A cleanup step refused for want of privilege (42501: an orphan schema another role owns, say, raised by asyncpg or
 # through the ORM; or a PermissionError on a blob) is recorded in details_json and the run goes on; anything else stops

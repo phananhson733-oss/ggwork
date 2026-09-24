@@ -99,12 +99,20 @@ class PickService:
         self.catch_up_delay = catch_up_delay
         self._background: set[asyncio.Task] = set()
 
+    def _engine(self):
+        return self.session_factory.kw.get("bind") if self.session_factory is not None else None
+
+    def mirror_enabled(self) -> bool:
+        """Whether realshort_sync() hands out the mirror run: configured, and switched on where it can run (U31)."""
+        engine = self._engine()
+        return self.sync_settings.configured and self.sync_settings.mirror_on(engine.dialect.name if engine is not None else None)
+
     def realshort_sync(self):
         """The run the schedule and the manual button start: MirrorSync when the mirror is on, else the v1 RealShortSync."""
         settings = self.sync_settings
         if not settings.configured:
             return None
-        engine = self.session_factory.kw.get("bind") if self.session_factory is not None else None
+        engine = self._engine()
         dialect = engine.dialect.name if engine is not None else None
         if settings.mirror_on(dialect):
             return self._mirror_sync(engine)

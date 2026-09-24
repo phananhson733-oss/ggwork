@@ -14,6 +14,7 @@ from pydantic import Field, ValidationError
 
 from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
+from ggwork_pick.mirror.status import mirror_status
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import ReplayGone, ReplayUnrunnable, SelectionService, result_view
 
@@ -115,8 +116,11 @@ def build_router(service):
         repo = repository(request)
         current = await repo.current_batch("catalog")
         info = await repo.batch_info(current["id"]) if current else None
-        runs = await PickRepository.shared(service.session_factory).sync_runs()
-        return {"configured": service.sync_settings.configured, "current": info, "runs": runs}
+        shared = PickRepository.shared(service.session_factory)
+        runs = await shared.sync_runs()
+        # The mirror's state (P2-8b): null on SQLite; judged on the shared batches, not on this user's current.
+        mirror = await mirror_status(shared, enabled=service.mirror_enabled(), sync_running=service.sync_lock.locked(), now=datetime.now(UTC))
+        return {"configured": service.sync_settings.configured, "current": info, "runs": runs, "mirror": mirror}
 
     @router.post("/sync", status_code=202)
     async def sync_now(request: Request):

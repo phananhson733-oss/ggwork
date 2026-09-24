@@ -22,6 +22,8 @@ _ROLE_NAME = re.compile(r"[a-z_][a-z0-9_]{0,62}")
 _VERSION_SCHEMA = re.compile(r"pickm_v[0-9]{6}")
 # The fixed failure codes (U11): only these ever reach control.last_failure, which /api/pick/sync shows everyone.
 FAILURE_REASONS = ("capacity", "fallback_v1", "v1", "drift", "busy")
+# From this many failures in a row the run logs an ERROR (plan 808, U50) and /api/pick/sync raises mirror.alert (P2-8b).
+ALERT_AFTER = 3
 _DEGRADED = re.compile(r"degraded:[A-Za-z][A-Za-z0-9_]{0,63}")
 PAIRED_KINDS = ("catalog", "knowledge")
 _PAIRED_COLUMN = {"catalog": "agent_catalog_batch_id", "knowledge": "agent_knowledge_batch_id"}  # constants, never input
