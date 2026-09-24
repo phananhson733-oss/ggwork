@@ -121,8 +121,11 @@ async def test_closing_without_unlocking_releases_it(dsn, observer):
         # Session-level: gone with the session. The timestamp it left says nothing once nobody holds the lock.
         assert await observer.fetchval(SINCE) == T0
         assert await lock_status(observer, now=T0 + timedelta(hours=5)) == NOT_HELD
-        assert await try_mirror_lock(next_one, now=T0 + timedelta(hours=5), holder="sync")
-        assert await observer.fetchval(SINCE) == T0 + timedelta(hours=5)
+        # Another holder takes over the row the dead one left: both columns are its own, never the dead holder's name.
+        assert await try_mirror_lock(next_one, now=T0 + timedelta(hours=5), holder="backfill")
+        assert tuple(await observer.fetchrow(HOLDER)) == ("backfill", T0 + timedelta(hours=5))
+        status = await lock_status(observer, now=T0 + timedelta(hours=5))
+        assert (status["holder"], status["holder_since"], status["stuck"]) == ("backfill", T0 + timedelta(hours=5), False)
     finally:
         await next_one.close()
 
