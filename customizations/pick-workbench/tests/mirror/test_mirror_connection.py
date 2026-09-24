@@ -88,6 +88,27 @@ def test_dsn_from_env_needs_pick_database_url(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_open_dedicated_sets_no_statement_timeout_and_leaves_tls_to_pgsslmode(monkeypatch):
+    import asyncpg
+
+    from ggwork_pick.mirror.connection import open_dedicated
+
+    calls = []
+
+    async def connect(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "connection"
+
+    monkeypatch.setattr(asyncpg, "connect", connect)
+    dsn = f"postgresql://app:{SECRET}@db.example/postgres"
+    assert await open_dedicated(dsn) == "connection"
+    # COPY, index builds and the gate scans outlast the ORM pool's 30 seconds: every statement's timeout is its caller's.
+    # No ssl argument: asyncpg reads PGSSLMODE the way libpq does.
+    settings = {"search_path": "deerflow", "application_name": "ggwp-mirror"}
+    assert calls == [((dsn,), {"server_settings": settings, "command_timeout": None})]
+
+
+@pytest.mark.asyncio
 async def test_the_dedicated_connection_brings_its_own_search_path_and_name_and_stays_out_of_the_pool(pg_db_url):
     from ggwork_pick.mirror.connection import APPLICATION_NAME, dsn_from_url, open_dedicated
 
