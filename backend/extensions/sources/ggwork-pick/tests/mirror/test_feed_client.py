@@ -320,6 +320,24 @@ async def test_v2_row_too_large_not_retried():
     assert "catalog_accounts" in str(caught.value) and "acct-big" in str(caught.value)
 
 
+@pytest.mark.asyncio
+async def test_v2_row_too_large_key_is_scrubbed_in_the_message():
+    """security-3: the key in the message reaches details_json and pick_mirror.versions.error, which every signed-in
+    user and the reader can read. Key columns are exempt from RealShort's scrub, so the message scrubs them the way
+    gate_result.id_part names a row; the raw key stays on the exception for code."""
+    pan_key = "https://pan.baidu.com/s/1AbCdEf 提取码：ab12"
+    reply = v2_error(500, "row_too_large", resource="catalog_accounts", key=[pan_key, 7])
+    fake, clock = world(sizes={"catalog_accounts": 1}, intercept=lambda call: reply if call.resource == "catalog_accounts" else None)
+    async with make_client(fake, clock) as client:
+        manifest = await client.manifest_when_free()
+        with pytest.raises(RowTooLargeError) as caught:
+            await collect(client.pages("catalog_accounts", manifest=manifest))
+    assert caught.value.key == (pan_key, 7)
+    message = str(caught.value)
+    assert "pan.baidu.com" not in message and "ab12" not in message
+    assert "网盘信息已移除" in message and "7]" in message
+
+
 def _rewrite_rows_page(fake, resource, change):
     original = fake._rows
 

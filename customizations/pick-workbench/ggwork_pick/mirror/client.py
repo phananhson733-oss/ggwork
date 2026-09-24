@@ -52,6 +52,7 @@ from ggwork_pick.mirror.feed_shape import (
     parse_manifest,
     select_as_of,
 )
+from ggwork_pick.mirror.gate_result import id_part
 
 __all__ = [
     "AS_OF_MAX_AGE",
@@ -225,7 +226,9 @@ def _row_too_large(request: _Request, parsed: object, head: str) -> RowTooLargeE
     named = parsed.get("resource") if isinstance(parsed, dict) else None
     resource = named if named in ROW_RESOURCES else request.resource
     key = _row_key(parsed.get("key") if isinstance(parsed, dict) else None)
-    shown = json.dumps(list(key), ensure_ascii=False) if key is not None else "（形状不符，不显示）"
+    # Key columns are exempt from RealShort's scrub, and this text reaches details_json and versions.error: each part is
+    # shown as a gate names a row (id_part: scrubbed, then cut; security-3). RowTooLargeError.key keeps the raw key.
+    shown = json.dumps([id_part(part) for part in key], ensure_ascii=False) if key is not None else "（形状不符，不显示）"
     return RowTooLargeError(f"{head}（row_too_large）：{resource} 有一行连同信封超过 4 MB，主键 {shown}；不重试", resource=resource, key=key)
 
 
