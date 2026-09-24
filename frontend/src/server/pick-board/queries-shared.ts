@@ -1,22 +1,26 @@
 // PORTED_FROM: realshort@816ca2e src/lib/pick/queries-shared.ts
 // 本地改动：网盘两列换成 has_pan / hasPan（链接与提取码不进镜像，只知道有没有）；ROW_COLUMN_NAMES 导出；
-// 同名核对行具名为 SameTitleRow；分页结果具名为 RowsPage<T>。PickFacets / PickFreshness / SiteDrama / RowDetail
-// 原在 queries.ts，P3-3a 先放这里：queries.ts 一落地就会打开 P3-2 的源码形状门控，要等 P3-3 连同实现一起落。
-// P3-3a 只有类型与列清单；列清单派生的 SQL 片段、行转换与 loadSignalsFor / loadPostedFor 由 P3-3 补。
+// 同名核对行具名为 SameTitleRow；分页结果具名为 RowsPage<T>；时间列的解析（原 observe/queries.ts 的 toTimestamp
+// 与 pick/queries.ts 的 toDate）合成一个 toTimestamp 放在这里，几个查询文件共用。
 import "server-only";
 
+import { sql, type SQL } from "drizzle-orm";
+
 import {
+  BASES,
+  PLATFORMS,
+  RS_ROW_PREFIX,
   type Basis,
   type Platform,
-  type PostedFilter,
 } from "@/core/pick-board/request";
 
-import { type PostedRecord } from "./queries-posted";
+import { getDb } from "./db";
 import { type ObserveRow } from "./rs-queries";
 
 /**
- * 选剧台几个查询文件共用的列清单与行形状。页面与组件只经 `@/server/pick-board` 取类型
+ * 选剧台几个查询文件共用的列清单、行转换与小工具。页面与组件只经 `@/server/pick-board` 取类型
  * （组件一律 `import type`），不直接 import 这里。
+ * 【所有查询都裁列】：只取显示要用的列。
  */
 
 /**
@@ -164,47 +168,178 @@ export interface SameTitleRow {
   offOn: string | null;
 }
 
-export interface PickFacets {
-  platforms: Partial<Record<Platform, number>>;
-  langs: { lang: string; n: number }[];
-  bases: Partial<Record<Basis, number>>;
-  /** 未发过 / 发过 / 在选剧池 各有几行；「不限」不计 */
-  posted: Record<Exclude<PostedFilter, "">, number>;
+export const ROW_COLUMNS = sql.raw(ROW_COLUMN_NAMES.join(", "));
+/** 与 catalog_signals join 时要带表名，否则 row_key 二义 */
+export const ROW_COLUMNS_QUALIFIED = sql.raw(
+  ROW_COLUMN_NAMES.map((c) => `catalog_rows.${c}`).join(", "),
+);
+
+/** 不认识的剧场键（RealShort 新增了剧场）照原样回落成 dramabox，页面靠「规则漂移」横幅提示 */
+export function platformOf(raw: string): Platform {
+  return (PLATFORMS as readonly string[]).includes(raw)
+    ? (raw as Platform)
+    : "dramabox";
 }
 
-/** 版本的 versions.freshness（即 meta.freshness），时间列转成 Date */
-export interface PickFreshness {
-  importedAt: Date | null;
-  rows: number;
-  withSignal: number;
-  signals: number;
-  posted: number;
-  /** ReelShort：正典行数 / 候选数 / 指标最近采集时间 */
-  rsCanonical: number;
-  rsCandidates: number;
-  rsSyncedAt: Date | null;
+export function toRow(r: RawRow): Omit<PickRow, "signals" | "posted"> {
+  return {
+    rowKey: r.row_key,
+    platform: platformOf(r.platform),
+    sourceTable: r.source_table,
+    title: r.title,
+    titleCn: r.title_cn,
+    lang: r.lang,
+    kind: r.kind,
+    origin: r.origin,
+    tags: r.tags,
+    listedOn: r.listed_on,
+    hasPan: r.has_pan,
+    episodes: r.episodes,
+    payStart: r.pay_start,
+    youtube: r.youtube,
+    mergedRows: r.merged_rows,
+    offOn: r.off_on,
+    reoffNote: r.reoff_note,
+    inSiteIds: r.in_site_ids ?? [],
+    legacyOnly: r.legacy_only,
+    siteOther: r.site_other,
+    hasSignal: r.has_signal,
+    latestEvidenceOn: r.latest_evidence_on,
+  };
 }
 
-/** 证据页里对上的 ReelShort 行（取自 rs_ids），只取链接与集数要用的列 */
-export interface SiteDrama {
-  id: string;
-  locale: string;
-  slug: string;
-  title: string;
-  chapterCount: number;
-  payStart: number;
+/**
+ * 一列 timestamptz 归一成 Date。读连接把时间类型按文本返回（db.ts 的 TEXT_OIDS），形如
+ * `2026-09-01 06:54:13.838991+00`：Postgres 的 `+00` 不是合法的 ISO 偏移，要补成 `+00:00` 再解析。
+ * 已经是 Date 的原样用；解析不出来一律 null（「日期未知」有明确的渲染，Invalid Date 会让 toISOString 抛错）。
+ */
+export function toTimestamp(value: unknown): Date | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date)
+    return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value !== "string" || value === "") return null;
+  const iso = value.replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00");
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-export interface RowDetail {
-  row: PickRow;
-  siteDramas: SiteDrama[];
-  postedRecords: PostedRecord[];
-  sameTitle: SameTitleRow[];
-  /** sameTitle 取回条数等于 SAME_TITLE_LIMIT：可能还有没取到的 */
-  sameTitleTruncated: boolean;
-  /**
-   * 这个剧场当前版本的剧单里，集数 / 起付费两列有没有任何一行填了：
-   * 分得清「这一行没填」与「这个剧场的剧单根本不给这一列」。只给布尔不给行数。
-   */
-  columnFilled: { episodes: boolean; payStart: boolean };
+/**
+ * 把 JS 数组变成 SQL 的 text[] 字面量：drizzle 的模板会把数组展开成 ($1, $2, …) 这种 record，
+ * 直接 `${keys}::text[]` 会报 cannot cast type record to text[]。这里的数组最多一页（200 个键）。
+ */
+export function textArray(values: readonly string[]): SQL {
+  if (values.length === 0) return sql`ARRAY[]::text[]`;
+  return sql`ARRAY[${sql.join(
+    values.map((v) => sql`${v}`),
+    sql`, `,
+  )}]::text[]`;
+}
+
+export function whereOf(filters: readonly SQL[]): SQL {
+  return filters.length
+    ? sql`WHERE ${sql.join([...filters], sql` AND `)}`
+    : sql``;
+}
+
+interface SignalRaw extends Record<string, unknown> {
+  row_key: string;
+  kind: string;
+  ord: number;
+  evidence_on: string | null;
+  rank: number | null;
+  grade: string;
+  note: string;
+  payload: Record<string, unknown> | null;
+}
+
+function isBasis(kind: string): kind is Basis {
+  return (BASES as readonly string[]).includes(kind);
+}
+
+function toSignal(r: SignalRaw & { kind: Basis }): PickSignal {
+  return {
+    kind: r.kind,
+    ord: r.ord,
+    evidenceOn: r.evidence_on,
+    rank: r.rank,
+    grade: r.grade,
+    note: r.note,
+    payload: r.payload ?? {},
+  };
+}
+
+/** 按键分组；组与组内都保持查询给的顺序（一页最多几百项） */
+export function groupBy<T>(
+  items: readonly T[],
+  keyOf: (item: T) => string,
+): Map<string, T[]> {
+  const keys = [...new Set(items.map(keyOf))];
+  return new Map(
+    keys.map((key) => [key, items.filter((item) => keyOf(item) === key)]),
+  );
+}
+
+/** 一页行的信号；不认识的信号种类（RealShort 新增的）不显示 */
+export async function loadSignalsFor(
+  rowKeys: readonly string[],
+): Promise<Map<string, PickSignal[]>> {
+  if (rowKeys.length === 0) return new Map();
+  const res = await getDb().execute<SignalRaw>(
+    sql`SELECT row_key, kind, ord, evidence_on, rank, grade, note, payload FROM catalog_signals
+        WHERE row_key = ANY(${textArray(rowKeys)}) ORDER BY row_key, ord`,
+  );
+  const known = res.rows.filter((r): r is SignalRaw & { kind: Basis } =>
+    isBasis(r.kind),
+  );
+  const grouped = groupBy(known, (r) => r.row_key);
+  return new Map(
+    [...grouped].map(([key, rows]) => [key, rows.map(toSignal)] as const),
+  );
+}
+
+interface PostedTagRaw extends Record<string, unknown> {
+  row_key: string;
+  sd: string;
+  life: string;
+  scheduled: boolean;
+  post_count: number;
+  sched_count: number;
+  last_post_on: string | null;
+  views_total: number;
+}
+
+function toPostedTag(r: PostedTagRaw): PickPostedTag {
+  return {
+    sd: r.sd,
+    life: r.life,
+    scheduled: r.scheduled,
+    postCount: r.post_count,
+    schedCount: r.sched_count,
+    lastPostOn: r.last_post_on,
+    viewsTotal: r.views_total,
+  };
+}
+
+/** 一页行对上的发布记录标签；ReelShort 行按 drama_ids 对（行键前缀 reelshort-） */
+export async function loadPostedFor(
+  rowKeys: readonly string[],
+): Promise<Map<string, PickPostedTag[]>> {
+  if (rowKeys.length === 0) return new Map();
+  /* 把 row_keys 数组展开成 (row_key, sd) 对，只要这一页的行 */
+  const cols = sql.raw(
+    "p.sd, p.life, p.scheduled, p.post_count, p.sched_count, p.last_post_on, p.views_total",
+  );
+  const res = await getDb().execute<PostedTagRaw>(
+    sql`SELECT * FROM (
+          SELECT k.row_key, ${cols} FROM catalog_posted p, unnest(p.row_keys) AS k(row_key)
+          WHERE k.row_key = ANY(${textArray(rowKeys)})
+          UNION ALL
+          SELECT ${RS_ROW_PREFIX} || k.id AS row_key, ${cols} FROM catalog_posted p, unnest(p.drama_ids) AS k(id)
+          WHERE ${RS_ROW_PREFIX} || k.id = ANY(${textArray(rowKeys)})
+        ) u ORDER BY u.last_post_on DESC NULLS LAST, u.sd`,
+  );
+  const grouped = groupBy(res.rows, (r) => r.row_key);
+  return new Map(
+    [...grouped].map(([key, rows]) => [key, rows.map(toPostedTag)] as const),
+  );
 }

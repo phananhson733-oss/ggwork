@@ -286,8 +286,36 @@ const LOADER_SIGNATURES: readonly true[] = [
   >,
 ];
 
-// The four loaders of queries.ts land with P3-3 (a queries.ts file opens the
-// P3-2 source-shape gates); their result types are pinned here already.
+// The loaders of queries.ts (P3-3), and the per-version cached reads the page
+// uses in place of a query: the candidate pool N, the version's freshness and
+// sources as resolveBoard returned them.
+const PAGE_LOADERS: readonly true[] = [
+  true satisfies Equal<
+    Signature<typeof board.loadPickRows>,
+    [[req: PickRequest], RowsPage<PickRow>]
+  >,
+  true satisfies Equal<
+    Signature<typeof board.loadFacets>,
+    [[req: PickRequest], PickFacets]
+  >,
+  true satisfies Equal<
+    Signature<typeof board.loadFreshness>,
+    [[], PickFreshness]
+  >,
+  true satisfies Equal<
+    Signature<typeof board.loadRowDetail>,
+    [[rowKey: string], RowDetail | null]
+  >,
+  true satisfies Equal<Signature<typeof board.loadCandidatePool>, [[], number]>,
+  true satisfies Equal<Parameters<typeof board.freshnessOf>, [raw: unknown]>,
+  true satisfies Equal<ReturnType<typeof board.freshnessOf>, PickFreshness>,
+  true satisfies Equal<ReturnType<typeof board.sourcesOf>, ObserveSources>,
+  true satisfies Equal<
+    Parameters<typeof board.resolveBoard>,
+    [v: number | null]
+  >,
+];
+
 const PAGE_TYPES: readonly true[] = [
   true satisfies Equal<
     RowsPage<PickRow>,
@@ -326,7 +354,12 @@ function tableColumns(ddl: string, table: string): Map<string, string> {
 describe("P3-3a 类型与签名", () => {
   it("行与对账的类型形状由 tsc 钉住（去掉金额与网盘字段）", () => {
     expect(
-      [...ROW_SHAPES, ...LOADER_SIGNATURES, ...PAGE_TYPES].every(Boolean),
+      [
+        ...ROW_SHAPES,
+        ...LOADER_SIGNATURES,
+        ...PAGE_LOADERS,
+        ...PAGE_TYPES,
+      ].every(Boolean),
     ).toBe(true);
   });
 
@@ -346,6 +379,14 @@ describe("P3-3a 类型与签名", () => {
 });
 
 const PAGE_ENTRY = [
+  "loadPickRows",
+  "loadFacets",
+  "loadFreshness",
+  "loadRowDetail",
+  "loadCandidatePool",
+  "freshnessOf",
+  "sourcesOf",
+  "resolveBoard",
   "loadRankMeta",
   "loadRankRows",
   "loadGrowthDiagnosis",
@@ -392,6 +433,11 @@ const INTERNAL = [
   "loadRsCounts",
   "loadGrowthBaseline",
   "readSources",
+  "readVersionMeta",
+  "cachedVersionDb",
+  "resetVersionCacheForTests",
+  "unionRows",
+  "filtersFor",
 ] as const;
 
 describe("桶文件 @/server/pick-board", () => {

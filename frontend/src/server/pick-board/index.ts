@@ -9,25 +9,35 @@ import "server-only";
  * bundle).
  *
  * Not re-exported: the pool and executors (db.ts), error translation, the
- * column lists, SQL fragments and row mappers, and the rs-queries loaders that
- * only the other query modules call. Modules inside src/server/pick-board
- * import each other directly.
+ * column lists, SQL fragments and row mappers, the per-version cache itself,
+ * and the rs-queries loaders that only the other query modules call. Modules
+ * inside src/server/pick-board import each other directly.
  *
- * The four loaders of queries.ts (loadPickRows, loadFacets, loadFreshness,
- * loadRowDetail) join this list when P3-3 lands queries.ts.
+ * resolveBoard is resolveVersion with the board's rules and the per-version
+ * cache of step 2 (meta.rules / meta.sources); freshnessOf and sourcesOf turn
+ * what it returns into the header's and the footer's shapes without a query.
  */
 
 export {
-  type PickFacets,
-  type PickFreshness,
   type PickPostedTag,
   type PickRow,
   type PickSignal,
-  type RowDetail,
   type RowsPage,
   type SameTitleRow,
-  type SiteDrama,
 } from "./queries-shared";
+export {
+  freshnessOf,
+  loadCandidatePool,
+  loadFacets,
+  loadFreshness,
+  loadPickRows,
+  loadRowDetail,
+  type PickFacets,
+  type PickFreshness,
+  type RowDetail,
+  type SiteDrama,
+} from "./queries";
+export { resolveBoard } from "./cache";
 export {
   type BillRow,
   type BillTotals,
@@ -67,7 +77,7 @@ export {
   loadReelshortDetail,
   type ReelshortDetail,
 } from "./queries-reelshort";
-export { type ObserveSources } from "./source-state";
+export { type ObserveSources, sourcesOf } from "./source-state";
 
 export { setBoardScope, type VersionScope } from "./db";
 export {
