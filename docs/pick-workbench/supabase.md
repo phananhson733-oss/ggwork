@@ -290,7 +290,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
    ```
 
    - 一个事务。10 个 JSON 列里，含命中的 JSON 字符串整串换成 `[网盘信息已移除]`，其余字节不动，JSON 仍然有效；知识文档的文件名（`title`，只用于显示和检索）命中时整个换掉。当前批次、旧批次、候选卡、换一批和已存选择照常能读能用。
-   - 输出逐行是 `BEGIN`、`CREATE FUNCTION`、9 行 `UPDATE n`、`DROP FUNCTION`、`COMMIT`，各行的 n 记进第 12 节。可以重复执行，第二次全是 `UPDATE 0`。
+   - 输出逐行是 `BEGIN`、`CREATE FUNCTION`、11 行 `UPDATE n`（依次是 10 个 JSON 列和知识文件名，顺序与核查结果的前 11 行相同）、`DROP FUNCTION`、`COMMIT`，各行的 n 记进第 12 节。可以重复执行，第二次全是 `UPDATE 0`。
    - 用的是与核查相同的模式，同一次会把误报一起换掉。
    - 不改这几处，它们有命中时不算清除完成，停下来另议：主键和 identity 列；JSON 里 `identity`、`source_id`、`item_id`、`citation_id`、`request_id` 的值（改了剧目、快照、选择与回执就对不上）；知识来源 `source_ref`（`document_id` 是它的 sha256，属于文档身份）；知识正文（规则全文）；候选的排除集合 `excluded_json`（整列是 identity，改了换一批的回放就对不上）；宿主的表。
 5. **立刻重启 gateway。** 在 Railway 控制台重启 gateway 服务，之后再恢复使用。进程内的批次缓存（最多两个批次）还留着清除前读进来的行，不重启的话，在旧候选卡上换一批会把原文再写进新的候选快照。

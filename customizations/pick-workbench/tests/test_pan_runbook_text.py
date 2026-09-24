@@ -8,7 +8,7 @@ import hashlib
 import re
 import sys
 
-from pan_runbook import CHECK, REDACT, RUNBOOK, pattern_of, runbook_pan, runbook_steps
+from pan_runbook import CHECK, JSON_COLUMNS, LOCATIONS, REDACT, REDACTED_NONE, RUNBOOK, pattern_of, runbook_pan, runbook_steps
 
 # The runbook's broad pattern before this change; the scripts must keep matching all of it.
 OLD_PATTERN = r"pan\.baidu|pan\.quark|aliyundrive|alipan|115\.com|123pan|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|提取码|提取碼|访问码|訪問碼|pwd="
@@ -124,3 +124,16 @@ def test_every_check_looks_at_the_database_and_the_disk():
     # A leftover anywhere but the kept locations means redact and restart again, not only for candidate sets.
     assert "重做第 4、5 步" in steps[8] and "选择快照" in steps[8]
     assert "暂停使用" in steps[4]
+
+
+def test_the_runbook_and_the_script_headers_count_what_the_scripts_print():
+    # The operator compares the check's rows against these numbers and writes each UPDATE line of the redaction into
+    # section 12; test_pan_runbook_sql.py holds the scripts' real output to the same lists.
+    runbook, check, redact = (path.read_text(encoding="utf-8") for path in (RUNBOOK, CHECK, REDACT))
+    section = runbook[runbook.index("**网盘片段核查") : runbook.index("## 7.")]
+    locations, rewritten = str(len(LOCATIONS)), str(len(REDACTED_NONE))
+    assert re.findall(r"(\d+) 行 `UPDATE n`", section) == [rewritten]
+    assert set(re.findall(r"(\d+) 个位置", section + check)) == {locations}
+    assert set(re.findall(r"(\d+) 个 0", section)) == {locations}
+    assert set(re.findall(r"前 (\d+) 个", section + check)) == {rewritten}
+    assert set(re.findall(r"(\d+) 个 JSON 列", section + redact)) == {str(len(JSON_COLUMNS))}
