@@ -35,7 +35,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from ggwork_pick.mirror.lock import lock_status
-from ggwork_pick.mirror.versions import SCHEMA_NAME, STATEMENT_TIMEOUT, Then, check_moment, check_schema_name, drop_blocked, drop_in_transaction
+from ggwork_pick.mirror.versions import (
+    DROP_STATEMENT_TIMEOUT_MS,
+    SCHEMA_NAME,
+    STATEMENT_TIMEOUT,
+    Then,
+    check_moment,
+    check_schema_name,
+    drop_blocked,
+    drop_in_transaction,
+)
 from ggwork_pick.repository import stamp
 
 logger = logging.getLogger(__name__)
@@ -44,7 +53,8 @@ KEEP_LATEST = 3
 VERSION_CAP = 10
 SUPERSEDED_GRACE = timedelta(hours=1)
 REFERENCED_WITHIN = timedelta(days=7)
-DROP_LOCK_TIMEOUT = timedelta(seconds=5)
+# U24's budget for each DROP, lock waits and the whole statement alike: versions.py's, the one mark_failed uses.
+DROP_LOCK_TIMEOUT = timedelta(milliseconds=DROP_STATEMENT_TIMEOUT_MS)
 # Whose hold each may run under (U14 holder names).
 RETENTION_HOLDERS = ("sync",)
 CLEANUP_HOLDERS = ("sync", "cleanup")

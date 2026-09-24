@@ -275,3 +275,15 @@ async def test_a_naive_clock_at_drop_time_is_refused_before_that_drop(sync_conn,
         await (prune_versions if step == "prune" else clean_leftover_versions)(watched, clock=lambda: next(ticks))
     assert not [query for query in watched.statements() if query.startswith("DROP SCHEMA")]
     assert await observer.fetchval("select count(*) from pg_namespace where nspname like 'pickm_v%'") == 5
+
+
+def test_retention_and_mark_failed_share_one_budget():
+    # U24's 5 s is written once, in versions.py; retention's default lock_timeout is that constant, not a copy of it.
+    import re
+    from pathlib import Path
+
+    from ggwork_pick.mirror import retention, versions
+
+    assert retention.DROP_LOCK_TIMEOUT == timedelta(milliseconds=versions.DROP_STATEMENT_TIMEOUT_MS) == timedelta(seconds=5)
+    source = (Path(__file__).resolve().parents[2] / "ggwork_pick" / "mirror" / "retention.py").read_text()
+    assert re.search(r"DROP_LOCK_TIMEOUT = timedelta\(milliseconds=DROP_STATEMENT_TIMEOUT_MS\)", source)
