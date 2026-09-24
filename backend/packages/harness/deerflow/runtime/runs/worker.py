@@ -625,9 +625,7 @@ class RunContext:
     execution_timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
-        if self.execution_timeout_seconds is not None and (
-            not math.isfinite(self.execution_timeout_seconds) or self.execution_timeout_seconds <= 0
-        ):
+        if self.execution_timeout_seconds is not None and (not math.isfinite(self.execution_timeout_seconds) or self.execution_timeout_seconds <= 0):
             raise ValueError("execution_timeout_seconds must be finite and positive")
 
 
@@ -1464,9 +1462,7 @@ async def run_agent(
         stop_execution_deadline()
         if deadline_expired and not record.abort_event.is_set():
             await run_manager.set_finalizing(run_id, True)
-            cancel_action = await run_manager.set_status_if_not_cancelled(
-                run_id, RunStatus.timeout, error="Execution deadline exceeded", stop_reason="execution_timeout", **terminal_status_kwargs
-            )
+            cancel_action = await run_manager.set_status_if_not_cancelled(run_id, RunStatus.timeout, error="Execution deadline exceeded", stop_reason="execution_timeout", **terminal_status_kwargs)
             if cancel_action is not None:
                 await _finish_cancellation(cancel_action)
             else:
