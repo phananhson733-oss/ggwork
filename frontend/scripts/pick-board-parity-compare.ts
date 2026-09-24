@@ -25,7 +25,7 @@ import {
   isJsonObject,
   type Json,
   type JsonObject,
-} from "./pick-board-snapshot.rs";
+} from "./pick-board-snapshot-core.rs";
 
 export const PAN_SCRUB_REPLACEMENT = "[网盘信息已移除]";
 /** 导出的 jsonb 键白名单（rs:src/lib/pick/export-v2-map.ts:195-197；工作台 contracts.py 同一份） */

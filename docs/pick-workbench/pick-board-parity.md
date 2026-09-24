@@ -9,7 +9,7 @@
 
 | 脚本 | 在哪跑 | 读什么 |
 |---|---|---|
-| `frontend/scripts/pick-board-snapshot.rs.ts` | 临时复制进 RealShort 检出 | RealShort 生产 Neon（`.env.local` 的 `DATABASE_URL`） |
+| `frontend/scripts/pick-board-snapshot.rs.ts`（纯函数部分在 `pick-board-snapshot-core.rs.ts`，两个文件一起用） | 临时复制进 RealShort 检出 | RealShort 生产 Neon（`.env.local` 的 `DATABASE_URL`） |
 | `frontend/scripts/pick-board-parity.ts`（比对规则在 `pick-board-parity-compare.ts`） | 工作台 `frontend/` | 镜像，以 `pick_board_reader` 身份，经 `PICK_MIRROR_READER_URL` 与 `PICK_MIRROR_CA_PEM` |
 | `frontend/scripts/pick-board-drift.sh` | 工作台，任意目录 | RealShort 检出的 git 历史 |
 
@@ -54,13 +54,14 @@ cd "$RS_REPO"
 git status --short                          # 应当是空的
 git fetch origin
 git checkout --detach <source_revision>
-cp <工作台>/frontend/scripts/pick-board-snapshot.rs.ts scripts/pick-board-snapshot.ts
+cp <工作台>/frontend/scripts/pick-board-snapshot.rs.ts \
+   <工作台>/frontend/scripts/pick-board-snapshot-core.rs.ts scripts/   # 保留原名：前者按这个名字 import 后者
 
 VERCEL_GIT_COMMIT_SHA=<source_revision> pnpm exec dotenv -e .env.local -- \
-  pnpm exec tsx --conditions=react-server scripts/pick-board-snapshot.ts \
+  pnpm exec tsx --conditions=react-server scripts/pick-board-snapshot.rs.ts \
   --as-of <as_of_iso> --fp <fingerprint> --out "$SCRATCH/snap.json"
 
-rm scripts/pick-board-snapshot.ts
+rm scripts/pick-board-snapshot.rs.ts scripts/pick-board-snapshot-core.rs.ts
 git checkout -                              # 回到原来的分支
 git status --short                          # 又是空的
 ```

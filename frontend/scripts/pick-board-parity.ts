@@ -78,7 +78,7 @@ import {
   type Json,
   type Parsed,
   type SnapshotDoc,
-} from "./pick-board-snapshot.rs";
+} from "./pick-board-snapshot-core.rs";
 
 export type ParityArgs = Readonly<{ v: number; snapshot: string }>;
 

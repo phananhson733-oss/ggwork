@@ -32,9 +32,6 @@ import {
   RS_RANKS,
   STRIPPED,
   THEATER_BASES,
-  busyWindow,
-  checkHead,
-  checkSourceProblem,
   deriveCases,
   parseSnapshotArgs,
   runCase,
@@ -44,6 +41,11 @@ import {
   toJson,
   type BoardLoaders,
   type Json,
+} from "../../../scripts/pick-board-snapshot-core.rs";
+import {
+  busyWindow,
+  checkHead,
+  checkSourceProblem,
 } from "../../../scripts/pick-board-snapshot.rs";
 
 const FP = "a".repeat(64);

@@ -31,7 +31,7 @@ import {
   SNAPSHOT_FORMAT,
   STRIPPED,
   type Json,
-} from "../../../scripts/pick-board-snapshot.rs";
+} from "../../../scripts/pick-board-snapshot-core.rs";
 
 const PLAIN: CompareContext = { scrub: {}, collationDiffers: false };
 const PAN_TEXT = "资源 https://pan.example/s/1AbC 提取码：zz99";
