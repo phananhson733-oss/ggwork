@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from ggwork_pick.mirror import contracts, errors
 
@@ -25,6 +25,7 @@ REAL_DAYS = {"rs_clicks14": {"day": "2026-09-01"}}
 ROWS = {resource: {**sample["output"], **REAL_DAYS.get(resource, {})} for resource, sample in CONTRACT["v2_rows"].items()}
 MANIFEST = CONTRACT["manifest"]
 SECRET = "SECRETVALUE"
+NAN, INF = float("nan"), float("inf")
 
 
 def page(resource, rows):
@@ -124,11 +125,20 @@ def test_page_contract_error_is_a_feed_contract_error():
         ("catalog_signals", {"payload": {"d": "2026-09-01", "bill_usd": SECRET}}, "payload.bill_usd"),
         ("catalog_posted", {"posts": [{"md": {"x": [{"Revenue_USD": SECRET}]}}]}, "posts.0.md.x.0.Revenue_USD"),
         ("rs_rows", {"tag_list": ["ok"], "promotion_link": SECRET}, "promotion_link"),
+        # The fragment anywhere in the name, as RealShort's FORBIDDEN_NAME.test finds it, not only at the start.
+        ("catalog_rows", {"has_pan_url": SECRET}, "has_pan_url"),
+        ("catalog_signals", {"payload": {"h": [{"matchedUsd": 1}]}}, "payload.h.0.matchedUsd"),
     ],
 )
 def test_forbidden_key_any_depth(resource, changes, where):
     error = rejected(resource, page(resource, [row(resource, **changes)]), SECRET)
     assert error.row == 0 and error.path == where
+
+
+def test_forbidden_key_in_the_manifest():
+    with pytest.raises(contracts.PageContractError) as caught:
+        contracts.parse_manifest(_with(MANIFEST, "meta.rules.ruleHints.x_revenue_usd", SECRET))
+    assert caught.value.path == "meta.rules.ruleHints.x_revenue_usd" and SECRET not in str(caught.value)
 
 
 def test_forbidden_key_in_the_envelope():
@@ -169,19 +179,27 @@ def test_payload_and_posts_keys_are_optional_and_values_loose():
         ("catalog_rows", "imported_at", "2026-09-01T00:00:00.000+00:00"),
         ("catalog_rows", "imported_at", "2026-02-30T00:00:00.000Z"),
         ("catalog_rows", "imported_at", "２026-09-01T00:00:00.000Z"),
+        ("catalog_rows", "imported_at", "2026-09-01T00:00:00.83Z"),
         ("catalog_rows", "episodes", "5"),
         ("catalog_rows", "episodes", True),
         ("catalog_rows", "episodes", 5.0),
         ("catalog_rows", "merged_rows", 2**53),
+        ("catalog_rows", "merged_rows", -(2**53)),
         ("catalog_rows", "youtube", "t"),
         ("catalog_rows", "youtube", 1),
         ("catalog_rows", "title", None),
         ("catalog_rows", "title", 5),
         ("catalog_rows", "in_site_ids", "a,b"),
         ("catalog_rows", "in_site_ids", [1]),
+        ("catalog_rows", "in_site_ids", [None]),
         ("rs_rows", "rr", "1.5"),
         ("rs_rows", "rr", None),
         ("rs_rows", "rr", True),
+        # json.loads reads NaN and Infinity; RealShort never sends them (isJsonValue, toFloat), and PG float8/jsonb must not get them.
+        ("rs_rows", "rr", NAN),
+        ("rs_rows", "rr7", INF),
+        ("catalog_signals", "payload", {"qy": NAN}),
+        ("catalog_posted", "posts", [{"views": INF}]),
         ("rs_clicks14", "day", None),
         # rs_clicks14.day is SQL-formatted (export-v2.ts:242): a real YYYY-MM-DD in ASCII digits, nothing else.
         ("rs_clicks14", "day", "2026-09-01 00:00"),
@@ -193,6 +211,21 @@ def test_payload_and_posts_keys_are_optional_and_values_loose():
 def test_strict_types(resource, column, value):
     error = rejected(resource, page(resource, [row(resource, **{column: value})]))
     assert error.row == 0 and error.path.split(".")[0] == column
+
+
+def test_parsed_rows_are_frozen():
+    parsed = contracts.parse_page("rs_ids", page("rs_ids", [row("rs_ids")]))[0]
+    with pytest.raises(ValidationError):
+        parsed.title = "x"
+    with pytest.raises(ValidationError):
+        contracts.parse_manifest(MANIFEST).meta.control.ledger.rows = 0
+
+
+def test_error_path_parts_are_cut():
+    # Key names are not values, but nothing bounds their length: each piece of a path is cut to PATH_PART_MAX.
+    long_key = "k" * 200
+    error = rejected("rs_ids", page("rs_ids", [row("rs_ids", **{long_key: SECRET})]), SECRET)
+    assert error.path == "k" * contracts.PATH_PART_MAX and long_key not in str(error)
 
 
 def test_float_takes_an_int_and_nullable_takes_null():
@@ -282,11 +315,16 @@ def test_manifest_refuses_a_missing_required_key(path):
         ("version", "pick-export-v3"),
         ("asOf", "2026-09-23T10:15:00Z"),
         ("fingerprint", "A" * 64),
+        ("sourceRevision", 5),
         ("counts.rs_ids", -1),
         ("counts.rs_ids", "1"),
+        ("snapshotDays.0.rows", -1),
         # snapshotDays days are what rs_series_day's day parameter must be (export-v2-page.ts:49-54), as P2-2a checks them.
         ("snapshotDays.0.day", "2026-09-23T00:00"),
         ("snapshotDays.0.day", "2026-02-30"),
+        ("meta.scrub", {"x": "1"}),
+        ("meta.freshness.rows", NAN),
+        ("meta.control.rankCounts.kd", INF),
     ],
 )
 def test_manifest_identity_fields_are_typed(path, value):
@@ -298,6 +336,13 @@ def test_manifest_identity_fields_are_typed(path, value):
 def test_manifest_page_needs_exactly_one_row():
     assert rejected("manifest", page("manifest", [])).path == "rows"
     assert rejected("manifest", page("manifest", [MANIFEST, MANIFEST])).path == "rows"
+
+
+@pytest.mark.parametrize(("path", "leaf"), [("meta.rules.postedPoolUrl", "a" + chr(0)), ("meta.control.extra", SECRET)])
+def test_manifest_page_errors_have_no_row_index(path, leaf):
+    # The manifest page's one row is the manifest itself: errors name a path from the manifest, never a row index.
+    error = rejected("manifest", page("manifest", [_with(MANIFEST, path, leaf)]), SECRET)
+    assert error.row is None and error.path == path
 
 
 def _shape_of(annotation):
