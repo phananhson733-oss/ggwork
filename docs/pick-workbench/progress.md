@@ -142,3 +142,21 @@
   - `perf:check` 有 10 项旧的超预算。
   - RealShort 的 manifest 仍要 22–27 秒。
 
+## 趋势雷达：TR-35 人工决定生效链的交接（2026-09-25）
+
+`ggwork_pick/observe/decisions_state.py` 已完成（含审查后的修复）。下面是留给后续任务的接缝；值守要看的规则与「决定表出现无法应用的行」的处置，见 [observe-runbook/decisions.md](observe-runbook/decisions.md)（待 TR-29 收进索引）。
+
+- **TR-25（写决定的路由）**
+  - 每个追加决定的事务，第一句调用 `lock_for_append(conn)`，然后在同一事务里依次执行 `read_effective(conn)`、`refusal(state, decision)`、INSERT，最后提交。PG 上这把锁是 `LOCK TABLE ggwp_obs_decisions IN SHARE ROW EXCLUSIVE MODE`，需要表属主 deerflow_app，不挡读；SQLite 上是 `BEGIN IMMEDIATE`，所以它前面不能有任何语句。不能直接套用仓库现有的 `_write()`：它的咨询锁按 owner 分，不同 owner 的写入之间不串行。
+  - 为什么必须加锁：PG 在插入时取 id，不在提交时取。不加锁的话，较小的 id 可能在较大的 id 已经可见之后才提交。这样集合冻结的 `decisions_version` 就不是忠实的截断点，D43 的别名刷新按 `(上一版, 本版]` 增量读取时会永远跳过那条决定；50 条上限的检查与插入也不是原子的。
+  - 补一个路由级并发测试：两条写入并发，其中一条在已有 49 条时加入，结果恰好一条被拒，而且提交顺序与 id 顺序一致。函数级的同类测试是 `test_decisions_state.py::test_append_lock_orders_commits_and_holds_the_cap`。
+  - `read_effective` 抛 `DecisionLogError`（日志里有读不了的行）时，路由要返回明确的服务端错误，不带原文。这时所有决定都写不进去，包括撤销。
+  - `refusal` 的上限计数包含已经不在当前共享批次、已经换了别名的条目。人工加入的列表（TR-25 的组件、TR-24 的资料页）要列出全部 `watch_added`，用 `watch_added_outside(当前批次的身份集合)` 标出不在批次里的条目，让运营能撤回。
+- **TR-18（观察清单、歧义、别名）**
+  - 人工加入、暂停、歧义改判都记在写入时的身份上，不跟别名走。要不要沿集合冻结的别名版本映射，由 TR-18 定；如果映射，清单按映射后的结果去重。网关按原始条目计数，只会比映射后的多，所以不会让生效条目超过 50。
+  - 歧义改判不随标题失效：改名以后，原来的 clear 仍然有效。如果改名后要重新判定，由 TR-18 在拿得到批次历史的地方处理。
+  - 对应确认只比较当前批次的（平台、规范化标题）与最近一次确认的键，不看中间的批次，所以标题改回旧值、别名换回旧身份，确认都会恢复。如果要更严格（改过一次就永久失效），需要把批次历史作为输入，要在 G 节点提出。
+- **D43 的别名刷新**（TR-18 的 `alias.refresh()`，TR-23b 接线）：`alias_verdicts` 是 `{alias_id: AliasMark(decision_id, verdict)}`，`alias_pairs` 是 `{old_identity: PairMark(decision_id, new_identity)}`。跨种类按 `decision_id` 重放，后者覆盖前者。例如先手动配对 SLUG→X、后确认建议 SLUG→Y，应以后者为准，而不是当成多对多一起拒掉。
+- **TR-33 或 G 节点（合同）**
+  - `CorrespondenceConfirm.platform` 至少 1 个字，而 `DramaInput.theater` 默认是空串、`StateRow.theater` 允许空串，所以平台为空的 Trends 行永远确认不了，只能停在 unconfirmed，进不了正式推荐。要么合同放宽，要么在合同文档里写明「平台为空不可确认」。
+  - 合同的 `MAX_ROW_ID` 是 2^63−1，0007 的 id 列却是 Integer（PG 上是 int4）。`read_decisions` 已改为按 bigint 绑定 `upto_id`；其他拿决定里的 `alias_id`、`alert_id` 去比 int4 列的查询，也要按 bigint 绑定或先限幅，否则超过 2^31−1 的值会让 asyncpg 抛 DataError，报错里还带着这个值。
