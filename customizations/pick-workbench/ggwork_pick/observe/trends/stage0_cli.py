@@ -27,6 +27,7 @@ from ggwork_pick.observe.admin.args import CommandParser
 from ggwork_pick.observe.clock import Clock, SystemClock, random_source
 from ggwork_pick.observe.errors import ExitCode, Refused, describe_error, exit_code_for
 from ggwork_pick.observe.state import file_state_store
+from ggwork_pick.observe.trends import pacing
 from ggwork_pick.observe.trends.stage0 import DAYS, Controls, DayPlan, build_plan, check_plan_matches, load_controls
 from ggwork_pick.observe.trends.stage0_fixtures import write_fixtures
 from ggwork_pick.observe.trends.stage0_metrics import DEFAULT_N
@@ -35,6 +36,9 @@ from ggwork_pick.observe.trends.stage0_report import DEFAULT_UTC_OFFSET_MINUTES,
 from ggwork_pick.observe.trends.stage0_run import ARTIFACTS_ROOT, DayRunner, Stage0Paths, dry_run_lines, load_results, write_private
 
 PROG = "python -m ggwork_pick.observe.trends.stage0"
+# design: design 4.2's envelope (about 4 a minute). user: the user's own tested rhythm, a burst of at most 4 and about 2 a
+# minute sustained; day 1 met a 429 after 14 minutes at the design's speed and none at half of it.
+PACES = {"design": pacing.DEFAULT_PARAMS, "user": pacing.PacingParams(bucket_capacity=4, refill_per_minute=2)}
 MAX_MANUAL_BYTES = 1024 * 1024
 
 
@@ -48,6 +52,12 @@ def _parser() -> CommandParser:
     run.add_argument("--day", type=int, choices=DAYS, required=True)
     run.add_argument("--init-state", action="store_true", help="第一次运行时创建状态文件")
     run.add_argument("--dry-run", action="store_true", help="只列出待跑的单元，不发请求")
+    run.add_argument(
+        "--pace",
+        choices=sorted(PACES),
+        default="design",
+        help="限速节奏：design 为设计 4.2 的包络（约每分钟 4 次），user 为用户实测的节奏（连发至多 4 次，持续约每分钟 2 次）",
+    )
     report = commands.add_parser("report", parents=[common], help="出报告（只有第一天时是中期报告）")
     report.add_argument("--manual", type=Path, action="append", default=[], help="U5：浏览器导出的走势 CSV，可重复")
     report.add_argument("--n", type=int, default=DEFAULT_N, help="日级可见的非零日下限（默认 %(default)s）")
@@ -109,8 +119,20 @@ def _cmd_run(paths: Stage0Paths, args, out: TextIO, *, environ: Mapping[str, str
         print("\n".join(dry_run_lines(plan, controls, lambda key: (done.get(key) or {}).get("status") is not None)), file=out)
         return int(ExitCode.OK)
     store = file_state_store(paths.state_file, environ=environ)
+    pacer = pacing.EnvelopePacer(PACES[args.pace])
+    print(f"限速节奏：{args.pace}（桶容量 {pacer.params.bucket_capacity:g}，每分钟补 {pacer.params.refill_per_minute:g}）", file=out)
     runner = DayRunner(
-        plan=plan, controls=controls, store=store, paths=paths, clock=clock, rng=rng, transport=transport, environ=environ, system_proxies=proxies, log=out
+        plan=plan,
+        controls=controls,
+        store=store,
+        paths=paths,
+        clock=clock,
+        rng=rng,
+        transport=transport,
+        environ=environ,
+        system_proxies=proxies,
+        log=out,
+        pacer=pacer,
     )
     outcome = asyncio.run(runner.run(init_state=args.init_state))
     counts = f"发出 {outcome.requests} 次请求，覆盖 {len(outcome.covered)} 个单元，未覆盖 {len(outcome.uncovered)} 个"
