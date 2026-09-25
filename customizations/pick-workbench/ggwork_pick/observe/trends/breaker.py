@@ -8,7 +8,8 @@ and calls observe(), which returns the next state and a Decision:
   else in between, are handled as a limit signal. A 429 or any other limit signal is never retried.
 - PAUSE: a limit signal (429, 403, an HTML body, two transients in a row) or a failed probe. The rest of the unit is
   abandoned (skipped_breaker); nothing goes out until resume_at, then exactly one probe. A good probe resumes at half
-  speed for the rest of the target date; a failed one pauses again.
+  speed for the rest of the target date; a failed one pauses again. A probe gets one try: anything but a usable answer,
+  a 5xx, timeout or unparsable body included, is a failed probe, never a retry.
 - EXTINGUISH: the target date is over; every unit left is skipped_breaker.
 
 Pauses within a target date climb one rung each, never back down: 30, 60, 120, 240, 240... minutes (the persisted
