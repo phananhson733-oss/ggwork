@@ -2,8 +2,9 @@
 
 The list is TR-08's input (design 5.5): every raw URL GSC returned in the window, never decoded, deduplicated only when
 two strings are identical, with its clicks and impressions summed over the requests it came from. Requests are split by
-month, a full month by country, and a full country by halving its days, so that every answer used is short of rowLimit;
-what cannot be split any further is named in the manifest and the list is marked incomplete. All answers come from
+month, a full month by halving its days down to one day, and a full day by country, so that every answer used is short
+of rowLimit; what cannot be split any further is named in the manifest and the list is marked incomplete. The list is
+written before the candidates are fetched, and the candidates have a budget of their own. All answers come from
 tests/observe/gsc_sim.py over httpx.MockTransport; tests lower query.ROW_LIMIT to see truncation without 25,000 rows.
 """
 
@@ -12,7 +13,7 @@ import io
 import json
 import stat
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import pytest
@@ -80,28 +81,45 @@ async def test_export_sums_each_identical_string_and_keeps_variants_apart(key):
 
 
 @pytest.mark.asyncio
-async def test_export_splits_a_full_month_by_country_then_by_days(key, monkeypatch):
+async def test_export_halves_a_full_month_by_days_then_splits_a_full_day_by_country(key, monkeypatch):
+    """A site's [page] for one day is rarely full: halving the days costs about two requests per piece, where a country
+    split costs one request for each of some 200 countries. Countries are only for a day that is still full."""
     monkeypatch.setattr(gsc_query, "ROW_LIMIT", 4)
-    september = (date(2026, 9, 1), END)
+    busy = date(2026, 9, 20)
     facts = [
-        *(fact for n in range(3) for fact in daily(f"https://{HOST}/usa-{n}", "usa", *september)),
-        *(fact for n in range(3) for fact in daily(f"https://{HOST}/phl-{n}", "phl", *september)),
-        *(fact for n in range(2) for fact in daily(f"https://{HOST}/gbr-early-{n}", "gbr", date(2026, 9, 1), date(2026, 9, 12))),
-        *(fact for n in range(3) for fact in daily(f"https://{HOST}/gbr-late-{n}", "gbr", date(2026, 9, 13), END)),
+        *(fact for n in range(3) for fact in daily(f"https://{HOST}/early-{n}", "usa", date(2026, 9, 1), date(2026, 9, 12))),
+        *(fact for n in range(3) for fact in daily(f"https://{HOST}/late-{n}", "usa", date(2026, 9, 13), date(2026, 9, 18))),
+        *(fact for n in range(3) for fact in daily(f"https://{HOST}/busy-usa-{n}", "usa", busy, busy)),
+        *(fact for n in range(3) for fact in daily(f"https://{HOST}/busy-phl-{n}", "phl", busy, busy)),
     ]
     found, google = await export(key, facts)
     assert {row.raw_url: (row.clicks, row.impressions) for row in found.rows} == truth(facts)
     used = [leaf for leaf in found.fetch.leaves if leaf.used]
     assert found.fetch.complete and all(not leaf.truncated for leaf in used)
-    assert {(leaf.start, leaf.end, leaf.country) for leaf in used if leaf.country == "gbr"} == {
-        (date(2026, 9, 1), date(2026, 9, 12), "gbr"),
-        (date(2026, 9, 13), END, "gbr"),
+    september = [(leaf.start, leaf.end, leaf.country) for leaf in used if leaf.start.month == 9]
+    assert september == [
+        (date(2026, 9, 1), date(2026, 9, 12), None),
+        (date(2026, 9, 13), date(2026, 9, 18), None),
+        (date(2026, 9, 19), date(2026, 9, 19), None),
+        (busy, busy, "phl"),
+        (busy, busy, "usa"),
+        (date(2026, 9, 21), date(2026, 9, 21), None),
+        (date(2026, 9, 22), END, None),
+    ]
+    superseded = {(leaf.start, leaf.end, leaf.country) for leaf in found.fetch.leaves if not leaf.used}
+    assert superseded == {
+        (date(2026, 9, 1), END, None),
+        (date(2026, 9, 13), END, None),
+        (date(2026, 9, 19), END, None),
+        (date(2026, 9, 19), date(2026, 9, 21), None),
+        (busy, date(2026, 9, 21), None),
+        (busy, busy, None),
     }
-    superseded = [leaf for leaf in found.fetch.leaves if not leaf.used]
-    assert {(leaf.start, leaf.end, leaf.country) for leaf in superseded} == {(date(2026, 9, 1), END, None), (date(2026, 9, 1), END, "gbr")}
-    filters = [body["dimensionFilterGroups"][0]["filters"][0] for body in google.bodies if "dimensionFilterGroups" in body]
-    assert {(item["dimension"], item["operator"]) for item in filters} == {("country", "equals")}
-    assert any(body["dimensions"] == ["country"] for body in google.bodies)  # the month's countries, listed first
+    listings = [body for body in google.bodies if body["dimensions"] == ["country"]]
+    assert [(body["startDate"], body["endDate"]) for body in listings] == [("2026-09-20", "2026-09-20")]  # one day's countries
+    filtered = [body for body in google.bodies if "dimensionFilterGroups" in body]
+    assert {(body["startDate"], body["dimensionFilterGroups"][0]["filters"][0]["operator"]) for body in filtered} == {("2026-09-20", "equals")}
+    assert found.fetch.requests == len(google.bodies) == 17  # 3 quiet months; September: 11 site-wide, 1 listing, 2 countries
 
 
 @pytest.mark.asyncio
@@ -169,7 +187,7 @@ async def test_positive_control_candidates_are_exact_title_queries(key):
     # QB's page was seen once, 60 days back; its exact title is searched now and lands on the home page: still a candidate.
     assert keys == ["the-billionaires-secret-wife", "великият-и-могъщ-джин", "amor-en-la-oficina", "romance-lessons-with-my-quarterback"]
     top = found.candidates[0]
-    assert top.queries == ("the billionaire's secret wife",)
+    assert top.queries == ("the billionaire's secret wife",) and top.top_query == "the billionaire's secret wife"
     assert [(share.country, share.trends_geo) for share in top.countries] == [("usa", "US"), ("phl", None), ("gbr", "GB")]
     assert [(page.locale, page.book_id, page.raw_url) for page in top.pages] == [("en", ID_EN, EN)]
     assert found.candidates[1].pages[0].book_id == ID_BG and found.candidates[3].pages[0].raw_url == QB
@@ -181,6 +199,29 @@ async def test_positive_control_candidates_are_exact_title_queries(key):
     assert [item["title_key"] for item in document["candidates"]] == keys[:2] and document["total_candidates"] == 4
     assert document["window"]["start"] == "2026-08-28" and document["dimensions"] == ["query", "country"]
     assert ES in {page["raw_url"] for page in export_urls.candidates_json(found, site_url="x", generated_at=NOW)["candidates"][2]["pages"]}
+    first = document["candidates"][0]
+    assert (first["top_query"], first["suggested_geo"], first["suggested_country"]) == ("the billionaire's secret wife", "US", "usa")
+    assert (document["complete"], document["incomplete_leaves"]) == (True, [])
+
+
+@pytest.mark.asyncio
+async def test_candidates_never_split_a_full_day_by_country(key, monkeypatch):
+    """A day of [query,country] still full after halving is used as it is: its rows are the top ones by clicks, which
+    is what a positive control is picked from; the file says so instead of spending a request per country."""
+    monkeypatch.setattr(gsc_query, "ROW_LIMIT", 4)
+    busy = date(2026, 9, 20)
+    title = [Fact(datetime(busy.year, busy.month, busy.day, 12, tzinfo=PT), EN, "usa", "the billionaire's secret wife", 9, 90)]
+    noise = [Fact(datetime(busy.year, busy.month, busy.day, 12, tzinfo=PT), EN, country, f"noise {n}", 1, 5) for n in range(3) for country in ("usa", "phl")]
+    google = SimGoogle(key.public_key(), (*title, *noise), rules())
+    clock = ManualClock(NOW)
+    async with GscClient(load_config(env(key)), transport=google.transport(), clock=clock) as gsc:
+        pacer = Pacer(clock, pause_seconds=0.0, max_requests=100)
+        found = await export_urls.positive_control_candidates(gsc, pacer, end=END, days=28, pages=(export_urls.UrlRow(EN, 9, 90),))
+    assert [candidate.title_key for candidate in found.candidates] == ["the-billionaires-secret-wife"]
+    assert not found.fetch.complete and [(leaf.start, leaf.country) for leaf in found.fetch.incomplete] == [(busy, None)]
+    assert not any(body["dimensions"] == ["country"] or "dimensionFilterGroups" in body for body in google.bodies)
+    document = export_urls.candidates_json(found, site_url="x", generated_at=NOW)
+    assert document["complete"] is False and document["incomplete_leaves"] == [{"start": "2026-09-20", "end": "2026-09-20", "country": None, "rows": 4}]
 
 
 # ---- the command --------------------------------------------------------------------------------------------------------
@@ -241,6 +282,47 @@ async def test_command_writes_nothing_when_a_request_fails(key, tmp_path):
     with pytest.raises(GscRequestError):
         await run_command(key, google, tmp_path)
     assert list(tmp_path.iterdir()) == []
+
+
+class QueriesFail(SimGoogle):
+    """Answers the page list, and 503 for every [query,country] request."""
+
+    def handle(self, request):
+        if request.url.host == "searchconsole.googleapis.com" and json.loads(request.content)["dimensions"] == ["query", "country"]:
+            self.calls = (*self.calls, request)
+            return httpx.Response(503, json={"error": {"code": 503, "message": "Backend Error", "status": "UNAVAILABLE"}})
+        return super().handle(request)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("google_class, extra", [(QueriesFail, ()), (SimGoogle, ("--candidate-max-requests", "1"))])
+async def test_command_keeps_the_list_when_the_candidates_fail(key, tmp_path, google_class, extra):
+    """The URL list is TR-08's input and is written before the candidates are fetched: a 5xx or a spent budget while
+    fetching the candidates costs the candidates only (exit 1), never the list."""
+    google = google_class(key.public_key(), facts_from(SPECS), rules())
+    code, printed = await run_command(key, google, tmp_path, *extra)
+    assert code == ExitCode.FAILED
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["gsc-urls-2026-09-25.jsonl", "gsc-urls-2026-09-25.manifest.json"]
+    manifest = json.loads((tmp_path / "gsc-urls-2026-09-25.manifest.json").read_text(encoding="utf-8"))
+    assert manifest["complete"] is True and manifest["requests"] == 4
+    assert "正对照候选没有写出" in printed and "gsc-urls-2026-09-25.jsonl" in printed
+
+
+@pytest.mark.asyncio
+async def test_command_names_its_files_by_the_pt_day(key, tmp_path):
+    from ggwork_pick.observe.admin.cmd_gsc_export_urls import execute
+
+    late = datetime(2026, 9, 26, 3, 0, tzinfo=UTC)  # still the 25th in PT
+    google = SimGoogle(key.public_key(), facts_from(SPECS), rules())
+    code = await execute(
+        ["--out-dir", str(tmp_path), "--pause", "0", "--no-candidates"],
+        environ=env(key),
+        transport=google.transport(),
+        clock=ManualClock(late),
+        out=io.StringIO(),
+    )
+    assert code == ExitCode.OK
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["gsc-urls-2026-09-25.jsonl", "gsc-urls-2026-09-25.manifest.json"]
 
 
 def test_command_refuses_without_credentials(tmp_path, monkeypatch, capsys):

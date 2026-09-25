@@ -4,17 +4,21 @@
 The list: every page URL GSC returned in the window, as the raw string it returned (never decoded; design 5.5), one line
 each in JSONL, {raw_url, clicks, impressions}, deduplicated only when two strings are identical, their counts summed
 over the requests they came from. Requests are split so that every answer used is short of rowLimit: by calendar month
-first, a full month by country (each country with an `equals` filter, the countries from a [country] request over the
-same days), a full country by halving its days down to one day. Fresh data is never paged (design 5.2). A one-day,
-one-country answer that is still full cannot be split further: it is kept and named, and the list is marked
-incomplete. The manifest records the window, the dataState, every request's slice and the sha256 of the list, which
-TR-08 records as its input.
+first, a full month by halving its days down to one day, and a day still full by country (each country with an
+`equals` filter, the countries from a [country] request for that day). A site's [page] for one day is rarely full, so
+halving costs about two requests per piece, where a country split costs one request for each of some 200 countries;
+countries are kept for the day that needs them. Fresh data is never paged (design 5.2). A one-day, one-country answer
+that is still full cannot be split further: it is kept and named, and the list is marked incomplete. The manifest
+records the window, the dataState, every request's slice and the sha256 of the list, which TR-08 records as its input.
 
 The candidates: dramas whose exact title is searched, by matching the [query,country] rows of the last 28 days against
-the title keys of the new drama pages in the list (urls.title_key, RealShort's own rule). A title searched while GSC
-showed the home page is still found, as long as the drama's page appeared somewhere in the 90 days. Each candidate
-carries its top countries, and the Trends geo market-map-v1 pairs with each, for stage 0 to query it where it is
-really searched (design 4.11). Titles longer than a slug's 60 codepoints never match: their slug is cut.
+the title keys of the new drama pages in the list (urls.title_key, RealShort's own rule). Their requests are halved by
+days like the list's but never split by country: a day still full is used as it is, since its rows are the top ones by
+clicks, which is what a positive control is picked from, and the file says which days those were. A title searched
+while GSC showed the home page is still found, as long as the drama's page appeared somewhere in the 90 days. Each
+candidate carries its top countries, and the Trends geo market-map-v1 pairs with each, for stage 0 to query it where it
+is really searched (design 4.11), with the query and the geo to start from (top_query, suggested_geo). Titles longer
+than a slug's 60 codepoints never match: their slug is cut.
 """
 
 import json
@@ -41,6 +45,11 @@ UNLISTED = "*"  # the countries a full [country] answer left out: a leaf that is
 MANIFEST_NOTE = (
     "raw_url 是 GSC 返回的原串，未解码；只对完全相同的串去重，计数跨请求求和。"
     "used 为 true 的切片都不满额；complete 为 false 时，incomplete_leaves 里的切片拆到一天一国仍满额"
+)
+CANDIDATES_USE = (
+    "阶段 0 正对照的候选，转成 trends-stage0-controls-v1 的步骤见 observe-runbook/gsc-probe.md：term 取 top_query，geo 取 suggested_geo，"
+    "identity 按 book_id 在共享剧库里找到这部剧后抄它的工作台身份键；泛词剧与已下架剧另行剔除。complete 为 false 时，"
+    "incomplete_leaves 里的日子只取到了按点击排前的行"
 )
 MATCH_RULE = "查询词与新页 slug 按 RealShort 的剧名规则（小写、去撇号、NFC、非字母数字折成一个连字符）得到的键完全相同；slug 截到 60 个码点的长剧名匹配不到"
 
@@ -111,6 +120,7 @@ class _Plan:
     pacer: Pacer
     dimensions: tuple[str, ...]
     data_state: DataState
+    split_countries: bool
 
     def query(self, start: date, end: date, country: str | None = None, dimensions: tuple[str, ...] | None = None) -> GscQuery:
         groups = ({"groupType": "and", "filters": [{"dimension": "country", "operator": "equals", "expression": country}]},) if country else ()
@@ -121,29 +131,42 @@ class _Plan:
         return await self.gsc.query(query)
 
 
-async def _by_days(plan: _Plan, start: date, end: date, country: str) -> SplitFetch:
-    response = await plan.ask(plan.query(start, end, country))
-    if not response.truncated or start == end:
-        return SplitFetch(response.rows, (Leaf(start, end, country, len(response.rows), response.truncated, True),), 1)
-    first, second = halves(start, end)
-    parts = (await _by_days(plan, *first, country), await _by_days(plan, *second, country))
-    return _joined(Leaf(start, end, country, len(response.rows), True, False), parts, 1)
+def _site_leaf(start: date, end: date, response: GscResponse, *, used: bool) -> Leaf:
+    return Leaf(start, end, None, len(response.rows), response.truncated, used)
 
 
-async def _by_country(plan: _Plan, start: date, end: date) -> SplitFetch:
+async def _by_days(plan: _Plan, start: date, end: date) -> SplitFetch:
+    """[start, end] for the whole site, halved while full; a single day still full goes by country when the plan says
+    so, and is otherwise used as it is (a leaf that is never complete)."""
     response = await plan.ask(plan.query(start, end))
-    if not response.truncated:
-        return SplitFetch(response.rows, (Leaf(start, end, None, len(response.rows), False, True),), 1)
-    listing = await plan.ask(plan.query(start, end, dimensions=("country",)))
-    parts = tuple([await _by_days(plan, start, end, row.keys[0]) for row in listing.rows])
-    unlisted = (SplitFetch((), (Leaf(start, end, UNLISTED, 0, True, True),), 0),) if listing.truncated else ()
-    return _joined(Leaf(start, end, None, len(response.rows), True, False), (*parts, *unlisted), 2)
+    if not response.truncated or (start == end and not plan.split_countries):
+        return SplitFetch(response.rows, (_site_leaf(start, end, response, used=True),), 1)
+    parent = _site_leaf(start, end, response, used=False)
+    if start == end:
+        return _joined(parent, (await _by_country(plan, start),), 1)
+    first, second = halves(start, end)
+    return _joined(parent, (await _by_days(plan, *first), await _by_days(plan, *second)), 1)
 
 
-async def fetch_split(gsc: QueryClient, pacer: Pacer, *, dimensions: Sequence[str], data_state: DataState, start: date, end: date) -> SplitFetch:
+async def _one_country(plan: _Plan, day: date, country: str) -> SplitFetch:
+    response = await plan.ask(plan.query(day, day, country))
+    return SplitFetch(response.rows, (Leaf(day, day, country, len(response.rows), response.truncated, True),), 1)
+
+
+async def _by_country(plan: _Plan, day: date) -> SplitFetch:
+    """One full day, one request per country of that day's [country] list; a country still full is kept and named."""
+    listing = await plan.ask(plan.query(day, day, dimensions=("country",)))
+    parts = tuple([await _one_country(plan, day, row.keys[0]) for row in listing.rows])
+    unlisted = (SplitFetch((), (Leaf(day, day, UNLISTED, 0, True, True),), 0),) if listing.truncated else ()
+    return _joined(None, (*parts, *unlisted), 1)
+
+
+async def fetch_split(
+    gsc: QueryClient, pacer: Pacer, *, dimensions: Sequence[str], data_state: DataState, start: date, end: date, split_countries: bool = True
+) -> SplitFetch:
     """Every row of [start, end] for these dimensions, split until no answer used is full (see the module text)."""
-    plan = _Plan(gsc, pacer, tuple(dimensions), data_state)
-    parts = [await _by_country(plan, *month) for month in month_ranges(start, end)]
+    plan = _Plan(gsc, pacer, tuple(dimensions), data_state, split_countries)
+    parts = [await _by_days(plan, *month) for month in month_ranges(start, end)]
     return _joined(None, parts, 0)
 
 
@@ -250,8 +273,14 @@ class Candidate:
     impressions: int
     clicks: int
     queries: tuple[str, ...]
+    top_query: str  # the matched query with the most impressions: stage 0's term to start from
     countries: tuple[CountryShare, ...]
     pages: tuple[CandidatePage, ...]
+
+    @property
+    def suggested(self) -> CountryShare | None:
+        """The country with the most impressions that market-map-v1 pairs with a Trends geo."""
+        return next((share for share in self.countries if share.trends_geo is not None), None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,21 +311,29 @@ def _countries(rows: Sequence[GscRow]) -> tuple[CountryShare, ...]:
     return tuple(sorted(shares, key=lambda share: (-share.impressions, share.country)))[:TOP_COUNTRIES]
 
 
+def _top_query(rows: Sequence[GscRow]) -> str:
+    ordered = sorted(rows, key=lambda row: row.keys[0])
+    totals = ((query, sum(row.impressions for row in group)) for query, group in groupby(ordered, key=lambda row: row.keys[0]))
+    return min(totals, key=lambda item: (-item[1], item[0]))[0]
+
+
 def _candidate(key: str, rows: Sequence[GscRow], pages: tuple[CandidatePage, ...]) -> Candidate:
     return Candidate(
         title_key=key,
         impressions=sum(row.impressions for row in rows),
         clicks=sum(row.clicks for row in rows),
         queries=tuple(sorted({row.keys[0] for row in rows})),
+        top_query=_top_query(rows),
         countries=_countries(rows),
         pages=pages,
     )
 
 
 async def positive_control_candidates(gsc: QueryClient, pacer: Pacer, *, end: date, days: int, pages: Iterable[UrlRow]) -> CandidateList:
-    """[query,country] over the last `days` PT days, kept where the query's title key is a new page's slug key."""
+    """[query,country] over the last `days` PT days, kept where the query's title key is a new page's slug key. A day
+    still full after halving is used as it is (its top rows), never split by country."""
     start = end - timedelta(days=days - 1)
-    fetch = await fetch_split(gsc, pacer, dimensions=("query", "country"), data_state="all", start=start, end=end)
+    fetch = await fetch_split(gsc, pacer, dimensions=("query", "country"), data_state="all", start=start, end=end, split_countries=False)
     titles = title_pages(pages)
     keyed = ((title_key(row.keys[0]), row) for row in fetch.rows)
     matched = sorted(((key, row) for key, row in keyed if key in titles), key=lambda item: item[0])
@@ -306,11 +343,15 @@ async def positive_control_candidates(gsc: QueryClient, pacer: Pacer, *, end: da
 
 
 def _candidate_json(candidate: Candidate) -> dict:
+    suggested = candidate.suggested
     return {
         "title_key": candidate.title_key,
         "impressions": candidate.impressions,
         "clicks": candidate.clicks,
         "queries": list(candidate.queries),
+        "top_query": candidate.top_query,
+        "suggested_country": suggested.country if suggested else None,
+        "suggested_geo": suggested.trends_geo if suggested else None,
         "top_countries": [
             {"country": share.country, "impressions": share.impressions, "clicks": share.clicks, "trends_geo": share.trends_geo}
             for share in candidate.countries
@@ -329,8 +370,9 @@ def candidates_json(found: CandidateList, *, site_url: str, generated_at: dateti
         "dimensions": ["query", "country"],
         "requests": found.fetch.requests,
         "complete": found.fetch.complete,
+        "incomplete_leaves": [leaf.as_json() for leaf in found.fetch.incomplete],
         "match_rule": MATCH_RULE,
-        "use": "阶段 0 正对照的候选：按 book_id 对上共享剧库的身份，按 top_countries 选 geo；泛词剧与已下架剧由阶段 0 另行剔除",
+        "use": CANDIDATES_USE,
         "total_candidates": len(found.candidates),
         "candidates": [_candidate_json(candidate) for candidate in found.candidates[:limit]],
     }

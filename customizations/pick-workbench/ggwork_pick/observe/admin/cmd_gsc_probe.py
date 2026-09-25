@@ -3,7 +3,8 @@
 Reads the credentials and the property the way the gsc service does (gsc/client.load_config: PICK_GSC_SITE_URL, and
 PICK_GSC_SA_FILE on this machine or PICK_GSC_SA_EMAIL with PICK_GSC_SA_PRIVATE_KEY), and refuses with exit 2 before
 any request when they are missing or unusable. Writes gsc-probe-<date>.md, gsc-probe-<date>.json and, unless --no-raw,
-gsc-probe-<date>-raw.jsonl to --out-dir; a second run the same day takes the suffix -2, never overwriting. Exit 0 when
+gsc-probe-<date>-raw.jsonl to --out-dir, <date> being the PT day the run started on (GSC's days are PT days); a second
+run the same day takes the suffix -2, never overwriting. Exit 0 when
 all seven items have a clear verdict, 1 when any is still undecided or untested (the files are written either way).
 See docs/pick-workbench/observe-runbook/gsc-probe.md.
 """
@@ -25,7 +26,7 @@ from ggwork_pick.observe.gsc.artifacts import ensure_folder, run_paths, write_pr
 from ggwork_pick.observe.gsc.client import GscClient, GscConfig, load_config
 from ggwork_pick.observe.gsc.command import add_common, out_folder
 from ggwork_pick.observe.gsc.probe import ProbeContext, ProbeLog, ProbeResult, RecordingTransport, run_probe
-from ggwork_pick.observe.gsc.probe_report import findings_json, raw_jsonl, render_markdown
+from ggwork_pick.observe.gsc.probe_report import findings_json, raw_jsonl, render_markdown, report_day
 from ggwork_pick.observe.gsc.urls import site_host_of
 
 NAME = "gsc-probe"
@@ -42,7 +43,7 @@ def _parser():
 
 def _write(folder: Path, result: ProbeResult, log: ProbeLog, config: GscConfig, raw: bool) -> tuple[Path, ...]:
     ensure_folder(folder)
-    paths = run_paths(folder, result.started_at.date(), (*NAMES, *((RAW_NAME,) if raw else ())))
+    paths = run_paths(folder, report_day(result), (*NAMES, *((RAW_NAME,) if raw else ())))
     meta = {"site_url": config.site_url, "account": config.account.email}
     contents = (
         render_markdown(result, log, **meta).encode("utf-8"),

@@ -11,12 +11,13 @@ import json
 import stat
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import pytest
-from gsc_fake import FakeGoogle, env, google_error, key_lines, new_key, oauth_error, pkcs8
-from gsc_sim import BLOG, EN, HOST, ID_OLD, NOW, SPECS, SimGoogle, Spec, facts_from, rules
+from gsc_fake import TOKEN_URL, FakeGoogle, env, google_error, key_lines, new_key, oauth_error, pkcs8
+from gsc_sim import BLOG, EN, HOST, ID_38000, ID_OLD, NOW, SPECS, WWW_PLAY, SimGoogle, Spec, facts_from, rules
 
 from ggwork_pick.observe.clock import ManualClock
 from ggwork_pick.observe.errors import ExitCode
@@ -68,15 +69,28 @@ async def test_probe_on_a_site_that_supports_everything(key):
     assert backfill["regex_max_length_ok"] == 4096 and 4096 < backfill["regex_min_length_rejected"] <= 4096 + RESOLUTION
     assert backfill["regex_chunk_length_suggested"] == 3686  # 90% of the longest accepted
     assert backfill["vh_supported"] is True and backfill["vd_supported"] == {"all": True, "final": True}
+    assert backfill["vh_windows"] == backfill["vh_windows_agree"] == 5  # usa, phl, gbr, bgr (the borrowed old pages) and ALL
     assert backfill["vh_cells"] == backfill["vh_cells_agree"] > 0
+    assert backfill["vd_windows"] == backfill["vd_windows_agree"] == 5 and backfill["vd_cells"] == backfill["vd_cells_agree"] == 12
+    assert (backfill["vh_detail_truncated"], backfill["vd_detail_truncated"]) == (False, False)
+    assert backfill["regex_legacy_exact"] is True and backfill["regex_page_set_exact"] is True
     assert backfill["metadata_spelling"] == "snake_case" and backfill["watermark_lag_hours"] == 9.4
-    assert backfill["c_spanning_day_has_watermark"] is True
+    assert backfill["watermark"] == "2026-09-25T03:00:00-07:00" and backfill["c_spanning_day_has_watermark"] is True
+    assert (backfill["daily_first_incomplete_date"], backfill["final_first_incomplete_date"]) == ("2026-09-25", "2026-09-23")
+    assert backfill["final_latest_day"] == "2026-09-22" and backfill["a2_aggregation"] == {"all": "byPage", "final": "byPage"}
     assert backfill["final_missing_days"] == ["2026-09-23", "2026-09-24"] and backfill["max_final_vs_all_percent"] == 0.0
+    assert backfill["c_truncated"] is False and backfill["detail_gap_percent_total"] == 0.0 and backfill["detail_gap_skipped_days"] == []
     assert backfill["site_host"] == HOST and backfill["new_page_hosts"] == [HOST] and backfill["new_page_shape_mismatch"] == 0
     assert backfill["slug_percent_encoded"] is True and backfill["percent_escape_case"] == "upper"
+    kinds = {"new_drama": 3, "home": 1, "blog": 1, "legacy_detail": 1, "legacy_id_query": 2, "legacy_video_play": 1}
+    assert backfill["url_kinds"] == kinds  # QB was last seen 60 days ago, outside P7's seven days
+    # Vd is compared with the detail as D fetches it: [date,page,country] per PT day, never filtered on the page.
+    details = [body for body in google.bodies if body["dimensions"] == ["date", "page", "country"]]
+    assert [(body["startDate"], body["endDate"]) for body in details] == [(day, day) for day in ("2026-09-24", "2026-09-23", "2026-09-22")]
+    assert all("dimensionFilterGroups" not in body and body["dataState"] == "all" for body in details)
     # Every request is a real searchAnalytics.query shape: rowLimit and dataState always sent, nothing paged.
     assert google.bodies and all(body["rowLimit"] == 25000 and "dataState" in body and "startRow" not in body for body in google.bodies)
-    assert len(google.bodies) <= 45 and len(google.token_calls) == 1
+    assert len(google.bodies) <= 50 and len(google.token_calls) == 1
     assert len(log.exchanges) == len(google.bodies) and {exchange.step for exchange in log.exchanges} == set(ALL)
 
 
@@ -99,6 +113,34 @@ async def test_token_rejected_is_a_p1_failure_with_zero_queries(key):
     result, _ = await probe(key, google)
     assert verdicts(result)["P1"] == "不支持" and "时钟" in result.finding("P1").conclusion
     assert len(google.query_calls) == 0 and set(verdicts(result).values()) == {"不支持", "未测"}
+
+
+class TokenFails(FakeGoogle):
+    """The token endpoint without an answer: a 503, or no answer at all."""
+
+    def __init__(self, public_key, failure: str):
+        super().__init__(public_key)
+        self.failure = failure
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        if str(request.url) != TOKEN_URL:
+            return super().handle(request)
+        self.calls = (*self.calls, request)
+        if self.failure == "timeout":
+            raise httpx.ConnectTimeout("no answer", request=request)
+        return google_error(503, "UNAVAILABLE", "The service is currently unavailable.", reason="backendError")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure, kind", [("503", "server_error"), ("timeout", "timeout")])
+async def test_a_transient_token_failure_leaves_p1_undecided(key, failure, kind):
+    """Network trouble at the token endpoint says nothing about U1 or U2: P1 is undecided (run again), never 不支持."""
+    google = TokenFails(key.public_key(), failure)
+    result, _ = await probe(key, google)
+    assert verdicts(result) == {"P1": "未定", **dict.fromkeys(ALL[1:], "未测")} and not result.decided
+    p1 = result.finding("P1")
+    assert kind in p1.conclusion and "再跑一次" in p1.conclusion and "被拒" not in p1.conclusion
+    assert len(google.query_calls) == 0
 
 
 @pytest.mark.asyncio
@@ -140,21 +182,49 @@ async def test_p2_measures_the_hourly_detail_gap(key):
 
 @pytest.mark.asyncio
 async def test_p3_a_full_slice_splits_by_country(key, monkeypatch):
-    monkeypatch.setattr(gsc_query, "ROW_LIMIT", 40)  # yesterday's C has 78 rows; each country has at most 30
+    monkeypatch.setattr(gsc_query, "ROW_LIMIT", 40)  # yesterday's C has 78 rows, today's 39; each country has at most 30
     result, _ = await probe(key, sim(key))
     p3 = result.finding("P3")
-    assert p3.verdict == "支持" and "按国家拆分" in p3.conclusion
+    assert p3.verdict == "支持" and "按国家拆分" in p3.conclusion and "满额的整日切片：昨天（40 行）" in p3.conclusion
     assert result.backfill["c_needs_country_split"] is True and result.backfill["c_split_truncated"] == 0
     (split,) = [table for table in p3.tables if table.title.startswith("按国家拆分")]
     assert [row[0] for row in split.rows] == ["usa", "phl", "bgr"] and all(row[2] == "否" for row in split.rows)
+    # A full C lacks rows by construction: P2 leaves that day out of the detail gap instead of reading truncation as a gap.
+    assert result.backfill["detail_gap_skipped_days"] == ["2026-09-24"] and result.backfill["detail_gap_hours"] == 1
+    assert result.backfill["detail_gap_percent_total"] == 0.0 and "满额" in result.finding("P2").conclusion
 
 
 @pytest.mark.asyncio
-async def test_p3_still_full_after_the_split_falls_back(key, monkeypatch):
+async def test_p3_still_full_after_the_split_is_unsupported(key, monkeypatch):
+    """One country of one day is a subset of [hour,page] for that day: when the split is still full, so is the design's
+    fallback, and recommending it would hand TR-21 a shape truncated every round."""
     monkeypatch.setattr(gsc_query, "ROW_LIMIT", 10)
-    result, _ = await probe(key, sim(key))
+    google = sim(key)
+    result, _ = await probe(key, google)
     p3 = result.finding("P3")
-    assert p3.verdict == "退路" and "[hour,page]" in p3.conclusion and result.backfill["c_split_truncated"] > 0
+    assert p3.verdict == "不支持" and result.backfill["c_split_truncated"] > 0
+    assert "退到" not in p3.conclusion and "更细的拆分" in p3.conclusion and "G2" in p3.conclusion
+    assert result.backfill["c_hour_page_truncated"] is True  # sent once, to show the fallback is full too
+    (whole,) = [table for table in p3.tables if table.title.startswith("C 的整日切片")]
+    assert [row[:3] for row in whole.rows if row[0].startswith("[hour,page]")] == [("[hour,page] 2026-09-24", "10", "是")]
+    assert any(body["dimensions"] == ["hour", "page"] for body in google.bodies)
+
+
+@pytest.mark.asyncio
+async def test_p3_rejected_shape_with_a_full_fallback_is_unsupported(key, monkeypatch):
+    """The design's fallback is only a fallback when it fits: a full [hour,page] is truncated every round too."""
+    monkeypatch.setattr(gsc_query, "ROW_LIMIT", 10)
+    result, _ = await probe(key, sim(key, c_shape="rejected"))
+    p3 = result.finding("P3")
+    assert p3.verdict == "不支持" and result.backfill["c_shape"] == "hour,page" and result.backfill["c_truncated"] is True
+    assert "退到" not in p3.conclusion and "G2" in p3.conclusion
+
+
+@pytest.mark.asyncio
+async def test_p3_a_split_that_disagrees_leads_the_conclusion(key):
+    result, _ = await probe(key, sim(key, country_filter_extra=1))
+    p3 = result.finding("P3")
+    assert p3.conclusion.startswith("按国家拆分的结果与整片有出入") and result.backfill["c_split_consistent"] is False
 
 
 @pytest.mark.asyncio
@@ -184,14 +254,59 @@ async def test_p4_full_match_mode_is_reported(key):
 
 
 @pytest.mark.asyncio
-async def test_p4_vh_counts_a_page_missing_from_the_detail(key):
-    """Counterexample 22's shape, seen from the probe: the identity's old slug is missing from C, Vh still counts it."""
+async def test_p4_legacy_raw_strings_are_matched_verbatim(key):
+    """The legacy half of D25: the most seen ?id= page and the most seen percent-encoded old page, borrowed into the
+    seed's page set, come back from includingRegex as exactly those raw strings."""
+    google = sim(key)
+    result, _ = await probe(key, google)
+    p4 = result.finding("P4")
+    assert result.backfill["regex_legacy_exact"] is True and "旧页原串按原串精确匹配" in p4.conclusion
+    assert ("借来测正则的旧页原串", f"{ID_38000}；{WWW_PLAY}") in p4.facts
+    legacy_only = [body for body in google.bodies if "38000" in _expression(body) and "/drama/" not in _expression(body)]
+    assert (
+        len(legacy_only) == 1
+        and _expression(legacy_only[0])
+        == "^(?:" + r"https://dramashortstv\.com/en\?id=38000|" + r"https://www\.dramashortstv\.com/bg/video-play/38000/" + WWW_PLAY.split("38000/")[1] + ")$"
+    )
+
+
+def _expression(body: dict) -> str:
+    groups = body.get("dimensionFilterGroups") or [{"filters": [{"expression": ""}]}]
+    return groups[0]["filters"][0]["expression"]
+
+
+@pytest.mark.asyncio
+async def test_p4_regex_on_decoded_urls_is_unsupported(key):
+    """GSC matching the decoded text would miss every percent-encoded old page the snapshot keys by its raw string."""
+    result, _ = await probe(key, sim(key, regex_subject="decoded"))
+    p4, backfill = result.finding("P4"), result.backfill
+    assert p4.verdict == "不支持" and backfill["regex_legacy_exact"] is False and backfill["regex_page_set_exact"] is False
+    assert "旧页原串没有按原串匹配" in p4.conclusion and WWW_PLAY[:40] in p4.conclusion
+
+
+@pytest.mark.asyncio
+async def test_p4_partial_match_without_anchors_is_unsupported(key):
+    result, _ = await probe(key, sim(key, anchors="ignored"))
+    p4, backfill = result.finding("P4"), result.backfill
+    assert (backfill["regex_partial_match"], backfill["regex_anchor_honored"]) == (True, False)
+    assert p4.verdict == "不支持" and "^ 不生效" in p4.conclusion and p4.conclusion.index("^ 不生效") < p4.conclusion.index("includingRegex")
+
+
+@pytest.mark.asyncio
+async def test_p4_vh_and_vd_count_a_page_missing_from_the_detail(key):
+    """Counterexample 22's shape, seen from the probe: the identity's old slug is missing from the unfiltered detail (C
+    and D), and both filter requests still count it; the probe reports the disagreement and does not hide it."""
     old_a, old_b = f"https://{HOST}/en/drama/old-title-{ID_OLD}", f"https://{HOST}/en/drama/new-title-{ID_OLD}"
     specs = (*SPECS, Spec(old_b, "usa", "new title", 50, 500), Spec(old_a, "usa", "old title", 10, 300))
     result, _ = await probe(key, sim(key, specs, detail_hidden_pages=frozenset({old_a})))
     backfill = result.backfill
-    assert backfill["vh_seed_book_id"] == ID_OLD and backfill["vh_cells"] == 6 and backfill["vh_cells_agree"] == 0
-    assert "不一致" in result.finding("P4").conclusion and result.finding("P4").verdict == "支持"
+    assert backfill["vh_seed_book_id"] == ID_OLD
+    # usa disagrees, bgr (the borrowed old pages) agrees, ALL disagrees; the hourly cells are the auxiliary table.
+    assert (backfill["vh_windows"], backfill["vh_windows_agree"]) == (3, 1) and (backfill["vh_cells"], backfill["vh_cells_agree"]) == (12, 6)
+    assert (backfill["vd_windows"], backfill["vd_windows_agree"]) == (3, 1) and backfill["vd_cells_agree"] < backfill["vd_cells"] == 6
+    p4 = result.finding("P4")
+    assert "不一致" in p4.conclusion and p4.verdict == "支持"
+    assert any(table.title.startswith("Vd 与 [date,page,country] 明细（未过滤）") for table in p4.tables)
 
 
 @pytest.mark.asyncio
@@ -284,6 +399,17 @@ async def test_p6_final_lags_and_revises(key):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changes, words",
+    [({"daily_by_page": "ignored"}, "byProperty"), ({"final_lag_days": 20}, "16 个 PT 日都没有 final 行")],
+)
+async def test_p6_without_a_by_page_total_or_any_final_row_is_unsupported(key, changes, words):
+    result, _ = await probe(key, sim(key, **changes))
+    p6 = result.finding("P6")
+    assert p6.verdict == "不支持" and words in p6.conclusion
+
+
+@pytest.mark.asyncio
 async def test_p7_new_pages_on_two_hosts_and_with_a_query_string(key):
     specs = (*SPECS, Spec(EN.replace(HOST, "www." + HOST), "usa", "x", 1, 5), Spec(EN + "?utm_source=feed", "usa", "y", 1, 5))
     result, _ = await probe(key, sim(key, specs))
@@ -323,6 +449,20 @@ async def test_command_writes_the_report_json_and_raw_answers(key, tmp_path):
     raw = [json.loads(line) for line in (out_dir / "gsc-probe-2026-09-25-raw.jsonl").read_text(encoding="utf-8").splitlines()]
     assert len(raw) == len(google.bodies) and raw[0]["request"] == google.bodies[0] and raw[0]["status"] == 200
     assert "gsc-probe-2026-09-25.md" in printed
+
+
+@pytest.mark.asyncio
+async def test_command_names_its_files_by_the_pt_day(key, tmp_path):
+    """03:00 UTC on the 26th is still the 25th in PT, the day GSC's data counts in: the files and the title say the 25th."""
+    from ggwork_pick.observe.admin.cmd_gsc_probe import execute
+
+    late = datetime(2026, 9, 26, 3, 0, tzinfo=UTC)
+    code = await execute(
+        ["--out-dir", str(tmp_path), "--pause", "0"], environ=env(key), transport=sim(key).transport(), clock=ManualClock(late), out=io.StringIO()
+    )
+    assert code == ExitCode.OK
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["gsc-probe-2026-09-25-raw.jsonl", "gsc-probe-2026-09-25.json", "gsc-probe-2026-09-25.md"]
+    assert (tmp_path / "gsc-probe-2026-09-25.md").read_text(encoding="utf-8").startswith("# GSC 实测报告（TR-07）2026-09-25（PT 日）")
 
 
 @pytest.mark.asyncio
@@ -427,9 +567,12 @@ async def test_every_backfilled_value_says_where_it_goes(key, monkeypatch):
     from ggwork_pick.observe.gsc.probe_report import BACKFILL_USE
 
     produced = set()
-    for changes in ({}, {"hourly_by_page": "rejected"}, {"c_shape": "rejected"}, {"vh_shape": "rejected"}):
+    for changes in ({}, {"hourly_by_page": "rejected"}, {"c_shape": "rejected"}, {"vh_shape": "rejected"}, {"daily_by_page": "ignored"}):
         result, _ = await probe(key, sim(key, **changes))
         produced |= set(result.backfill)
+    monkeypatch.setattr(gsc_query, "ROW_LIMIT", 10)
+    result, _ = await probe(key, sim(key))
+    produced |= set(result.backfill)
     assert produced <= set(BACKFILL_USE), produced - set(BACKFILL_USE)
 
 
@@ -455,12 +598,14 @@ def test_probe_runbook_matches_the_code():
         f"| `--days` | `{export_urls.DEFAULT_DAYS}` |": True,
         f"| `--candidate-days` | `{export_urls.DEFAULT_CANDIDATE_DAYS}` |": True,
         f"| `--max-requests` | `{cmd_gsc_export_urls.DEFAULT_MAX_REQUESTS}` |": True,
+        f"| `--candidate-max-requests` | `{cmd_gsc_export_urls.DEFAULT_CANDIDATE_MAX_REQUESTS}` |": True,
+        "代码完成、实测待 U1/U2": True,
+        "`<date>` 是运行开始时的 PT 日期": True,
         f"| `--candidates-shown` | `{cmd_gsc_export_urls.DEFAULT_CANDIDATES_SHOWN}` |": True,
         "1024 起翻倍到 32768": probe_pages.LADDER == (1024, 2048, 4096, 8192, 16384, 32768),
         "二分到 64 字符以内": probe_pages.RESOLUTION == 64,
         "实测上限的 90%": probe_pages.CHUNK_MARGIN_PERCENT == 90,
         "前 5 个国家": export_urls.TOP_COUNTRIES == 5,
-        "实测待 U1": True,
     }
     assert {phrase: phrase in text and holds for phrase, holds in numbers.items()} == dict.fromkeys(numbers, True)
 

@@ -9,8 +9,10 @@ final against all over 16 PT days (P6), and how GSC spells page URLs (P7, the ho
 Each item ends in one verdict: 支持, 不支持 or 退路 (the fallback the design names), or 未定 when an answer that would
 settle it never came (a quota error or a failure worth one more run), or 未测 when the run stopped before it. P1 failing
 stops the run: nothing else can be learned without access. A quota error stops it too, and its body is kept, since
-TR-06's quota fixtures are to be replaced with real ones. The order is P1, P7, P3, P2, P4, P5, P6: P2 compares A' with
-P3's C, and P4 takes its seed pages from C and P7.
+TR-06's quota fixtures are to be replaced with real ones; so does any failure at the token endpoint. Only an answer that
+refuses access decides P1 against (不支持); a 5xx, a timeout or a broken connection at the token endpoint is as
+undecided as the same failure at the query endpoint, so network trouble never reads as U1 or U2 left undone. The order
+is P1, P7, P3, P2, P4, P5, P6: P2 compares A' with P3's C, and P4 takes its seed pages from C and P7.
 
 Every request goes through GscClient one at a time, with a pause between them (the quota is RealShort's too, design
 5.1). RecordingTransport keeps the query answers (request body, status, response body) for the raw file: never the
@@ -305,9 +307,22 @@ def _not_run(probe: str, reason: str) -> Finding:
     return Finding(probe, "未测", f"未测：{reason}")
 
 
+def _unanswered(error: GscRequestError) -> bool:
+    """A quota error or an answer that never came: it settles nothing, wherever it happened."""
+    return error.is_quota or error.kind in TRANSIENT_KINDS
+
+
+def _stop_words(error: GscRequestError) -> str:
+    return "没有得到回答" if error.kind in TRANSIENT_KINDS else "被拒"
+
+
 def _stopped(probe: str, error: GscRequestError) -> Finding:
-    verdict: Verdict = "不支持" if probe == "P1" and not error.is_quota else "未定"
-    return Finding(probe, verdict, f"请求被拒，本次运行停止（{error_text(error)}）", facts=error_facts(error))
+    """The item a stopping answer interrupted. Only refused access decides P1 against; anything unanswered is 未定."""
+    unanswered = _unanswered(error)
+    verdict: Verdict = "不支持" if probe == "P1" and not unanswered else "未定"
+    advice = "，过一会儿再跑一次" if unanswered else ""
+    conclusion = f"请求{_stop_words(error)}，本次运行停止（{error_text(error)}）{advice}"
+    return Finding(probe, verdict, conclusion, facts=error_facts(error))
 
 
 def _steps() -> Mapping[str, Step]:
@@ -340,7 +355,7 @@ async def run_probe(ctx: ProbeContext, log: ProbeLog) -> ProbeResult:
             finding, more = await steps[probe](ctx, carry)
         except ProbeStopped as stop:
             finding, more = _stopped(probe, stop.error), {}
-            halted = f"{probe} 的请求被拒（{stop.error.kind}），本次运行在那里停止"
+            halted = f"{probe} 的请求{_stop_words(stop.error)}（{stop.error.kind}），本次运行在那里停止"
         findings, carry = {**findings, probe: finding}, MappingProxyType({**carry, **more})
         if probe == "P1" and finding.verdict != "支持" and halted is None:
             halted = "P1 未通过，没有访问权限时其余各项无从测起"

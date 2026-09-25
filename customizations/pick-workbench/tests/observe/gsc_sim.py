@@ -2,8 +2,10 @@
 
 Nothing here reaches Google. The token endpoint is gsc_fake.FakeGoogle's, which verifies every assertion's signature;
 queries are answered from a list of facts by the rules the probe measures, each one a switch a test sets: whether hourly
-data honours byPage, whether [hour,page,country] is accepted, how includingRegex matches (RE2's PartialMatch by default)
-and how long it may be, how the metadata fields are spelled, how far final data lags, which pages the detail leaves out.
+data and daily data honour byPage, whether [hour,page,country] is accepted, how includingRegex matches (RE2's
+PartialMatch by default, on the raw URL, with ^ and $ honoured) and how long it may be, how the metadata fields are
+spelled, how far final data lags, which pages the detail leaves out (a request filtered on the page still returns them,
+as GSC does for rows it drops from a large unfiltered answer), and whether a country-filtered answer counts differently.
 Rows are sorted by clicks, then impressions, then keys, and cut at the request's rowLimit, so a test that lowers
 query.ROW_LIMIT sees truncation without 25,000 rows.
 """
@@ -15,6 +17,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Literal
+from urllib.parse import unquote
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -45,15 +48,19 @@ class SimRules:
     final_lag_days: int = 3  # final has rows for PT days up to today - lag
     final_extra: int = 0  # impressions final adds to every fact (a late revision)
     hourly_by_page: Literal["honored", "ignored", "rejected"] = "honored"
+    daily_by_page: Literal["honored", "ignored"] = "honored"  # [date] with byPage answered byProperty when ignored
     c_shape: Literal["ok", "rejected"] = "ok"
     vh_shape: Literal["ok", "rejected"] = "ok"
     vd_final: Literal["ok", "rejected"] = "ok"  # [date,country] with a page filter and dataState final
     server_error_when: Callable[[dict], bool] | None = None  # the requests answered 503 (a transient failure)
     regex_limit: int = 4096
     regex_mode: Literal["partial", "full"] = "partial"
+    regex_subject: Literal["raw", "decoded"] = "raw"  # decoded: includingRegex sees the percent-decoded URL
+    anchors: Literal["honored", "ignored"] = "honored"  # ignored: a leading ^ and a trailing $ are dropped
     spelling: Literal["snake", "camel"] = "snake"
     c_spanning_watermark: bool = True  # a [hour,page,...] answer for the watermark's day carries the field
-    detail_hidden_pages: frozenset[str] = frozenset()  # left out of every answer with the page dimension
+    detail_hidden_pages: frozenset[str] = frozenset()  # left out of every answer with the page dimension and no page filter
+    country_filter_extra: int = 0  # impressions a country-filtered answer adds to every fact (a split that disagrees)
     quota_after: int | None = None  # the query after this many is answered 429
 
     @property
@@ -133,13 +140,20 @@ class SimGoogle(FakeGoogle):
             return value == expression
         if operator == "includingRegex":
             match = re.search if self.rules.regex_mode == "partial" else re.fullmatch
-            return match(expression, value) is not None
+            subject = unquote(value) if self.rules.regex_subject == "decoded" and item["dimension"] == "page" else value
+            return match(self._anchored(expression), subject) is not None
         raise AssertionError(f"the simulator does not know operator {operator}")
+
+    def _anchored(self, expression: str) -> str:
+        if self.rules.anchors == "honored":
+            return expression
+        return expression.removeprefix("^").removesuffix("$")
 
     def _selected(self, body: dict) -> list[Fact]:
         start, end = date.fromisoformat(body["startDate"]), date.fromisoformat(body["endDate"])
         filters = [item for group in body.get("dimensionFilterGroups", []) for item in group["filters"]]
-        hidden = self.rules.detail_hidden_pages if "page" in body["dimensions"] else frozenset()
+        page_filtered = any(item["dimension"] == "page" for item in filters)
+        hidden = self.rules.detail_hidden_pages if "page" in body["dimensions"] and not page_filtered else frozenset()
         days = (start + timedelta(days=offset) for offset in range((end - start).days + 1))
         return [
             fact
@@ -149,7 +163,9 @@ class SimGoogle(FakeGoogle):
         ]
 
     def _answer(self, body: dict) -> dict:
-        extra = self.rules.final_extra if body["dataState"] == "final" else 0
+        filters = [item for group in body.get("dimensionFilterGroups", []) for item in group["filters"]]
+        by_country = any(item["dimension"] == "country" for item in filters)
+        extra = (self.rules.final_extra if body["dataState"] == "final" else 0) + (self.rules.country_filter_extra if by_country else 0)
         sums: dict[tuple[str, ...], list[int]] = defaultdict(lambda: [0, 0])
         for fact in self._selected(body):
             cell = sums[tuple(_key(fact, dimension) for dimension in body["dimensions"])]
@@ -169,9 +185,9 @@ class SimGoogle(FakeGoogle):
         wanted = body.get("aggregationType")
         if "page" in body["dimensions"]:
             return "byPage"
-        if wanted == "byPage" and not ("hour" in body["dimensions"] and self.rules.hourly_by_page == "ignored"):
-            return "byPage"
-        return "byProperty"
+        hourly = "hour" in body["dimensions"]
+        ignored = self.rules.hourly_by_page == "ignored" if hourly else self.rules.daily_by_page == "ignored"
+        return "byPage" if wanted == "byPage" and not ignored else "byProperty"
 
     def _metadata(self, body: dict) -> dict:
         rules, end = self.rules, date.fromisoformat(body["endDate"])

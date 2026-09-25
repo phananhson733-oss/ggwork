@@ -5,6 +5,7 @@ requests are the shapes design 5.2 names, sent once each for the probe; the verd
 """
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from types import MappingProxyType
 
@@ -14,6 +15,7 @@ from ggwork_pick.observe.gsc.probe import (
     Finding,
     ProbeContext,
     Table,
+    Verdict,
     ask,
     error_facts,
     error_text,
@@ -92,7 +94,8 @@ def _top_countries(rows: tuple[GscRow, ...]) -> tuple[str, ...]:
 
 
 async def _p3_fallback(ctx: ProbeContext, main: Answer) -> tuple[Finding, Carry]:
-    """C refused: try the design's fallback, [hour,page] with countries from daily data (design 5.2)."""
+    """C refused: try the design's fallback, [hour,page] with countries from daily data (design 5.2). This is the only
+    branch that falls back to it: a C that is accepted but still full after the split cannot (see _p3_verdict)."""
     if main.error.kind != "bad_request":
         return failed("P3", "C（[hour,page,country]）", main.error), {}
     fallback = await ask(ctx, c_query(ctx.yesterday, dimensions=FALLBACK_DIMENSIONS))
@@ -100,47 +103,99 @@ async def _p3_fallback(ctx: ProbeContext, main: Answer) -> tuple[Finding, Carry]
     if not fallback.ok:
         return Finding("P3", failure_verdict(fallback.error), f"C 被拒，退路 [hour,page] 也失败（{error_text(fallback.error)}）", facts=facts), {}
     backfill = {"c_shape": "hour,page", "c_rows_yesterday": len(fallback.response.rows), "c_truncated": fallback.response.truncated}
-    conclusion = "[hour,page,country] 被拒（400）：退到 [hour,page] + 日级国家（设计 5.2），国家只能按日从 D、E 取"
     carry = {"c_shape": "hour,page", "c_responses": MappingProxyType({ctx.yesterday: fallback.response})}
+    if fallback.response.truncated:
+        conclusion = (
+            f"[hour,page,country] 被拒（400），设计 5.2 的 [hour,page] 昨天也满额（{len(fallback.response.rows)} 行）：两者都放不下，"
+            "需要更细的拆分维度（如按 locale 路径前缀加 page 过滤，或加 device），交 G2 决定"
+        )
+        return Finding("P3", "不支持", conclusion, facts=facts, backfill=backfill), carry
+    conclusion = "[hour,page,country] 被拒（400）：退到 [hour,page] + 日级国家（设计 5.2），国家只能按日从 D、E 取"
     return Finding("P3", "退路", conclusion, facts=facts, backfill=backfill), carry
 
 
-def _p3_verdict(full: bool, split_full: int, rows: int, consistent: bool) -> tuple[str, str]:
-    if full and split_full == 0:
-        return "支持", f"一天的 C 满额（昨天 {rows} 行）；按国家拆分后每片都不满额：C 要按国家拆分发送，新鲜数据不翻页"
-    if full:
-        return "退路", f"按国家拆分后仍有 {split_full} 片满额：退到 [hour,page] + 日级国家（设计 5.2）"
-    split = "按国家拆分的结果与整片逐行相同" if consistent else "按国家拆分的结果与整片有出入，见下表"
-    return "支持", f"一天一片不满额（昨天 {rows} 行）：C 按 PT 日一片发送即可；{split}"
+def _evidence(hour_page: Answer | None) -> str:
+    if hour_page is None:
+        return ""
+    if not hour_page.ok:
+        return f"；补发的昨天 [hour,page] 失败（{error_text(hour_page.error)}），不影响这个推理"
+    rows = len(hour_page.response.rows)
+    if hour_page.response.truncated:
+        return f"；补发的昨天 [hour,page] 实测 {rows} 行、满额，与推理一致"
+    return f"；补发的昨天 [hour,page] 实测 {rows} 行、未满额，与推理不符，请 G2 核对原始回答"
+
+
+def _p3_verdict(rows: int, full_days: tuple[str, ...], split_full: int, consistent: bool, hour_page: Answer | None) -> tuple[Verdict, str]:
+    """One country of one day is a subset of [hour,page] for that day, row for row: when a country's split is still
+    full, so is design 5.2's fallback, so that is never recommended here; a finer split is G2's to choose."""
+    lead = "" if consistent else "按国家拆分的结果与整片有出入（逐行比较见下表）；"
+    if not full_days:
+        tail = "；按国家拆分的结果与整片逐行相同" if consistent else ""
+        return "支持", f"{lead}一天一片不满额（昨天 {rows} 行）：C 按 PT 日一片发送即可{tail}"
+    full = f"满额的整日切片：{'、'.join(full_days)}"
+    if split_full == 0:
+        return "支持", f"{lead}{full}；按国家拆分后每片都不满额：C 要按国家拆分发送，新鲜数据不翻页"
+    return "不支持", (
+        f"{lead}{full}；按国家拆分后仍有 {split_full} 片满额。C 放不下，设计 5.2 的 [hour,page] 加日级国家也放不下："
+        f"单国一天的 [hour,page,country] 行数不多于全站一天的 [hour,page]{_evidence(hour_page)}。"
+        "需要更细的拆分维度（如按 locale 路径前缀加 page 过滤，或加 device），交 G2 决定"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Measured:
+    main: Answer
+    fresh: Answer
+    splits: tuple[tuple[str, Answer], ...]
+    compared: tuple[tuple[tuple[str, ...], bool, bool], ...]
+    hour_page: Answer | None
+
+
+async def _measure_c(ctx: ProbeContext) -> _Measured | Answer:
+    """C for yesterday and today, yesterday split for its three biggest countries, and, when a split is still full,
+    yesterday's [hour,page] once to show the fallback is full too. A refused main request comes back as it is."""
+    main = await ask(ctx, c_query(ctx.yesterday))
+    if not main.ok:
+        return main
+    fresh = await ask(ctx, c_query(ctx.today))
+    splits = tuple([(country, await ask(ctx, c_query(ctx.yesterday, country))) for country in _top_countries(main.response.rows)])
+    compared = tuple(_split_row(country, answer, main.response.rows) for country, answer in splits)
+    still_full = any(truncated for _, truncated, _ in compared)
+    hour_page = await ask(ctx, c_query(ctx.yesterday, dimensions=FALLBACK_DIMENSIONS)) if still_full else None
+    return _Measured(main, fresh, splits, compared, hour_page)
+
+
+def _full_days(measured: _Measured) -> tuple[str, ...]:
+    named = (("昨天", measured.main), ("今天", measured.fresh))
+    return tuple(f"{name}（{len(answer.response.rows)} 行）" for name, answer in named if answer.response.truncated)
 
 
 async def p3_detail(ctx: ProbeContext, carry: Carry) -> tuple[Finding, Carry]:
     """C for yesterday and today, then yesterday split for its three biggest countries, compared row by row."""
-    main = await ask(ctx, c_query(ctx.yesterday))
-    if not main.ok:
-        return await _p3_fallback(ctx, main)
-    fresh = await ask(ctx, c_query(ctx.today))
-    countries = _top_countries(main.response.rows)
-    splits = [(country, await ask(ctx, c_query(ctx.yesterday, country))) for country in countries]
-    compared = [_split_row(country, answer, main.response.rows) for country, answer in splits]
+    measured = await _measure_c(ctx)
+    if isinstance(measured, Answer):
+        return await _p3_fallback(ctx, measured)
+    main, fresh, hour_page = measured.main, measured.fresh, measured.hour_page
     responses = {day: answer.response for day, answer in ((ctx.yesterday, main), (ctx.today, fresh)) if answer.ok}
     carry = {"c_shape": "hour,page,country", "c_responses": MappingProxyType(responses)}
-    tables = (_c_table(ctx, main, fresh), _split_table(compared))
-    broken = next((answer for answer in (fresh, *(answer for _, answer in splits)) if not answer.ok), None)
+    tables = (_c_table(ctx, main, fresh, hour_page), _split_table(measured.compared))
+    broken = next((answer for answer in (fresh, *(answer for _, answer in measured.splits)) if not answer.ok), None)
     if broken is not None:
         return Finding("P3", failure_verdict(broken.error), f"部分请求失败（{error_text(broken.error)}）", tables=tables), carry
-    full = main.response.truncated or fresh.response.truncated
-    split_full = sum(1 for _, truncated, _ in compared if truncated)
-    consistent = all(agrees for _, _, agrees in compared)
-    verdict, conclusion = _p3_verdict(full, split_full, len(main.response.rows), consistent)
+    full_days = _full_days(measured)
+    split_full = sum(1 for _, truncated, _ in measured.compared if truncated)
+    consistent = all(agrees for _, _, agrees in measured.compared)
+    verdict, conclusion = _p3_verdict(len(main.response.rows), full_days, split_full, consistent, hour_page)
     backfill = {
         "c_shape": "hour,page,country",
         "c_rows_yesterday": len(main.response.rows),
         "c_rows_today": len(fresh.response.rows),
-        "c_truncated": full,
-        "c_needs_country_split": full,
+        "c_truncated": bool(full_days),
+        "c_needs_country_split": bool(full_days),
         "c_split_truncated": split_full,
         "c_split_consistent": consistent,
+        "c_hour_page_rows": len(hour_page.response.rows) if hour_page is not None and hour_page.ok else None,
+        "c_hour_page_truncated": hour_page.response.truncated if hour_page is not None and hour_page.ok else None,
     }
     return Finding("P3", verdict, conclusion, facts=_c_facts(main.response), tables=tables, backfill=backfill), carry
 
@@ -154,13 +209,17 @@ def _c_facts(response: GscResponse) -> tuple[tuple[str, str], ...]:
     )
 
 
-def _c_table(ctx: ProbeContext, main: Answer, fresh: Answer) -> Table:
-    def line(day: date, answer: Answer) -> tuple[str, ...]:
+def _c_table(ctx: ProbeContext, main: Answer, fresh: Answer, hour_page: Answer | None) -> Table:
+    def line(label: str, answer: Answer) -> tuple[str, ...]:
         if not answer.ok:
-            return (format_day(day), "失败", error_text(answer.error), "—")
-        return (format_day(day), str(len(answer.response.rows)), yes_no(answer.response.truncated), str(impressions(answer.response.rows)))
+            return (label, "失败", error_text(answer.error), "—")
+        return (label, str(len(answer.response.rows)), yes_no(answer.response.truncated), str(impressions(answer.response.rows)))
 
-    return Table("C 的整日切片", ("PT 日", "行数", "满额", "曝光合计"), (line(ctx.yesterday, main), line(ctx.today, fresh)))
+    rows = (line(format_day(ctx.yesterday), main), line(format_day(ctx.today), fresh))
+    if hour_page is None:
+        return Table("C 的整日切片", ("PT 日", "行数", "满额", "曝光合计"), rows)
+    extra = line(f"[hour,page] {format_day(ctx.yesterday)}", hour_page)
+    return Table("C 的整日切片与对照的 [hour,page]", ("请求", "行数", "满额", "曝光合计"), (*rows, extra))
 
 
 def _split_table(compared) -> Table:
@@ -190,15 +249,18 @@ def _percent_text(value: float | None) -> str:
     return "—" if value is None else f"{value}%"
 
 
-NO_GAP = MappingProxyType({"detail_gap_hours": None, "detail_gap_percent_max": None, "detail_gap_percent_total": None})
+NO_GAP = MappingProxyType({"detail_gap_hours": None, "detail_gap_percent_max": None, "detail_gap_percent_total": None, "detail_gap_skipped_days": None})
 
 
 def _gap_table(a_prime: GscResponse, a: GscResponse | None, carry: Carry) -> tuple[Table | None, Mapping[str, object]]:
-    """A' against the C detail hour by hour, for the complete hours both cover (before A''s watermark)."""
+    """A' against the C detail hour by hour, for the complete hours both cover (before A''s watermark). A day whose C
+    came back full is left out and named: its missing rows are truncation, not the detail gap tau is set against."""
+    responses = carry.get("c_responses") or {}
+    detail = {day: response for day, response in responses.items() if not response.truncated}
+    skipped = {"detail_gap_skipped_days": [format_day(day) for day in sorted(responses) if responses[day].truncated]}
     watermark = a_prime.metadata.first_incomplete_hour or (a.metadata.first_incomplete_hour if a is not None else None)
-    detail = carry.get("c_responses") or {}
     if watermark is None or not detail:
-        return None, NO_GAP
+        return None, {**NO_GAP, **skipped}
     totals, plain = _hourly(a_prime.rows), _hourly(a.rows) if a is not None else {}
     shown = _hourly(row for response in detail.values() for row in response.rows)
     hours = sorted(hour for hour in totals if hour < utc(watermark) and hour.astimezone(PT).date() in set(detail))
@@ -214,9 +276,19 @@ def _gap_table(a_prime: GscResponse, a: GscResponse | None, carry: Carry) -> tup
     )
     whole, seen = sum(totals[hour] for hour in hours), sum(shown.get(hour, 0) for hour in hours)
     gaps = [gap for gap in (percent(totals[hour] - shown.get(hour, 0), totals[hour]) for hour in hours) if gap is not None]
-    backfill = {"detail_gap_hours": len(hours), "detail_gap_percent_max": max(gaps, default=None), "detail_gap_percent_total": percent(whole - seen, whole)}
+    backfill = {
+        "detail_gap_hours": len(hours),
+        "detail_gap_percent_max": max(gaps, default=None),
+        "detail_gap_percent_total": percent(whole - seen, whole),
+        **skipped,
+    }
     table = Table("逐小时明细缺口（A′ 减 C 的明细合计，只看水位之前的完整小时）", ("PT 小时", "A′ 曝光", "A 曝光", "C 明细合计", "缺口占比"), rows)
     return table, backfill
+
+
+def _skip_note(gap: Mapping[str, object]) -> str:
+    days = gap.get("detail_gap_skipped_days")
+    return f"；C 满额的日子（{'、'.join(days)}）不参与明细缺口：满额少的行是截断，不是 τ 要参照的缺口" if days else ""
 
 
 async def p2_hourly_by_page(ctx: ProbeContext, carry: Carry) -> tuple[Finding, Carry]:
@@ -236,7 +308,7 @@ async def p2_hourly_by_page(ctx: ProbeContext, carry: Carry) -> tuple[Finding, C
         "a_prime_aggregation": a_prime.response.aggregation if a_prime.ok else None,
         **gap,
     }
-    return Finding("P2", verdict, conclusion, facts=facts, tables=(table,) if table else (), backfill=backfill), {}
+    return Finding("P2", verdict, conclusion + _skip_note(gap), facts=facts, tables=(table,) if table else (), backfill=backfill), {}
 
 
 # ---- P5 ------------------------------------------------------------------------------------------------------------------
@@ -328,6 +400,17 @@ def _daily(response: GscResponse) -> dict[str, int]:
     return {row.keys[0]: row.impressions for row in response.rows}
 
 
+def _p6_problems(final: GscResponse, whole: GscResponse, finals: Mapping[str, int]) -> tuple[str, ...]:
+    """Why A'' cannot be the daily total of D27: an aggregation other than byPage is not the detail's basis, and a
+    final that has no row on any of the 16 days leaves E's days nothing of their own dataState to compare with."""
+    aggregations = (whole.aggregation, final.aggregation)
+    return (
+        *((f"A″ 的聚合不是 byPage（all 为 {whole.aggregation or '未注明'}、final 为 {final.aggregation or '未注明'}）：与明细不同口径，不能当日级同口径总量",)
+          if aggregations != ("byPage", "byPage") else ()),
+        *(("16 个 PT 日都没有 final 行：A″f 不可用，E 切片的日子没有同一 dataState 的总量可比",) if not finals else ()),
+    )  # fmt: skip
+
+
 async def p6_daily_totals(ctx: ProbeContext, carry: Carry) -> tuple[Finding, Carry]:
     """A'' with final and with all over the 16 PT days ending yesterday (D27), day by day."""
     start, end = ctx.yesterday - timedelta(days=15), ctx.yesterday
@@ -351,9 +434,11 @@ async def p6_daily_totals(ctx: ProbeContext, carry: Carry) -> tuple[Finding, Car
         "a2_aggregation": {"all": whole.response.aggregation, "final": final.response.aggregation},
     }
     aggregation = f"聚合 all 为 {whole.response.aggregation}、final 为 {final.response.aggregation}"
-    conclusion = (
+    measured = (
         f"final 最近到 {latest or '无'}，窗口里 {len(missing)} 天没有 final 行（{'、'.join(missing) or '无'}）；"
         f"两份都有的 {len(both)} 天里曝光差异最大 {largest if largest is not None else '—'}%；{aggregation}"
     )
+    problems = _p6_problems(final.response, whole.response, finals)
+    verdict = "不支持" if problems else "支持"
     table = Table("A″ 逐日（曝光）", ("PT 日", "all", "final", "差异"), rows)
-    return Finding("P6", "支持", conclusion, tables=(table,), backfill=backfill), {}
+    return Finding("P6", verdict, "；".join((*problems, measured)), tables=(table,), backfill=backfill), {}

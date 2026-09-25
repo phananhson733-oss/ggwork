@@ -6,21 +6,25 @@ drama pages is what the D25 regex has to match: every new page must be matched b
 as it stands, or the verdict is a fallback that says which spellings it misses.
 
 P4 takes one identity as its seed, the new page with the most impressions in yesterday's C (or in P7's list), and
-builds its page set P with pageset.page_set exactly as TR-23a will. With it: four filter requests settle the regex
-semantics (does P's anchored regex return exactly the pages page_set.contains accepts, does an unanchored id match part
-of a URL, is ^ honoured, is a Perl-only lookahead refused); a ladder and a bisection find the longest includingRegex
-GSC accepts, with filler alternatives shaped like real URLs that never match; Vh ([hour,country]) and Vd
-([date,country], all and final) are sent with P's regex and compared cell by cell with the detail under premise 3's
-tolerance (the rule of gsc-rules-v1). A disagreement is data, not a failure: counterexample 22 is exactly a page
-missing from the detail that the filter request still counts.
+builds its page set P with pageset.page_set exactly as TR-23a will. D25's regex has two halves, and both are measured:
+the new pages ([^/?#]+-<id>) and the legacy pages, whose raw strings are matched verbatim. P7's list has no snapshot to
+resolve old pages with, so the most seen ?id= page and the most seen percent-encoded old page are borrowed into P as
+if they resolved to the seed (LegacyTarget, same locale): whether GSC matches them as raw strings or as decoded text is
+what decides whether the old pages (half the clicks) can be checked drama by drama at all.
+
+Five filter requests settle the semantics: does P's anchored regex return exactly the pages page_set.contains accepts,
+does a regex of the borrowed old pages alone return exactly those raw strings, does an unanchored id match part of a
+URL, is ^ honoured, is a Perl-only lookahead refused. Either of the first two failing, or a partial match that ignores
+^, decides against the D25 regex (不支持): TR-23a would compare a filter over other pages than the detail's. A ladder
+and a bisection find the longest includingRegex GSC accepts, with filler alternatives shaped like real URLs that never
+match. Vh and Vd are probe_vchecks.py's.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 
-from ggwork_pick.observe.gsc.pageset import PageSet, PageSources, page_set, re2_escape
-from ggwork_pick.observe.gsc.params import GSC_RULES_V1
+from ggwork_pick.observe.gsc.pageset import CHUNK_HEAD, CHUNK_TAIL, LegacyTarget, PageSet, PageSources, page_set, re2_escape
 from ggwork_pick.observe.gsc.probe import (
     Answer,
     Finding,
@@ -34,6 +38,7 @@ from ggwork_pick.observe.gsc.probe import (
     impressions,
     sum_by,
 )
+from ggwork_pick.observe.gsc.probe_vchecks import Part, shape_texts, vd, vh
 from ggwork_pick.observe.gsc.query import GscQuery, GscRow
 from ggwork_pick.observe.gsc.urls import UrlShape, classify_url
 
@@ -41,11 +46,11 @@ LADDER = (1024, 2048, 4096, 8192, 16384, 32768)
 RESOLUTION = 64
 CHUNK_MARGIN_PERCENT = 90  # TR-23a chunks at 90% of the longest regex GSC accepted
 SEMANTICS_DAYS = 7
-VD_DAYS = 14
 SHOWN_CHARS = 120
 SHOWN_ROWS = 10
 EXAMPLES = 2
 FILLER_HEAD, FILLER_TAIL = "^(?:", ")$"
+LEGACY_KINDS = frozenset({"legacy_detail", "legacy_video_play", "legacy_id_query"})
 Carry = Mapping[str, object]
 
 KIND_LABELS = {
@@ -232,20 +237,14 @@ class Seed:
         return chunk
 
     @property
+    def legacy_regex(self) -> str | None:
+        """The borrowed old pages alone, as page_set renders a legacy alternative (verbatim, escaped for RE2)."""
+        urls = self.pset.legacy_urls
+        return CHUNK_HEAD + "|".join(re2_escape(url) for url in urls) + CHUNK_TAIL if urls else None
+
+    @property
     def book_id(self) -> str:
         return self.pset.book_ids[0]
-
-
-@dataclass(frozen=True, slots=True)
-class Part:
-    """One part of P4: its table, its values, a request without a clear answer (the item is then undecided), a
-    refusal that decides against the design's request shape, and a refusal the design has a fallback for."""
-
-    table: Table | None
-    backfill: Mapping[str, object]
-    broken: Answer | None = None
-    refused: str | None = None
-    fallback: str | None = None
 
 
 def _page_totals(carry: Carry, yesterday) -> tuple[dict[str, int], ...]:
@@ -254,66 +253,96 @@ def _page_totals(carry: Carry, yesterday) -> tuple[dict[str, int], ...]:
     return from_c, {row.keys[0]: row.impressions for row in carry.get("pages_7d", ())}
 
 
+def _legacy_samples(ctx: ProbeContext, carry: Carry) -> tuple[str, ...]:
+    """The most seen ?id= page and the most seen percent-encoded old page of P7's list (one URL when they coincide)."""
+    listed = sorted(carry.get("pages_7d", ()), key=lambda row: (-row.impressions, row.keys[0]))
+    shapes = [classify_url(row.keys[0], site_host=ctx.site_host) for row in listed]
+    id_query = next((shape.url for shape in shapes if shape.kind == "legacy_id_query"), None)
+    encoded = next((shape.url for shape in shapes if shape.kind in LEGACY_KINDS and shape.percent_encoded), None)
+    return tuple(dict.fromkeys(url for url in (id_query, encoded) if url is not None))
+
+
 def _seed(ctx: ProbeContext, carry: Carry) -> Seed | None:
-    """The new page with the most impressions whose URL page_set's regex matches as it stands."""
+    """The new page with the most impressions whose URL page_set's regex matches as it stands, with P7's sample old
+    pages borrowed into its page set."""
     ranked = (url for totals in _page_totals(carry, ctx.yesterday) for url in sorted(totals, key=lambda url: (-totals[url], url)))
     shape = next((shape for shape in (classify_url(url, site_host=ctx.site_host) for url in ranked) if shape.page_set_shape), None)
     if shape is None:
         return None
-    sources = PageSources(host=ctx.site_host, rs_ids={}, legacy=())
-    return Seed(shape.url, page_set(canonical_id=shape.new_page.book_id, locale=shape.new_page.locale, sources=sources))
-
-
-def _agrees(flt: int, det: int) -> bool:
-    """Premise 3: |X_flt - X_det| <= max(10% x max(X_flt, X_det), 3), in integers."""
-    params = GSC_RULES_V1
-    return abs(flt - det) * 100 <= max(params.consistency_percent * max(flt, det), params.consistency_floor * 100)
-
-
-def _cell_compare(flt: dict, det: dict, title: str, labels: tuple[str, str]) -> tuple[int, int, Table]:
-    cells = sorted(flt.keys() | det.keys())
-    agree = [cell for cell in cells if _agrees(flt.get(cell, 0), det.get(cell, 0))]
-    rows = tuple((*cell, str(flt.get(cell, "无行")), str(det.get(cell, "无行"))) for cell in cells if cell not in agree)[:SHOWN_ROWS]
-    return len(cells), len(agree), Table(title, (*labels, "过滤请求", "明细合计"), rows)
+    page = shape.new_page
+    legacy = tuple(LegacyTarget(url, "drama", page.locale, page.book_id) for url in _legacy_samples(ctx, carry))
+    sources = PageSources(host=ctx.site_host, rs_ids={}, legacy=legacy)
+    return Seed(shape.url, page_set(canonical_id=page.book_id, locale=page.locale, sources=sources))
 
 
 def _outcome(answer: Answer) -> str:
     return f"{len(answer.response.rows)} 行" if answer.ok else f"HTTP {answer.error.status}（{answer.error.kind}）"
 
 
-async def _semantics(ctx: ProbeContext, seed: Seed, carry: Carry) -> Part:
-    days = (ctx.yesterday - timedelta(days=SEMANTICS_DAYS - 1), ctx.yesterday)
-    cases = (
-        ("page_set 的锚定正则", seed.regex),
-        ("未锚定的 id", seed.book_id),
-        ("^ 加 id", "^" + seed.book_id),
-        ("前瞻（RE2 不支持）", "(?=https)" + seed.regex),
-    )
-    answers = [
-        await ask(ctx, GscQuery(*days, ("page",), "all", dimension_filter_groups=filters("page", "includingRegex", expression))) for _, expression in cases
-    ]
-    exact, partial, anchored, lookahead = answers
+def _returned(answer: Answer) -> set[str] | None:
+    return {row.keys[0] for row in answer.response.rows} if answer.ok else None
+
+
+def _listing(urls, limit: int = EXAMPLES) -> str:
+    ordered = sorted(urls)
+    more = f" 等 {len(ordered)} 条" if len(ordered) > limit else ""
+    return "、".join(_short(url) for url in ordered[:limit]) + more
+
+
+def _semantic_values(seed: Seed, carry: Carry, answers: Mapping[str, Answer]) -> tuple[dict[str, object], tuple[str, ...]]:
+    """The semantics backfill, and the findings that decide against the D25 regex."""
     listed = {row.keys[0] for row in carry.get("pages_7d", ())}
     expected = {url for url in listed if seed.pset.contains(url)} or {seed.url}
-    returned = {row.keys[0] for row in exact.response.rows} if exact.ok else set()
-    backfill = {
-        "regex_page_set_exact": exact.ok and expected <= returned and all(seed.pset.contains(url) for url in returned),
-        "regex_partial_match": (seed.url in {row.keys[0] for row in partial.response.rows}) if partial.ok else None,
+    exact, legacy = _returned(answers["exact"]), _returned(answers["legacy"]) if "legacy" in answers else None
+    partial, anchored, lookahead = answers["partial"], answers["anchored"], answers["lookahead"]
+    values = {
+        "regex_page_set_exact": None if exact is None else expected <= exact and all(seed.pset.contains(url) for url in exact),
+        "regex_legacy_exact": None if legacy is None else legacy == set(seed.pset.legacy_urls),
+        "regex_partial_match": (seed.url in _returned(partial)) if partial.ok else None,
         "regex_anchor_honored": (not anchored.response.rows) if anchored.ok else None,
         "regex_re2_only": False if lookahead.ok else (True if lookahead.error.kind == "bad_request" else None),
     }
-    table = Table(
-        "includingRegex 的语义（近 7 个 PT 日，[page]/all）",
-        ("用例", "表达式", "结果"),
-        tuple((name, _short(expression), _outcome(answer)) for (name, expression), answer in zip(cases, answers)),
+    problems = (
+        *((f"旧页原串没有按原串匹配（缺 {_listing(set(seed.pset.legacy_urls) - legacy)}；GSC 可能按解码后的文本匹配）：旧页按原串精确查表的逐剧核对不成立",)
+          if values["regex_legacy_exact"] is False else ()),
+        *((f"page_set 的锚定正则返回的页面与 page_set.contains 不一致（缺 {_listing(expected - exact) or '无'}，"
+           f"多出 {_listing({url for url in exact if not seed.pset.contains(url)}) or '无'}）：过滤请求与明细不是同一个页面集合",)
+          if values["regex_page_set_exact"] is False else ()),
+        *(("部分匹配而 ^ 不生效：锚定正则挡不住多出的页面，过滤请求会数进别的剧",)
+          if values["regex_partial_match"] and values["regex_anchor_honored"] is False else ()),
+    )  # fmt: skip
+    return values, problems
+
+
+def _cases(seed: Seed) -> tuple[tuple[str, str, str], ...]:
+    legacy = (("legacy", "旧页原串（借来的）", seed.legacy_regex),) if seed.legacy_regex else ()
+    return (
+        ("exact", "page_set 的锚定正则", seed.regex),
+        *legacy,
+        ("partial", "未锚定的 id", seed.book_id),
+        ("anchored", "^ 加 id", "^" + seed.book_id),
+        ("lookahead", "前瞻（RE2 不支持）", "(?=https)" + seed.regex),
     )
+
+
+async def _semantics(ctx: ProbeContext, seed: Seed, carry: Carry) -> Part:
+    days = (ctx.yesterday - timedelta(days=SEMANTICS_DAYS - 1), ctx.yesterday)
+    cases = _cases(seed)
+    answers = {
+        key: await ask(ctx, GscQuery(*days, ("page",), "all", dimension_filter_groups=filters("page", "includingRegex", expression)))
+        for key, _, expression in cases
+    }
+    values, problems = _semantic_values(seed, carry, answers)
+    rows = tuple((name, _short(expression), _outcome(answers[key])) for key, name, expression in cases)
+    table = Table("includingRegex 的语义（近 7 个 PT 日，[page]/all）", ("用例", "表达式", "结果"), rows)
+    exact = answers["exact"]
     refused = "page_set 的锚定正则被拒" if not exact.ok and exact.error.kind == "bad_request" else None
     unclear = (
         *((exact,) if not exact.ok and refused is None else ()),
-        *(answer for answer in (partial, anchored) if not answer.ok),
-        *((lookahead,) if backfill["regex_re2_only"] is None else ()),
+        *(answers[key] for key in ("legacy", "partial", "anchored") if key in answers and not answers[key].ok),
+        *((answers["lookahead"],) if values["regex_re2_only"] is None else ()),
     )
-    return Part(table, backfill, next(iter(unclear), None), refused)
+    return Part((table,), values, next(iter(unclear), None), refused, problems=problems)
 
 
 async def _length(ctx: ProbeContext) -> tuple[Part, LengthSearch]:
@@ -321,43 +350,7 @@ async def _length(ctx: ProbeContext) -> tuple[Part, LengthSearch]:
     suggested = found.max_ok * CHUNK_MARGIN_PERCENT // 100 if found.max_ok else None
     backfill = {"regex_max_length_ok": found.max_ok, "regex_min_length_rejected": found.min_fail, "regex_chunk_length_suggested": suggested}
     rows = tuple((str(length), {True: "接受", False: "400 拒绝", None: "未得到明确回答"}[outcome]) for length, outcome in found.attempts)
-    return Part(Table("includingRegex 长度（梯度加二分）", ("长度", "结果"), rows), backfill), found
-
-
-async def _vh(ctx: ProbeContext, seed: Seed, carry: Carry) -> Part:
-    groups = filters("page", "includingRegex", seed.regex)
-    answer = await ask(ctx, GscQuery(ctx.yesterday, ctx.yesterday, ("hour", "country"), "hourly_all", dimension_filter_groups=groups))
-    backfill = {"vh_supported": answer.ok, "vh_seed_book_id": seed.book_id, "vh_cells": None, "vh_cells_agree": None}
-    if not answer.ok:
-        refused = "按页面过滤的 [hour,country]（Vh）被拒" if answer.error.kind == "bad_request" else None
-        return Part(None, {**backfill, "vh_supported": False if refused else None}, None if refused else answer, refused)
-    detail = (carry.get("c_responses") or {}).get(ctx.yesterday)
-    if detail is None or carry.get("c_shape") != "hour,page,country":
-        return Part(None, backfill)
-    flt = sum_by(answer.response.rows, lambda row: row.keys, lambda row: row.impressions)
-    det = sum_by((row for row in detail.rows if seed.pset.contains(row.keys[1])), lambda row: (row.keys[0], row.keys[2]), lambda row: row.impressions)
-    cells, agree, table = _cell_compare(flt, det, "Vh 与 C 明细不一致的格（昨天，曝光）", ("PT 小时", "国家"))
-    return Part(table, {**backfill, "vh_cells": cells, "vh_cells_agree": agree})
-
-
-async def _vd(ctx: ProbeContext, seed: Seed) -> Part:
-    days, groups = (ctx.yesterday - timedelta(days=VD_DAYS - 1), ctx.yesterday), filters("page", "includingRegex", seed.regex)
-    answers = [
-        await ask(ctx, GscQuery(*days, dimensions, state, dimension_filter_groups=groups))
-        for dimensions, state in ((("date", "country"), "all"), (("date", "country"), "final"), (("date", "page", "country"), "all"))
-    ]
-    vd_all, vd_final, detail = answers
-    supported = {"all": vd_all.ok, "final": vd_final.ok}
-    backfill = {"vd_supported": supported, "vd_cells": None, "vd_cells_agree": None}
-    refused = "按页面过滤的 [date,country]（Vd，all）被拒" if not vd_all.ok and vd_all.error.kind == "bad_request" else None
-    fallback = "按页面过滤的 [date,country] 用 final 被拒：Vd 只能用 all" if not vd_final.ok and vd_final.error.kind == "bad_request" else None
-    broken = next((answer for answer in answers if not answer.ok and answer.error.kind != "bad_request"), None)
-    if not (vd_all.ok and detail.ok):
-        return Part(None, backfill, broken, refused, fallback)
-    flt = sum_by(vd_all.response.rows, lambda row: row.keys, lambda row: row.impressions)
-    det = sum_by((row for row in detail.response.rows if seed.pset.contains(row.keys[1])), lambda row: (row.keys[0], row.keys[2]), lambda row: row.impressions)
-    cells, agree, table = _cell_compare(flt, det, "Vd 与 [date,page,country] 明细不一致的格（近 14 个 PT 日，all，曝光）", ("PT 日", "国家"))
-    return Part(table, {**backfill, "vd_cells": cells, "vd_cells_agree": agree}, broken, refused, fallback)
+    return Part((Table("includingRegex 长度（梯度加二分）", ("长度", "结果"), rows),), backfill), found
 
 
 def _p4_text(backfill: Mapping[str, object], found: LengthSearch) -> str:
@@ -369,7 +362,10 @@ def _p4_text(backfill: Mapping[str, object], found: LengthSearch) -> str:
         if backfill["regex_page_set_exact"]
         else "page_set 的锚定正则返回的页面与 page_set.contains 不一致"
     )
-    return "；".join((f"includingRegex {match}；{anchor}；{re2}；{exact}；{_length_text(backfill, found)}", *_shape_texts(backfill)))
+    legacy = {True: "旧页原串按原串精确匹配", False: "旧页原串没有按原串精确匹配", None: "P7 清单里没有旧页，旧页原串的匹配未测"}[
+        backfill["regex_legacy_exact"]
+    ]
+    return "；".join((f"includingRegex {match}；{anchor}；{re2}；{exact}；{legacy}；{_length_text(backfill, found)}", *shape_texts(backfill)))
 
 
 def _length_text(backfill: Mapping[str, object], found: LengthSearch) -> str:
@@ -379,18 +375,30 @@ def _length_text(backfill: Mapping[str, object], found: LengthSearch) -> str:
     return f"长度{bound}，TR-23a 分块建议不超过 {backfill['regex_chunk_length_suggested']}"
 
 
-def _shape_texts(backfill: Mapping[str, object]) -> tuple[str, ...]:
-    """What Vh and Vd showed: usable, and how many cells agree with the detail within premise 3's tolerance."""
-    shapes = (("Vh", "vh", backfill["vh_supported"]), ("Vd", "vd", backfill["vd_supported"]["all"]))
-    texts = ()
-    for name, key, usable in shapes:
-        cells, agree = backfill[f"{key}_cells"], backfill[f"{key}_cells_agree"]
-        if cells is None:
-            texts = (*texts, f"{name} 可用（没有可比的明细）") if usable else texts
-            continue
-        tail = f"，{cells - agree} 格不一致" if agree < cells else ""
-        texts = (*texts, f"{name} 可用，与明细逐格比较 {agree}/{cells} 格在容差内{tail}")
-    return texts
+def _seed_facts(seed: Seed) -> tuple[tuple[str, str], ...]:
+    borrowed = "；".join(seed.pset.legacy_urls) or "无（P7 清单里没有旧页）"
+    return (
+        ("种子页", seed.url),
+        ("种子 book_id", seed.book_id),
+        ("借来测正则的旧页原串", borrowed),
+        ("说明", "旧页原串是从 P7 清单借来测正则的，不是这部剧真实的旧页；Vh、Vd 的两边都按同一个页面集合带上了它们"),
+        ("page_set 正则", seed.regex),
+    )
+
+
+def _p4_verdict(parts: tuple[Part, ...], found: LengthSearch, backfill: Mapping[str, object], vd_part: Part) -> tuple[Verdict, str]:
+    refused = next((part.refused for part in parts if part.refused), None)
+    broken = next((part.broken for part in parts if part.broken is not None), None)
+    problems = tuple(problem for part in parts for problem in part.problems)
+    if refused:
+        return "不支持", f"{refused}：用到它的逐剧核对做不了，相关的剧只出描述性标签"
+    if broken is not None or found.aborted:
+        return "未定", f"有请求没有得到明确回答（{error_text(broken.error) if broken else '长度搜索中断'}），再跑一次"
+    if problems:
+        return "不支持", "；".join((*problems, "交 G2 决定 TR-23a 的正则怎么改", _p4_text(backfill, found)))
+    if vd_part.fallback:
+        return "退路", f"{vd_part.fallback}；{_p4_text(backfill, found)}"
+    return "支持", _p4_text(backfill, found)
 
 
 async def p4_regex(ctx: ProbeContext, carry: Carry) -> tuple[Finding, Carry]:
@@ -399,18 +407,9 @@ async def p4_regex(ctx: ProbeContext, carry: Carry) -> tuple[Finding, Carry]:
         return Finding("P4", "未定", "没有可作种子的新剧目页（C 与 P7 里都没有合 page_set 形态的新页）：P4 无从测起"), {}
     semantics = await _semantics(ctx, seed, carry)
     length, found = await _length(ctx)
-    vh, vd = await _vh(ctx, seed, carry), await _vd(ctx, seed)
-    parts = (semantics, length, vh, vd)
+    vh_part, vd_part = await vh(ctx, seed.pset, seed.regex, carry), await vd(ctx, seed.pset, seed.regex)
+    parts = (semantics, length, vh_part, vd_part)
     backfill = {name: value for part in parts for name, value in part.backfill.items()}
-    tables = tuple(part.table for part in parts if part.table is not None)
-    facts = (("种子页", seed.url), ("种子 book_id", seed.book_id), ("page_set 正则", seed.regex))
-    refused = next((part.refused for part in parts if part.refused), None)
-    broken = next((part.broken for part in parts if part.broken is not None), None)
-    if refused:
-        text = f"{refused}：用到它的逐剧核对做不了，相关的剧只出描述性标签"
-        return Finding("P4", "不支持", text, facts=facts, tables=tables, backfill=backfill), {}
-    if broken is not None or found.aborted:
-        text = f"有请求没有得到明确回答（{error_text(broken.error) if broken else '长度搜索中断'}），再跑一次"
-        return Finding("P4", "未定", text, facts=facts, tables=tables, backfill=backfill), {}
-    verdict, lead = ("退路", f"{vd.fallback}；") if vd.fallback else ("支持", "")
-    return Finding("P4", verdict, lead + _p4_text(backfill, found), facts=facts, tables=tables, backfill=backfill), {}
+    tables = tuple(table for part in parts for table in part.tables)
+    verdict, conclusion = _p4_verdict(parts, found, backfill, vd_part)
+    return Finding("P4", verdict, conclusion, facts=_seed_facts(seed), tables=tables, backfill=backfill), {}
