@@ -12,6 +12,8 @@ from types import MappingProxyType
 from ggwork_pick.observe.versions import TREND_RULES_VERSION
 
 GRANULARITIES = ("H", "D", "H+D")
+# The report writes H+D; TR-33's contract (contract.Granularity) spells it HD. TR-17 writes the contract's value.
+CONTRACT_GRANULARITY = MappingProxyType({"H": "H", "D": "D", "H+D": "HD"})
 
 HOURLY_PARAMS = MappingProxyType(
     {
@@ -127,6 +129,7 @@ _CHANGE_SHEET = """### 数据合同变更单（D39，选 {granularity} 时生效
 | 项 | 方案 H（合同现状） | 本次（{granularity}） |
 |---|---|---|
 | 判定行 `window_kind` | `H` | `D` |
+| 冻结输入 `frozen_inputs.granularity`（TR-33 合同取值 H、D、HD） | `"H"` | {frozen} |
 | 块定义 | B1–B6，六个 24 小时块，记在判定行 `metrics.blocks` | W1–W4，四个 7 天块（W4 最新），同样记在 `metrics.blocks`{block_fields} |
 | `window_end` | 批次整点减滞后小时 | 批次创建时刻 floor 到 UTC 日界（日级滞后不足一天时不再往回减） |
 | `latest_block_end` 的算法 | B6 终点 | W4 终点，即最近完整日的日末（UTC） |
@@ -146,4 +149,5 @@ def contract_change_sheet(granularity: str) -> str | None:
     hd_row = "| 判定行 `metrics` 增项 | — | `hourly_nonzero`：最近 144 个完整小时的非零小时数（可空，只作描述） |" if both else ""
     hd_note = "；选 H+D 时 TR-17 +0.5 人日，A 档单元减半，TR-18 的分配随之调整" if both else ""
     fields = "，每块 `{label, start, end, nonzero, mean}`"
-    return _CHANGE_SHEET.format(granularity=granularity, hd_row=hd_row, hd_note=hd_note, block_fields=fields)
+    frozen = f'`frozen_inputs.granularity` = `"{CONTRACT_GRANULARITY[granularity]}"`' + ("（报告里写作 H+D）" if both else "")
+    return _CHANGE_SHEET.format(granularity=granularity, hd_row=hd_row, hd_note=hd_note, block_fields=fields, frozen=frozen)

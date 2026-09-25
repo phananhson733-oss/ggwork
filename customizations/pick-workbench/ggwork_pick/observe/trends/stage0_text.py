@@ -1,8 +1,8 @@
 """The stage 0 report as markdown (plan TR-05, section 8; design 4.9, 4.11; D39).
 
 Each section is a function of the report (stage0_report.Report) returning its lines. The interim report marks what
-waits for day 2 with PENDING; nothing here calls an unobserved unit zero (premise 1), and a proxy variable is named,
-never quoted.
+waits for the missing day (report.pending_label); nothing here calls an unobserved unit zero (premise 1), and a proxy is
+named by variable or scheme, never quoted.
 """
 
 from collections.abc import Iterable, Mapping
@@ -14,7 +14,9 @@ from ggwork_pick.observe.trends.stage0_checks import DESIGN_LAG_HOURS
 from ggwork_pick.observe.trends.stage0_metrics import (
     A_TIER_DRAMAS,
     DAILY_JUDGED_MIN,
+    DAY_NAMES,
     DEFAULT_N,
+    EXTINGUISH_NAMES,
     HOURS_VISIBLE,
     MIN_POSITIVES_OBSERVED,
     POSITIVE_VISIBLE_RATE,
@@ -32,6 +34,11 @@ PENDING = "待第二天"
 UNOBSERVED = "未观测到"
 GROUP_NAMES = MappingProxyType({"positive": "正对照", "negative": "反对照", "regional": "区域对照", "market": "市场序列", "seed": "种子"})
 BASIS_NAMES = MappingProxyType({"regional": "按区域对照", "positive+regional": "区域对照不足 4 部，按正对照与区域对照合计", "none": "无从估算"})
+ESTIMATE_NOTE = (
+    "这个估算偏宽，交 G2 定：12 部区域对照里只要 1 部可见就够 5 条；没有扣掉泛词剧；用「可见」（设计 4.9 规则 2 的充分性）代替「能判定」。"
+    "表里另给严格估算：区域对照里 B1–B4（日级 W1–W3）每块非零 ≥3、上升规则才判得动的比例 × A 档剧数，只作参考，不进闸门。"
+)
+TUN_NOTE = "TUN 类 VPN 在这之下转发，本机无从判断"
 GRANULARITY_NAMES = MappingProxyType({"H": "H（小时级 now 7-d）", "D": "D（日级 today 1-m）", "H+D": "H+D（D 判定，H 描述）"})
 
 Report = Any  # stage0_report.Report; kept loose here so the two modules do not import each other
@@ -46,7 +53,12 @@ def _cell_text(text: object) -> str:
 
 
 def _tentative(report: Report) -> str:
-    return f"（暂定，{PENDING}）" if report.interim else ""
+    return f"（暂定，{report.pending_label}）" if report.interim else ""
+
+
+def _missing_text(report: Report) -> str:
+    parts = [f"{DAY_NAMES[day.day]}{'跑过但没有一个单元有观测，须补跑' if day.ran else '的会话还没跑'}" for day in report.days if not day.observed]
+    return "；".join(parts)
 
 
 # ---- header and summary --------------------------------------------------------------------------------------------
@@ -55,14 +67,13 @@ def _tentative(report: Report) -> str:
 def _header(report: Report) -> list[str]:
     when = report.generated_at.strftime("%Y-%m-%d %H:%M UTC")
     if report.interim:
-        missing = "、".join(report.missing_days)
         return [
-            f"# Trends 阶段 0 中期报告（{missing}的会话还没跑）",
+            f"# Trends 阶段 0 中期报告（{_missing_text(report)}）",
             "",
-            f"生成于 {when}。只有已跑那一天的数据：凡标「{PENDING}」的结论都是暂定，第二天的会话跑完后重出报告才定稿。"
-            "各对照只在一天里跑，所以每一天只看到每组的一半。",
+            f"生成于 {when}。两天都有观测才定稿：凡标「{report.pending_label}」的结论都是暂定，缺的那天跑出观测后重出报告。"
+            "各对照只在一天里跑，所以每一天只看到每组的一半。路线要等两天都有观测、闸门 B 定稿之后才给。",
         ]
-    return ["# Trends 阶段 0 报告（定稿）", "", f"生成于 {when}。两天的会话都已跑完，下面的结论按计划 TR-05 与第 8 节定稿。"]
+    return ["# Trends 阶段 0 报告（定稿）", "", f"生成于 {when}。两天的会话都已跑完且都有观测，下面的结论按计划 TR-05 与第 8 节定稿。"]
 
 
 def _verdict(passed: bool | None, reasons: Iterable[str]) -> str:
@@ -75,11 +86,12 @@ def _verdict(passed: bool | None, reasons: Iterable[str]) -> str:
 def _summary(report: Report) -> list[str]:
     tentative = _tentative(report)
     granularity = GRANULARITY_NAMES.get(report.granularity) or ("两种颗粒度都不过" if report.gate_a_passed is False else "未定（闸门 A 未判定）")
-    route = report.route.title if report.route else "未定（闸门未判定）"
+    route = report.route.title if report.route else ("未定" if report.interim else "未定（闸门未判定）")
+    gate_b = _verdict(report.gate_b.passed, report.gate_b.reasons) + ("" if report.gate_b.final or report.interim else "（暂定）")
     rows = [
         ("闸门 A（小时级）", _verdict(report.gate_h.passed, report.gate_h.reasons)),
         ("闸门 A（日级，N=" + str(report.n) + "）", _verdict(report.gate_d.passed, report.gate_d.reasons)),
-        ("闸门 B", _verdict(report.gate_b.passed, report.gate_b.reasons)),
+        ("闸门 B", gate_b),
         ("颗粒度", granularity),
         ("日级可见的非零日下限 N", str(report.n)),
         ("滞后（window_end 往回退）", f"小时级 {report.lag_hours} 小时；日级 {report.lag_days} 天"),
@@ -109,18 +121,29 @@ def _inputs(report: Report) -> list[str]:
 
 
 def _proxy_line(session: Mapping) -> str:
-    names = [name for name, on in (session.get("proxy_env") or {}).items() if on]
-    if not names:
-        return "  - 代理变量：都没设置（本机直连）"
-    return f"  - 代理变量：{'、'.join(names)} 已设置（只记名字不记值）。这次会话的请求可能经过代理，出口不一定是本机直连，读结论时要算上。"
+    """What httpx would go through (stage0_proxy): proxy variables, else the system settings; NO_PROXY is no proxy."""
+    proxy = session.get("proxy")
+    if not proxy:
+        return "  - 代理：这次会话没记下来（会话在记录之前就中断了）"
+    bypass = f"；{'、'.join(proxy.get('no_proxy') or ())} 已设置（绕过名单，不算代理）" if proxy.get("no_proxy") else ""
+    if proxy.get("in_effect") == "environment":
+        names = "、".join(proxy.get("environment") or ())
+        return f"  - 代理：环境变量 {names} 已设置（只记名字不记值）。这次会话的请求经过代理，出口在代理那一端，读结论时要算上{bypass}"
+    if proxy.get("in_effect") == "system":
+        schemes = "、".join(proxy.get("system") or ())
+        return f"  - 代理：没设代理环境变量，系统代理设置了 {schemes}（只记协议不记地址）。httpx 会走它，请求经过代理，出口在代理那一端，读结论时要算上{bypass}"
+    return f"  - 代理：未设代理环境变量，也没读到系统代理（{TUN_NOTE}）{bypass}"
 
 
 def _breaker_line(session: Mapping) -> str:
     budget, broken = session.get("budget") or {}, session.get("breaker") or {}
     counts = f"跳闸 {broken.get('trips')}、暂停 {broken.get('pauses')}、限流 {broken.get('rate_limited')}"
     half = "是" if broken.get("half_speed") else "否"
-    first = f"首次限流 {budget.get('first_limit_at') or '无'}（之前成功 {budget.get('before_first_limit') or '—'} 次）"
-    return f"  - 熔断：{counts}、半速 {half}、熄火 {broken.get('extinguished') or '无'}；{first}；状态码 {session.get('status_codes') or '无'}"
+    before = budget.get("before_first_limit")
+    first = f"首次限流 {budget.get('first_limit_at') or '无'}（之前成功 {'—' if before is None else before} 次）"
+    reason = broken.get("extinguished")
+    out = f"{reason}（{EXTINGUISH_NAMES.get(reason, reason)}）" if reason else "无"
+    return f"  - 熔断：{counts}、半速 {half}、熄火 {out}；{first}；状态码 {session.get('status_codes') or '无'}"
 
 
 def _session_line(day: int, k: int, session: Mapping, meta: Mapping) -> str:
@@ -129,7 +152,8 @@ def _session_line(day: int, k: int, session: Mapping, meta: Mapping) -> str:
     when = f"目标日 {session.get('target_date')}，{session.get('started_at')} 至 {session.get('finished_at')}"
     sent = f"请求 {session.get('requests')} 次（任务清单 {meta.get('plan_http')} 次，当日已预留 {budget.get('reserved')}/{budget.get('cap')}）"
     covered = f"覆盖 {session.get('covered')} 个单元，未覆盖 {len(uncovered)} 个（{reasons}）"
-    return f"- 第 {day} 天第 {k} 次会话：{when}；{sent}；{covered}；预热 {session.get('warmup')}"
+    interrupted = "；会话被中断（记录的是中断时的计数）" if session.get("interrupted") else ""
+    return f"- 第 {day} 天第 {k} 次会话：{when}；{sent}；{covered}；预热 {session.get('warmup')}{interrupted}"
 
 
 def _session_lines(day: int, meta: Mapping) -> list[str]:
@@ -155,12 +179,26 @@ def _rate(visible_count: int, observed: int) -> str:
     return f"{visible_count}/{observed}（{visible_count / observed:.0%}）" if observed else "0/0"
 
 
+def _short(rate) -> str:
+    return f"，其中窗口不足 {rate.short}" if rate.short else ""
+
+
 def _gate_a_row(label: str, gate: GateA) -> str:
     estimate = "—" if gate.estimate_daily is None else f"{gate.estimate_daily}（{BASIS_NAMES[gate.estimate_basis]}）"
+    strict = "—" if gate.strict_estimate is None else str(gate.strict_estimate)
     return (
-        f"| {label} | {_rate(gate.positive.visible, gate.positive.observed)} | {gate.positive.unobserved} | "
-        f"{_rate(gate.regional.visible, gate.regional.observed)} | {estimate} | {_cell_text(_verdict(gate.passed, gate.reasons))} |"
+        f"| {label} | {_rate(gate.positive.visible, gate.positive.observed)}{_short(gate.positive)} | {gate.positive.unobserved} | "
+        f"{_rate(gate.regional.visible, gate.regional.observed)}{_short(gate.regional)} | {estimate} | {strict} | "
+        f"{_cell_text(_verdict(gate.passed, gate.reasons))} |"
     )
+
+
+def _mismatch_lines(report: Report) -> list[str]:
+    gates = ((label, gate.mismatch) for label, gate in (("H", report.gate_h), ("D", report.gate_d)))
+    rows = [f"{label} {_rate(m.visible, m.observed)}（未观测到 {m.unobserved}）" for label, m in gates if m.observed or m.unobserved]
+    if not rows:
+        return []
+    return ["", f"- 查询词与剧名不一致的正对照（query_mismatch）单列，不进上表的分母：{'；'.join(rows)}。"]
 
 
 def _gate_a(report: Report) -> list[str]:
@@ -168,14 +206,17 @@ def _gate_a(report: Report) -> list[str]:
         f"## 闸门 A：能不能看见{_tentative(report)}",
         "",
         f"可见：小时级取最近 144 个完整小时，非零小时 ≥{HOURS_VISIBLE}；日级取最近 30 个完整日，非零日 ≥N（N={report.n}）。"
-        f"过线：已观测的正对照里可见 ≥{POSITIVE_VISIBLE_RATE:.0%}，且估算每天非泛词判定 ≥{DAILY_JUDGED_MIN} 条"
+        f"过线：已观测的精确剧名正对照里可见 ≥{POSITIVE_VISIBLE_RATE:.0%}，且估算每天非泛词判定 ≥{DAILY_JUDGED_MIN} 条"
         f"（A 档约 {A_TIER_DRAMAS} 部剧 × 区域对照可见率）。正对照观测不到 {MIN_POSITIVES_OBSERVED} 部不判定。"
-        f"{UNOBSERVED}的单元不进分母，单列。",
+        f"{UNOBSERVED}的单元不进分母，单列；完整点不够窗口的序列按实际点数判，标「窗口不足」。",
         "",
-        "| 颗粒度 | 正对照可见 | 正对照未观测到 | 区域对照可见 | 估算每天非泛词判定 | 结论 |",
-        "|---|---|---|---|---|---|",
+        ESTIMATE_NOTE,
+        "",
+        "| 颗粒度 | 正对照可见 | 正对照未观测到 | 区域对照可见 | 估算每天非泛词判定 | 严格估算（参考） | 结论 |",
+        "|---|---|---|---|---|---|---|",
         _gate_a_row("H", report.gate_h),
         _gate_a_row(f"D（N={report.n}）", report.gate_d),
+        *_mismatch_lines(report),
     ]
 
 
@@ -206,7 +247,8 @@ def _series_cell(series: Series | None, *, n: int, pending: bool) -> str:
         return f"{UNOBSERVED}（{series.status}）"
     counted = nonzero_hours(series) if series.granularity == "H" else nonzero_days(series)
     unit = "小时" if series.granularity == "H" else "天"
-    return f"{counted.nonzero}/{counted.window} {unit}{'，可见' if visible(series, n=n) else ''}"
+    short = "，窗口不足" if counted.short else ""
+    return f"{counted.nonzero}/{counted.window} {unit}{'，可见' if visible(series, n=n) else ''}{short}"
 
 
 def _related_cell(line: Mapping | None, *, pending: bool) -> str:
@@ -258,28 +300,33 @@ def _controls(report: Report) -> list[str]:
 # ---- gate B --------------------------------------------------------------------------------------------------------
 
 
+def _gate_b_row(day: int, stats) -> str:
+    if not stats.ran:
+        return f"| {day} | {PENDING} | | | | |"
+    stable = _cell_text("；".join(stats.unstable)) if stats.unstable else "稳"
+    if not stats.attempts:
+        return f"| {day} | 0（一个都没发出去） | — | — | — | {stable} |"
+    return f"| {day} | {stats.attempts} | {stats.usable} | {stats.rate:.0%} | {stats.seeds_ok}/{stats.seeds_asked} | {stable} |"
+
+
 def _gate_b(report: Report) -> list[str]:
     gate = report.gate_b
-    rows = []
-    for day, stats in gate.per_day.items():
-        if not stats.attempts:
-            rows.append(f"| {day} | {PENDING} | | | |")
-            continue
-        rows.append(f"| {day} | {stats.attempts} | {stats.usable} | {stats.rate:.0%} | {stats.seeds_ok} |")
-    pending = [f"- {PENDING}：{item}" for item in gate.pending]
+    tentative = f"（暂定，{report.pending_label or PENDING}）" if report.interim or not gate.final else ""
     return [
-        f"## 闸门 B：直连会话稳不稳{'' if gate.final else _tentative(report)}",
+        f"## 闸门 B：直连会话稳不稳{tentative}",
         "",
-        f"过线：每次会话要了相关查询的单元里可用 ≥{RELATED_USABLE_RATE:.0%}，至少一个种子拿到列表，有回答的 explore 都带 userType；两次会话都要过。",
+        f"过线：每次会话都稳（没有被熔断熄火，也没有单元被熔断跳过），要了相关查询的单元里可用 ≥{RELATED_USABLE_RATE:.0%}，"
+        "发出去的种子至少一个拿到列表，有回答的 explore 都带 userType；两次会话都要过。"
+        "某天跑过却一个相关查询或种子都没发出去，闸门 B 未定，不略过那一天。",
         "",
-        "| 天 | 要相关查询的单元 | 可用 | 可用率 | 种子拿到列表 |",
-        "|---|---|---|---|---|",
-        *rows,
+        "| 天 | 要相关查询的单元 | 可用 | 可用率 | 种子拿到列表 | 会话 |",
+        "|---|---|---|---|---|---|",
+        *(_gate_b_row(day, stats) for day, stats in gate.per_day.items()),
         "",
         f"- userType：{_counts(gate.user_types)}；有回答但没带 userType 的 explore：{gate.explores_without_user_type}",
         f"- 没有相关查询控件的回答：{gate.widget_missing}；见到 Breakout：{'是' if gate.breakout_seen else '否'}",
-        f"- 结论：{_verdict(gate.passed, gate.reasons)}{'' if gate.final else _tentative(report)}",
-        *pending,
+        f"- 结论：{_verdict(gate.passed, gate.reasons)}{tentative}",
+        *(f"- {PENDING}：{item}" for item in gate.pending),
     ]
 
 
@@ -291,11 +338,11 @@ def _route(report: Report) -> list[str]:
     route = report.route
     if route is None:
         a, b = report.gate_a_passed, report.gate_b.passed
-        return [*head, f"未定：闸门 A {_verdict(a, ())}，闸门 B {_verdict(b, ())}。两个闸门都判定之后才选路线。"]
-    prefix = f"暂定（{PENDING}）：" if report.interim else ""
+        wait = f"{report.pending_label}：两天都有观测、" if report.interim else ""
+        return [*head, f"未定：闸门 A {_verdict(a, ())}，闸门 B {_verdict(b, ())}。{wait}两个闸门都判定之后才选路线。"]
     return [
         *head,
-        f"{prefix}**{route.title}**",
+        f"**{route.title}**",
         "",
         *(f"- Trends 侧：{item}" for item in route.trends),
         f"- GSC 侧：{route.gsc}",
@@ -413,7 +460,8 @@ def _pending(report: Report) -> list[str]:
         if report.interim
         else ()
     )
-    items = [*(f"- {PENDING}：{item}" for item in day_two), *(["- 待补：U5 人工对照，浏览器导出的走势 CSV"] if not report.manual else [])]
+    label = report.pending_label or PENDING
+    items = [*(f"- {label}：{item}" for item in day_two), *(["- 待补：U5 人工对照，浏览器导出的走势 CSV"] if not report.manual else [])]
     return ["## 还欠什么", "", *items] if items else []
 
 

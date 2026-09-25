@@ -1,8 +1,10 @@
 """Stage 0's report (plan TR-05, section 8; design 4.9, 4.11; D39).
 
-Built from the day runner's files only (results, meta, the task lists), never from the network. With one day in, it is
-an interim report: every conclusion that needs both sessions is marked "待第二天" and the route is tentative. With both
-days in, it settles gate A per granularity, gate B, the granularity, N, the lag, the section 8 route and the full text
+Built from the day runner's files only (results, meta, the task lists), never from the network. It is final only when
+both days have observations (at least one unit that sent and got an answer); until then it is an interim report, every
+conclusion that needs both sessions is marked as waiting for the missing day (not run yet, or run without a single
+observation, a captcha on the first request say), and no route is given. The route also waits for gate B to be final.
+A final report settles gate A per granularity, gate B, the granularity, N, the lag, the section 8 route and the full text
 of trend-rules-v1, and adds D39's data contract change sheet when D or H+D is chosen.
 
 Premise 1 holds in every table: a unit that failed or never sent reads "未观测到" with its status, never a count.
@@ -82,6 +84,15 @@ class DayData:
     def ran(self) -> bool:
         return bool(self.results) or bool(self.meta and self.meta.get("sessions"))
 
+    @property
+    def observed(self) -> bool:
+        """At least one unit sent and got an answer; a day the breaker put out at its first request has none."""
+        return any(line.get("status") is not None for line in self.results)
+
+    @property
+    def sessions(self) -> tuple[Mapping, ...]:
+        return tuple((self.meta or {}).get("sessions") or ())
+
 
 def _planned(paths: Stage0Paths, day: int) -> tuple[str, ...] | None:
     path = paths.plan_file(day)
@@ -153,11 +164,16 @@ class Report:
 
     @property
     def interim(self) -> bool:
-        return not all(day.ran for day in self.days)
+        return not all(day.observed for day in self.days)
 
     @property
     def missing_days(self) -> tuple[str, ...]:
-        return tuple(DAY_NAMES[day.day] for day in self.days if not day.ran)
+        """Each day without observations: not run yet, or run without a single answer (it needs a rerun)."""
+        return tuple(DAY_NAMES[day.day] + ("" if not day.ran else "补跑") for day in self.days if not day.observed)
+
+    @property
+    def pending_label(self) -> str:
+        return "待" + "、".join(self.missing_days) if self.missing_days else ""
 
     @property
     def lines(self) -> tuple[Mapping, ...]:
@@ -207,9 +223,9 @@ def build_report(
     days = tuple(days)
     lines = tuple(line for day in days for line in day.results)
     series = tuple(s for s in map(series_of, lines) if s is not None)
-    floor = MIN_POSITIVES_OBSERVED if all(day.ran for day in days) else MIN_POSITIVES_OBSERVED // 2
+    floor = MIN_POSITIVES_OBSERVED if all(day.observed for day in days) else MIN_POSITIVES_OBSERVED // 2
     gate_h, gate_d = (gate_a(series, granularity=g, n=n, min_positives=floor) for g in ("H", "D"))
-    gate_b_result = gate_b(lines, days=tuple(day.day for day in days))
+    gate_b_result = gate_b(lines, days=tuple(day.day for day in days), sessions={day.day: day.sessions for day in days})
     granularity = settle_granularity(series, gate_h, gate_d, n=n, min_positives=floor)
     report = Report(
         generated_at=generated_at,
@@ -229,7 +245,8 @@ def build_report(
         manual=tuple(manual_row(name, text, series, utc_offset_minutes=utc_offset_minutes) for name, text in manual),
         utc_offset_minutes=utc_offset_minutes,
     )
-    return Report(**{**report.__dict__, "route": route_for(report.gate_a_passed, gate_b_result.passed)})
+    settled = not report.interim and gate_b_result.final
+    return Report(**{**report.__dict__, "route": route_for(report.gate_a_passed, gate_b_result.passed) if settled else None})
 
 
 def render(report: Report) -> str:

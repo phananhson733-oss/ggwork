@@ -30,6 +30,7 @@ from ggwork_pick.observe.state import file_state_store
 from ggwork_pick.observe.trends.stage0 import DAYS, Controls, DayPlan, build_plan, check_plan_matches, load_controls
 from ggwork_pick.observe.trends.stage0_fixtures import write_fixtures
 from ggwork_pick.observe.trends.stage0_metrics import DEFAULT_N
+from ggwork_pick.observe.trends.stage0_proxy import SystemProxies, system_proxies
 from ggwork_pick.observe.trends.stage0_report import DEFAULT_UTC_OFFSET_MINUTES, build_report, load_days, write_report
 from ggwork_pick.observe.trends.stage0_run import ARTIFACTS_ROOT, DayRunner, Stage0Paths, dry_run_lines, load_results, write_private
 
@@ -100,7 +101,7 @@ def _cmd_plan(paths: Stage0Paths, out: TextIO) -> int:
     return int(ExitCode.OK)
 
 
-def _cmd_run(paths: Stage0Paths, args, out: TextIO, *, environ: Mapping[str, str], clock: Clock, transport, rng) -> int:
+def _cmd_run(paths: Stage0Paths, args, out: TextIO, *, environ: Mapping[str, str], clock: Clock, transport, rng, proxies: SystemProxies) -> int:
     controls = _controls(paths)
     plan = _plan(paths, args.day, controls)
     if args.dry_run:
@@ -108,7 +109,9 @@ def _cmd_run(paths: Stage0Paths, args, out: TextIO, *, environ: Mapping[str, str
         print("\n".join(dry_run_lines(plan, controls, lambda key: (done.get(key) or {}).get("status") is not None)), file=out)
         return int(ExitCode.OK)
     store = file_state_store(paths.state_file, environ=environ)
-    runner = DayRunner(plan=plan, controls=controls, store=store, paths=paths, clock=clock, rng=rng, transport=transport, environ=environ, log=out)
+    runner = DayRunner(
+        plan=plan, controls=controls, store=store, paths=paths, clock=clock, rng=rng, transport=transport, environ=environ, system_proxies=proxies, log=out
+    )
     outcome = asyncio.run(runner.run(init_state=args.init_state))
     counts = f"发出 {outcome.requests} 次请求，覆盖 {len(outcome.covered)} 个单元，未覆盖 {len(outcome.uncovered)} 个"
     print(f"第 {args.day} 天（目标日 {outcome.target_date}）：{counts}", file=out)
@@ -144,12 +147,12 @@ def _cmd_fixtures(paths: Stage0Paths, args, out: TextIO) -> int:
     return int(ExitCode.OK)
 
 
-def _dispatch(args, out: TextIO, *, environ: Mapping[str, str], clock: Clock, transport, rng) -> int:
+def _dispatch(args, out: TextIO, *, environ: Mapping[str, str], clock: Clock, transport, rng, proxies: SystemProxies) -> int:
     paths = Stage0Paths(args.root.expanduser())
     if args.command == "plan":
         return _cmd_plan(paths, out)
     if args.command == "run":
-        return _cmd_run(paths, args, out, environ=environ, clock=clock, transport=transport, rng=rng)
+        return _cmd_run(paths, args, out, environ=environ, clock=clock, transport=transport, rng=rng, proxies=proxies)
     if args.command == "report":
         return _cmd_report(paths, args, out, clock=clock)
     return _cmd_fixtures(paths, args, out)
@@ -164,6 +167,7 @@ def main(
     clock: Clock | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
     rng: random.Random | None = None,
+    system_proxies: SystemProxies = system_proxies,
 ) -> int:
     out, err = out or sys.stdout, err or sys.stderr
     try:
@@ -171,9 +175,9 @@ def main(
     except SystemExit as stop:
         return int(stop.code) if isinstance(stop.code, int) else int(ExitCode.REFUSED)
     try:
-        return _dispatch(
-            args, out, environ=os.environ if environ is None else environ, clock=clock or SystemClock(), transport=transport, rng=rng or random_source()
-        )
+        environ = os.environ if environ is None else environ
+        clock, rng = clock or SystemClock(), rng or random_source()
+        return _dispatch(args, out, environ=environ, clock=clock, transport=transport, rng=rng, proxies=system_proxies)
     except Exception as error:  # noqa: BLE001 - every failure leaves as a value-free line and an exit status
         print(f"{PROG}: {describe_error(error)}", file=err)
         return int(exit_code_for(error))

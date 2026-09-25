@@ -15,9 +15,12 @@ import pytest
 from cryptography.fernet import Fernet
 from stage0_fakes import controls_document, hourly_values, related_ok, result_line
 from test_stage0_run import START, FakeGoogle
+from trends_fakes import body_of
 
 from ggwork_pick.observe.clock import ManualClock
 from ggwork_pick.observe.trends import stage0_cli
+from ggwork_pick.observe.trends.parse import classify, redirect_kind
+from ggwork_pick.observe.trends.source import FetchStatus, Phase, RedirectKind
 from ggwork_pick.observe.trends.stage0 import MAX_HTTP_PER_DAY, DayPlan, parse_controls
 from ggwork_pick.observe.trends.stage0_fixtures import DOCUMENTATION_IP, REDACTED_TOKEN, write_fixtures
 from ggwork_pick.observe.trends.stage0_run import Stage0Paths, append_private, load_meta, write_private, write_private_bytes
@@ -45,7 +48,7 @@ def refusing_transport() -> httpx.MockTransport:
 
 def cli(paths: Stage0Paths, *argv: str, **options) -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
-    options = {"environ": {}, "transport": refusing_transport(), **options}
+    options = {"environ": {}, "transport": refusing_transport(), "system_proxies": lambda: {}, **options}
     code = stage0_cli.main([*argv, "--root", str(paths.root)], out=out, err=err, **options)
     return code, out.getvalue(), err.getvalue()
 
@@ -111,7 +114,7 @@ def test_run_day_one_end_to_end(paths):
     assert len(fake.requests) == plan.http
     assert mode(paths.state_file) == 0o600
     session = load_meta(paths.run_dir(1))["sessions"][0]
-    assert session["uncovered"] == [] and session["proxy_env"]["HTTPS_PROXY"] is True
+    assert session["uncovered"] == [] and session["proxy"]["environment"] == ["HTTPS_PROXY"]
     assert "hunter2" not in out and "hunter2" not in paths.run_dir(1).joinpath("meta.json").read_text()
 
 
@@ -174,3 +177,33 @@ def test_fixtures_take_out_terms_tokens_and_addresses(paths):
     assert DOCUMENTATION_IP in third["response"]["text"]
     assert first["query"]["bare"] == first["query"]["terms"][0] and first["query"]["geo"] == "US"
     assert all(mode(path) == 0o600 for path in written)
+
+
+def test_fixtures_rebuild_the_headers_a_replay_needs(paths):
+    """A redirect keeps where it pointed, rebuilt from the recorded kind and host (never the raw Location, whose query
+    can carry the term), and every answer a content type: replayed, each fixture earns the status the real answer did."""
+    controls = parse_controls(controls_document())
+    entry = next(c for c in controls_document()["controls"] if c["id"] == "pos-01")
+    append_private(paths.run_dir(1) / "results.jsonl", result_line(entry, "H", None, status="blocked_redirect"))
+    answers = [
+        (302, b"", {"redirect_kind": "sorry", "redirect_host": "www.google.com"}),
+        (302, b"", {"redirect_kind": "consent", "redirect_host": "consent.google.com"}),
+        (200, b"<!DOCTYPE html><html>unusual traffic</html>", {}),
+        (200, b')]}\'\n{"widgets": []}', {}),
+    ]
+    for seq, (status, body, redirect) in enumerate(answers, 1):
+        name = f"{seq:04d}-explore.body"
+        write_private_bytes(paths.raw_dir(1) / name, body)
+        index = {"seq": seq, "unit": "pos-01-h", "phase": "explore", "http_status": status, "body_file": name, "redirect_kind": None, "redirect_host": None}
+        append_private(paths.raw_dir(1) / "index.jsonl", {**index, **redirect})
+    fixtures = [json.loads(path.read_text()) for path in write_fixtures(paths, 1, controls)]
+    replayed = []
+    for fixture in fixtures:
+        response = fixture["response"]
+        headers = httpx.Headers(response["headers"])
+        replayed.append((classify(Phase.EXPLORE, response["status"], headers, body_of(response)), headers))
+    assert [status for status, _ in replayed[:3]] == [FetchStatus.BLOCKED_REDIRECT, FetchStatus.BLOCKED_REDIRECT, FetchStatus.HTML_BODY]
+    assert redirect_kind(replayed[0][1]["location"]) == (RedirectKind.SORRY, "www.google.com")
+    assert redirect_kind(replayed[1][1]["location"])[0] is RedirectKind.CONSENT
+    assert all("?" not in headers.get("location", "") for _, headers in replayed)
+    assert "text/html" in replayed[2][1]["content-type"] and "json" in replayed[3][1]["content-type"]

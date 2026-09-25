@@ -23,16 +23,11 @@ from trends_fakes import respond
 from ggwork_pick.observe.clock import ManualClock, random_source
 from ggwork_pick.observe.crypto import StateCipher
 from ggwork_pick.observe.errors import Refused, StateUnavailable
-from ggwork_pick.observe.state import FileStateStore
+from ggwork_pick.observe.state import FileStateStore, RuntimeState
 from ggwork_pick.observe.trends import budget
-from ggwork_pick.observe.trends.stage0 import DayPlan, Unit, parse_controls
-from ggwork_pick.observe.trends.stage0_run import (
-    PROXY_VARIABLES,
-    DayRunner,
-    Stage0Paths,
-    load_results,
-    proxy_environment,
-)
+from ggwork_pick.observe.trends.stage0 import MAX_HTTP_PER_DAY, MAX_HTTP_TOTAL, DayPlan, Unit, build_plan, parse_controls
+from ggwork_pick.observe.trends.stage0_proxy import proxy_record
+from ggwork_pick.observe.trends.stage0_run import DayRunner, Stage0Paths, append_private, load_results
 
 START = datetime(2026, 9, 26, 3, 0, tzinfo=UTC)  # target date 2026-09-27 (D23)
 NID = "synthetic-nid-first"
@@ -44,9 +39,11 @@ class FakeGoogle:
     term, multiline returns 169 hourly or 31 daily points (the last partial), relatedsearches returns the related_ok
     fixture. `fail` maps a request's ordinal (1-based, over every request) to a fixture to answer with instead."""
 
-    def __init__(self, *, fail: dict[int, str] | None = None, values: int = 9):
+    def __init__(self, *, fail: dict[int, str] | None = None, values: int = 9, slow: dict[int, float] | None = None, on_request=None):
         self.fail = fail or {}
         self.values = values
+        self.slow = slow or {}  # request ordinal -> seconds that answer takes
+        self.on_request = on_request  # called with the ordinal before answering (a test's look at the state on disk)
         self.requests: list[httpx.Request] = []
         self.times: list[datetime] = []
         self.clock: ManualClock | None = None
@@ -54,9 +51,11 @@ class FakeGoogle:
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.url.host == "trends.google.com"
         self.requests.append(request)
+        if self.on_request is not None:
+            self.on_request(len(self.requests))
         if self.clock is not None:
             self.times.append(self.clock.now())
-            self.clock.advance(0.4)
+            self.clock.advance(0.4 + self.slow.get(len(self.requests), 0.0))
         name = self.fail.get(len(self.requests))
         if name is not None:
             return respond(name, request)
@@ -113,7 +112,9 @@ def make_paths(tmp_path: Path) -> Stage0Paths:
     return Stage0Paths(root)
 
 
-def runner(paths: Stage0Paths, key: str, fake: FakeGoogle, clock: ManualClock, *, plan: DayPlan | None = None, environ=None, limits=None) -> DayRunner:
+def runner(
+    paths: Stage0Paths, key: str, fake: FakeGoogle, clock: ManualClock, *, plan: DayPlan | None = None, environ=None, limits=None, system=None
+) -> DayRunner:
     fake.clock = clock
     store = FileStateStore(paths.state_file, StateCipher([key]))
     options = {"limits": limits} if limits is not None else {}
@@ -126,8 +127,16 @@ def runner(paths: Stage0Paths, key: str, fake: FakeGoogle, clock: ManualClock, *
         rng=random_source(7),
         transport=fake.transport(),
         environ=environ or {},
+        system_proxies=system or (lambda: {}),
         **options,
     )
+
+
+def reserved_on_disk(paths: Stage0Paths, key: str) -> int:
+    """The budget the state file holds right now, read without its lock (the runner holds that)."""
+    opened = StateCipher([key]).open(paths.state_file.read_bytes())
+    state = RuntimeState.from_document(json.loads(opened.data))
+    return state.section("budget", budget.BudgetDay.from_dict).reserved
 
 
 @pytest.fixture
@@ -274,15 +283,159 @@ async def test_day_two_needs_day_one_on_an_earlier_target_date(tmp_path, key):
 async def test_proxy_variables_recorded_by_name_only(tmp_path, key):
     paths, fake, clock = make_paths(tmp_path), FakeGoogle(), ManualClock(START)
     secret = "http://someone:hunter2@proxy.example:3128"
-    await runner(paths, key, fake, clock, environ={"HTTPS_PROXY": secret}).run(init_state=True)
+    system = {"https": "http://other:swordfish@127.0.0.1:7890"}
+    await runner(paths, key, fake, clock, environ={"HTTPS_PROXY": secret, "no_proxy": "localhost"}, system=lambda: system).run(init_state=True)
     session = json.loads((paths.run_dir(1) / "meta.json").read_text())["sessions"][0]
-    assert session["proxy_env"] == {name: name == "HTTPS_PROXY" for name in PROXY_VARIABLES}
+    # urllib, and so httpx, reads the system settings only when no *_proxy variable is set
+    assert session["proxy"] == {"environment": ["HTTPS_PROXY"], "no_proxy": ["no_proxy"], "system": [], "in_effect": "environment"}
     everything = b"".join(path.read_bytes() for path in paths.root.rglob("*") if path.is_file())
-    assert b"hunter2" not in everything and NID.encode() not in everything
+    assert b"hunter2" not in everything and b"swordfish" not in everything and NID.encode() not in everything
 
 
-def test_proxy_environment_names_only():
-    assert proxy_environment({"http_proxy": "x", "NO_PROXY": ""}) == {name: name == "http_proxy" for name in PROXY_VARIABLES}
+@pytest.mark.asyncio
+async def test_system_proxy_recorded(tmp_path, key):
+    """No proxy variable, a system proxy (macOS network settings, as Clash or Surge set it): httpx goes through it, so
+    the session says so by scheme, never by address."""
+    paths, fake, clock = make_paths(tmp_path), FakeGoogle(), ManualClock(START)
+    system = {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890", "ftp": "http://127.0.0.1:7890"}
+    await runner(paths, key, fake, clock, system=lambda: system).run(init_state=True)
+    session = json.loads((paths.run_dir(1) / "meta.json").read_text())["sessions"][0]
+    assert session["proxy"] == {"environment": [], "no_proxy": [], "system": ["http", "https"], "in_effect": "system"}
+    assert b"7890" not in (paths.run_dir(1) / "meta.json").read_bytes()
+
+
+def test_proxy_record_names_only():
+    assert proxy_record({"http_proxy": "x", "NO_PROXY": ""}, lambda: {"https": "y"}) == {
+        "environment": ["http_proxy"],
+        "no_proxy": [],
+        "system": [],
+        "in_effect": "environment",
+    }
+    assert proxy_record({"NO_PROXY": "localhost"}, lambda: {"https": "y"})["in_effect"] is None  # NO_PROXY is set: urllib stops there
+    assert proxy_record({}, lambda: {})["in_effect"] is None
+    assert proxy_record({"ALL_PROXY": "z", "FTP_PROXY": "w"}, lambda: {})["environment"] == ["ALL_PROXY"]  # httpx mounts http, https, all
+
+
+# ---- one client, and the hard limits (review of TR-05) -------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_one_http_client_per_session(tmp_path, key, monkeypatch):
+    """The whole session, warm-up and every unit, on one connection pool, as the cron will run it (design 4.1 names
+    a new connection per request as one of the things that draws limits); day 2's POST unit included."""
+    made = []
+
+    class Counting(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            made.append(1)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", Counting)
+    paths, fake, clock = make_paths(tmp_path), FakeGoogle(), ManualClock(START)
+    await runner(paths, key, fake, clock).run(init_state=True)
+    assert len(made) == 1
+    clock.advance(24 * 3600)
+    plan = DayPlan(day=2, units=(Unit("pos-01-h", "pos-01", "H", True, False), Unit("pos-01-h-rep", "pos-01", "H", True, False, "POST", "pos-01-h")))
+    again = FakeGoogle()
+    await runner(paths, key, again, clock, plan=plan).run()
+    assert len(made) == 2
+    assert [request.method for request in again.requests if request.url.path.endswith("/explore")] == ["GET", "POST"]
+
+
+@pytest.mark.asyncio
+async def test_default_cap_holds_against_retries(tmp_path, key):
+    """The real task list (88 requests) with four first 5xx answers: the retries eat the slack, and the default cap of
+    90 stops the day there. The last units, the market series, are truncated, never sent."""
+    controls = parse_controls(controls_document())
+    day1 = build_plan(controls)[0]
+    paths, clock = make_paths(tmp_path), ManualClock(START)
+    fake = FakeGoogle(fail={3: "http_503", 20: "http_503", 40: "http_503", 60: "http_503"})
+    outcome = await runner(paths, key, fake, clock, plan=day1).run(init_state=True)
+    assert len(fake.requests) <= MAX_HTTP_PER_DAY
+    assert reserved_on_disk(paths, key) == len(fake.requests)
+    truncated = [unit for unit, reason in outcome.uncovered if reason == "truncated"]
+    assert truncated and truncated[-1] == day1.units[-1].key and truncated[-1].startswith("mkt-")
+
+
+@pytest.mark.asyncio
+async def test_reservation_is_on_disk_before_the_request_leaves(tmp_path, key):
+    """A crash while a request is in flight must not lose it: the state on disk already counts it (design 4.2)."""
+    paths, clock = make_paths(tmp_path), ManualClock(START)
+    seen = []
+    fake = FakeGoogle(on_request=lambda ordinal: seen.append((ordinal, reserved_on_disk(paths, key))))
+    await runner(paths, key, fake, clock).run(init_state=True)
+    assert seen and all(reserved == ordinal for ordinal, reserved in seen)
+
+
+@pytest.mark.asyncio
+async def test_unit_waits_for_room_for_all_its_requests(tmp_path, key):
+    """Two requests left and a unit of three: it never starts, so no explore goes out to be cut off halfway."""
+    paths, fake, clock = make_paths(tmp_path), FakeGoogle(), ManualClock(START)
+    tight = budget.ModeLimits("stage0", start=time(2, 0), plan=5, cap=5)
+    await runner(paths, key, fake, clock, limits=tight).run(init_state=True)
+    assert fake.paths() == ["warmup", "explore", "multiline"]
+
+
+@pytest.mark.asyncio
+async def test_deadline_mid_unit_records_what_was_sent(tmp_path, key):
+    """An explore that answers after the 01:45 deadline: the unit stops there, and its line says the explore went out."""
+    paths = make_paths(tmp_path)
+    clock = ManualClock(datetime(2026, 9, 27, 1, 40, tzinfo=UTC))
+    fake = FakeGoogle(slow={2: 600.0})
+    await runner(paths, key, fake, clock).run(init_state=True)
+    line = load_results(paths.run_dir(1))["pos-01-h"]
+    assert line["status"] is None and line["reason"] == "deadline"
+    assert line["attempts"] == 1 and line["requested_at"] is not None and [r["phase"] for r in line["requests"]] == ["explore"]
+    assert fake.paths() == ["warmup", "explore"]
+
+
+@pytest.mark.asyncio
+async def test_interrupted_session_is_still_recorded(tmp_path, key):
+    """Ctrl-C during a long pause: the session is written anyway, marked interrupted, with what it had sent."""
+    paths, clock = make_paths(tmp_path), ManualClock(START)
+
+    def interrupt(ordinal: int) -> None:
+        if ordinal == 3:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        await runner(paths, key, FakeGoogle(on_request=interrupt), clock).run(init_state=True)
+    session = json.loads((paths.run_dir(1) / "meta.json").read_text())["sessions"][0]
+    assert session["interrupted"] is True and session["requests"] == 2
+    assert session["target_date"] == "2026-09-27"
+
+
+@pytest.mark.asyncio
+async def test_day_two_reads_day_one_from_its_files_without_meta(tmp_path, key):
+    """A day 1 that never wrote meta.json (killed outright) still counts as run, by its request and result files."""
+    paths, clock = make_paths(tmp_path), ManualClock(START)
+    await runner(paths, key, FakeGoogle(), clock).run(init_state=True)
+    (paths.run_dir(1) / "meta.json").unlink()
+    clock.advance(3600)
+    with pytest.raises(Refused, match="目标日"):
+        await runner(paths, key, FakeGoogle(), clock, plan=small_plan(2)).run()
+    clock.advance(24 * 3600)
+    assert (await runner(paths, key, FakeGoogle(), clock, plan=small_plan(2)).run()).day == 2
+
+
+@pytest.mark.asyncio
+async def test_two_day_total_is_capped_at_run_time(tmp_path, key):
+    """Whatever the task lists say, the two days together never send more than 180 requests: with 180 sent the run is
+    refused before anything goes out, and with 179 only one more request may leave."""
+    paths, clock = make_paths(tmp_path), ManualClock(START)
+    await runner(paths, key, FakeGoogle(), clock).run(init_state=True)
+    sent = len((paths.run_dir(1) / "requests.jsonl").read_text().splitlines())
+    padding = [{"phase": "explore", "target_date": "2026-09-27"}] * (MAX_HTTP_TOTAL - 1 - sent)
+    for line in padding:
+        append_private(paths.run_dir(1) / "requests.jsonl", line)
+    clock.advance(24 * 3600)
+    one = FakeGoogle()
+    outcome = await runner(paths, key, one, clock, plan=small_plan(2)).run()
+    assert len(one.requests) == 1 and {reason for _, reason in outcome.uncovered} == {"truncated"}
+    none = FakeGoogle()  # day 2's warm-up made it 180
+    with pytest.raises(Refused, match="180"):
+        await runner(paths, key, none, clock, plan=small_plan(2)).run()
+    assert none.requests == []
 
 
 @pytest.mark.asyncio

@@ -1,18 +1,26 @@
 """Running one day of stage 0 on this machine (plan TR-05; design 4.2, 4.3, 4.4, 4.11).
 
 The runner does what TR-14's executor will do, on TR-04's file state instead of the runtime row:
+- the whole session, warm-up and every unit, goes through one TrendsClient, that is one connection pool, as the cron
+  will (design 4.1: a new connection per request is one of the things that draws limits); a unit's explore method is
+  set per fetch;
 - every HTTP request, the warm-up included, waits for TR-03's pacer and breaker, then reserves the budget, and the
   state is saved before it leaves; its outcome goes through signal_of and the breaker, and the state is saved again;
-- a unit stopped by the breaker, the budget or the 01:45 deadline leaves every later unit uncovered with the same
-  reason (truncation keeps the plan's order); a first 5xx or timeout reruns the unit once, 30-60 s later;
-- the target date is D23's: the day whose 02:00 UTC cutoff comes next, so the daily cap is per target date.
+- a unit starts only when the budget holds all its requests; a unit stopped by the breaker, the budget or the 01:45
+  deadline leaves every later unit uncovered with the same reason (truncation keeps the plan's order), and a unit cut
+  off halfway (the deadline passed while its explore was out) says what it had sent; a first 5xx or timeout reruns the
+  unit once, 30-60 s later;
+- the target date is D23's: the day whose 02:00 UTC cutoff comes next, so the daily cap is per target date; the two
+  days together never send more than MAX_HTTP_TOTAL, counted from both days' request logs, however many target dates
+  a day takes.
 
 What it writes, under the artifacts root (directories 700, files 600; nothing here goes into git):
 - runs/day<N>/results.jsonl: one line per unit and attempt, the latest line per unit counts; units skipped without
   sending carry `reason` and run again on a rerun;
-- runs/day<N>/requests.jsonl: one line per HTTP request (never a cookie, never a value of a series);
-- runs/day<N>/meta.json: one entry per session: target date, times, counts, breaker events, and whether any proxy
-  variable was set (names only: this is the plan's local egress note, and no request is made to find out more);
+- runs/day<N>/requests.jsonl: one line per HTTP request, with its target date (never a cookie, never a value);
+- runs/day<N>/meta.json: one entry per session, written even when the session is interrupted (Ctrl-C during a long
+  pause): target date, times, counts, breaker events, and the proxy the requests went through as far as this machine
+  can tell (stage0_proxy: names and schemes only; this is the plan's local egress note, no request is made for it);
 - raw/day<N>/: the raw body of every API answer and an index; the warm-up page is only hashed.
 """
 
@@ -38,13 +46,13 @@ from ggwork_pick.observe.trends.client import TrendsClient
 from ggwork_pick.observe.trends.cookies import CookieJar
 from ggwork_pick.observe.trends.parse import WALLS
 from ggwork_pick.observe.trends.source import DEFAULT_USER_AGENT, FetchResult, Phase, RequestRecord, RequestStep
-from ggwork_pick.observe.trends.stage0 import MAX_HTTP_PER_DAY, Control, Controls, DayPlan, Unit
+from ggwork_pick.observe.trends.stage0 import DAYS, MAX_HTTP_PER_DAY, MAX_HTTP_TOTAL, Control, Controls, DayPlan, Unit
+from ggwork_pick.observe.trends.stage0_proxy import SystemProxies, proxy_record, system_proxies
 from ggwork_pick.observe.versions import COLLECTOR_VERSION
 
 ARTIFACTS_ROOT = Path.home() / ".gstack" / "projects" / "ggwork-deerflow" / "artifacts" / "trends-stage0"
 STATE_FILE_NAME = "trends-state.json"
 DIR_MODE, FILE_MODE = 0o700, 0o600
-PROXY_VARIABLES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy")
 # The stage 0 day: any time of the target date before its 01:45 deadline; the cap is the task list's ceiling.
 STAGE0_LIMITS = budget.ModeLimits("stage0", start=time(2, 0), plan=MAX_HTTP_PER_DAY, cap=MAX_HTTP_PER_DAY)
 STOPS_THE_REST = frozenset({budget.TRUNCATED, budget.SKIPPED_BREAKER, budget.DEADLINE_REASON})
@@ -142,9 +150,19 @@ def load_meta(run_dir: Path) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
-def proxy_environment(environ: Mapping[str, str]) -> dict[str, bool]:
-    """Whether each proxy variable is set (non-empty). Never its value: it can carry an account."""
-    return {name: bool(environ.get(name)) for name in PROXY_VARIABLES}
+def first_target_date(run_dir: Path) -> date | None:
+    """The earliest target date a day ran on: from its sessions, else from its result or request lines (a session
+    killed outright writes no meta)."""
+    sessions = (load_meta(run_dir) or {}).get("sessions") or ()
+    found = [session.get("target_date") for session in sessions]
+    found += [line.get("target_date") for name in ("results.jsonl", "requests.jsonl") for line in read_jsonl(run_dir / name)]
+    dates = [date.fromisoformat(value) for value in found if value]
+    return min(dates) if dates else None
+
+
+def requests_sent(paths: "Stage0Paths") -> int:
+    """Requests both days have sent so far, from their request logs."""
+    return sum(len(read_jsonl(paths.run_dir(day) / "requests.jsonl")) for day in DAYS)
 
 
 # ---- the machines --------------------------------------------------------------------------------------------------
@@ -246,8 +264,19 @@ def result_line(unit: Unit, control: Control, *, day: int, target: date, result:
     }
 
 
-def skipped_line(unit: Unit, control: Control, *, day: int, target: date, reason: str) -> dict:
-    return {**_base_line(unit, control, day, target), "requested_at": None, "attempts": 0, "status": None, "reason": reason, "timeline": None, "related": None}
+def skipped_line(unit: Unit, control: Control, *, day: int, target: date, reason: str, sent: Sequence[RequestRecord] = ()) -> dict:
+    """A unit left uncovered, to run again on a rerun. `sent`: what it had sent before it stopped (the deadline passed
+    while its explore was out, say), so its line never claims it sent nothing."""
+    return {
+        **_base_line(unit, control, day, target),
+        "requested_at": stamp(sent[0].started_at) if sent else None,
+        "attempts": sum(1 for record in sent if record.phase is Phase.EXPLORE),
+        "status": None,
+        "reason": reason,
+        "timeline": None,
+        "related": None,
+        "requests": [request_document(record) for record in sent],
+    }
 
 
 # ---- the runner ----------------------------------------------------------------------------------------------------
@@ -292,106 +321,129 @@ class DayRunner:
         limits: budget.ModeLimits = STAGE0_LIMITS,
         pacer: pacing.Pacer | None = None,
         environ: Mapping[str, str] | None = None,
+        system_proxies: SystemProxies = system_proxies,
         log: TextIO | None = None,
     ):
         self._plan, self._controls, self._store, self._paths = plan, controls, store, paths
         self._clock, self._rng, self._transport, self._limits = clock, rng, transport, limits
         self._pacer = pacer or pacing.EnvelopePacer()
         self._environ = os.environ if environ is None else environ
+        self._system_proxies = system_proxies
         self._log = log or sys.stderr
         self._machines: Machines | None = None
         self._client: TrendsClient | None = None
         self._decision: breaker.Decision | None = None
         self._unit_http, self._half, self._sent, self._unit_key = 1, False, 0, None
+        self._unit_records: tuple[RequestRecord, ...] = ()  # what the current unit has sent, across its attempts
+        self._reserved_here, self._allowance = 0, MAX_HTTP_TOTAL  # this session's reservations; what both days have left
+        self._target: date | None = None
+        self._proxy: dict | None = None
+        self._warm_status: str | None = None
+        self._covered: tuple[str, ...] = ()
+        self._uncovered: tuple[tuple[str, str], ...] = ()
 
     async def run(self, *, init_state: bool = False) -> DayOutcome:
+        """Refused before anything is loaded when the order or the two-day total forbids the run; otherwise the session
+        is recorded in meta.json however it ends, an interruption included."""
         target = budget.target_date_of(self._clock.now())
         self._check_order(target)
+        self._allowance = self._total_allowance()
         state = await open_state(self._store, init_state=init_state)
+        started, finished = self._clock.now(), False
         try:
-            self._machines = restore_machines(state, now=self._clock.now())
-            pending = self._pending()
-            started = self._clock.now()
-            warm = await self._warm(target) if pending else None
-            covered, uncovered = await self._run_units(pending, target)
-            await self._save()
-            outcome = self._outcome(target, covered, uncovered)
-            self._write_meta(target, started, warm, outcome)
-            return outcome
+            self._target, self._proxy = target, proxy_record(self._environ, self._system_proxies)
+            self._machines = restore_machines(state, now=started)
+            await self._session(target)
+            finished = True
+            return self._outcome(target)
+        finally:
+            self._finish(target, started, interrupted=not finished)
+
+    def _finish(self, target: date, started: datetime, *, interrupted: bool) -> None:
+        try:
+            if self._machines is not None:
+                self._write_meta(target, started, interrupted=interrupted)
         finally:
             close = getattr(self._store, "close", None)
             if close is not None:
                 close()
 
-    # ---- order and progress ----------------------------------------------------------------------------------------
+    async def _session(self, target: date) -> None:
+        """The warm-up and every pending unit on one client; the jar goes back into the machines however it ends."""
+        pending = self._pending()
+        if pending:
+            async with self._new_client() as client:
+                self._client = client
+                try:
+                    self._warm_status = await self._warm(target)
+                    await self._run_units(pending, target)
+                finally:
+                    self._machines, self._client = replace(self._machines, jar=client.jar), None
+        await self._save()
+
+    # ---- order, totals and progress --------------------------------------------------------------------------------
 
     def _check_order(self, target: date) -> None:
         """Day 2 runs after day 1 and on a later target date: two sessions, two days (design 4.11)."""
         if self._plan.day == 1:
             return
-        meta = load_meta(self._paths.run_dir(1))
-        if not meta or not meta.get("sessions"):
+        first = first_target_date(self._paths.run_dir(1))
+        if first is None:
             raise Refused("第二天须在第一天跑过之后运行：先跑 --day 1")
-        first = date.fromisoformat(meta["sessions"][0]["target_date"])
         if target <= first:
             raise Refused(f"第二天须在比第一天晚的目标日运行（D23：02:00 UTC 截止的那天）；第一天的目标日是 {first}")
+
+    def _total_allowance(self) -> int:
+        """What the two days may still send together; refused when nothing is left."""
+        sent = requests_sent(self._paths)
+        if sent >= MAX_HTTP_TOTAL:
+            raise Refused(f"两天合计已发出 {sent} 次请求，到了 {MAX_HTTP_TOTAL} 次的上限：不再发请求")
+        return MAX_HTTP_TOTAL - sent
 
     def _pending(self) -> tuple[Unit, ...]:
         done = {key for key, line in load_results(self._paths.run_dir(self._plan.day)).items() if line.get("status") is not None}
         return tuple(unit for unit in self._plan.units if unit.key not in done)
 
-    async def _run_units(self, pending: Sequence[Unit], target: date) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...]]:
-        covered, uncovered, stopped = (), (), None
+    async def _run_units(self, pending: Sequence[Unit], target: date) -> None:
+        stopped = None
         by_id = self._controls.by_id()
         for unit in pending:
             control = by_id[unit.control]
-            line = skipped_line(unit, control, day=self._plan.day, target=target, reason=stopped) if stopped else await self._run_unit(unit, control, target)
+            line = self._skipped(unit, control, target, stopped, sent=()) if stopped else await self._run_unit(unit, control, target)
             append_private(self._paths.run_dir(self._plan.day) / "results.jsonl", line)
             if line["status"] is None:
-                uncovered = (*uncovered, (unit.key, line["reason"]))
+                self._uncovered = (*self._uncovered, (unit.key, line["reason"]))
                 stopped = line["reason"] if line["reason"] in STOPS_THE_REST else stopped
             else:
-                covered = (*covered, unit.key)
+                self._covered = (*self._covered, unit.key)
             print(f"[stage0] day {self._plan.day} {unit.key}: {line['status'] or line['reason']}", file=self._log)
-        return covered, uncovered
+
+    def _skipped(self, unit: Unit, control: Control, target: date, reason: str, *, sent: Sequence[RequestRecord]) -> dict:
+        return skipped_line(unit, control, day=self._plan.day, target=target, reason=reason, sent=sent)
 
     async def _run_unit(self, unit: Unit, control: Control, target: date) -> dict:
+        self._unit_records = ()
         for attempt in (1, 2):
             reason = self._stop_reason(need=unit.http)
             if reason is not None:
-                return skipped_line(unit, control, day=self._plan.day, target=target, reason=reason)
+                return self._skipped(unit, control, target, reason, sent=self._unit_records)
             self._decision, self._unit_http, self._unit_key = None, unit.http, unit.key
             try:
-                result = await self._fetch(unit, control)
+                query = control.query(unit.granularity)
+                result = await self._client.fetch(query, timeline=unit.timeline, related=unit.related, label=unit.key, explore_method=unit.method)
             except _Stop as stop:
-                return skipped_line(unit, control, day=self._plan.day, target=target, reason=stop.reason)
+                return self._skipped(unit, control, target, stop.reason, sent=self._unit_records)
             if attempt == 1 and self._decision is not None and self._decision.action is breaker.Action.RETRY:
                 continue
             return result_line(unit, control, day=self._plan.day, target=target, result=result, attempts=attempt)
         raise AssertionError("unreachable: the second attempt always returns")
 
-    async def _fetch(self, unit: Unit, control: Control) -> FetchResult:
-        async with self._new_client(unit.method) as client:
-            self._client = client
-            try:
-                return await client.fetch(control.query(unit.granularity), timeline=unit.timeline, related=unit.related, label=unit.key)
-            finally:
-                self._machines, self._client = replace(self._machines, jar=client.jar), None
-
-    async def _warm_once(self, target: date):
-        self._decision, self._unit_http, self._unit_key = None, 1, "warmup"
-        async with self._new_client("GET") as client:
-            self._client = client
-            try:
-                return await client.warm(day=target)
-            finally:
-                self._machines, self._client = replace(self._machines, jar=client.jar), None
-
     async def _warm(self, target: date) -> str | None:
         """At most one warm-up per target date; a 5xx or timeout gets the one retry."""
         for attempt in (1, 2):
+            self._decision, self._unit_http, self._unit_key = None, 1, "warmup"
             try:
-                warmed = await self._warm_once(target)
+                warmed = await self._client.warm(day=target)
             except _Stop as stop:
                 return f"skipped:{stop.reason}"
             if attempt == 1 and self._decision is not None and self._decision.action is breaker.Action.RETRY:
@@ -399,22 +451,20 @@ class DayRunner:
             return warmed.status.value if warmed.status is not None else "already_warmed"
         return None
 
-    def _new_client(self, method: str) -> TrendsClient:
+    def _new_client(self) -> TrendsClient:
         return TrendsClient(
-            jar=self._machines.jar,
-            clock=self._clock,
-            gate=self._gate,
-            on_request=self._on_request,
-            transport=self._transport,
-            capture=self._capture,
-            explore_method=method,
+            jar=self._machines.jar, clock=self._clock, gate=self._gate, on_request=self._on_request, transport=self._transport, capture=self._capture
         )
 
     # ---- the gate and the outcome of each request ------------------------------------------------------------------
 
     def _stop_reason(self, *, need: int) -> str | None:
+        """Why `need` more requests cannot go out now: the breaker, the deadline, the day's cap, or the two days' total."""
         machines = self._machines
-        return budget.stop_reason(breaker_state=machines.breaker, day=machines.budget, limits=self._limits, now=self._clock.now(), need=need)
+        reason = budget.stop_reason(breaker_state=machines.breaker, day=machines.budget, limits=self._limits, now=self._clock.now(), need=need)
+        if reason is None and self._reserved_here + need > self._allowance:
+            return budget.TRUNCATED
+        return reason
 
     async def _gate(self, step: RequestStep) -> None:
         """Wait for the pacer and the breaker, then reserve the request and save, all before it is sent."""
@@ -435,7 +485,7 @@ class DayRunner:
             spent = budget.reserve(self._machines.budget, self._limits)
         except budget.BudgetExhausted:
             raise _Stop(budget.TRUNCATED) from None
-        self._half = self._machines.breaker.day.half_speed
+        self._half, self._reserved_here = self._machines.breaker.day.half_speed, self._reserved_here + 1
         self._machines = replace(self._machines, budget=spent)
         await self._save()
 
@@ -448,7 +498,9 @@ class DayRunner:
         if decision.action in (breaker.Action.PAUSE, breaker.Action.EXTINGUISH):
             spent = budget.note_limit(spent, ordinal=spent.reserved, at=record.started_at)
         self._machines, self._decision, self._sent = replace(machines, pacing=paced, breaker=broken, budget=spent), decision, self._sent + 1
-        append_private(self._paths.run_dir(self._plan.day) / "requests.jsonl", {**request_document(record), "decision": decision.action.value})
+        self._unit_records = (*self._unit_records, record)
+        entry = {**request_document(record), "decision": decision.action.value, "target_date": str(self._target)}
+        append_private(self._paths.run_dir(self._plan.day) / "requests.jsonl", entry)
         await self._save()
 
     async def _capture(self, record: RequestRecord, body: bytes) -> None:
@@ -468,47 +520,49 @@ class DayRunner:
 
     # ---- the session record ----------------------------------------------------------------------------------------
 
-    def _outcome(self, target: date, covered: tuple[str, ...], uncovered: tuple[tuple[str, str], ...]) -> DayOutcome:
+    def _outcome(self, target: date) -> DayOutcome:
         broken = self._machines.breaker
-        return DayOutcome(self._plan.day, target, covered, uncovered, self._sent, broken.day.extinguished, breaker.status_codes(broken))
+        return DayOutcome(self._plan.day, target, self._covered, self._uncovered, self._sent, broken.day.extinguished, breaker.status_codes(broken))
 
-    def _write_meta(self, target: date, started: datetime, warm: str | None, outcome: DayOutcome) -> None:
-        day, broken = self._machines.budget, self._machines.breaker.day
+    def _budget_record(self) -> dict:
+        day = self._machines.budget
+        return {
+            "reserved": day.reserved,
+            "cap": self._limits.cap,
+            "first_limit_at": stamp(day.first_limit_at) if day.first_limit_at else None,
+            "before_first_limit": day.before_first_limit,
+        }
+
+    def _breaker_record(self) -> dict:
+        broken = self._machines.breaker.day
+        fields = ("trips", "pauses", "rate_limited", "half_speed", "extinguished")
+        return {name: getattr(broken, name) for name in fields}
+
+    def _write_meta(self, target: date, started: datetime, *, interrupted: bool) -> None:
         session = {
             "target_date": str(target),
             "started_at": stamp(started),
             "finished_at": stamp(self._clock.now()),
-            "proxy_env": proxy_environment(self._environ),
+            "interrupted": interrupted,
+            "proxy": self._proxy,
             "explore_methods": sorted({unit.method for unit in self._plan.units}),
-            "warmup": warm,
-            "requests": outcome.requests,
-            "covered": len(outcome.covered),
-            "uncovered": [list(pair) for pair in outcome.uncovered],
-            "budget": {
-                "reserved": day.reserved,
-                "cap": self._limits.cap,
-                "first_limit_at": stamp(day.first_limit_at) if day.first_limit_at else None,
-                "before_first_limit": day.before_first_limit,
-            },
-            "breaker": {
-                "trips": broken.trips,
-                "pauses": broken.pauses,
-                "rate_limited": broken.rate_limited,
-                "half_speed": broken.half_speed,
-                "extinguished": broken.extinguished,
-            },
-            "status_codes": list(outcome.status_codes),
+            "warmup": self._warm_status,
+            "requests": self._sent,
+            "covered": len(self._covered),
+            "uncovered": [list(pair) for pair in self._uncovered],
+            "budget": self._budget_record(),
+            "breaker": self._breaker_record(),
+            "status_codes": list(breaker.status_codes(self._machines.breaker)),
         }
-        meta = load_meta(self._paths.run_dir(self._plan.day)) or {
+        run_dir = self._paths.run_dir(self._plan.day)
+        meta = load_meta(run_dir) or {
             "day": self._plan.day,
             "plan_http": self._plan.http,
             "collector_version": COLLECTOR_VERSION,
             "egress": "off (D20)",
             "sessions": [],
         }
-        write_private(
-            self._paths.run_dir(self._plan.day) / "meta.json", json.dumps({**meta, "sessions": [*meta["sessions"], session]}, ensure_ascii=False, indent=1)
-        )
+        write_private(run_dir / "meta.json", json.dumps({**meta, "sessions": [*meta["sessions"], session]}, ensure_ascii=False, indent=1))
 
 
 def dry_run_lines(plan: DayPlan, controls: Controls, done: Callable[[str], bool]) -> list[str]:

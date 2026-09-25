@@ -188,9 +188,24 @@ def test_visibility_metrics():
     assert visible(days, n=12) is True and visible(days, n=13) is False
 
 
-def test_visibility_short_series_is_counted_as_is():
+def test_visibility_short_series_is_flagged():
+    """Fewer complete points than the window: counted on what came back, but flagged, and the group rate says how many
+    of its verdicts rest on a short window (design 4.9 speaks of today 1-m's 30 points with the partial one dropped)."""
     short = series_of(result_line(control("pos-01"), "H", hourly_values(12, points=160)[-100:]))
-    assert nonzero_hours(short).window == 99
+    counted = nonzero_hours(short)
+    assert counted.window == 99 and counted.short is True
+    assert nonzero_hours(series_of(result_line(control("pos-01"), "H", hourly_values(12)))).short is False
+    rate = stage0_metrics.group_rate([short], group="positive", granularity="H", n=12)
+    assert (rate.observed, rate.short) == (1, 1)
+
+
+def test_missing_bare_line_is_unobserved():
+    """An answer the parser judged, but without the bare title's line: unobserved, never "not visible" (premise 1)."""
+    line = result_line(control("pos-01"), "H", hourly_values(14))
+    other = {**line["timeline"]["lines"][0], "term": "someone else"}
+    series = series_of({**line, "timeline": {**line["timeline"], "lines": [other]}})
+    assert series.status == "line_missing" and series.observed is False
+    assert visible(series, n=12) is None and nonzero_hours(series).nonzero is None
 
 
 def test_unobserved_is_not_invisible():
@@ -243,6 +258,29 @@ def test_gate_a_leaves_failures_out_of_the_denominator():
     result = gate_a(_gate_a_inputs(8, 1, failed_positives=1), granularity="H", n=12)
     assert (result.positive.observed, result.positive.visible, result.positive.unobserved) == (15, 8, 1)
     assert result.passed is True
+
+
+def test_gate_a_counts_exact_titles_only():
+    """The plan's positives are dramas whose exact-title query had impressions; a query_mismatch positive is listed
+    apart and stays out of the denominator."""
+    series = _gate_a_inputs(8, 1)
+    mismatch = {**control("pos-16"), "kind": "query_mismatch"}
+    lines = [s for s in series if s.control != "pos-16"] + [series_of(result_line(mismatch, "H", hourly_values(3)))]
+    result = gate_a(lines, granularity="H", n=12)
+    assert (result.positive.observed, result.positive.visible) == (15, 8)
+    assert (result.mismatch.observed, result.mismatch.visible) == (1, 0)
+
+
+def test_gate_a_strict_estimate_reads_block_sufficiency():
+    """Beside the visibility estimate, how many regional controls the rising rule could judge at all: B1-B4 each with
+    at least 3 non-zero hours (design 4.9 rule 3). Twelve hours spread over 144 are visible but judge nothing."""
+    positives = [series_of(result_line(control(f"pos-{i + 1:02d}"), "H", hourly_values(20))) for i in range(16)]
+    regional = [c for c in controls_document()["controls"] if c["group"] == "regional"]
+    spread = [series_of(result_line(entry, "H", hourly_values(12 if k < 6 else 0))) for k, entry in enumerate(regional)]
+    result = gate_a([*positives, *spread], granularity="H", n=12)
+    assert result.estimate_daily == 30 and result.strict_estimate == 0
+    dense = [series_of(result_line(entry, "H", hourly_values(20 if k < 6 else 0))) for k, entry in enumerate(regional)]
+    assert gate_a([*positives, *dense], granularity="H", n=12).strict_estimate == 30
 
 
 def test_gate_a_needs_enough_observations():
@@ -305,6 +343,40 @@ def test_gate_b_fails_without_related_queries():
 
 def test_gate_b_needs_user_type():
     assert gate_b(_gate_b_lines(user_type=None)).passed is False
+
+
+def _session(*, extinguished=None, uncovered=()):
+    return {"breaker": {"extinguished": extinguished}, "uncovered": [list(pair) for pair in uncovered]}
+
+
+def _never_sent(entry: dict, granularity: str, *, day: int, reason: str) -> dict:
+    line = result_line(entry, granularity, None, day=day)
+    return {**line, "status": None, "reason": reason, "timeline": None, "related": None, "requested_at": None, "attempts": 0}
+
+
+def test_gate_b_fails_when_a_session_was_put_out():
+    """A captcha ended day 2's session before any related query went out: the direct session was not stable, whatever
+    day 1 saw. Gate B does not pass, and it is not left pending either: day 2 did run."""
+    skipped = [_never_sent(control(cid), "D", day=2, reason="skipped_breaker") for cid in ("pos-05", "pos-06")]
+    sessions = {1: (_session(),), 2: (_session(extinguished="wall", uncovered=[(line["unit"], "skipped_breaker") for line in skipped]),)}
+    result = gate_b([*_gate_b_lines(days=(1,)), *skipped], sessions=sessions)
+    assert result.passed is False and result.final is True and result.pending == ()
+    assert any("熄火" in reason and "第二天" in reason for reason in result.reasons)
+
+
+def test_gate_b_fails_on_units_the_breaker_skipped():
+    """A pause that ran past the deadline skips units without putting the day out: not stable either."""
+    sessions = {1: (_session(),), 2: (_session(uncovered=[("pos-05-d", "skipped_breaker")]),)}
+    result = gate_b(_gate_b_lines(), sessions=sessions)
+    assert result.passed is False and any("熔断跳过" in reason for reason in result.reasons)
+
+
+def test_gate_b_is_undecided_for_a_day_that_sent_no_related_query():
+    """Day 2 ran and saw series, but no unit that asks for related queries went out: undecided, never skipped over."""
+    day_two = [result_line(control("pos-05"), "D", daily_values(20), day=2)]
+    result = gate_b([*_gate_b_lines(days=(1,)), *day_two], sessions={1: (_session(),), 2: (_session(),)})
+    assert result.passed is None and result.final is True
+    assert any("第二天" in reason and "相关查询" in reason for reason in result.reasons)
 
 
 def test_gate_b_is_provisional_on_day_one():

@@ -2,7 +2,9 @@
 comparison (plan TR-05, section 8; design 4.9, 4.11). Pure functions over the result lines the day runner writes.
 
 Premise 1 holds here too: a unit whose request failed is unobserved. It is never counted as a series of zeros, never as
-"not visible", and it stays out of every rate's denominator; the report lists it on its own.
+"not visible", and it stays out of every rate's denominator; the report lists it on its own. So is an answer the parser
+judged but that lacks the bare title's line (line_missing). A series with fewer complete points than the window is
+counted on what came back and flagged (short), since design 4.9 itself reads today 1-m as 30 points less the partial.
 
 Visibility (design 4.11):
 - hourly: non-zero hours among the last 144 complete hours (the partial point left out) >= 12, the H rule's own floor:
@@ -10,11 +12,19 @@ Visibility (design 4.11):
 - daily: non-zero days among the last 30 complete days >= N. DEFAULT_N = 12 mirrors the hourly floor (four 7-day blocks
   of at least 3 non-zero days); the report prints how the verdicts move for other N, for G2 to settle.
 
-Gate A passes when, for one granularity, at least half of the observed positives are visible and the estimated number
-of non-generic judgements a day reaches 5: A_TIER_DRAMAS times the share of visible regional controls, the recently
-listed dramas that stand in for the watch list (design 4.6 rule 2). Gate B passes when every day's session got usable
-related queries for at least 80% of the units that asked, at least one seed came back with lists, and every answered
-explore carried a userType.
+Gate A passes when, for one granularity, at least half of the observed exact-title positives are visible (a
+query_mismatch positive is listed apart: the plan's positives are exact-title queries) and the estimated number of
+non-generic judgements a day reaches 5: A_TIER_DRAMAS times the share of visible regional controls, the recently listed
+dramas that stand in for the watch list (design 4.6 rule 2). That estimate is loose, and the report says so for G2: one
+visible regional control in twelve already makes 5; generic titles are not taken out; and "visible" (rule 2's
+sufficiency) stands in for "judged". Beside it the report prints a strict estimate, the share of regional controls whose
+blocks could carry the rising rule at all (B1-B4, or W1-W3, each with at least 3 non-zero points, design 4.9 rule 3).
+
+Gate B asks whether a direct session is stable and gets related queries and a readable userType (design 4.11). It
+fails when a session was put out by the breaker or had units the breaker skipped, when a day that asked got usable
+related queries for fewer than 80% of its units, when seeds went out and none came back with lists, or when an answered
+explore lacked a userType. It is undecided while a day that ran sent no related query or no seed, or no explore was
+answered; a day that has not run leaves it provisional (final is False), and the report gives no route until it is final.
 """
 
 import csv
@@ -27,6 +37,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
 
+from ggwork_pick.observe.trends.budget import SKIPPED_BREAKER
+
 HOURS_WINDOW = 144
 HOURS_VISIBLE = 12
 DAYS_WINDOW = 30
@@ -34,13 +46,18 @@ DEFAULT_N = 12
 N_CANDIDATES = (6, 9, 12, 15, 20)
 POSITIVE_VISIBLE_RATE = 0.5
 DAILY_JUDGED_MIN = 5
-A_TIER_DRAMAS = 60  # design 4.5: A tier's 110-120 units are about 60-70 dramas; halved when both H and D are asked
+A_TIER_DRAMAS = 60  # design 4.5: A tier's 110-120 units are about 60-70 dramas (settle_granularity halves it for H+D)
 MIN_POSITIVES_OBSERVED = 8  # below this, gate A is not decided
 MIN_REGIONAL_OBSERVED = 4
 RELATED_USABLE_RATE = 0.8
 H_PLUS_D_FLOOR = 0.25  # H fails but still sees this share of positives: keep it as H+D's hourly description
 SHAPE_CONSISTENT_RHO = 0.6
 JUDGEABLE = frozenset({"ok", "ok_zero"})
+LINE_MISSING = "line_missing"
+EXACT_KINDS = frozenset({"exact_title"})
+BLOCKS = MappingProxyType({"H": (24, 6, 4), "D": (7, 4, 3)})  # block size, blocks in the window, baseline blocks
+BLOCK_FLOOR = 3  # design 4.9 rule 3: each baseline block needs at least 3 non-zero points
+EXTINGUISH_NAMES = MappingProxyType({"wall": "验证码/同意页", "rate_limited": "429 满 5 次", "trips": "跳闸 3 次", "probe_failures": "试探连续失败 3 次"})
 STEP_SECONDS = MappingProxyType({"H": 3600, "D": 86400})
 LABEL_FORMATS = MappingProxyType({"H": "%Y-%m-%dT%H", "D": "%Y-%m-%d"})
 # The first column's label in an English or a Chinese browser; the Chinese ones are to be checked against U5's files.
@@ -108,9 +125,11 @@ def series_of(line: Mapping) -> Series | None:
         repeat_of=line.get("repeat_of"),
         method=line.get("method", "GET"),
     )
-    raw = _line_of(line, line["term"]) if base.status in JUDGEABLE else None
-    if raw is None:
+    if base.status not in JUDGEABLE:
         return base
+    raw = _line_of(line, line["term"])
+    if raw is None:
+        return Series(**{**base.__dict__, "status": LINE_MISSING})
     return Series(**{**base.__dict__, "times": tuple(int(t) for t in raw["time"]), "values": tuple(raw["value"]), "partial": tuple(raw["isPartial"])})
 
 
@@ -122,6 +141,7 @@ class Visibility:
     nonzero: int | None  # None: unobserved
     window: int
     points: int  # complete points the answer had
+    short: bool = False  # fewer complete points than the window asks for: counted on what came back
 
 
 def _visibility(series: Series, window: int) -> Visibility:
@@ -129,7 +149,7 @@ def _visibility(series: Series, window: int) -> Visibility:
         return Visibility(nonzero=None, window=0, points=0)
     complete = series.complete()
     tail = complete[-window:]
-    return Visibility(nonzero=sum(1 for _, value in tail if value > 0), window=len(tail), points=len(complete))
+    return Visibility(nonzero=sum(1 for _, value in tail if value > 0), window=len(tail), points=len(complete), short=len(tail) < window)
 
 
 def nonzero_hours(series: Series) -> Visibility:
@@ -140,12 +160,28 @@ def nonzero_days(series: Series) -> Visibility:
     return _visibility(series, DAYS_WINDOW)
 
 
+def counted(series: Series) -> Visibility:
+    return nonzero_hours(series) if series.granularity == "H" else nonzero_days(series)
+
+
 def visible(series: Series, *, n: int = DEFAULT_N) -> bool | None:
     """Visible by its granularity's floor; None when unobserved (never False for a failure)."""
-    counted = nonzero_hours(series) if series.granularity == "H" else nonzero_days(series)
-    if counted.nonzero is None:
+    found = counted(series)
+    if found.nonzero is None:
         return None
-    return counted.nonzero >= (HOURS_VISIBLE if series.granularity == "H" else n)
+    return found.nonzero >= (HOURS_VISIBLE if series.granularity == "H" else n)
+
+
+def block_sufficient(series: Series) -> bool | None:
+    """Could the rising rule judge this series at all: every baseline block (B1-B4 of the last 144 hours, W1-W3 of the
+    last 28 days) with at least BLOCK_FLOOR non-zero points (design 4.9 rule 3). None when unobserved or too short."""
+    size, count, baseline = BLOCKS[series.granularity]
+    complete = series.complete() if series.observed else ()
+    if len(complete) < size * count:
+        return None
+    window = complete[-size * count :]
+    blocks = [window[k * size : (k + 1) * size] for k in range(baseline)]
+    return all(sum(1 for _, value in block if value > 0) >= BLOCK_FLOOR for block in blocks)
 
 
 # ---- gate A --------------------------------------------------------------------------------------------------------
@@ -156,34 +192,52 @@ class GroupRate:
     observed: int
     visible: int
     unobserved: int
+    short: int = 0  # observed verdicts that rest on a short window
+    sufficient: int = 0  # observed series whose blocks could carry the rising rule (block_sufficient)
 
     @property
     def rate(self) -> float | None:
         return self.visible / self.observed if self.observed else None
 
+    @property
+    def sufficient_rate(self) -> float | None:
+        return self.sufficient / self.observed if self.observed else None
+
 
 @dataclass(frozen=True)
 class GateA:
     granularity: str
-    positive: GroupRate
+    positive: GroupRate  # exact-title positives only
     regional: GroupRate
     estimate_daily: int | None
     estimate_basis: str
     passed: bool | None  # None: too few observations to decide
     reasons: tuple[str, ...]
+    mismatch: GroupRate = GroupRate(0, 0, 0)  # query_mismatch positives, listed apart
+    strict_estimate: int | None = None  # the same estimate by block sufficiency instead of visibility; shown, never gating
 
 
-def group_rate(series_list: Iterable[Series], *, group: str, granularity: str, n: int) -> GroupRate:
-    chosen = [s for s in series_list if s.group == group and s.granularity == granularity and s.repeat_of is None]
-    verdicts = [visible(s, n=n) for s in chosen]
-    return GroupRate(observed=sum(v is not None for v in verdicts), visible=sum(v is True for v in verdicts), unobserved=sum(v is None for v in verdicts))
+def group_rate(series_list: Iterable[Series], *, group: str, granularity: str, n: int, kinds: frozenset[str] | None = None) -> GroupRate:
+    chosen = [s for s in series_list if s.group == group and s.granularity == granularity and s.repeat_of is None and (kinds is None or s.kind in kinds)]
+    verdicts = [(visible(s, n=n), s) for s in chosen]
+    seen = [s for v, s in verdicts if v is not None]
+    return GroupRate(
+        observed=len(seen),
+        visible=sum(v is True for v, _ in verdicts),
+        unobserved=len(chosen) - len(seen),
+        short=sum(counted(s).short for s in seen),
+        sufficient=sum(block_sufficient(s) is True for s in seen),
+    )
 
 
-def _estimate(positive: GroupRate, regional: GroupRate, a_tier_dramas: int) -> tuple[int | None, str]:
+def _estimate(positive: GroupRate, regional: GroupRate, a_tier_dramas: int, *, strict: bool = False) -> tuple[int | None, str]:
+    def share(rate: GroupRate) -> float:
+        return rate.sufficient_rate if strict else rate.rate
+
     if regional.observed >= MIN_REGIONAL_OBSERVED:
-        return round(a_tier_dramas * regional.rate), "regional"
-    pooled = GroupRate(positive.observed + regional.observed, positive.visible + regional.visible, 0)
-    return (round(a_tier_dramas * pooled.rate), "positive+regional") if pooled.observed else (None, "none")
+        return round(a_tier_dramas * share(regional)), "regional"
+    pooled = GroupRate(positive.observed + regional.observed, positive.visible + regional.visible, 0, sufficient=positive.sufficient + regional.sufficient)
+    return (round(a_tier_dramas * share(pooled)), "positive+regional") if pooled.observed else (None, "none")
 
 
 def gate_a(
@@ -195,18 +249,20 @@ def gate_a(
     min_positives: int = MIN_POSITIVES_OBSERVED,
 ) -> GateA:
     """Gate A for one granularity; `min_positives` is halved by the interim report, which holds one day's half."""
-    positive = group_rate(series_list, group="positive", granularity=granularity, n=n)
+    positive = group_rate(series_list, group="positive", granularity=granularity, n=n, kinds=EXACT_KINDS)
+    mismatch = group_rate(series_list, group="positive", granularity=granularity, n=n, kinds=frozenset({"query_mismatch"}))
     regional = group_rate(series_list, group="regional", granularity=granularity, n=n)
     estimate, basis = _estimate(positive, regional, a_tier_dramas)
+    strict, _ = _estimate(positive, regional, a_tier_dramas, strict=True)
     reasons = []
     if positive.observed < min_positives:
         reasons.append(f"正对照只观测到 {positive.observed} 部（至少 {min_positives} 部才判定）")
-        return GateA(granularity, positive, regional, estimate, basis, None, tuple(reasons))
+        return GateA(granularity, positive, regional, estimate, basis, None, tuple(reasons), mismatch, strict)
     if positive.rate < POSITIVE_VISIBLE_RATE:
         reasons.append(f"正对照可见率 {positive.visible}/{positive.observed} 低于 {POSITIVE_VISIBLE_RATE:.0%}")
     if estimate is None or estimate < DAILY_JUDGED_MIN:
         reasons.append(f"估算每天非泛词判定 {estimate} 条，低于 {DAILY_JUDGED_MIN} 条")
-    return GateA(granularity, positive, regional, estimate, basis, not reasons, tuple(reasons))
+    return GateA(granularity, positive, regional, estimate, basis, not reasons, tuple(reasons), mismatch, strict)
 
 
 def choose_granularity(gate_h: GateA, gate_d: GateA) -> str | None:
@@ -225,9 +281,12 @@ def choose_granularity(gate_h: GateA, gate_d: GateA) -> str | None:
 
 @dataclass(frozen=True)
 class DayRelated:
-    attempts: int
+    attempts: int  # units that asked for related queries and sent (their related part has an outcome)
     usable: int
     seeds_ok: int
+    ran: bool = True  # the day has results or a session
+    seeds_asked: int = 0
+    unstable: tuple[str, ...] = ()  # why the day's sessions were not stable
 
     @property
     def rate(self) -> float | None:
@@ -242,7 +301,7 @@ class GateB:
     widget_missing: int
     breakout_seen: bool
     passed: bool | None
-    final: bool
+    final: bool  # every day has run; until then the verdict is provisional and no route is given
     reasons: tuple[str, ...]
     pending: tuple[str, ...]
 
@@ -252,29 +311,67 @@ def _usable(related: Mapping | None) -> bool:
     return related is not None and (related.get("status") == "ok" or (related.get("status") == "no_data" and not related.get("widget_missing")))
 
 
-def _day_related(lines: Sequence[Mapping]) -> DayRelated:
+def _unstable(day: int, lines: Sequence[Mapping], sessions: Sequence[Mapping]) -> tuple[str, ...]:
+    """A session the breaker put out, or one with units it skipped, was not stable (design 4.3's limit signals); a
+    skipped unit still on file counts even when its session left no record."""
+    name = DAY_NAMES[day]
+    put_out = tuple(
+        f"{name}第 {k} 次会话熄火（{EXTINGUISH_NAMES.get(reason, reason)}）"
+        for k, reason in enumerate(((s.get("breaker") or {}).get("extinguished") for s in sessions), 1)
+        if reason
+    )
+    skipped = tuple(
+        f"{name}第 {k} 次会话有 {count} 个单元被熔断跳过"
+        for k, count in enumerate((sum(1 for _, why in s.get("uncovered") or () if why == SKIPPED_BREAKER) for s in sessions), 1)
+        if count
+    )
+    left = sum(1 for line in lines if line.get("reason") == SKIPPED_BREAKER)
+    return (*put_out, *skipped) or ((f"{name}有 {left} 个单元被熔断跳过",) if left else ())
+
+
+def _day_related(day: int, lines: Sequence[Mapping], sessions: Sequence[Mapping]) -> DayRelated:
     asked = [line for line in lines if line.get("related") is not None]
-    seeds = [line for line in asked if line.get("group") == "seed" and (line["related"].get("status") == "ok")]
-    return DayRelated(attempts=len(asked), usable=sum(_usable(line["related"]) for line in asked), seeds_ok=len(seeds))
+    seeds = [line for line in asked if line.get("group") == "seed"]
+    return DayRelated(
+        attempts=len(asked),
+        usable=sum(_usable(line["related"]) for line in asked),
+        seeds_ok=sum(1 for line in seeds if line["related"].get("status") == "ok"),
+        ran=bool(lines) or bool(sessions),
+        seeds_asked=len(seeds),
+        unstable=_unstable(day, lines, sessions),
+    )
 
 
-def gate_b(lines: Sequence[Mapping], *, days: Sequence[int] = (1, 2)) -> GateB:
-    per_day = {day: _day_related([line for line in lines if line.get("day") == day]) for day in days}
-    seen = {day: stats for day, stats in per_day.items() if stats.attempts}
+def _day_findings(day: int, stats: DayRelated) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(failures, undecided) for a day that ran."""
+    name = DAY_NAMES[day]
+    if not stats.attempts:
+        return stats.unstable, (f"{name}跑过，但要相关查询的单元一个都没发出去",)
+    low = (f"{name}相关查询可用 {stats.usable}/{stats.attempts}，低于 {RELATED_USABLE_RATE:.0%}",) if stats.rate < RELATED_USABLE_RATE else ()
+    seedless = (f"{name}没有一个种子拿到相关查询列表",) if stats.seeds_asked and not stats.seeds_ok else ()
+    return (*stats.unstable, *low, *seedless), ((f"{name}没有种子发出去",) if not stats.seeds_asked else ())
+
+
+def gate_b(lines: Sequence[Mapping], *, days: Sequence[int] = (1, 2), sessions: Mapping[int, Sequence[Mapping]] | None = None) -> GateB:
+    """Gate B over the result lines and each day's session records (meta.json); see the module notes for the rule."""
+    sessions = sessions or {}
+    per_day = {day: _day_related(day, [line for line in lines if line.get("day") == day], tuple(sessions.get(day) or ())) for day in days}
+    ran = {day: stats for day, stats in per_day.items() if stats.ran}
+    findings = [_day_findings(day, stats) for day, stats in ran.items()]
     answered = [line for line in lines if line.get("status") in JUDGEABLE | {"no_data"}]
     types = Counter(line["user_type"] for line in answered if line.get("user_type"))
     missing_type = sum(1 for line in answered if not line.get("user_type"))
+    failures = (*(f for found, _ in findings for f in found), *((f"{missing_type} 个有回答的 explore 没带 userType",) if missing_type else ()))
+    no_answer = ("没有一个 explore 有回答，userType 无从判断",) if ran and not answered else ()
+    undecided = (*(u for _, found in findings for u in found), *no_answer)
+    pending = tuple(f"{DAY_NAMES[day]}的会话还没跑（闸门 B 要两次会话都稳定）" for day in days if day not in ran)
+    passed = False if failures else (None if undecided or not ran else True)
     related = [line["related"] for line in lines if line.get("related") is not None]
-    reasons = [
-        f"{DAY_NAMES[day]}相关查询可用 {s.usable}/{s.attempts}，低于 {RELATED_USABLE_RATE:.0%}" for day, s in seen.items() if s.rate < RELATED_USABLE_RATE
-    ]
-    reasons += [f"{DAY_NAMES[day]}没有一个种子拿到相关查询列表" for day, s in seen.items() if s.seeds_ok == 0]
-    reasons += [f"{missing_type} 个有回答的 explore 没带 userType"] if missing_type or not types else []
-    pending = tuple(f"{DAY_NAMES[day]}的会话还没跑（闸门 B 要两次会话都稳定）" for day in days if day not in seen)
-    passed = None if not seen else not reasons
     breakout = any(item.get("formattedValue") == "Breakout" for entry in related for item in (entry.get("rising") or ()))
     widget_missing = sum(1 for entry in related if entry.get("widget_missing"))
-    return GateB(MappingProxyType(per_day), MappingProxyType(dict(types)), missing_type, widget_missing, breakout, passed, not pending, tuple(reasons), pending)
+    return GateB(
+        MappingProxyType(per_day), MappingProxyType(dict(types)), missing_type, widget_missing, breakout, passed, not pending, (*failures, *undecided), pending
+    )
 
 
 # ---- the four routes (plan section 8) ------------------------------------------------------------------------------

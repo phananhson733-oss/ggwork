@@ -8,6 +8,11 @@ What is taken out: every control term (as typed, and URL-encoded) becomes a synt
 its link become a stable synthetic name; widget tokens become REDACTED_TOKEN; anything shaped like an IP address (a
 consent or "sorry" page can print the caller's) becomes a documentation address. Values, flags, times and the answer's
 shape stay as they came.
+
+The raw archive keeps no response header (a Location can quote the term, a Set-Cookie is a secret), so the two headers a
+replay needs are rebuilt: Location from the recorded redirect kind and host (sorry page, consent wall, elsewhere on
+Trends), without any query string; content-type from the body (HTML, JSON after the XSSI prefix, or plain text). A
+replayed fixture then earns the status the real answer did (TR-02's classify reads both).
 """
 
 import hashlib
@@ -19,11 +24,21 @@ from pathlib import Path
 from types import MappingProxyType
 from urllib.parse import quote, quote_plus
 
-from ggwork_pick.observe.trends.parse import XSSI_PREFIX, strip_xssi
+from ggwork_pick.observe.trends.parse import BASE_HOST, XSSI_PREFIX, strip_xssi
+from ggwork_pick.observe.trends.source import RedirectKind
 from ggwork_pick.observe.trends.stage0 import Controls
 from ggwork_pick.observe.trends.stage0_run import Stage0Paths, load_results, read_jsonl, write_private
 
 REDACTED_TOKEN = "REDACTED_TOKEN"
+HTML, JSON, TEXT = "text/html; charset=UTF-8", "application/json; charset=utf-8", "text/plain; charset=utf-8"
+LOCATIONS = MappingProxyType(
+    {
+        RedirectKind.SORRY.value: "https://{host}/sorry/index",
+        RedirectKind.CONSENT.value: "https://{host}/",
+        RedirectKind.SAME_HOST.value: "https://{host}/trends/",
+        RedirectKind.OTHER.value: "https://{host}/",
+    }
+)
 DOCUMENTATION_IP = "192.0.2.1"  # RFC 5737
 IP_SHAPED = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])|(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{1,4}:){3,7}[0-9A-Fa-f]{1,4}(?![0-9A-Fa-f:])")
 Table = tuple[tuple[re.Pattern, str], ...]
@@ -71,16 +86,31 @@ def scrub(value: object, table: Table) -> object:
     return value
 
 
-def response_of(status: int, body: bytes, table: Table) -> dict:
-    """The fixture's `response`: JSON after the prefix when it decodes, the scrubbed text otherwise."""
-    text = body.decode("utf-8", errors="replace")
+def location_of(entry: Mapping) -> str | None:
+    """The redirect's target rebuilt from its recorded kind and host; None when the answer was no redirect."""
+    kind, status = entry.get("redirect_kind"), entry.get("http_status")
+    if kind not in LOCATIONS or status is None or not 300 <= status < 400:
+        return None
+    host = entry.get("redirect_host") or BASE_HOST
+    return LOCATIONS[kind].format(host=host)
+
+
+def _headers(entry: Mapping, content_type: str) -> list[list[str]]:
+    location = location_of(entry)
+    return [["content-type", content_type], *([["location", location]] if location else [])]
+
+
+def response_of(entry: Mapping, body: bytes, table: Table) -> dict:
+    """The fixture's `response`: JSON after the prefix when it decodes, the scrubbed text otherwise; headers rebuilt."""
+    status, text = entry["http_status"], body.decode("utf-8", errors="replace")
     stripped = strip_xssi(text)
     try:
         decoded = json.loads(stripped)
     except ValueError:
-        return {"status": status, "headers": [], "text": scrub_text(text, table)}
+        kind = HTML if text.lstrip()[:1] == "<" else TEXT
+        return {"status": status, "headers": _headers(entry, kind), "text": scrub_text(text, table)}
     prefix = text[: len(text) - len(stripped)] if text.startswith(XSSI_PREFIX) else ""
-    return {"status": status, "headers": [], "prefix": prefix, "json": scrub(decoded, table)}
+    return {"status": status, "headers": _headers(entry, JSON), "prefix": prefix, "json": scrub(decoded, table)}
 
 
 def _fixture(entry: Mapping, line: Mapping | None, controls: Controls, body: bytes, table: Table) -> dict:
@@ -93,7 +123,7 @@ def _fixture(entry: Mapping, line: Mapping | None, controls: Controls, body: byt
         "pending_stage0": [],
         "phase": entry["phase"],
         **({"query": query} if query else {}),
-        "response": response_of(entry["http_status"], body, table),
+        "response": response_of(entry, body, table),
     }
 
 
