@@ -3,8 +3,10 @@
 -- find 出的线程（逗号隔开，没有就传空串），不传直接报错：
 --   psql "postgresql://deerflow_app.<ref>@aws-0-us-east-1.pooler.supabase.com:5432/postgres" -X -v disk_threads='<线程>' -f pan-check.sql
 -- 输出两张表，只有条数、线程 id 和属主，不输出命中的文本：
---   1. 工作台 14 个位置各有几行命中。前 11 个 pan-redact.sql 会清除；最后三个（知识正文、知识来源、候选的排除集合）脚本不改，
---      命中时停下来另议。库还在迁移 0005 之前时，data_as_of_json、details_json、excluded_json 三列还不存在，照样列出、记 0。
+--   1. 工作台 43 个位置各有几行命中。前 39 个 pan-redact.sql 会清除：GSC 的查询词（ggwp_gsc_query_daily.query）整行删除，
+--      其余就地改写；最后 4 个（知识正文、知识来源、候选的排除集合、旧页快照的跳转链）脚本不改，命中时停下来另议。
+--      库还在迁移 0005 之前时，data_as_of_json、details_json、excluded_json 三列还不存在；还在迁移 0007 之前时，观察雷达的
+--      表和 obs_as_of_json 还不存在：这些位置照样列出、记 0。
 --   2. 含命中的线程、属主邮箱和命中所在：宿主的表，或者 .tool-results。宿主把超过阈值的工具输出整份写进线程目录下的
 --      user-data/outputs/.tool-results/，库里只留预览和文件引用，这些命中只能在容器里找到，由 disk_threads 带进来。
 --      checkpoint 是二进制，只能经线程的 DELETE 接口整段删掉。
@@ -32,10 +34,12 @@ SELECT string_agg(CASE WHEN ascii(c) > 127
                        ELSE c END, '' ORDER BY i) AS pan_bytes
   FROM regexp_split_to_table(:'pan', '') WITH ORDINALITY AS s(c, i) \gset
 BEGIN READ ONLY;
--- 迁移 0005 加的三列在 0004 的库上还不存在（生产在 P2 上线前停在 0004）：这三个位置照样列出、记 0
+-- 迁移 0005 加的三列在 0004 的库上还不存在（生产在 P2 上线前停在 0004），迁移 0007 的表和 obs_as_of_json 在 0006 的库上
+-- 还不存在（观察雷达上线前停在 0006）：这些位置照样列出、记 0。0007 在 PostgreSQL 上是一个事务，有 ggwp_obs_sets 就全都在
 SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_candidate_sets'::regclass AND attname = 'data_as_of_json' AND NOT attisdropped) AS has_data_as_of,
        EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_sync_runs'::regclass AND attname = 'details_json' AND NOT attisdropped) AS has_details,
-       EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_candidate_sets'::regclass AND attname = 'excluded_json' AND NOT attisdropped) AS has_excluded \gset
+       EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_candidate_sets'::regclass AND attname = 'excluded_json' AND NOT attisdropped) AS has_excluded,
+       to_regclass('deerflow.ggwp_obs_sets') IS NOT NULL AS has_obs \gset
 -- JSON 列先转 jsonb 再转文本，\uXXXX 转义的中文还原成字符再匹配；与 pan-redact.sql 选行的条件相同
 SELECT location, count AS rows FROM (
             SELECT 1 AS n, 'ggwp_drama_versions.payload_json' AS location, count(*) FROM deerflow.ggwp_drama_versions WHERE payload_json::jsonb::text ~* :'pan'
@@ -56,13 +60,80 @@ SELECT location, count AS rows FROM (
 \else
   UNION ALL SELECT 10, 'ggwp_sync_runs.details_json', 0
 \endif
-  UNION ALL SELECT 11, 'ggwp_knowledge_versions.title', count(*) FROM deerflow.ggwp_knowledge_versions WHERE title ~* :'pan'
-  UNION ALL SELECT 12, 'ggwp_knowledge_versions.text', count(*) FROM deerflow.ggwp_knowledge_versions WHERE text ~* :'pan'
-  UNION ALL SELECT 13, 'ggwp_knowledge_versions.source_ref', count(*) FROM deerflow.ggwp_knowledge_versions WHERE source_ref ~* :'pan'
-\if :has_excluded
-  UNION ALL SELECT 14, 'ggwp_candidate_sets.excluded_json', count(*) FROM deerflow.ggwp_candidate_sets WHERE excluded_json::jsonb::text ~* :'pan'
+\if :has_obs
+  UNION ALL SELECT 11, 'ggwp_candidate_sets.obs_as_of_json', count(*) FROM deerflow.ggwp_candidate_sets WHERE obs_as_of_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 12, 'ggwp_obs_sets.frozen_inputs_json', count(*) FROM deerflow.ggwp_obs_sets WHERE frozen_inputs_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 13, 'ggwp_obs_sets.summary_json', count(*) FROM deerflow.ggwp_obs_sets WHERE summary_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 14, 'ggwp_obs_states.labels_json', count(*) FROM deerflow.ggwp_obs_states WHERE labels_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 15, 'ggwp_obs_states.flags_json', count(*) FROM deerflow.ggwp_obs_states WHERE flags_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 16, 'ggwp_obs_states.metrics_json', count(*) FROM deerflow.ggwp_obs_states WHERE metrics_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 17, 'ggwp_obs_states.quality_note_json', count(*) FROM deerflow.ggwp_obs_states WHERE quality_note_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 18, 'ggwp_obs_states.paste_row_json', count(*) FROM deerflow.ggwp_obs_states WHERE paste_row_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 19, 'ggwp_obs_alerts.evidence_json', count(*) FROM deerflow.ggwp_obs_alerts WHERE evidence_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 20, 'ggwp_obs_decisions.payload_json', count(*) FROM deerflow.ggwp_obs_decisions WHERE payload_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 21, 'ggwp_obs_identity_alias.evidence_json', count(*) FROM deerflow.ggwp_obs_identity_alias WHERE evidence_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 22, 'ggwp_obs_milestones.details_json', count(*) FROM deerflow.ggwp_obs_milestones WHERE details_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 23, 'ggwp_obs_runtime.state_json', count(*) FROM deerflow.ggwp_obs_runtime WHERE state_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 24, 'ggwp_obs_batches.plan_json', count(*) FROM deerflow.ggwp_obs_batches WHERE plan_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 25, 'ggwp_obs_batches.summary_json', count(*) FROM deerflow.ggwp_obs_batches WHERE summary_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 26, 'ggwp_obs_batches.status_codes_json', count(*) FROM deerflow.ggwp_obs_batches WHERE status_codes_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 27, 'ggwp_obs_raw.params_json', count(*) FROM deerflow.ggwp_obs_raw WHERE params_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 28, 'ggwp_obs_raw.data_json', count(*) FROM deerflow.ggwp_obs_raw WHERE data_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 29, 'ggwp_gsc_slices.details_json', count(*) FROM deerflow.ggwp_gsc_slices WHERE details_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 30, 'ggwp_gsc_vchecks.slice_versions_json', count(*) FROM deerflow.ggwp_gsc_vchecks WHERE slice_versions_json::jsonb::text ~* :'pan'
 \else
-  UNION ALL SELECT 14, 'ggwp_candidate_sets.excluded_json', 0
+  UNION ALL SELECT 11, 'ggwp_candidate_sets.obs_as_of_json', 0
+  UNION ALL SELECT 12, 'ggwp_obs_sets.frozen_inputs_json', 0
+  UNION ALL SELECT 13, 'ggwp_obs_sets.summary_json', 0
+  UNION ALL SELECT 14, 'ggwp_obs_states.labels_json', 0
+  UNION ALL SELECT 15, 'ggwp_obs_states.flags_json', 0
+  UNION ALL SELECT 16, 'ggwp_obs_states.metrics_json', 0
+  UNION ALL SELECT 17, 'ggwp_obs_states.quality_note_json', 0
+  UNION ALL SELECT 18, 'ggwp_obs_states.paste_row_json', 0
+  UNION ALL SELECT 19, 'ggwp_obs_alerts.evidence_json', 0
+  UNION ALL SELECT 20, 'ggwp_obs_decisions.payload_json', 0
+  UNION ALL SELECT 21, 'ggwp_obs_identity_alias.evidence_json', 0
+  UNION ALL SELECT 22, 'ggwp_obs_milestones.details_json', 0
+  UNION ALL SELECT 23, 'ggwp_obs_runtime.state_json', 0
+  UNION ALL SELECT 24, 'ggwp_obs_batches.plan_json', 0
+  UNION ALL SELECT 25, 'ggwp_obs_batches.summary_json', 0
+  UNION ALL SELECT 26, 'ggwp_obs_batches.status_codes_json', 0
+  UNION ALL SELECT 27, 'ggwp_obs_raw.params_json', 0
+  UNION ALL SELECT 28, 'ggwp_obs_raw.data_json', 0
+  UNION ALL SELECT 29, 'ggwp_gsc_slices.details_json', 0
+  UNION ALL SELECT 30, 'ggwp_gsc_vchecks.slice_versions_json', 0
+\endif
+  UNION ALL SELECT 31, 'ggwp_knowledge_versions.title', count(*) FROM deerflow.ggwp_knowledge_versions WHERE title ~* :'pan'
+\if :has_obs
+  UNION ALL SELECT 32, 'ggwp_obs_watch.title', count(*) FROM deerflow.ggwp_obs_watch WHERE title ~* :'pan'
+  UNION ALL SELECT 33, 'ggwp_obs_states.title', count(*) FROM deerflow.ggwp_obs_states WHERE title ~* :'pan'
+  UNION ALL SELECT 34, 'ggwp_obs_states.normalized_title', count(*) FROM deerflow.ggwp_obs_states WHERE normalized_title ~* :'pan'
+  UNION ALL SELECT 35, 'ggwp_obs_identity_alias.old_title', count(*) FROM deerflow.ggwp_obs_identity_alias WHERE old_title ~* :'pan'
+  UNION ALL SELECT 36, 'ggwp_obs_identity_alias.new_title', count(*) FROM deerflow.ggwp_obs_identity_alias WHERE new_title ~* :'pan'
+  UNION ALL SELECT 37, 'ggwp_obs_discoveries.term', count(*) FROM deerflow.ggwp_obs_discoveries WHERE term ~* :'pan'
+  UNION ALL SELECT 38, 'ggwp_obs_discoveries.normalized_term', count(*) FROM deerflow.ggwp_obs_discoveries WHERE normalized_term ~* :'pan'
+  UNION ALL SELECT 39, 'ggwp_gsc_query_daily.query', count(*) FROM deerflow.ggwp_gsc_query_daily WHERE query ~* :'pan'
+\else
+  UNION ALL SELECT 32, 'ggwp_obs_watch.title', 0
+  UNION ALL SELECT 33, 'ggwp_obs_states.title', 0
+  UNION ALL SELECT 34, 'ggwp_obs_states.normalized_title', 0
+  UNION ALL SELECT 35, 'ggwp_obs_identity_alias.old_title', 0
+  UNION ALL SELECT 36, 'ggwp_obs_identity_alias.new_title', 0
+  UNION ALL SELECT 37, 'ggwp_obs_discoveries.term', 0
+  UNION ALL SELECT 38, 'ggwp_obs_discoveries.normalized_term', 0
+  UNION ALL SELECT 39, 'ggwp_gsc_query_daily.query', 0
+\endif
+  UNION ALL SELECT 40, 'ggwp_knowledge_versions.text', count(*) FROM deerflow.ggwp_knowledge_versions WHERE text ~* :'pan'
+  UNION ALL SELECT 41, 'ggwp_knowledge_versions.source_ref', count(*) FROM deerflow.ggwp_knowledge_versions WHERE source_ref ~* :'pan'
+\if :has_excluded
+  UNION ALL SELECT 42, 'ggwp_candidate_sets.excluded_json', count(*) FROM deerflow.ggwp_candidate_sets WHERE excluded_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 42, 'ggwp_candidate_sets.excluded_json', 0
+\endif
+\if :has_obs
+  UNION ALL SELECT 43, 'ggwp_obs_legacy.hops_json', count(*) FROM deerflow.ggwp_obs_legacy WHERE hops_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 43, 'ggwp_obs_legacy.hops_json', 0
 \endif
 ) AS located ORDER BY n;
 -- 线程的 DELETE 接口会删掉下面每张表里这个线程的行（runs 只删 operation_kind = 'run' 的）和属主目录下的线程目录，
