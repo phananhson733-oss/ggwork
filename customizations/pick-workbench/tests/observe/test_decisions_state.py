@@ -6,6 +6,7 @@ PostgreSQL; its PostgreSQL half skips when PICK_TEST_PG_URL is unset.
 """
 
 import ast
+import asyncio
 import dataclasses
 import json
 import random
@@ -18,20 +19,28 @@ import pytest
 import pytest_asyncio
 from engines import host_engine
 from obs_schema import insert
+from pydantic import ValidationError
+from sqlalchemy import insert as sa_insert
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from ggwork_pick.models import obs_decisions
 from ggwork_pick.observe import contract
+from ggwork_pick.observe.contract_api import CorrespondenceRevoke
 from ggwork_pick.observe.decisions_state import (
     STEPS,
     WATCH_ADD_CAP,
+    AliasMark,
     DecisionLogError,
     DecisionRecord,
     EffectiveDecisions,
+    PairMark,
     UnknownDecisionKind,
     decision_record,
     effective,
     latest_id,
+    lock_for_append,
     read_decisions,
     read_effective,
     refusal,
@@ -105,9 +114,30 @@ def test_alias_change_requires_reconfirm():
     state = effective(decisions, 2)
     assert state.correspondence(X, "KalosTV", TITLE) == "unconfirmed"
     assert state.confirmed_key(X) is None
-    assert state.alias_pairs == {SLUG: X}
+    assert state.alias_pairs == {SLUG: PairMark(2, X)}
     # Only a confirmation of the new identity confirms it.
     assert effective((*decisions, confirm(3, X, "KalosTV")), 3).correspondence(X, "KalosTV", TITLE) == "confirmed"
+
+
+def test_title_revert_restores_confirmation():
+    """Only the current batch's key and the latest confirmation's are compared, never the batches in between: a title
+    changed and changed back is confirmed again, and so is an identity an alias replaced and then brought back."""
+    state = effective((confirm(1),), 1)
+    assert [state.correspondence(X, PLATFORM, title) for title in (TITLE, "the alpha's bride returns", TITLE)] == [
+        "confirmed",
+        "unconfirmed",
+        "confirmed",
+    ]
+    back = effective((confirm(1, SLUG, "KalosTV"), pair(2, SLUG, X), pair(3, X, SLUG)), 3)
+    assert back.correspondence(SLUG, "KalosTV", TITLE) == "confirmed"
+
+
+def test_empty_platform_never_confirmed():
+    """A row with an empty platform (DramaInput.theater defaults to "") stays unconfirmed: the contract's
+    CorrespondenceConfirm.platform takes at least one character (a seam handed to TR-33)."""
+    with pytest.raises(DecisionLogError, match="correspondence_confirm.platform"):
+        confirm(1, platform="")
+    assert effective((confirm(1),), 1).correspondence(X, "", TITLE) == "unconfirmed"
 
 
 # ---- versions (D24: a set freezes the largest id it read) ---------------------------------------------------------
@@ -156,6 +186,24 @@ def test_watch_add_cap_50_effective():
     assert effective((add(1), add(2, geo="GB"), add(3)), 3).watch_added == frozenset({(X, "US"), (X, "GB")})
 
 
+def test_watch_add_cap_counts_entries_outside_the_batch():
+    """The cap counts every entry in effect, in the current shared batch or not, so the gateway and a collector reading
+    another batch agree; entries, pauses and ambiguity verdicts stay on the identity they name (aliases are TR-18's)."""
+    in_batch = frozenset(_identity(n) for n in range(1, 50)) | {X}
+    decisions = (*(add(n, _identity(n)) for n in range(1, 50)), add(50, SLUG), pair(51, SLUG, X))
+    state = effective(decisions, 51)
+    # The pairing replaced SLUG with X in the batch; SLUG's entry keeps its slot and does not become X's ...
+    assert (SLUG, "US") in state.watch_added and (X, "US") not in state.watch_added
+    assert refusal(state, add(52, X).decision) is not None
+    # ... until the operator withdraws it: the data board lists the entries outside the batch so that they can.
+    assert state.watch_added_outside(in_batch) == frozenset({(SLUG, "US")})
+    freed = effective((*decisions, add(52, SLUG, active=False)), 52)
+    assert refusal(freed, add(53, X).decision) is None and freed.watch_added_outside(in_batch) == frozenset()
+    moved = effective((pause(1, SLUG), _rec(2, "ambiguity_override", identity=SLUG, verdict="clear"), pair(3, SLUG, X)), 3)
+    assert (moved.is_paused(SLUG, "US"), moved.is_paused(X, "US")) == (True, False)
+    assert (moved.ambiguity_verdict(SLUG), moved.ambiguity_verdict(X)) == ("clear", None)
+
+
 def test_pause_latest_wins_between_one_geo_and_all():
     assert effective((), 0).is_paused(X, "US") is False
     everywhere = effective((pause(1),), 1)
@@ -181,10 +229,22 @@ def test_alias_decisions_latest_wins():
         pair(6, _identity(1), _identity(2)),
     )
     state = effective(decisions, 6)
-    assert state.alias_verdicts == {5: "rejected", 6: "rejected"}
-    assert effective(decisions, 1).alias_verdicts == {5: "confirmed"}
+    assert state.alias_verdicts == {5: AliasMark(3, "rejected"), 6: AliasMark(2, "rejected")}
+    assert effective(decisions, 1).alias_verdicts == {5: AliasMark(1, "confirmed")}
     # One old identity pairs with the latest new one; the alias refresh rejects the graphs design 7.2 refuses.
-    assert state.alias_pairs == {SLUG: X, _identity(1): _identity(2)}
+    assert state.alias_pairs == {SLUG: PairMark(5, X), _identity(1): PairMark(6, _identity(2))}
+
+
+def test_alias_marks_keep_the_order_across_kinds():
+    """D43's refresh replays alias decisions by id: every mark carries the id of the decision that set it."""
+    reject_then_pair = effective((_rec(1, "alias_reject", alias_id=5), pair(2, SLUG, X)), 2)
+    pair_then_reject = effective((pair(1, SLUG, X), _rec(2, "alias_reject", alias_id=5)), 2)
+    assert reject_then_pair != pair_then_reject
+    assert (reject_then_pair.alias_verdicts[5], reject_then_pair.alias_pairs[SLUG]) == (AliasMark(1, "rejected"), PairMark(2, X))
+    # A manual pairing, then a confirmed suggestion for the same old identity (SLUG -> Y as queue entry 7): the refresh
+    # sees the confirmation is the later one instead of two pairings it can only refuse as many-to-many.
+    later = effective((pair(1, SLUG, X), _rec(2, "alias_confirm", alias_id=7)), 2)
+    assert later.alias_pairs[SLUG].decision_id < later.alias_verdicts[7].decision_id
 
 
 def test_ambiguity_and_irrelevant_alerts():
@@ -211,7 +271,8 @@ def test_contract_fixture_decisions_all_apply():
     records = tuple(decision_record(n, body["kind"], body) for n, body in enumerate(bodies, start=1))
     assert {record.decision.kind for record in records} == set(contract.DECISION_KINDS)
     state = effective(records, len(records))
-    assert state.version == len(records) and state.alias_verdicts == {5: "rejected"} and state.irrelevant_alerts == frozenset({88})
+    assert state.version == len(records) and state.irrelevant_alerts == frozenset({88})
+    assert {alias_id: mark.verdict for alias_id, mark in state.alias_verdicts.items()} == {5: "rejected"}
 
 
 # ---- order, immutability, refusals ---------------------------------------------------------------------------------
@@ -226,8 +287,10 @@ def test_order_by_id_deterministic():
     # The later id wins wherever it sits in the input.
     assert effective((revoke(2), confirm(1)), 2).correspondence(X, PLATFORM, TITLE) == "unconfirmed"
     assert effective((confirm(2), revoke(1)), 2).correspondence(X, PLATFORM, TITLE) == "confirmed"
-    with pytest.raises(DecisionLogError, match="重复"):
+    # A repeated id is a caller's mistake, not a log this code cannot apply: ValueError, not exit 3.
+    with pytest.raises(ValueError, match="重复") as repeated:
         effective((confirm(1), revoke(1)), 1)
+    assert not isinstance(repeated.value, DecisionLogError)
 
 
 def test_effective_is_immutable():
@@ -241,11 +304,24 @@ def test_effective_is_immutable():
         with pytest.raises(TypeError):
             mapping["x"] = "y"
     assert isinstance(state.watch_added, frozenset) and isinstance(state.irrelevant_alerts, frozenset) and isinstance(state.over_cap, tuple)
+    # The state is compared, never hashed: its mappings are read-only proxies.
+    with pytest.raises(TypeError, match="unhashable"):
+        hash(state)
     # The input records are left as they were.
     records = (confirm(1), revoke(2))
     before = [record.decision.model_dump() for record in records]
     effective(records, 2)
     assert [record.decision.model_dump() for record in records] == before
+    # A record's body cannot be changed in place, whether it was read from the table or built from a caller's model; the
+    # record holds its own frozen copy, so changing the caller's model later changes nothing in it.
+    with pytest.raises(ValidationError, match="frozen"):
+        records[0].decision.identity = Y
+    plain = CorrespondenceRevoke(kind="correspondence_revoke", request_id="r-9", identity=X)
+    held = DecisionRecord(9, plain)
+    with pytest.raises(ValidationError, match="frozen"):
+        held.decision.identity = Y
+    plain.identity = Y
+    assert held.decision.identity == X and isinstance(held.decision, CorrespondenceRevoke)
 
 
 def test_unknown_kind_rejected():
@@ -262,13 +338,20 @@ def test_unknown_kind_rejected():
     for bad_id in (0, True, "5", contract.MAX_ROW_ID + 1):
         with pytest.raises(DecisionLogError):
             decision_record(bad_id, "alias_confirm", body | {"kind": "alias_confirm"})
-    # Anything but a contract decision is refused before it is applied.
-    with pytest.raises(UnknownDecisionKind):
+    # Anything but a contract decision is refused before it is applied. Built in code rather than read from the table,
+    # that is a programming error (TypeError, ValueError, exit 1), never a DecisionLogError sending operators to the log.
+    misuse = []
+    with pytest.raises(TypeError) as caught:
         DecisionRecord(1, SimpleNamespace(kind="alias_delete", alias_id=5))
-    with pytest.raises(DecisionLogError, match="id"):
-        DecisionRecord(0, confirm(1).decision)
-    with pytest.raises(DecisionLogError, match="DecisionRecord"):
+    misuse.append(caught.value)
+    for bad_id in (0, True, contract.MAX_ROW_ID + 1):
+        with pytest.raises(ValueError, match="id") as caught:
+            DecisionRecord(bad_id, confirm(1).decision)
+        misuse.append(caught.value)
+    with pytest.raises(TypeError, match="DecisionRecord") as caught:
         effective(({"id": 1, "kind": "correspondence_revoke", "identity": X},), 1)
+    misuse.append(caught.value)
+    assert not any(isinstance(error, DecisionLogError) for error in misuse)
     # The collectors do not run on a log they cannot apply: exit 3, like any unreadable state (D34).
     assert exit_code_for(UnknownDecisionKind(1)) == ExitCode.STATE_UNAVAILABLE
 
@@ -278,6 +361,14 @@ def test_errors_carry_no_values():
     with pytest.raises(DecisionLogError) as caught:
         decision_record(1, "correspondence_confirm", {"kind": "correspondence_confirm", "request_id": secret, "identity": X, "platform": secret})
     assert secret not in str(caught.value) and X not in str(caught.value)
+    # A stored key is content too: an unexpected one is named <extra>, never spelled out.
+    body = {"kind": "watch_add", "request_id": "r-2", "identity": X, "geo": "US", "active": True, f"pwd {secret}": 1}
+    with pytest.raises(DecisionLogError) as extra:
+        decision_record(2, "watch_add", body)
+    assert secret not in str(extra.value) and "watch_add.<extra>（extra_forbidden）" in str(extra.value)
+    # Nor does the error keep the ValidationError, which holds the stored body, as its cause or its context.
+    for error in (caught.value, extra.value):
+        assert error.__cause__ is None and error.__context__ is None
 
 
 def test_latest_id():
@@ -378,3 +469,82 @@ async def test_read_decisions_refuses_rows_it_cannot_apply(db_url):
                 await read_effective(conn)
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_read_decisions_upto_beyond_the_id_column(db_url):
+    """A version is any id up to 2^63-1 (the contract's); the id column is int4 on PostgreSQL, and the read still works."""
+    engine = host_engine(db_url)
+    try:
+        await _write(engine, confirm(1), revoke(2))
+        async with engine.connect() as conn:
+            for upto in (2**31 - 1, 2**31, contract.MAX_ROW_ID):
+                assert [record.id for record in await read_decisions(conn, upto)] == [1, 2]
+            assert (await read_effective(conn, contract.MAX_ROW_ID)).version == contract.MAX_ROW_ID
+    finally:
+        await engine.dispose()
+
+
+# ---- appending (TR-25's seam): commit order is id order, the cap check sees the state it lands on ------------------
+
+
+async def _gateway_append(engine, decision, *, session=False, locked=None, appended=None, hold=None) -> int | None:
+    """The gateway's write as lock_for_append asks for it: lock first, check against the effective state, append.
+
+    On an AsyncConnection, or with session=True on an AsyncSession (what TR-25's repository hands out).
+    """
+    opener = async_sessionmaker(engine) if session else engine.connect
+    async with opener() as conn, conn.begin():
+        await lock_for_append(conn)
+        if locked is not None:
+            locked.set()
+        if refusal(await read_effective(conn), decision) is not None:
+            return None
+        body = decision.model_dump(mode="json")
+        row = dict(kind=body["kind"], request_id=body["request_id"], owner_id="alice", payload_json=body, created_at="2026-09-25T01:52:10.000000+00:00")
+        appended_id = (await conn.execute(sa_insert(obs_decisions).values(**row))).inserted_primary_key[0]
+        if appended is not None:
+            appended.set()
+        if hold is not None:
+            await hold.wait()
+        return appended_id
+
+
+async def _race(engine, first, second) -> tuple[int | None, int | None]:
+    """`first` appends and holds its transaction open; `second` must wait for it before it even reads the state."""
+    first_appended, release, second_locked = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    held = asyncio.create_task(_gateway_append(engine, first, appended=first_appended, hold=release))
+    await asyncio.wait_for(first_appended.wait(), 10)
+    waiting = asyncio.create_task(_gateway_append(engine, second, locked=second_locked))
+    await asyncio.sleep(0.3)
+    blocked = not second_locked.is_set()
+    release.set()
+    results = (await held, await waiting)
+    assert blocked, "the second append ran while the first one's id was drawn but not committed"
+    return results
+
+
+@pytest.mark.asyncio
+async def test_append_lock_orders_commits_and_holds_the_cap(db_url):
+    engine = host_engine(db_url)
+    try:
+        # The record ids below only number the request ids (unique per owner); the table draws the row ids.
+        for n in range(1, 49):
+            assert await _gateway_append(engine, add(n, _identity(n)).decision, session=True) == n
+        # A smaller id never commits after a larger one is visible: a set's decisions_version is a faithful cut.
+        first_id, second_id = await _race(engine, add(49, _identity(49)).decision, pause(100).decision)
+        assert (first_id, second_id) == (49, 50)
+        # Two additions racing for the last slot: the second sees the first and is refused, none left for over_cap.
+        first_id, second_id = await _race(engine, add(50, _identity(50)).decision, add(51, _identity(51)).decision)
+        assert (first_id, second_id) == (51, None)
+        async with engine.connect() as conn:
+            state = await read_effective(conn)
+        assert (state.version, len(state.watch_added), state.over_cap) == (51, WATCH_ADD_CAP, ())
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_lock_for_append_knows_only_the_two_dialects():
+    with pytest.raises(ValueError, match="mysql"):
+        await lock_for_append(SimpleNamespace(dialect=SimpleNamespace(name="mysql")))
