@@ -23,6 +23,11 @@ LIGHT_ENTRIES = (
     "ggwork_pick.observe.errors",
     "ggwork_pick.observe.admin.__main__",
     "ggwork_pick.observe.admin.args",
+    # TR-33's shared contract: both crons freeze FrozenInputs and write rows in its shapes (plan D36).
+    "ggwork_pick.observe.contract",
+    "ggwork_pick.observe.contract_rows",
+    "ggwork_pick.observe.contract_views",
+    "ggwork_pick.observe.contract_api",
 )
 
 
