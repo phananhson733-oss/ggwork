@@ -445,7 +445,7 @@
   - `legacy-export.test.ts` 用夹具覆盖：`/detail/38000`、`/detail/49020`（应到博客）、`/bg/detail/38000?id=38000`、`/bg/video-play/38000/<西里尔>/episode-2`、`/video-play/38000?episodesNum=3`、`/?id=38000`、`/for-you?id=72142`、`/zh-TW/…`、`/ZH-tw/…`、`/BG/…`、`/blog/mighty-and-great-genie`、`/bg/detail/1/-`、`/xx/detail/1/x`、www 与外站 host。
   - `test_two_query_ids_distinct`：`/en?id=38000` 与 `/en?id=49020` 是两条记录。`[反例 24]` `next-matcher-contract.test.ts`：钉死 Next 版本与匹配器行为。
   - `test_refuses_when_runtime_differs_from_deployed`；`editorial-history.test.ts`：用临时 git 仓库构造加入、移除、再加入三次提交，输出与预期一致。
-- **差分核对**：`verify-legacy-live` 取点击最高的 200 条加随机 100 条，对生产站 `fetch(url,{redirect:"manual"})` 逐跳跟随，每秒约 1 次，落点必须与快照 `landing_path` 100% 一致，快照才算可发布（只读访问自家站点，U7 里告知用户）。
+- **差分核对**（2026-09-25 G2 评审后改）：快照的口径是「按当前数据库、经线上未改动的解析链算出的落点」，不声称等于生产在同一时刻的行为（生产有 24 小时与 6 小时的数据缓存，过期后先回旧值）。`verify-legacy-live` 对生产站 `fetch(url,{redirect:"manual"})` 逐跳跟随，每秒至多约 1 次，只请求页面路由白名单（`/api/`、`/admin`、`/_next/` 一律不碰），判定分一致、不一致、无法验证三态（5xx、429、没走完的跳转、预期状态未知都记无法验证，0 条不判通过）。发布闸门：工作台按原串查表的旧页形态行（与 `--legacy-only` 同一判定）必须全部核对、全部一致；其余行抽查点击最高 200 条加随机 100 条，结果只报告不挡发布。核对可断点续跑。剧库指纹含章节（每剧行数与 serial 范围），全部解析查询在同一个 REPEATABLE READ 只读事务里读；导出有总时长上限。
 - **若探针失败（需 U15）**：改成「纯函数 + 薄适配」之前，先用新旧两份实现对 90 天全量 URL 逐条比对，100% 相同；再在 Vercel 预览部署上跑 `verify-legacy-live`；两项都过才合并；上线后对生产再跑一次。工作量另加约 1 人日，单独报。
 - **顺序**：PR 只含脚本与测试，合并后在与生产部署运行代码相同的提交上导出，差分核对通过，再交给 TR-22 与 TR-23b 导入。
 - **验收**：`pnpm test` 与带 react-server 条件的脚本测试都绿；差分 100% 一致；线上运行代码零改动（PR 的 diff 只有 `scripts/`、`tests/`、`package.json`）。
