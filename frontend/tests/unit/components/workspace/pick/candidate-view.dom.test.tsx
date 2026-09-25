@@ -6,7 +6,19 @@ import {
   ReplayLink,
 } from "@/components/workspace/pick/candidate-view";
 import { REPLAY_LINK_ENABLED } from "@/core/pick/links";
-import type { PickDataAsOf, PickItem, PickResult } from "@/core/pick/types";
+import {
+  UNOBSERVED_GSC,
+  UNOBSERVED_TRENDS,
+  forbiddenIn,
+} from "@/core/pick/obs-format";
+import {
+  pickResultSchema,
+  type PickDataAsOf,
+  type PickItem,
+  type PickResult,
+} from "@/core/pick/types";
+
+import obsPayload from "../../../core/pick/fixtures/backend-result-obs.json";
 
 afterEach(cleanup);
 const result: PickResult = {
@@ -250,5 +262,48 @@ describe("row check links (P4-1)", () => {
     cleanup();
     renderView({ ...synced, data_as_of: { ...SHARED, shared: false } });
     expect(screen.queryByRole("link", { name: /回放/ })).toBeNull();
+  });
+});
+
+// Plan TR-16 (premise 1): an observation the backend did not see reads
+// "未观测到" on the card, never zero and never "数值未知".
+describe("observation evidence on the card (TR-16)", () => {
+  const obsResult = pickResultSchema.parse(obsPayload);
+  const obsItem = obsResult.items[0]!;
+
+  function evidenceText(container: HTMLElement) {
+    return [...container.querySelectorAll("li")]
+      .map((li) => li.textContent ?? "")
+      .join("\n");
+  }
+
+  it("renders 未观测到 when an obs value is null", () => {
+    // Only the observation entries: the fixture's qc signal has no value either, and says 数值未知 as before.
+    const unseen = obsItem.evidence
+      .filter((e) => e.kind === "obs_gsc" || e.kind === "obs_trends")
+      .map((e) => ({
+        ...e,
+        value: null,
+        note: e.kind === "obs_gsc" ? "gsc-rules-v1" : "trend-rules-v1",
+      }));
+    const { container } = renderView({
+      ...obsResult,
+      items: [{ ...obsItem, evidence: unseen }],
+    });
+    const text = evidenceText(container);
+    expect(text).toContain(UNOBSERVED_GSC);
+    expect(text).toContain(UNOBSERVED_TRENDS);
+    expect(text).not.toContain("数值未知");
+    expect(forbiddenIn(text)).toEqual([]);
+  });
+
+  it("renders the obs fixture's card: its evidence, conditions and order", () => {
+    const { container } = renderView(obsResult);
+    expect(screen.getByText(/按观测状态排序/)).toBeTruthy();
+    const text = evidenceText(container);
+    expect(text).toContain("US · Google Trends 上升（已确认）");
+    expect(text).toContain("USA · 曝光飙升（24 小时）");
+    expect(text).toContain("发现词「reelshort the alpha's bride」");
+    expect(forbiddenIn(text)).toEqual([]);
   });
 });

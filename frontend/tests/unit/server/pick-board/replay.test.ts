@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, rs } from "@rstest/core";
 
 import { loadReplay } from "@/server/pick-board/replay";
 
+import obsResult from "../../core/pick/fixtures/backend-result-obs.json";
 import backendResult from "../../core/pick/fixtures/backend-result.json";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../../..");
@@ -189,5 +190,20 @@ describe("loadReplay", () => {
     ])
       expect((await loadReplay(id)).kind).toBe("notFound");
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// Plan TR-16: a result with observation conditions (sort=obs, the seven
+// optional keys) still gives the near filter its conditions, on 200 and on the
+// 409 / 410 that carry no list of their own.
+describe("loadReplay with observation conditions (TR-16)", () => {
+  it("parses the result's observation conditions", async () => {
+    for (const replay of [ok(CASES.replay), status(409), status(410)]) {
+      stubGateway(replay, ok(obsResult));
+      const loaded = await loadReplay(RESULT_ID);
+      const conditions =
+        "conditions" in loaded ? loaded.conditions : "no conditions";
+      expect(conditions).toEqual(obsResult.conditions);
+    }
   });
 });
