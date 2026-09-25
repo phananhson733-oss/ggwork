@@ -113,12 +113,41 @@ async def test_restart_keeps_state_pause_and_sealed_jar(obs_url):
     assert loaded.is_paused(T0 + timedelta(minutes=5))
     assert loaded.cookie_jar.request_headers(T0)["User-Agent"] == UA
     row = await runtime_row(obs_url)
-    assert (row["user_agent"], row["cookie_warmed_at"], row["breaker_level"]) == (UA, "2026-09-26", 1)
+    assert (row["user_agent"], row["cookie_warmed_at"], row["breaker_level"]) == (UA, stamp(T0), 1)
     assert row["paused_until"] == stamp(state.paused_until)
     assert SECRET not in json.dumps(row, default=str)  # the jar is ciphertext only (D18)
     assert set(as_json(row["state_json"])) == {"format", "pacing", "breaker"}
     [day] = await budget_rows(obs_url)
     assert (day["budget_day"], day["requests"], day["collect_mode"], day["cap"], day["http_429"]) == ("2026-09-26", 3, "canary1", 220, 1)
+
+
+@pytest.mark.asyncio
+async def test_cookie_warmed_at_is_when_the_warm_up_was_first_kept(obs_url):
+    """cookie_warmed_at is a stamp like every _at column of 0007: the step that first kept this target date's warm-up.
+    Later saves of the same warm-up keep it, the next target date's warm-up moves it, a jar never warmed has none."""
+    cipher, clock = new_cipher(), clock_at(T0)
+    db, writer = await _session(obs_url, clock)
+    store = DbStateStore(writer, cipher)
+
+    async def saved(jar: CookieJar) -> str | None:
+        await store.save(RuntimeState(cookie_jar=jar))
+        return (await runtime_row(obs_url))["cookie_warmed_at"]
+
+    try:
+        assert await saved(CookieJar.fresh(UA)) is None
+        warmed = CookieJar.fresh(UA).warmed([Cookie("NID", SECRET, ".google.com")], day=TARGET, now=T0)
+        clock.advance(10)
+        assert await saved(warmed) == stamp(T0 + timedelta(seconds=10))
+        clock.advance(50)
+        assert await saved(warmed.updated([Cookie("OTZ", "later", ".google.com")], now=clock.now())) == stamp(T0 + timedelta(seconds=10))
+        clock.advance(60)
+        next_day = warmed.warmed(day=TARGET + timedelta(days=1), now=clock.now())
+        assert await saved(next_day) == stamp(T0 + timedelta(seconds=120))
+        clock.advance(30)  # a new jar (another user agent) warmed for the same target date is a warm-up of its own
+        other = CookieJar.fresh("Mozilla/5.0 other").warmed(day=TARGET + timedelta(days=1), now=clock.now())
+        assert await saved(other) == stamp(T0 + timedelta(seconds=150))
+    finally:
+        await db.dispose()
 
 
 # ---- budget: reserved before sending, never given back, one row per target date (D23) -----------------------------

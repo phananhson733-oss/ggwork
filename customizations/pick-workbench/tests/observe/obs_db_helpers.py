@@ -1,13 +1,14 @@
 """Shared by the TR-13 tests: a migrated database on both dialects, manual clocks, a stand-in collector day, and plain
 reads of the runtime and budget rows through a separate test engine (never through the code under test)."""
 
+import asyncio
 from datetime import UTC, date, datetime
 
 import httpx
 import pg
 from cryptography.fernet import Fernet
 from engines import host_engine
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
 
 from ggwork_pick.observe.clock import ManualClock
@@ -103,6 +104,45 @@ async def snapshot(url: str, tables: tuple[str, ...]) -> dict[str, list[tuple]]:
         listed = await rows(url, f"select * from {table}")
         found[table] = sorted(tuple(sorted((key, repr(value)) for key, value in row.items())) for row in listed)
     return found
+
+
+async def until(predicate, *, timeout: float = 5.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not await predicate():
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError("timed out waiting for the condition")
+        await asyncio.sleep(0.01)
+
+
+def watch_begin(db: ObsDatabase) -> asyncio.Event:
+    """Set once `db` has sent its BEGIN IMMEDIATE (SQLite): from then on it waits for the other writer."""
+    began = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def seen(conn, cursor, statement, parameters, context, executemany):
+        if statement.strip().upper() == "BEGIN IMMEDIATE":
+            loop.call_soon_threadsafe(began.set)
+
+    event.listen(db._engine.sync_engine, "before_cursor_execute", seen)
+    return began
+
+
+async def lock_waiters(url: str) -> int:
+    """PostgreSQL sessions of this database waiting for a lock."""
+    found = await rows(url, "select count(*) as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'")
+    return found[0]["n"]
+
+
+async def waiting_for_the_row(url: str, db: ObsDatabase, began: asyncio.Event | None) -> None:
+    """Until `db`'s transaction waits for the one another holds: a lock wait (PostgreSQL), its BEGIN IMMEDIATE (SQLite)."""
+    if began is None:
+
+        async def waits() -> bool:
+            return await lock_waiters(url) >= 1
+
+        await until(waits)
+    else:
+        await asyncio.wait_for(began.wait(), 5)
 
 
 class CountingTransport(httpx.AsyncBaseTransport):

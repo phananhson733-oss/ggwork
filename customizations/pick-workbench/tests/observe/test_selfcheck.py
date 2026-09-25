@@ -107,6 +107,28 @@ def _chain_with(tmp_path: Path, name: str, revision: str, down: str) -> Path:
     return directory
 
 
+@pytest.mark.parametrize("search_path", ["public", "nowhere"])
+@pytest.mark.asyncio
+async def test_missing_version_table_names_the_search_path(pg_cluster, pg_db_url, search_path):
+    """PostgreSQL: the observe SQL names no schema and finds its tables through the role's search_path (deerflow, set by
+    TR-12's bootstrap-observer.sql). A wrong one reads as a database without the migrations; the refusal says which
+    schema it looked in, so the operator checks the role before migrating anything."""
+    from psycopg import sql
+    from sqlalchemy.engine import make_url
+
+    database = make_url(pg_db_url).database
+    pg_cluster._execute(sql.SQL("ALTER DATABASE {} SET search_path TO {}").format(sql.Identifier(database), sql.Identifier(search_path)))
+    db = open_db(pg_db_url)
+    try:
+        with pytest.raises(Refused) as refused:
+            await selfcheck.run_selfcheck(db, selfcheck.expectations_from(collector_env(pg_db_url)))
+    finally:
+        await db.dispose()
+    message = str(refused.value)
+    assert "search_path" in message and "deerflow" in message, message
+    assert ("'public'" in message) if search_path == "public" else ("没有一个存在的 schema" in message), message
+
+
 @pytest.mark.asyncio
 async def test_selfcheck_accepts_known_newer_head(obs_url, tmp_path):
     """D5: a newer head the image knows passes; the same head is refused by an image that does not know it."""

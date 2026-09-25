@@ -13,8 +13,13 @@ Before a collector takes its lease or sends anything, it checks, and refuses wit
 
 The chain is read from this package's migrations/versions files with ast, never through alembic: a cron process never
 imports alembic (TR-01). A database the check cannot reach or query is StateUnavailable (exit 3), like a runtime row
-that cannot be read (D34), and keeps the SQLSTATE: 42501 is a missing grant (regrant). The check only reads, in a
-read-only transaction (test_write_paths).
+that cannot be read (D34), and keeps the SQLSTATE: 42501 is a missing grant (regrant). A wait that runs out (a migration
+holding the version table) is db.StepTimedOut, exit 1. The check only reads, in a read-only transaction
+(test_write_paths).
+
+No observe SQL names a schema: on PostgreSQL the tables are found through the role's search_path, which TR-12's
+bootstrap-observer.sql sets to deerflow for pick_observer. A wrong search_path looks like a database without the
+migrations, so that refusal names current_schema() (a schema name, nothing else) and points at the role.
 """
 
 import ast
@@ -145,23 +150,38 @@ async def _has_version_table(conn, postgres: bool) -> bool:
     return found.scalar_one() > 0
 
 
-async def _read_database(db: ObsDatabase) -> tuple[str | None, tuple[str, ...]]:
-    """(current_user or None on SQLite, the version rows); StateUnavailable when the database cannot be read."""
+@dataclass(frozen=True)
+class _Found:
+    role: str | None  # current_user; None on SQLite
+    schema: str | None  # current_schema(), where an unqualified name resolves; None when search_path names none
+    heads: tuple[str, ...]
+
+
+async def _read_database(db: ObsDatabase) -> _Found:
+    """What the check compares, read in one read-only transaction; StateUnavailable when the database cannot be read."""
     postgres = db.dialect == "postgresql"
     try:
         async with db.transaction(read_only=True) as conn:
-            role = (await conn.execute(text("SELECT current_user"))).scalar_one() if postgres else None
+            role, schema = (await conn.execute(text("SELECT current_user, current_schema()"))).one() if postgres else (None, None)
             if not await _has_version_table(conn, postgres):
-                return role, ()
+                return _Found(role, schema, ())
             heads = tuple(row[0] for row in (await conn.execute(text(f"SELECT version_num FROM {VERSION_TABLE}"))).all())
     except _UNREADABLE as exc:
         raise StateUnavailable("自检读不了数据库（连不上、没有授权或查询失败），当天不跑") from exc
-    return role, heads
+    return _Found(role, schema, heads)
 
 
-def _check_head(heads: tuple[str, ...], chain: MigrationChain) -> str:
+def _missing_head(postgres: bool, schema: str | None) -> str:
+    missing = f"库里没有迁移头（{VERSION_TABLE} 不存在或为空）：库还没迁移到 {MIN_MIGRATION_HEAD}"
+    if not postgres:
+        return missing
+    where = f"当前 schema 是 {_shown(schema)}" if schema is not None else "search_path 里没有一个存在的 schema"
+    return f"{missing}，或者连接角色的 search_path 不对（{where}；生产应是 deerflow，由 TR-12 的 bootstrap-observer.sql 为 pick_observer 设置）"
+
+
+def _check_head(heads: tuple[str, ...], chain: MigrationChain, missing: str) -> str:
     if not heads:
-        raise Refused(f"库里没有迁移头（{VERSION_TABLE} 不存在或为空）：库还没迁移到 {MIN_MIGRATION_HEAD}")
+        raise Refused(missing)
     if len(heads) > 1:
         raise Refused(f"库里有 {len(heads)} 个迁移头：本扩展的迁移链只有一条线")
     head = heads[0]
@@ -181,11 +201,11 @@ async def run_selfcheck(db: ObsDatabase, expected: Expectations, *, chain: Migra
     postgres = db.dialect == "postgresql"
     if postgres and expected.role is None:
         raise Refused(f"缺少 {EXPECTED_ROLE_VARIABLE}（预期的数据库角色，生产是 pick_observer）")
-    role, heads = await _read_database(db)
-    head = _check_head(heads, chain or migration_chain())
-    if postgres and role != expected.role:
-        raise Refused(f"连接的角色 {_shown(role)} 不是 {EXPECTED_ROLE_VARIABLE} 要求的 {_shown(expected.role)}")
-    report = SelfCheckReport(COLLECTOR_VERSION, head, role, package_digest(), str(PACKAGE_ROOT))
+    found = await _read_database(db)
+    head = _check_head(found.heads, chain or migration_chain(), _missing_head(postgres, found.schema))
+    if postgres and found.role != expected.role:
+        raise Refused(f"连接的角色 {_shown(found.role)} 不是 {EXPECTED_ROLE_VARIABLE} 要求的 {_shown(expected.role)}")
+    report = SelfCheckReport(COLLECTOR_VERSION, head, found.role, package_digest(), str(PACKAGE_ROOT))
     logger.info(report.line())
     return report
 

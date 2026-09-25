@@ -12,20 +12,26 @@ Every collector write happens in a step: LeasedWriter.step() opens a transaction
 owner, generation and lease_until still hold, and only then hands out the LeasedStep to write through; all of it commits
 together or not at all. That covers design 3.3's three boundaries (reserving request budget, writing a response,
 publishing a set) and everything else a collector writes. A takeover locks the same row, so it waits for a step in
-flight and the old process can never commit after it. A failed check is LeaseLost (exit 1): nothing of that step is
-written, and the writer refuses every later step without asking the database. LeasedWriter is the collectors' only
-way to the database (test_write_paths); reading() is a read-only transaction. Times are the injected Clock's (D10) and
-lease_until is compared in Python, never in SQL.
+flight and the old process can never commit after it; a renewal in flight likewise, so the takeover reads the renewed
+lease_until. The check compares the generation as well as the owner: an owner name that repeats across runs (a fixed
+replica id) still cannot let the old run write, renew or release after the new one took over. A failed check is
+LeaseLost (exit 1): nothing of that step is written, and the writer refuses every later step without asking the
+database. LeasedWriter is the collectors' only way to the database (test_write_paths lists what a collector may take
+from this module); reading() is a read-only transaction. A heavy step passes step(limits=StepLimits(...)); every other
+step keeps db.STEP_LIMITS. Times are the injected Clock's (D10) and lease_until is compared in Python, never in SQL.
 
 Start-up order (collector_session): the self-check (exit 2 before anything else, D5), then the lease (exit 3 when the
-runtime row is gone or unreadable, D34; exit 1 while another process holds it), then the state, under the lease, so the
-state read is the state this process goes on to write.
+runtime row is gone or unreadable, D34; exit 1 while another process holds it, or holds the row past the lock wait),
+then the state, under the lease, so the state read is the state this process goes on to write. status_reader() reads
+without the lease, as ggwp-obs-admin, so counting a channel's connections still counts its collector alone.
 
 DbStateStore is TR-04's StateStore on the Trends runtime row (D17). The pacing and breaker sections go into state_json;
 paused_until and breaker_level are their plain copies for status; the cookie jar is sealed (TR-04's seal_jar, D18)
 into the Text column cookie_jar beside its user agent. The budget section is the budget row of its target date (D23):
 the 22:30 and 00:10 halves of a session share one row, whose request count only ever grows (reserved before sending,
 never given back). disabled_7d is cleared by the reset-disable command alone: a state that drops it is refused.
+cookie_warmed_at is a stamp like every _at column: the step that first kept the jar's current warm-up (a new warmed_on),
+kept as it is by every later save of the same warm-up.
 """
 
 import logging
@@ -44,7 +50,7 @@ from sqlalchemy.exc import DBAPIError
 from ggwork_pick.models import obs_budget, obs_runtime
 from ggwork_pick.observe.clock import Clock
 from ggwork_pick.observe.crypto import StateCipher
-from ggwork_pick.observe.db import APPLICATION_NAMES, ObsDatabase, open_database
+from ggwork_pick.observe.db import ADMIN_APPLICATION_NAME, APPLICATION_NAMES, ObsDatabase, StepLimits, database_url, open_database
 from ggwork_pick.observe.errors import ExitCode, ObserveFailure, StateUnavailable, describe_error
 from ggwork_pick.observe.instants import stamp
 from ggwork_pick.observe.selfcheck import SelfCheckReport, expectations_from, run_selfcheck
@@ -238,10 +244,11 @@ class LeasedWriter:
             raise LeaseLost(f"{self.channel} 的租约已不在本进程（被接管，或已过期）：这一步什么都没写，本进程停止")
 
     @asynccontextmanager
-    async def step(self) -> AsyncIterator[LeasedStep]:
-        """One leased transaction: the runtime row locked and the lease checked before anything is handed out."""
+    async def step(self, *, limits: StepLimits | None = None) -> AsyncIterator[LeasedStep]:
+        """One leased transaction: the runtime row locked and the lease checked before anything is handed out. `limits`
+        relaxes this step's waits (a large prune, the link materialization); the others keep the defaults."""
         self._require_held()
-        async with self._db.transaction() as conn:
+        async with self._db.transaction(limits=limits) as conn:
             row = await locked_runtime(conn, self.channel)
             now = self._clock.now()
             self._check(row, now)
@@ -292,7 +299,7 @@ class LeasedWriter:
     async def __aexit__(self, *exc_info) -> None:
         try:
             await self.release()
-        except (Exception, BaseExceptionGroup) as exc:  # the lease runs out by itself; the run's own outcome stands
+        except Exception as exc:  # the lease runs out by itself; the run's own outcome stands. A cancellation still rises.
             logger.warning("[pick-obs] %s lease not released (it runs out within %d s): %s", self.channel, LEASE_SECONDS, describe_error(exc))
 
 
@@ -321,8 +328,11 @@ async def collector_session(
 @asynccontextmanager
 async def status_reader(channel: str, *, environ: Mapping[str, str] | None = None) -> AsyncIterator[ReadStep]:
     """A read-only look at the channel's rows without taking the lease (a `status` command, TR-14): one read-only
-    transaction, nothing written, the running collector undisturbed."""
-    db = open_database(channel, environ)
+    transaction, nothing written, the running collector undisturbed. It connects as ggwp-obs-admin, never under the
+    collector's application_name, so pg_stat_activity still shows each channel's collector alone."""
+    if channel not in CHANNELS:
+        raise ValueError(f"没有 {channel} 这个通道；通道是 {', '.join(CHANNELS)}")
+    db = ObsDatabase(database_url(environ), application_name=ADMIN_APPLICATION_NAME)
     try:
         async with db.transaction(read_only=True) as conn:
             async with _handed_out(ReadStep(conn)) as reader:
@@ -405,6 +415,17 @@ def _refuse_cleared_disable(runtime: Mapping[str, object], machine: breaker.Brea
         raise StateUnavailable("disabled 只能由 reset-disable 清除：要保存的状态里它没了（状态已过时），本进程停止")
 
 
+def _warmed_at(step: LeasedStep, jar: CookieJar | None, cipher: StateCipher) -> str | None:
+    """When the jar's warm-up was first kept: the stamp already on the row while the row's jar is this one (same user
+    agent) warmed for the same target date, else this step's. A row jar that cannot be read is not overwritten."""
+    if jar is None or jar.warmed_on is None:
+        return None
+    kept = step.runtime["cookie_warmed_at"]
+    before = _jar_of(step.runtime, cipher)
+    same = before is not None and (before.user_agent, before.warmed_on) == (jar.user_agent, jar.warmed_on)
+    return kept if kept is not None and same else stamp(step.now)
+
+
 def _runtime_values(step: LeasedStep, state: RuntimeState, machine: breaker.BreakerState | None, cipher: StateCipher) -> dict:
     jar = state.cookie_jar
     disabled = machine is not None and machine.disabled_on is not None
@@ -414,7 +435,7 @@ def _runtime_values(step: LeasedStep, state: RuntimeState, machine: breaker.Brea
         "disabled_at": (step.runtime["disabled_at"] or stamp(step.now)) if disabled else None,
         "user_agent": jar.user_agent if jar is not None else None,
         "cookie_jar": seal_jar(cipher, jar) if jar is not None else None,
-        "cookie_warmed_at": codec.encode_day(jar.warmed_on) if jar is not None else None,  # the warm-up's target date
+        "cookie_warmed_at": _warmed_at(step, jar, cipher),
         "state_json": state_document(state.pacing, state.breaker),
         "updated_at": stamp(step.now),
     }

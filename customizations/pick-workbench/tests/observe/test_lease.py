@@ -25,6 +25,9 @@ from obs_db_helpers import (
     runtime_row,
     snapshot,
     stamp,
+    until,
+    waiting_for_the_row,
+    watch_begin,
 )
 from obs_schema import filler
 from sqlalchemy import insert, select, update
@@ -239,34 +242,6 @@ async def test_stale_owner_cannot_write_or_publish(obs_url, write, taken_over):
 # ---- serialization -----------------------------------------------------------------------------------------------
 
 
-async def _until(predicate, *, timeout: float = 5.0) -> None:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while not await predicate():
-        if asyncio.get_running_loop().time() > deadline:
-            raise AssertionError("timed out waiting for the condition")
-        await asyncio.sleep(0.01)
-
-
-def _watch_begin(db) -> asyncio.Event:
-    """Set once `db` has sent its BEGIN IMMEDIATE (SQLite): from then on it waits for the other writer."""
-    from sqlalchemy import event
-
-    began = asyncio.Event()
-    loop = asyncio.get_running_loop()
-
-    def seen(conn, cursor, statement, parameters, context, executemany):
-        if statement.strip().upper() == "BEGIN IMMEDIATE":
-            loop.call_soon_threadsafe(began.set)
-
-    event.listen(db._engine.sync_engine, "before_cursor_execute", seen)
-    return began
-
-
-async def _lock_waiters(url) -> int:
-    found = await rows(url, "select count(*) as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'")
-    return found[0]["n"]
-
-
 @pytest.mark.asyncio
 async def test_takeover_serialized_with_write(obs_url):
     """A write step and a takeover lock the same row: the takeover waits for the write to commit (or roll back), so the
@@ -275,7 +250,7 @@ async def test_takeover_serialized_with_write(obs_url):
     b_db = open_db(obs_url)
     inside, release = asyncio.Event(), asyncio.Event()
     table, row = _row("ggwp_obs_milestones")
-    began = None if is_postgres(obs_url) else _watch_begin(b_db)
+    began = None if is_postgres(obs_url) else watch_begin(b_db)
 
     async def a_writes():
         async with a.step() as step:
@@ -287,10 +262,7 @@ async def test_takeover_serialized_with_write(obs_url):
         writing = asyncio.create_task(a_writes())
         await asyncio.wait_for(inside.wait(), 5)
         takeover = asyncio.create_task(LeasedWriter.acquire(b_db, "trends", clock=clock_at(T0 + EXPIRED), owner="proc-b"))
-        if began is None:
-            await _until(lambda: _waits(obs_url))
-        else:
-            await asyncio.wait_for(began.wait(), 5)
+        await waiting_for_the_row(obs_url, b_db, began)
         await asyncio.sleep(0.2)
         assert not takeover.done()  # waiting on the row A holds
         release.set()
@@ -306,10 +278,6 @@ async def test_takeover_serialized_with_write(obs_url):
         release.set()
         await a_db.dispose()
         await b_db.dispose()
-
-
-async def _waits(url) -> bool:
-    return await _lock_waiters(url) >= 1
 
 
 @pytest.mark.asyncio
@@ -438,7 +406,7 @@ async def test_single_connection(pg_db_url):
         assert await count(url, "ggwp_obs_milestones") == 8
         for index in range(3):  # between steps: none
             await one_step(100 + index)
-            await _until(lambda: _none_open(url), timeout=2)
+            await until(lambda: _none_open(url), timeout=2)
     finally:
         stop.set()
         await db.dispose()
