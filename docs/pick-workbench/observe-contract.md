@@ -234,7 +234,7 @@ TR-27 用 `PickConditionsObs(PickConditions, ObsConditionFields)` 把七个字�
 | `granularity` | `GRANULARITIES` 之一 | 阶段 0 选定的颗粒度 |
 | `target_date` | 日期 | 目标发布日（D23） |
 | `window_end` | 时间戳 | 批次创建时算好的窗口终点 |
-| `lapsed_confirmations` | 行 id 列表 | 已失效的对应确认（D24）：决定 id 升序、不重复、都不大于 `decisions_version`。上一个 Trends 集合冻结的这一列，加上自那次读冻结输入以来各共享剧库批次里平台或规范化标题变了、身份不在批次里、批次行已清理无从核对的确认；只留仍是该身份最近一次确认的 id。进了这一列的确认永久失效，改回原值也不恢复，只有新的确认能恢复（第 12 节） |
+| `lapsed_confirmations` | 行 id 列表 | 已失效的对应确认（D24）：决定 id 升序、不重复、都不大于 `decisions_version`。就是本会话失效账本里的 id（`trends/lapses.py`；账本存在会话批次的 `plan_json.notes.lapses`，不属于合同）：上一份账本（最近一个折叠过的 Trends 会话，不论是否发布了集合）的失效，加上它读到的批次之后新发布的各共享剧库批次里平台或规范化标题变了、身份不在批次里、批次行已清理无从核对的确认；只留仍是该身份最近一次确认的 id。进了这一列的确认永久失效，改回原值也不恢复，只有新的确认能恢复（第 12 节） |
 
 #### `FrozenInputsGsc`
 
@@ -873,7 +873,7 @@ withheld 指跑完但没有发布（例如 A 档覆盖率不足 80%，上一个�
 
 ## 12. 人工决定（D12、D24）
 
-`POST /api/pick/obs/decisions` 的请求体，按 `kind` 区分九种，写进追加式表 `ggwp_obs_decisions`（TR-25）。操作人来自认证，不在请求体里；缺失或为 default 就拒绝。TR-35 的 `effective(decisions, upto_id)` 按 id 顺序应用，后者覆盖前者。对应确认是否失效另由 Trends 集合冻结的 `lapsed_confirmations` 决定（第 5 节）；手动配对把旧身份的确认直接清掉，之后配回也不恢复。每种都带 `kind`、`request_id`（1 到 128 字）与可选的 `note`（最多 500 字）。
+`POST /api/pick/obs/decisions` 的请求体，按 `kind` 区分九种，写进追加式表 `ggwp_obs_decisions`（TR-25）。操作人来自认证，不在请求体里；缺失或为 default 就拒绝。TR-35 的 `effective(decisions, upto_id)` 按 id 顺序应用，后者覆盖前者。对应确认是否失效另由 Trends 集合冻结的 `lapsed_confirmations` 决定（第 5 节）；手动配对把旧身份的确认直接清掉，之后配回也不恢复，gsc 的别名刷新拒掉这次配对也不恢复。每种都带 `kind`、`request_id`（1 到 128 字）与可选的 `note`（最多 500 字）。
 
 #### `AliasConfirm`
 
@@ -1087,6 +1087,6 @@ withheld 指跑完但没有发布（例如 A 档覆盖率不足 80%，上一个�
 
 第 11 至 22 条随本次修复提交 G1 确认。
 
-23. **对应确认的失效要冻结**（G3 评审 P2-2）：D24 写的是改标题、改平台、经别名换身份后确认失效；只比较当前批次与确认时的键，会让标题 A→B→A 自动恢复确认。共享剧库批次两三天就清理明细，内容相同的批次还会以新的 published_at 重新发布，从批次表回看不出确认之后发生过什么。所以失效是 Trends 集合之间传递的一份累积：`FrozenInputsTrends.lapsed_confirmations`（第 5 节），GSC 不判对应，不带这一列。
+23. **对应确认的失效要冻结**（G3 评审 P2-2）：D24 写的是改标题、改平台、经别名换身份后确认失效；只比较当前批次与确认时的键，会让标题 A→B→A 自动恢复确认。共享剧库批次两三天就清理明细，内容相同的批次还会以新的 published_at 重新发布，从批次表回看不出确认之后发生过什么。所以失效是一份逐会话接力的累积账本，发布集合时冻结进 `FrozenInputsTrends.lapsed_confirmations`（第 5 节）；GSC 不判对应，不带这一列。账本在 Trends 会话之间接力，不只在发布了集合的会话之间传（G3 复审 P2）：只按已发布集合接力时，一个没发布集合的夜晚就会让下一个窗口有四个左右共享批次，最旧的多半已被清理，全部确认会按「核对不了」失效。逐会话接力后，只有两次会话之间出现超过 3 个没被引用的新共享批次时才会这样，账本会记下原因与批次 id。
 
 第 23 条随 G3 修复提交。

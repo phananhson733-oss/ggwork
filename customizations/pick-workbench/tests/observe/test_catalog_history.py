@@ -1,4 +1,4 @@
-"""D24's lapse input (G3 P2-2): the shared catalog batches since the previous Trends set, as catalog_history reads them.
+"""D24's lapse input (G3 P2-2): the shared catalog batches since the previous fold's, as catalog_history reads them.
 
 The read runs on SQLite and PostgreSQL; its PostgreSQL half skips when PICK_TEST_PG_URL is unset. The last test carries
 a confirmation through the batches from the database, including a batch whose content came back (repository._reuse).
@@ -32,7 +32,7 @@ T = (
     "2026-09-24T15:40:00.000000+00:00",
     "2026-09-25T03:40:00.000000+00:00",
 )
-AFTER_A = "2026-09-23T10:00:00.000000+00:00"  # the previous set was read between the first pull and the second
+AFTER_A = "2026-09-23T10:00:00.000000+00:00"  # the previous fold read through a batch stamped between the two pulls
 
 
 def key_of(payload) -> CorrespondenceKey | None:
@@ -110,7 +110,7 @@ async def test_without_a_previous_set_only_the_current_batch_is_read(engine):
     await batch(engine, "b2", T[1], (X, RS, "The Alpha"))
     async with engine.connect() as conn:
         assert as_plain(await read_sightings(conn, [X], upto="b2", after=None, key_of=key_of)) == [("b2", {X: (RS, "the alpha")})]
-        # A current batch that was already current when the previous set was read is read all the same.
+        # A current batch that was already current when the previous fold read is read all the same.
         assert as_plain(await read_sightings(conn, [X], upto="b2", after=T[3], key_of=key_of)) == [("b2", {X: (RS, "the alpha")})]
 
 
@@ -118,8 +118,6 @@ async def test_without_a_previous_set_only_the_current_batch_is_read(engine):
 async def test_what_it_asks_about_and_what_it_cannot_key(engine):
     await batch(engine, "b1", T[0], (X, RS, "The Alpha"), (Y, RS, "Other"))
     async with engine.connect() as conn:
-        # Nothing asked, nothing read (not even the batch).
-        assert await read_sightings(conn, [], upto="nowhere", after=None, key_of=key_of) == ()
         assert as_plain(await read_sightings(conn, [Y], upto="b1", after=None, key_of=key_of)) == [("b1", {Y: (RS, "other")})]
         # A drama TR-18's function gives no key for counts as absent, like one the batch lacks.
         untitled = await read_sightings(conn, [X], upto="b1", after=None, key_of=lambda payload: None)
@@ -128,6 +126,25 @@ async def test_what_it_asks_about_and_what_it_cannot_key(engine):
             await read_sightings(conn, [X], upto="b1", after=None, key_of=lambda payload: ("ReelShort", "the alpha"))
         with pytest.raises(TypeError, match="identities"):
             await read_sightings(conn, [X, 7], upto="b1", after=None, key_of=key_of)
+
+
+@pytest.mark.asyncio
+async def test_the_window_is_read_when_nothing_is_asked(engine):
+    """G3 review of the D24 fix (P2): the ledger keeps the batch a fold read through and its published_at, which is
+    where the next fold starts, so the window is read even when no confirmation is asked about. The test that stood
+    here pinned the opposite (nothing asked, nothing read, not even the batch): a session without confirmations then
+    left no place to start from, and the next one would read its own batch only, missing a title changed and changed
+    back in between for a confirmation made in the meantime."""
+    await batch(engine, "b1", T[0], (X, RS, "The Alpha"))
+    await batch(engine, "b2", T[1], status="pruned")
+    await batch(engine, "b3", T[2], (X, RS, "The Alpha"))
+    async with engine.connect() as conn:
+        found = await read_sightings(conn, [], upto="b3", after=T[0], key_of=key_of)
+        assert [tuple(sighting) for sighting in found] == [("b2", None, T[1]), ("b3", {}, T[2])]
+        asked = await read_sightings(conn, [X], upto="b3", after=None, key_of=key_of)
+        assert [(sighting.batch_id, sighting.published_at) for sighting in asked] == [("b3", T[2])]
+        with pytest.raises(CatalogHistoryError, match="nowhere"):
+            await read_sightings(conn, [], upto="nowhere", after=None, key_of=key_of)
 
 
 @pytest.mark.asyncio
@@ -160,8 +177,8 @@ async def test_refuses_a_batch_that_is_not_the_current_shared_catalog(engine):
 @pytest.mark.asyncio
 async def test_a_title_back_after_a_reused_batch_stays_lapsed(engine):
     """A (the confirmed title), B (another), then A's content again: the repository publishes batch A again with a new
-    published_at, so by batch id the window would be empty. Read from the moment the previous set was read, B is in
-    it and the confirmation lapses; the next set, reading only A, does not bring it back."""
+    published_at, so by batch id the window would be empty. Read from the moment the previous fold read through, B is
+    in it and the confirmation lapses; the next fold, reading only A, does not bring it back."""
     await batch(engine, "A", T[0], (X, RS, "The Alpha"))
     await batch(engine, "B", T[1], (X, RS, "The Alpha Returns"))
     body = {"kind": "correspondence_confirm", "request_id": "r-1", "identity": X, "platform": RS, "normalized_title": "the alpha"}

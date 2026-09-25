@@ -29,6 +29,8 @@ from ggwork_pick.models import obs_decisions
 from ggwork_pick.observe import contract
 from ggwork_pick.observe.contract_api import CorrespondenceRevoke
 from ggwork_pick.observe.decisions_state import (
+    CARRIED,
+    LAPSE_REASONS,
     STEPS,
     WATCH_ADD_CAP,
     AliasMark,
@@ -37,12 +39,14 @@ from ggwork_pick.observe.decisions_state import (
     DecisionLogError,
     DecisionRecord,
     EffectiveDecisions,
+    LapseCause,
     PairMark,
     Sighting,
     UnknownDecisionKind,
     decision_record,
     effective,
     lapse,
+    lapse_causes,
     latest_id,
     lock_for_append,
     read_decisions,
@@ -205,9 +209,42 @@ def test_lapse_refuses_what_is_not_its_input():
     for bad in ([0], [True], ["1"], [1.0], [contract.MAX_ROW_ID + 1]):
         with pytest.raises(ValueError, match="lapsed"):
             lapse(state, bad, [])
-    for bad in ((X, {}), {"batch_id": "b1", "keys": {}}, Sighting("b1", [X])):
+    for bad in ((X, {}), {"batch_id": "b1", "keys": {}}, Sighting("b1", [X]), Sighting("b1", {}, 7)):
         with pytest.raises(TypeError, match="Sighting"):
             lapse(state, NONE, [bad])
+
+
+def test_lapse_causes_name_the_batch_and_how():
+    """G3 review of the D24 fix (P2): each lapse keeps why, the first batch that showed the identity otherwise and how,
+    so an operator can tell a pruned batch from a real change. A cause handed in is kept as it was; lapse() is the ids
+    of the same fold."""
+    z = _identity(4)
+    state = effective((confirm(1), confirm(2, Y), confirm(3, SLUG, "KalosTV"), confirm(4, z)), 4)
+    first = Sighting("b1", {X: CorrespondenceKey(PLATFORM, RETITLED), SLUG: CorrespondenceKey("KalosTV", TITLE), z: CorrespondenceKey(PLATFORM, TITLE)})
+    window = [first, Sighting("b2", None), seen("b3", identity=z)]
+    causes = lapse_causes(state, {4: LapseCause("changed", "b0")}, window)
+    assert causes == {1: LapseCause("changed", "b1"), 2: LapseCause("absent", "b1"), 3: LapseCause("unverifiable", "b2"), 4: LapseCause("changed", "b0")}
+    assert list(causes) == [1, 2, 3, 4]
+    with pytest.raises(TypeError):
+        causes[5] = LapseCause("absent", "b1")
+    assert lapse(state, {4}, window) == frozenset(causes)
+    assert set(LAPSE_REASONS) == {"changed", "absent", "unverifiable", "carried"}
+    # Only a lapse carried in as a bare id (a set's lapsed_confirmations) has no batch to name.
+    assert lapse_causes(state, {4: CARRIED}, []) == {4: LapseCause("carried", None)}
+    for bad in ({0: CARRIED}, {True: CARRIED}, {1: ("changed", "b1")}, {1: LapseCause("moved", "b1")}, {1: LapseCause("changed", 7)}, [1]):
+        with pytest.raises((TypeError, ValueError), match="carried"):
+            lapse_causes(state, bad, [])
+
+
+def test_every_batch_in_the_window_counts_even_one_before_the_confirmation():
+    """G3 review of the D24 fix (P3): the fold knows the batches' order and the decisions' ids, not when a decision was
+    made against the batches. A batch in the window showing the old title lapses a confirmation of the new one, even if
+    it was published before the confirmation. So a confirmation's platform and title are the latest published set's
+    judgment row's (TR-24, TR-25), never the live catalog's: the next window starts after that set's batch, and every
+    batch it reads came after what was confirmed."""
+    state = effective((confirm(9, title=RETITLED),), 9)
+    assert lapse_causes(state, {}, [seen("W"), seen("X", title=RETITLED)]) == {9: LapseCause("changed", "W")}
+    assert lapse_causes(state, {}, [seen("X", title=RETITLED)]) == {}
 
 
 def test_empty_platform_never_confirmed():

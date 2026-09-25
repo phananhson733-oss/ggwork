@@ -9,14 +9,20 @@ new decision against the same state before appending it (refusal), under lock_fo
 
 - Decisions apply in id order, a later one overriding an earlier one on the same key; ids above upto_id are ignored.
 - Correspondence (design 4.7, D24): a confirmation holds for one revision of one identity's correspondence: its
-  (platform, normalized title), the latest confirmation per identity. It lapses for good once the identity is seen
-  otherwise after it was made: another platform or title in a shared catalog batch, the identity missing from one (an
-  alias or a changed upstream id replaced it), a batch whose rows are gone and cannot say, or an alias_pair decision
-  naming it as the old identity. Changing back never restores it; only a new confirmation, a new decision id, does
-  (G3 P2-2). A revocation clears the identity. The decisions alone cannot know what the batches showed, and the batches
-  are pruned within days, so the lapses are a fold the Trends collector carries from set to set: lapse() adds what
-  the batches read since the previous set show (catalog_history.read_sightings), the set freezes the result next to
-  decisions_version (FrozenInputsTrends.lapsed_confirmations), and correspondence() takes it. A confirmation never
+  (platform, normalized title), the latest confirmation per identity. It lapses for good once a shared catalog batch a
+  later fold reads shows the identity otherwise: another platform or title, the identity missing (an alias or a
+  changed upstream id replaced it, or an empty batch was published), or rows that are gone (pruned) and cannot say.
+  An alias_pair decision naming it as the old identity clears it too, even when the gsc service's alias refresh later
+  refuses that pairing. Changing back never restores it; only a new confirmation, a new decision id, does (G3 P2-2).
+  A revocation clears the identity. The decisions alone cannot know what the batches showed, and the batches are
+  pruned within days, so the lapses are a fold the Trends collector carries from session to session (trends.lapses:
+  a ledger in each session batch, published or not): lapse_causes() adds what the batches read since the previous
+  fold show (catalog_history.read_sightings), naming each lapse's cause, the set freezes the ids next to
+  decisions_version (FrozenInputsTrends.lapsed_confirmations), and correspondence() takes them. The fold knows the
+  batches' order and the decisions' ids, not when a decision was made against the batches: every batch in the window
+  counts, one published before the confirmation too (G3 review, P3). So a confirmation's platform and title come from
+  the latest published set's judgment row: every later window starts after that set's batch or later, and reads only
+  batches newer than what was confirmed; one taken from the live catalog can lapse at birth. A confirmation never
   follows an alias to the new identity. A row with an empty platform is never confirmed, since the contract's
   CorrespondenceConfirm.platform takes at least one character.
 - Manual additions (design 4.6): an entry is (identity, geo). At most WATCH_ADD_CAP are in effect, counted whether or
@@ -128,11 +134,29 @@ class Sighting(NamedTuple):
     """One shared catalog batch as the lapse fold reads it (catalog_history.read_sightings).
 
     keys holds the correspondence key of each identity asked about that the batch has; one it lacks is absent. keys is
-    None when the batch's rows are gone (pruned): nothing about it is known.
+    None when the batch's rows are gone (pruned): nothing about it is known. published_at is the batch's as read, which
+    the ledger keeps for the last one (trends.lapses); the pure fold does not need it.
     """
 
     batch_id: str
     keys: Mapping[str, CorrespondenceKey] | None
+    published_at: str | None = None
+
+
+LapseReason = Literal["changed", "absent", "unverifiable", "carried"]
+LAPSE_REASONS: tuple[LapseReason, ...] = ("changed", "absent", "unverifiable", "carried")
+
+
+class LapseCause(NamedTuple):
+    """Why a confirmation lapsed (G3 review of D24): the first batch that showed its identity otherwise and how. changed:
+    another platform or normalized title; absent: the batch lacks the identity; unverifiable: the batch's rows were
+    pruned. carried: it had lapsed already and only its id was kept (a set's lapsed_confirmations), no batch named."""
+
+    reason: LapseReason
+    batch_id: str | None
+
+
+CARRIED = LapseCause("carried", None)
 
 
 class PauseMark(NamedTuple):
@@ -316,7 +340,7 @@ def latest_id(decisions: Iterable[DecisionRecord]) -> int:
     return max((record.id for record in decisions), default=0)
 
 
-# ---- lapses (D24): the fold the Trends collector carries from one set to the next ----------------------------------
+# ---- lapses (D24): the fold the Trends collector carries from one session to the next ------------------------------
 
 
 def _require_lapsed(lapsed: Iterable[int]) -> frozenset[int]:
@@ -326,34 +350,70 @@ def _require_lapsed(lapsed: Iterable[int]) -> frozenset[int]:
     return frozenset(ids)
 
 
+def is_lapse_cause(value: Any) -> bool:
+    """A LapseCause of one of LAPSE_REASONS, naming a batch (a string) or, only when carried, none."""
+    if not isinstance(value, LapseCause) or value.reason not in LAPSE_REASONS:
+        return False
+    return value.batch_id is None if value.reason == "carried" else isinstance(value.batch_id, str) and bool(value.batch_id)
+
+
+def _require_carried(carried: Mapping[int, LapseCause]) -> Mapping[int, LapseCause]:
+    if not isinstance(carried, Mapping) or not all(_is_id(key, low=1) and is_lapse_cause(cause) for key, cause in carried.items()):
+        raise TypeError("carried 按对应确认的决定 id（1 到 2^63−1）记 LapseCause")
+    return carried
+
+
+def _is_sighting(value: Any) -> bool:
+    return (
+        isinstance(value, Sighting)
+        and (value.keys is None or isinstance(value.keys, Mapping))
+        and (value.published_at is None or isinstance(value.published_at, str))
+    )
+
+
 def _require_sightings(sightings: Iterable[Sighting]) -> tuple[Sighting, ...]:
     seen = tuple(sightings)
-    if not all(isinstance(sighting, Sighting) and (sighting.keys is None or isinstance(sighting.keys, Mapping)) for sighting in seen):
-        raise TypeError("sightings 只接受 Sighting（keys 是映射，或批次行已清理时为 None）")
+    if not all(_is_sighting(sighting) for sighting in seen):
+        raise TypeError("sightings 只接受 Sighting（keys 是映射，或批次行已清理时为 None；published_at 是字符串或 None）")
     return seen
 
 
-def _contradicts(sighting: Sighting, identity: str, key: CorrespondenceKey) -> bool:
-    """The batch shows the identity otherwise than the confirmation: another key, missing, or nothing known."""
-    return sighting.keys is None or sighting.keys.get(identity) != key
+def _contradiction(sighting: Sighting, identity: str, key: CorrespondenceKey) -> LapseCause | None:
+    """How the batch shows the identity otherwise than the confirmation: nothing known, missing, another key; or None."""
+    if sighting.keys is None:
+        return LapseCause("unverifiable", sighting.batch_id)
+    shown = sighting.keys.get(identity)
+    if shown is None:
+        return LapseCause("absent", sighting.batch_id)
+    return None if shown == key else LapseCause("changed", sighting.batch_id)
+
+
+def _first_contradiction(sightings: tuple[Sighting, ...], identity: str, key: CorrespondenceKey) -> LapseCause | None:
+    return next((cause for cause in (_contradiction(sighting, identity, key) for sighting in sightings) if cause is not None), None)
+
+
+def lapse_causes(state: EffectiveDecisions, carried: Mapping[int, LapseCause], sightings: Iterable[Sighting]) -> Mapping[int, LapseCause]:
+    """The confirmations lapsed once `sightings` are seen on top of `carried`, each with its cause, by decision id.
+
+    `carried` is the previous fold's (trends.lapses: the latest earlier session's ledger); `sightings` are the shared
+    catalog batches published after the batch that fold read through, ending with this session's own
+    (catalog_history.read_sightings, asked about every identity `state` has a confirmation for). A latest confirmation
+    of `state` is in the result with its carried cause when it had lapsed already, else with the first sighting that
+    contradicts it. Ids that are no longer any identity's latest confirmation are dropped: a lapse only ever concerns
+    the confirmation it names, and a new one is a new id. A read-only mapping, in decision id order.
+    """
+    known = _require_carried(carried)
+    seen = _require_sightings(sightings)
+    found = (
+        (mark.decision_id, known.get(mark.decision_id) or _first_contradiction(seen, identity, mark.key)) for identity, mark in state.correspondences.items()
+    )
+    return MappingProxyType(dict(sorted((item for item in found if item[1] is not None), key=lambda item: item[0])))
 
 
 def lapse(state: EffectiveDecisions, lapsed: Iterable[int], sightings: Iterable[Sighting]) -> frozenset[int]:
-    """The confirmations lapsed once `sightings` are seen on top of `lapsed`, the ids a set freezes.
-
-    `lapsed` is the previous Trends set's frozen lapses; `sightings` are the shared catalog batches that became current
-    since that set was read, through this set's own batch (catalog_history.read_sightings, asked about every identity
-    `state` has a confirmation for). A latest confirmation of `state` is in the result when it had lapsed already or a
-    sighting contradicts it. Ids that are no longer any identity's latest confirmation are dropped: a lapse only ever
-    concerns the confirmation it names, and a new one is a new id.
-    """
-    known = _require_lapsed(lapsed)
-    seen = _require_sightings(sightings)
-    return frozenset(
-        mark.decision_id
-        for identity, mark in state.correspondences.items()
-        if mark.decision_id in known or any(_contradicts(sighting, identity, mark.key) for sighting in seen)
-    )
+    """lapse_causes() for lapses carried as bare ids (a set's lapsed_confirmations): the ids a set freezes."""
+    carried = {decision_id: CARRIED for decision_id in _require_lapsed(lapsed)}
+    return frozenset(lapse_causes(state, carried, sightings))
 
 
 def refusal(state: EffectiveDecisions, decision: Decision) -> str | None:

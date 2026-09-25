@@ -469,8 +469,8 @@ class FrozenInputsTrends(_FrozenInputsBase):
     granularity: Granularity
     target_date: Day
     window_end: Stamp
-    # D24 (G3): the correspondence confirmations lapsed by what the shared batches showed since they were made, carried
-    # from set to set (decisions_state.lapse); decision ids, increasing, none above decisions_version.
+    # D24 (G3): the correspondence confirmations lapsed by what the shared batches showed since they were made, the ids of
+    # the session's lapse ledger, carried from session to session (trends.lapses); increasing, none above decisions_version.
     lapsed_confirmations: list[RowId]
 
     @model_validator(mode="after")
