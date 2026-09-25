@@ -1,0 +1,17 @@
+{
+  "about": "An API path answered 200 with an HTML page instead of JSON.",
+  "constructed": true,
+  "pending_stage0": [
+    "whether a blocked session ever gets a 200 HTML page on an API path"
+  ],
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "content-type",
+        "text/html; charset=UTF-8"
+      ]
+    ],
+    "text": "<!DOCTYPE html><html><head><title>Google</title></head><body>unusual traffic</body></html>"
+  }
+}

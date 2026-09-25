@@ -1,0 +1,59 @@
+{
+  "about": "Related queries for one term: top and rising, one rising entry shown as Breakout.",
+  "constructed": true,
+  "pending_stage0": [
+    "rankedList[0] is top and rankedList[1] is rising",
+    "how Breakout is represented (formattedValue 'Breakout' and a large value is assumed here)"
+  ],
+  "phase": "related",
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "content-type",
+        "application/json; charset=utf-8"
+      ]
+    ],
+    "prefix": ")]}'\n",
+    "json": {
+      "default": {
+        "rankedList": [
+          {
+            "rankedKeyword": [
+              {
+                "query": "moonlit vow reelshort",
+                "value": 100,
+                "formattedValue": "100",
+                "hasData": true,
+                "link": "/trends/explore?q=moonlit+vow+reelshort"
+              },
+              {
+                "query": "moonlit vow full episodes",
+                "value": 42,
+                "formattedValue": "42",
+                "hasData": true,
+                "link": "/trends/explore?q=moonlit+vow+full+episodes"
+              }
+            ]
+          },
+          {
+            "rankedKeyword": [
+              {
+                "query": "moonlit vow reelshort",
+                "value": 5200,
+                "formattedValue": "Breakout",
+                "link": "/trends/explore?q=moonlit+vow+reelshort"
+              },
+              {
+                "query": "moonlit vow episode 12",
+                "value": 250,
+                "formattedValue": "+250%",
+                "link": "/trends/explore?q=moonlit+vow+episode+12"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "about": "302 to the sorry (captcha) page on www.google.com.",
+  "constructed": true,
+  "pending_stage0": [
+    "whether API paths redirect to the sorry page or answer 429 directly",
+    "the sorry page's host and path"
+  ],
+  "response": {
+    "status": 302,
+    "headers": [
+      [
+        "location",
+        "https://www.google.com/sorry/index?continue=https://trends.google.com/trends/api/explore&q=synthetic"
+      ]
+    ],
+    "text": ""
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "about": "HTTP succeeded but the timeline has no points (no_data).",
+  "constructed": true,
+  "pending_stage0": [
+    "the shape of an empty answer"
+  ],
+  "phase": "multiline",
+  "query": {
+    "terms": [
+      "moonlit vow"
+    ],
+    "bare": "moonlit vow",
+    "geo": "WW",
+    "granularity": "D"
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "content-type",
+        "application/json; charset=utf-8"
+      ]
+    ],
+    "prefix": ")]}'\n",
+    "json": {
+      "default": {
+        "timelineData": [],
+        "averages": []
+      }
+    }
+  }
+}

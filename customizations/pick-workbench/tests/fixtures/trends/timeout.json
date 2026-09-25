@@ -1,0 +1,10 @@
+{
+  "about": "No answer in time: the transport raises httpx.ReadTimeout.",
+  "constructed": true,
+  "pending_stage0": [
+    "not a response shape: nothing to confirm"
+  ],
+  "response": {
+    "raise": "ReadTimeout"
+  }
+}

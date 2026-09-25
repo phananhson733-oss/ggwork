@@ -1,0 +1,31 @@
+{
+  "about": "Related queries answered with two empty lists (no_data).",
+  "constructed": true,
+  "pending_stage0": [
+    "rankedList[0] is top and rankedList[1] is rising",
+    "how Breakout is represented (formattedValue 'Breakout' and a large value is assumed here)"
+  ],
+  "phase": "related",
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "content-type",
+        "application/json; charset=utf-8"
+      ]
+    ],
+    "prefix": ")]}'\n",
+    "json": {
+      "default": {
+        "rankedList": [
+          {
+            "rankedKeyword": []
+          },
+          {
+            "rankedKeyword": []
+          }
+        ]
+      }
+    }
+  }
+}

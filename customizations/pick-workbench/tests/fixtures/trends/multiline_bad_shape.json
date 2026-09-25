@@ -1,0 +1,57 @@
+{
+  "about": "A point whose value[] has fewer entries than there are terms: the contract changed (parse_error).",
+  "constructed": true,
+  "pending_stage0": [],
+  "phase": "multiline",
+  "query": {
+    "terms": [
+      "moonlit vow",
+      "moonlit vow full movie",
+      "moonlit vow drama",
+      "moonlit vow episode"
+    ],
+    "bare": "moonlit vow",
+    "geo": "US",
+    "granularity": "H"
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "content-type",
+        "application/json; charset=utf-8"
+      ]
+    ],
+    "prefix": ")]}'\n",
+    "json": {
+      "default": {
+        "timelineData": [
+          {
+            "time": "1789768800",
+            "value": [
+              3
+            ],
+            "hasData": [
+              true
+            ],
+            "formattedValue": [
+              "3"
+            ]
+          },
+          {
+            "time": "1789772400",
+            "value": [
+              5
+            ],
+            "hasData": [
+              true
+            ],
+            "formattedValue": [
+              "5"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

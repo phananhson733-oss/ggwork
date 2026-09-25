@@ -1,0 +1,17 @@
+{
+  "about": "503 from the server.",
+  "constructed": true,
+  "pending_stage0": [
+    "only the status is relied on"
+  ],
+  "response": {
+    "status": 503,
+    "headers": [
+      [
+        "content-type",
+        "text/html; charset=UTF-8"
+      ]
+    ],
+    "text": "<html><body>Service Unavailable</body></html>"
+  }
+}
