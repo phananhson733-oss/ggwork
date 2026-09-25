@@ -96,7 +96,12 @@ def stamp(moment: datetime) -> str:
 
 
 def private_dir(path: Path) -> Path:
-    path.mkdir(mode=DIR_MODE, parents=True, exist_ok=True)
+    """`path` as a directory of mode 700, and so is every directory created on the way to it (mkdir's parents=True
+    would leave those to the umask); a directory that was already there keeps its mode, `path` itself excepted."""
+    missing = [folder for folder in (path, *path.parents) if not folder.exists()]
+    for folder in reversed(missing):
+        folder.mkdir(mode=DIR_MODE, exist_ok=True)
+        os.chmod(folder, DIR_MODE)
     os.chmod(path, DIR_MODE)
     return path
 

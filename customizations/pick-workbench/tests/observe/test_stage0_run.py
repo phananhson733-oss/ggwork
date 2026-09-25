@@ -27,7 +27,7 @@ from ggwork_pick.observe.state import FileStateStore, RuntimeState
 from ggwork_pick.observe.trends import budget
 from ggwork_pick.observe.trends.stage0 import MAX_HTTP_PER_DAY, MAX_HTTP_TOTAL, DayPlan, Unit, build_plan, parse_controls
 from ggwork_pick.observe.trends.stage0_proxy import proxy_record
-from ggwork_pick.observe.trends.stage0_run import DayRunner, Stage0Paths, append_private, load_results
+from ggwork_pick.observe.trends.stage0_run import DayRunner, Stage0Paths, append_private, load_results, private_dir
 
 START = datetime(2026, 9, 26, 3, 0, tzinfo=UTC)  # target date 2026-09-27 (D23)
 NID = "synthetic-nid-first"
@@ -160,12 +160,28 @@ async def test_run_day_writes_results_state_and_raw(tmp_path, key):
     assert results["pos-01-h"]["target_date"] == "2026-09-27"
     for path in (paths.state_file, paths.run_dir(1) / "results.jsonl", paths.run_dir(1) / "meta.json", paths.raw_dir(1) / "index.jsonl"):
         assert mode(path) == 0o600, path
-    for path in (paths.state_file.parent, paths.run_dir(1), paths.raw_dir(1)):
+    for path in (paths.state_file.parent, paths.run_dir(1).parent, paths.run_dir(1), paths.raw_dir(1).parent, paths.raw_dir(1)):
         assert mode(path) == 0o700, path
     index = [json.loads(line) for line in (paths.raw_dir(1) / "index.jsonl").read_text().splitlines()]
     assert [entry["phase"] for entry in index][:2] == ["warmup", "explore"]
     assert index[0]["body_file"] is None and all(entry["body_file"] for entry in index[1:])
     assert (paths.raw_dir(1) / index[1]["body_file"]).read_bytes().startswith(b")]}'")
+
+
+def test_private_dir_makes_every_new_directory_700(tmp_path):
+    """runs/ and raw/ are created on the way to runs/day1 and raw/day1: each new directory is 700 whatever the umask, and
+    a directory that was already there is left as it was (the runbook: directories 700, files 600)."""
+    existing = tmp_path / "outside"
+    existing.mkdir(mode=0o755)
+    os.chmod(existing, 0o755)
+    old = os.umask(0o022)
+    try:
+        leaf = private_dir(existing / "trends-stage0" / "runs" / "day1")
+    finally:
+        os.umask(old)
+    for path in (existing / "trends-stage0", existing / "trends-stage0" / "runs", leaf):
+        assert mode(path) == 0o700, path
+    assert mode(existing) == 0o755
 
 
 @pytest.mark.asyncio
