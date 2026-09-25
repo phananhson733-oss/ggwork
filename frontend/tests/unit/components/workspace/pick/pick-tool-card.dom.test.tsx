@@ -18,7 +18,13 @@ rs.mock("@/core/pick/api", () => ({
 
 import { PickToolCard } from "@/components/workspace/pick/pick-tool-card";
 import { getPickResult, savePickSelection } from "@/core/pick/api";
-import type { PickItem, PickResult } from "@/core/pick/types";
+import {
+  pickResultSchema,
+  type PickItem,
+  type PickResult,
+} from "@/core/pick/types";
+
+import obsPayload from "../../../core/pick/fixtures/backend-result-obs.json";
 
 afterEach(() => {
   cleanup();
@@ -211,5 +217,48 @@ describe("row check links on the confirmation card (P4-1)", () => {
     );
     await screen.findByText("找到 3 部，点击查看依据和保存。");
     expect(screen.queryAllByRole("link")).toHaveLength(0);
+  });
+});
+
+// Plan TR-16, rollback matrix F1 x new card: a card whose result carries
+// observation conditions, evidence and observations works like any other.
+describe("a card with observations (TR-16)", () => {
+  const obsResult = pickResultSchema.parse(obsPayload);
+  const [item] = obsResult.items;
+
+  it("summarises the query card and confirms a save of an obs candidate", async () => {
+    rs.mocked(getPickResult).mockResolvedValue({
+      ...obsResult,
+      thread_id: "t1",
+    });
+    rs.mocked(savePickSelection).mockResolvedValue({
+      request_id: "receipt",
+      saved: [
+        { id: "s1", identity: item!.identity, status: "created", version: 1 },
+      ],
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <PickToolCard
+          threadId="t1"
+          result={{
+            result_id: obsResult.id,
+            item_ids: [item!.item_id],
+            requires_confirmation: true,
+          }}
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByText(item!.title);
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "确认保存（1）" }));
+    await screen.findByText("已保存 1 部");
+    expect(rs.mocked(savePickSelection).mock.calls[0]?.[0]).toMatchObject({
+      result_id: obsResult.id,
+      item_ids: [item!.item_id],
+    });
   });
 });

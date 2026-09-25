@@ -6,6 +6,7 @@ import {
   evidenceLine,
   postedLine,
 } from "@/core/pick/format";
+import { UNOBSERVED_GSC, forbiddenIn } from "@/core/pick/obs-format";
 
 describe("pick display lines", () => {
   it("names shared sync time and source freshness, and admits unknown time", () => {
@@ -94,6 +95,55 @@ describe("pick display lines", () => {
       }),
     ).toBe(
       "全部剧场 · 全部语种 · 排除我的已选 · 按榜单名次 kd · 排除团队已发 · 排除账号 acc 已发",
+    );
+  });
+});
+
+// Plan TR-16: evidenceLine hands obs_* kinds to obs-format; conditionsLine
+// spells out the observation conditions and the obs order.
+describe("observation lines (TR-16)", () => {
+  const gsc = {
+    citation_id: "i:4",
+    kind: "obs_gsc",
+    source_ref: "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+    observed_at: "2026-09-24T18:00:00.000000+00:00",
+    value: null,
+    label: "USA · 前一窗口",
+    rank: null,
+    grade: "formal",
+    note: "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00",
+  };
+  it("says an obs value was not observed instead of 'value unknown'", () => {
+    const line = evidenceLine(gsc);
+    expect(line).toContain(UNOBSERVED_GSC);
+    expect(line).not.toContain("数值未知");
+    expect(line).not.toContain("评级");
+  });
+  it("never prints a zero count for an obs kind", () => {
+    const line = evidenceLine({ ...gsc, value: 0 });
+    expect(line).not.toMatch(/ 0( |$)/);
+    expect(forbiddenIn(line)).toEqual([]);
+  });
+  it("leaves the other kinds as they were", () => {
+    expect(
+      evidenceLine({ ...gsc, kind: "gsc", label: "GSC", grade: "", note: "" }),
+    ).toBe("GSC · 数值未知");
+    expect(evidenceLine({ ...gsc, kind: "gsc", label: "GSC", note: "" })).toBe(
+      "GSC · 评级 formal",
+    );
+  });
+  it("adds the observation conditions and the obs order to the conditions line", () => {
+    expect(
+      conditionsLine({
+        limit: 5,
+        exclude_selected: true,
+        sort: "obs",
+        trend_state: "rising",
+        trend_geos: ["US"],
+        gsc_countries: ["USA"],
+      }),
+    ).toBe(
+      "全部剧场 · 全部语种 · 排除我的已选 · Google Trends 上升观察 · Trends 地区 US · GSC 国家 USA · 按观测状态排序",
     );
   });
 });

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "@rstest/core";
 
-import { pickResultSchema } from "@/core/pick/types";
+import { pickObservationsSchema, pickResultSchema } from "@/core/pick/types";
+
+import obsPayload from "./fixtures/backend-result-obs.json";
+import oldPayload from "./fixtures/backend-result.json";
 
 const item = {
   item_id: "item-1",
@@ -115,5 +118,85 @@ describe("pick candidate payload", () => {
         jsx: "<script>saveAll()</script>",
       }).success,
     ).toBe(false);
+  });
+});
+
+// Plan TR-16 (design 7.5 step 1): the frontend lets the observation fields
+// through before any gateway sends them, and stays strict about everything else.
+describe("observation fields (TR-16)", () => {
+  it("parses the old fixture and the obs fixture", () => {
+    expect(pickResultSchema.parse(oldPayload).observations).toBeUndefined();
+    const parsed = pickResultSchema.parse(obsPayload);
+    expect(parsed.conditions.sort).toBe("obs");
+    expect(parsed.conditions.trend_geos).toEqual(["US"]);
+    expect(parsed.observations?.coverage.pool_identities).toBe(4416);
+    expect(parsed.observations?.excluded).toEqual({
+      trend_first_only: 3,
+      shared_title: 2,
+      gsc_descriptive_only: 7,
+    });
+  });
+  it("accepts sort=obs and the seven optional condition keys on an old-style result", () => {
+    const conditions = {
+      ...result.conditions,
+      sort: "obs",
+      trend_state: "emerging",
+      trend_geos: ["WW", "GB"],
+      trend_include_first: true,
+      trend_include_presumed: false,
+      gsc_state: "present",
+      gsc_countries: ["ALL"],
+      link_state: "site_only",
+    };
+    expect(pickResultSchema.safeParse({ ...result, conditions }).success).toBe(
+      true,
+    );
+    for (const sort of ["heat", "trends", "OBS"])
+      expect(
+        pickResultSchema.safeParse({
+          ...result,
+          conditions: { ...result.conditions, sort },
+        }).success,
+      ).toBe(false);
+  });
+  it("still refuses unknown keys at every level", () => {
+    const obs = pickResultSchema.parse(obsPayload);
+    const refused = [
+      { ...obsPayload, obs_as_of: {} },
+      { ...obsPayload, conditions: { ...obs.conditions, trend_score: 1 } },
+      {
+        ...obsPayload,
+        observations: { ...obsPayload.observations, status: "ok" },
+      },
+      {
+        ...obsPayload,
+        data_as_of: {
+          ...obsPayload.data_as_of,
+          observations: obsPayload.observations,
+        },
+      },
+      {
+        ...obsPayload,
+        items: [
+          {
+            ...obsPayload.items[0],
+            evidence: [{ ...obsPayload.items[0]?.evidence[2], payload: {} }],
+          },
+        ],
+      },
+    ];
+    for (const value of refused)
+      expect(pickResultSchema.safeParse(value).success).toBe(false);
+  });
+  it("keeps observations optional but never null, and never partial", () => {
+    expect(
+      pickResultSchema.safeParse({ ...obsPayload, observations: null }).success,
+    ).toBe(false);
+    const partial = Object.fromEntries(
+      Object.entries(obsPayload.observations).filter(
+        ([key]) => key !== "coverage",
+      ),
+    );
+    expect(pickObservationsSchema.safeParse(partial).success).toBe(false);
   });
 });

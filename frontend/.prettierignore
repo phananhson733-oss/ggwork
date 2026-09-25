@@ -7,3 +7,5 @@ test-results/
 tests/unit/core/pick/fixtures/backend-result.json
 # 由 customizations/pick-workbench/tests/mirror/test_mirror_sync_status.py 用 json.dumps 生成，排版以生成器为准
 tests/unit/core/pick/fixtures/backend-sync.json
+# 由 TR-33 合同夹具 result_obs.json 的正例用 json.dumps 生成（TR-16），TR-27 改由 test_frontend_contract.py 从真实同步重新生成，排版以生成器为准
+tests/unit/core/pick/fixtures/backend-result-obs.json

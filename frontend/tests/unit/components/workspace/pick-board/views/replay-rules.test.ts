@@ -41,6 +41,21 @@ const CASES = JSON.parse(
   row_keys: string[];
 };
 
+/** The shared contract's cases for the observation fields (plan TR-33, TR-16). */
+const OBS_CASES = JSON.parse(
+  readFileSync(
+    path.join(
+      REPO_ROOT,
+      "customizations/pick-workbench/tests/fixtures/obs_contract/unmappable_cases.json",
+    ),
+    "utf8",
+  ),
+) as {
+  labels: Record<string, string>;
+  cases: { name: string; conditions: PickConditions; expected: string[] }[];
+  base_order: string[];
+};
+
 const AS_OF = "2026-09-24T03:40:00+00:00";
 
 function b64url(text: string): string {
@@ -533,5 +548,90 @@ describe("the near filter", () => {
       "channel",
       "confirmed_eligible_only",
     ]);
+  });
+});
+
+// Plan TR-16: the seven observation fields are conditions only the agent can
+// express. They follow the existing seven in the backend's order
+// (UNMAPPABLE_OBS_ORDER), each when truthy, with the contract's labels.
+describe("observation conditions in the near filter (TR-16)", () => {
+  const rules = boardRules();
+
+  it.each(OBS_CASES.cases.map((c) => [c.name, c] as const))(
+    "%s: agentOnlyConditions says what selection.unmappable_conditions says",
+    (_name, c) => {
+      expect(agentOnlyConditions(c.conditions)).toEqual(c.expected);
+    },
+  );
+
+  it("keeps the existing seven first, in the backend's order", () => {
+    const all = agentOnlyConditions({
+      ...conditions(),
+      tags: ["x"],
+      posted_account: "a",
+      channel: "youtube",
+      query: "q",
+      exclude_selected: true,
+      exclude_previous: true,
+      trend_state: "rising",
+      trend_geos: ["US"],
+      trend_include_first: true,
+      trend_include_presumed: true,
+      gsc_state: "surge",
+      gsc_countries: ["USA"],
+      link_state: "both_rising",
+    });
+    expect(all.slice(0, OBS_CASES.base_order.length)).toEqual(
+      OBS_CASES.base_order,
+    );
+    expect(all.slice(OBS_CASES.base_order.length)).toEqual(
+      Object.keys(OBS_CASES.labels),
+    );
+  });
+
+  it("lists them with the contract's labels and the values the result stored", () => {
+    const stored = conditions({
+      exclude_selected: false,
+      trend_state: "emerging",
+      trend_geos: ["WW", "GB"],
+      trend_include_presumed: true,
+      gsc_state: "from_zero",
+      gsc_countries: ["GBR", "ALL"],
+      link_state: "site_only",
+    });
+    const filter = nearFilter(stored, rules, 7, agentOnlyConditions(stored));
+    expect(filter.unmapped).toEqual([
+      {
+        key: "trend_state",
+        label: OBS_CASES.labels.trend_state,
+        value: "emerging",
+      },
+      {
+        key: "trend_geos",
+        label: OBS_CASES.labels.trend_geos,
+        value: "WW、GB",
+      },
+      {
+        key: "trend_include_presumed",
+        label: OBS_CASES.labels.trend_include_presumed,
+        value: "",
+      },
+      {
+        key: "gsc_state",
+        label: OBS_CASES.labels.gsc_state,
+        value: "from_zero",
+      },
+      {
+        key: "gsc_countries",
+        label: OBS_CASES.labels.gsc_countries,
+        value: "GBR、ALL",
+      },
+      {
+        key: "link_state",
+        label: OBS_CASES.labels.link_state,
+        value: "site_only",
+      },
+    ]);
+    expect(filter.href).toBe("/workspace/pick-data?v=7");
   });
 });

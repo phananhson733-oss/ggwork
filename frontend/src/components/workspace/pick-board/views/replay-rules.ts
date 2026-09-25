@@ -2,6 +2,10 @@
 // 名单切页与全局序号、行取自哪个版本、「近似筛选」的映射、说明与卡片当时有何不同的横幅。组件里不读墙上时钟。
 import { pickHref } from "@/components/workspace/pick-board/toolbar";
 import { rowKeyFromIdentity } from "@/core/pick/identity";
+import {
+  OBS_CONDITION_FIELDS,
+  OBS_CONDITION_LABELS,
+} from "@/core/pick/obs-format";
 import type { PickConditions } from "@/core/pick/types";
 import { formatObservedAt } from "@/core/pick-board/metrics";
 import {
@@ -243,6 +247,8 @@ const AGENT_ONLY_LABELS: Readonly<Record<string, string>> = {
   query: "搜索词（智能体搜剧名加标签，本页搜剧名或精确的行键）",
   exclude_selected: "排除个人清单里已保存的剧",
   exclude_previous: "换一批：排除上一批展示过的",
+  // The seven observation fields (plan TR-16, contract TR-33): only the agent filters by them.
+  ...OBS_CONDITION_LABELS,
 };
 
 function agentOnlyValue(key: string, c: PickConditions | null): string {
@@ -250,15 +256,25 @@ function agentOnlyValue(key: string, c: PickConditions | null): string {
   switch (key) {
     case "tags":
       return (c.tags ?? []).join("、");
+    case "trend_geos":
+      return (c.trend_geos ?? []).join("、");
+    case "gsc_countries":
+      return (c.gsc_countries ?? []).join("、");
     case "posted_account":
-      return c.posted_account ?? "";
     case "channel":
-      return c.channel ?? "";
     case "query":
-      return c.query ?? "";
+    case "trend_state":
+    case "gsc_state":
+    case "link_state":
+      return c[key] ?? "";
     default:
       return "";
   }
+}
+
+/** selection.unmappable_conditions's truth test: None, [], false and "" are not set */
+function isSet(value: unknown): boolean {
+  return Array.isArray(value) ? value.length > 0 : Boolean(value);
 }
 
 /**
@@ -278,6 +294,11 @@ export function agentOnlyConditions(c: PickConditions): string[] {
     ["query", Boolean(c.query)],
     ["exclude_selected", c.exclude_selected],
     ["exclude_previous", c.exclude_previous === true],
+    // UNMAPPABLE_OBS_ORDER, each when truthy (unmappable_cases.json)
+    ...OBS_CONDITION_FIELDS.map((name): [string, boolean] => [
+      name,
+      isSet(c[name]),
+    ]),
   ];
   return present.filter(([, on]) => on).map(([name]) => name);
 }

@@ -1,3 +1,8 @@
+import {
+  isObsEvidence,
+  obsConditionParts,
+  obsEvidenceLine,
+} from "./obs-format";
 import type {
   PickConditions,
   PickDataAsOf,
@@ -27,6 +32,8 @@ export function dataAsOfLine(asOf: PickDataAsOf | null | undefined): string {
 }
 
 export function evidenceLine(evidence: PickEvidence): string {
+  // obs_* entries: an unobserved value says so, never zero (premise 1, plan TR-16).
+  if (isObsEvidence(evidence)) return obsEvidenceLine(evidence);
   const name = evidence.label?.trim() ? evidence.label : evidence.kind;
   const facts = [
     typeof evidence.rank === "number" ? `第${evidence.rank}名` : null,
@@ -72,5 +79,5 @@ export function conditionsLine(conditions: PickConditions): string {
   if (conditions.exclude_posted) parts.push("排除团队已发");
   if (conditions.posted_account?.trim())
     parts.push(`排除账号 ${conditions.posted_account} 已发`);
-  return parts.join(" · ");
+  return [...parts, ...obsConditionParts(conditions)].join(" · ");
 }

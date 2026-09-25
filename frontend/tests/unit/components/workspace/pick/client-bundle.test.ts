@@ -67,6 +67,29 @@ describe("the chat route's pick cards stay small", () => {
     for (const banned of BANNED) expect(files.has(banned)).toBe(false);
   });
 
+  // Plan TR-16: evidenceLine hands obs_* evidence to obs-format.ts, which the
+  // data page (TR-24) shares. It brings no pick-board or server module into the
+  // chat route, and the strict contract checks (obs-contract.ts, for tests and
+  // TR-36's validator) stay out of it.
+  it.each(ENTRIES)(
+    "%s reaches obs-format.ts but not obs-contract.ts",
+    (entry) => {
+      const files = reachable(entry);
+      expect(files.has("src/core/pick/obs-format.ts")).toBe(true);
+      expect(files.has("src/core/pick/obs-contract.ts")).toBe(false);
+    },
+  );
+
+  it("obs-format.ts brings in nothing from the pick board or the server", () => {
+    const outside = [...reachable("src/core/pick/obs-format.ts")].filter(
+      (file) =>
+        file.startsWith("src/core/pick-board/") ||
+        file.startsWith("src/components/workspace/pick-board/") ||
+        file.startsWith("src/server/"),
+    );
+    expect(outside).toEqual([]);
+  });
+
   it("follows inline type imports but not import type statements", () => {
     const probe = [
       'import type { A } from "@/core/pick-board/request";',

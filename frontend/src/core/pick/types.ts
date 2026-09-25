@@ -2,6 +2,84 @@ import { z } from "zod";
 
 const identifier = z.string().min(1).max(512);
 
+// ---- observation radar (plan TR-16; contract TR-33: docs/pick-workbench/observe-contract.md) -------------------------
+// The shapes the gateway sends once it knows observations (design 7.5 step 1: the frontend lets them through first).
+// Every enum and pattern here is ggwork_pick/observe/contract.py's; contract-fixtures.test keeps them equal.
+
+export const PICK_SORTS = ["evidence_date", "rank", "obs"] as const;
+export const TREND_STATES = ["rising", "emerging"] as const;
+export const GSC_STATES = [
+  "rising",
+  "surge",
+  "from_zero",
+  "high_ctr",
+  "rank_push",
+  "present",
+] as const;
+export const LINK_STATES = [
+  "both_rising",
+  "trends_lead_page",
+  "trends_lead_distribution",
+  "site_only",
+  "cooling",
+] as const;
+export const EXCLUSION_REASONS = [
+  "trend_first_only",
+  "emerging_not_requested",
+  "title_ambiguous",
+  "shared_title",
+  "correspondence_unconfirmed",
+  "correspondence_presumed",
+  "stale",
+  "carried_over",
+  "b_tier",
+  "unstable",
+  "control_unavailable",
+  "gsc_descriptive_only",
+  "migration_suspect",
+  "mapping_changed",
+  "set_batch_mismatch",
+] as const;
+/** repository.stamp(): UTC, six fractional digits, "+00:00" */
+export const STAMP_PATTERN = String.raw`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}\+00:00`;
+/** Trends says WW for worldwide; GSC says ALL for the site total */
+const TREND_GEO = /^(WW|[A-Z]{2})$/;
+const GSC_COUNTRY = /^(ALL|[A-Z]{3})$/;
+const MAX_TREND_GEOS = 10;
+const MAX_GSC_COUNTRIES = 30;
+
+const stamp = z.string().regex(new RegExp(`^${STAMP_PATTERN}$`));
+const setId = z.string().regex(/^[0-9a-f]{32}$/);
+const count = z.number().int().nonnegative();
+
+/** The result-level observations key (D28): obs_as_of_json's references, then its frozen counts. */
+export const pickObservationsSchema = z
+  .object({
+    trends: z
+      .object({ set_id: setId, published_at: stamp, latest_block_end: stamp })
+      .strict()
+      .nullable(),
+    gsc: z
+      .object({ set_id: setId, published_at: stamp, cutoff: stamp })
+      .strict()
+      .nullable(),
+    link_rules_version: z
+      .string()
+      .regex(/^link-rules-v[0-9A-Za-z]+$/)
+      .nullable(),
+    judged_at: stamp,
+    coverage: z
+      .object({
+        pool_identities: count,
+        trends_observed: count,
+        gsc_observed: count,
+      })
+      .strict(),
+    /** Only the reasons that excluded something, each at least once */
+    excluded: z.record(z.enum(EXCLUSION_REASONS), z.number().int().min(1)),
+  })
+  .strict();
+
 export const pickConditionsSchema = z
   .object({
     theater: z.string().max(100).nullable().optional(),
@@ -14,9 +92,23 @@ export const pickConditionsSchema = z
     confirmed_eligible_only: z.boolean().optional(),
     exclude_previous: z.boolean().optional(),
     signal_kind: z.string().max(20).nullable().optional(),
-    sort: z.enum(["evidence_date", "rank"]).optional(),
+    sort: z.enum(PICK_SORTS).optional(),
     exclude_posted: z.boolean().optional(),
     posted_account: z.string().max(200).nullable().optional(),
+    // The seven observation fields (D31), stored only when set: an old card has none of them.
+    trend_state: z.enum(TREND_STATES).nullable().optional(),
+    trend_geos: z
+      .array(z.string().regex(TREND_GEO))
+      .max(MAX_TREND_GEOS)
+      .optional(),
+    trend_include_first: z.boolean().optional(),
+    trend_include_presumed: z.boolean().optional(),
+    gsc_state: z.enum(GSC_STATES).nullable().optional(),
+    gsc_countries: z
+      .array(z.string().regex(GSC_COUNTRY))
+      .max(MAX_GSC_COUNTRIES)
+      .optional(),
+    link_state: z.enum(LINK_STATES).nullable().optional(),
   })
   .strict();
 
@@ -100,6 +192,8 @@ export const pickResultSchema = z
     created_at: z.string().datetime({ offset: true }),
     matched_total: z.number().int().nonnegative().nullable().optional(),
     data_as_of: pickDataAsOfSchema.nullable().optional(),
+    /** Only on results with observation conditions; evidence carries obs_* entries in its existing shape (D8) */
+    observations: pickObservationsSchema.optional(),
   })
   .strict()
   .refine(
@@ -113,6 +207,7 @@ export type PickConditions = z.infer<typeof pickConditionsSchema>;
 export type PickEvidence = z.infer<typeof pickEvidenceSchema>;
 export type PickPosted = z.infer<typeof pickPostedSchema>;
 export type PickDataAsOf = z.infer<typeof pickDataAsOfSchema>;
+export type PickObservations = z.infer<typeof pickObservationsSchema>;
 export type PickItem = z.infer<typeof pickItemSchema>;
 export type PickResult = z.infer<typeof pickResultSchema>;
 
