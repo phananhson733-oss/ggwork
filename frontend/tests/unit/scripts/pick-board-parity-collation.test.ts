@@ -71,6 +71,41 @@ describe("compareCase: collation (only what the two collations explain)", () => 
     expect(verdict(pair, { scrub: {}, collations: icu })).toBe("failed");
   });
 
+  it("names the first swapped pair the collations cannot explain, by row key only", () => {
+    // RealShort (C) [Beta, alpha, cat, dog, egg, fig], the mirror (en_US)
+    // [alpha, Beta, dog, cat, fig, egg]: the first swap is the collations',
+    // the other two are not; the reason names the first of those.
+    const row = (rowKey: string, title: string) => pickRow({ rowKey, title });
+    const [b, a, c, d, e, f] = [
+      row("kalos-B", "Beta"),
+      row("kalos-a", "alpha"),
+      row("kalos-c", "cat"),
+      row("kalos-d", "dog"),
+      row("kalos-e", "egg"),
+      row("kalos-f", "fig"),
+    ] as const;
+    const reason = (ctx: CompareContext) => {
+      const { findings } = compareCase(
+        "pick",
+        list([b, a, c, d, e, f].map(rs)),
+        list([a, b, d, c, f, e]),
+        ctx,
+      );
+      const failed = failures(findings);
+      expect(failed.map((x) => x.path)).toEqual(["page.rows"]);
+      expect(failed[0]?.rs).toBeUndefined();
+      expect(failed[0]?.mirror).toBeUndefined();
+      return failed[0]?.what ?? "";
+    };
+    const what = reason(C_EN);
+    expect(what).toContain("第 1 项 RealShort 是 kalos-B，镜像是 kalos-a");
+    expect(what).toContain("RealShort 把 kalos-c 排在 kalos-d 前面");
+    expect(what).not.toContain("kalos-e 排在");
+    expect(what).not.toMatch(/Beta|alpha|cat|dog|egg|fig/);
+    // Collations unknown or the same: no pair is explained, the first is named.
+    expect(reason(PLAIN)).toContain("RealShort 把 kalos-B 排在 kalos-a 前面");
+  });
+
   it("fails a swap both collations order the same way (a primary sort error)", () => {
     const pair = swapped(
       pickRow({ rowKey: "kalos-c5", title: "Alpha" }),
@@ -133,6 +168,10 @@ describe("compareCase: collation (only what the two collations explain)", () => 
     const graded = (grade: string) => ({ signal: signal("sm", { grade }) });
     expect(verdict(pair(graded("S"), graded("S")), C_EN)).toBe("forgiven");
     expect(verdict(pair(graded("S"), graded("A")), C_EN)).toBe("failed");
+    // ORDER BY array_position(GRADES, grade) NULLS LAST: every grade outside
+    // GRADES sorts as NULL, so an empty and an unknown grade tie.
+    expect(verdict(pair(graded(""), graded("X")), C_EN)).toBe("forgiven");
+    expect(verdict(pair(graded("S"), graded("")), C_EN)).toBe("failed");
     const listed = (evidenceOn: string) => ({
       signal: signal("fh", { evidenceOn }),
     });

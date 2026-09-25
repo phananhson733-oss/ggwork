@@ -9,6 +9,7 @@
  *
  * 连接串与 CA 从权限 600 的文件经环境变量传入，不写在命令行上。走的是页面同一条读路径：db.ts 的读连接池
  * （CA 校验的 TLS、只读事务）、resolveBoard 与 withScriptScope。只读。
+ * 快照必须是当前格式（SNAPSHOT_FORMAT）：旧脚本拍的（比如只截 50 行、不补并列组的 /2）退出 2，要重拍。
  * 先核对版本：快照的 fingerprint、as_of、sourceRevision 必须与 vN 的相同，否则退出 3。
  * 退出码：0 没有白名单外差异；1 有；2 参数、环境或读库出错；3 快照与版本对不上。
  * 比对规则见 pick-board-parity-compare.ts。
@@ -71,14 +72,19 @@ import {
   type ScrubUsage,
 } from "./pick-board-parity-compare";
 import {
+  ROW_LIMIT,
   SNAPSHOT_FORMAT,
+  isJsonObject,
   readFlags,
   runCase,
+  tieStats,
+  tieSummary,
   type BoardLoaders,
   type CaseRecord,
   type Json,
   type Parsed,
   type SnapshotDoc,
+  type TieStats,
 } from "./pick-board-snapshot-core.rs";
 
 export type ParityArgs = Readonly<{ v: number; snapshot: string }>;
@@ -126,6 +132,19 @@ const docSchema = z
     },
   );
 
+const KNOWN_FORMAT = /^pick-board-snapshot\/\d{1,4}$/;
+
+/** 快照不是这一版的格式时怎么说；格式名是文件里的外来文字，认得出的才照印 */
+function formatProblem(parsed: unknown): string | null {
+  if (!isJsonObject(parsed) || parsed.format === SNAPSHOT_FORMAT) return null;
+  const format = parsed.format;
+  const named =
+    typeof format === "string" && KNOWN_FORMAT.test(format)
+      ? format
+      : "不认识的格式";
+  return `快照是 ${named}，这一版 parity 只读 ${SNAPSHOT_FORMAT}：用当前的 pick-board-snapshot.rs.ts 与 pick-board-snapshot-core.rs.ts 重拍快照`;
+}
+
 /** 快照文件：外来数据，按 schema 校验；result 是 JSON.parse 的产物，本来就是 JSON */
 export function readSnapshot(
   raw: string,
@@ -138,6 +157,8 @@ export function readSnapshot(
   } catch {
     return { ok: false, error: "快照不是 JSON" };
   }
+  const format = formatProblem(parsed);
+  if (format) return { ok: false, error: format };
   const checked = docSchema.safeParse(parsed);
   if (!checked.success)
     return {
@@ -190,6 +211,8 @@ export type ParityReport = Readonly<{
   failures: readonly Finding[];
   whitelisted: readonly WhitelistSummary[];
   scrubUsage: readonly ScrubUsage[];
+  /** 两边各有几个用例查了第 50 行的并列组、其中几个补了行、共几行、几个到了上限 */
+  ties: Readonly<{ rs: TieStats; mirror: TieStats }>;
 }>;
 
 function compareOne(
@@ -239,11 +262,18 @@ export function compareSnapshot(input: {
   );
   const scrub = settleScrub(compared.charges, input.ctx.scrub);
   const findings = [...compared.findings, ...scrub.findings];
+  const mirrorResults = [...input.mirror.values()].flatMap((outcome) =>
+    outcome.ok ? [outcome.result] : [],
+  );
   return {
     caseCount: input.rsCases.length,
     failures: findings.filter((f) => f.rule === null),
     whitelisted: summarize(findings),
     scrubUsage: scrub.usage,
+    ties: {
+      rs: tieStats(input.rsCases.map((kase) => kase.result)),
+      mirror: tieStats(mirrorResults),
+    },
   };
 }
 
@@ -260,8 +290,10 @@ function failureLine(f: Finding): string {
 export function formatReport(report: ParityReport): string[] {
   const shown = report.failures.slice(0, MAX_PRINTED).map(failureLine);
   const more = report.failures.length - shown.length;
+  const { rs, mirror } = report.ties;
   return [
     `用例 ${report.caseCount} 个`,
+    `第 ${ROW_LIMIT} 行所在的并列组：RealShort ${tieSummary(rs)}；镜像 ${tieSummary(mirror)}`,
     `白名单外差异：${report.failures.length}`,
     ...shown,
     ...(more > 0 ? [`  ……另有 ${more} 条没有列出`] : []),
@@ -269,7 +301,7 @@ export function formatReport(report: ParityReport): string[] {
     ...report.whitelisted.map(
       (w) => `  ${w.label}：${w.count} 处（例：${w.examples.join("；")}）`,
     ),
-    "清洗占位（观察到的格子 / meta.scrub 记的次数；快照只含每个用例的前 50 行）：",
+    `清洗占位（观察到的格子 / meta.scrub 记的次数；快照只含每个用例的前 ${ROW_LIMIT} 行和第 ${ROW_LIMIT} 行所在的并列组）：`,
     ...(report.scrubUsage.length
       ? report.scrubUsage.map((u) => `  ${u.key}：${u.observed} / ${u.budget}`)
       : ["  meta.scrub 为空"]),
