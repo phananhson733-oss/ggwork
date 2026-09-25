@@ -169,7 +169,7 @@
 | D38 | 质量注记的检验方法（`gsc-rules-v1` 的参数）：对每个 7 天 rising 评估取 W0、W−1 各 7 个日值。率比 RR = ΣW0 ÷ ΣW−1；ΣW−1 无行或为 0 时不检验，注记「基线未观测，不检验」。离散度 φ = max(1, Σ(x−μ)²/μ ÷ 12)，μ 为所在窗口日均。z = ln RR ÷ √(φ(1/ΣW0 + 1/ΣW−1))，单侧 p = ½·erfc(z/√2)。BH 的族 = 同一 GSC 集合里做了检验的全部 7 天评估，q = 0.10。只用标准库 `math` | 设计 5.8 要求 p 值与 BH 只作注记，草稿没写方法，`test_quality_note_not_gate` 会空绿 |
 | D39 | 联动时效与前端展示按颗粒度无关的锚点写：`latest_block_end`（方案 H 是 B6 终点即 `window_end`；方案 D 是最近完整日的日末）；资料页按判定行里的块定义画块，不写死 B1–B6 | 阶段 0 可能选 D，设计 6.1 的「B6」只对小时级成立 |
 | D40 | 影子全链路验收：`admin shadow-e2e` 在 gateway 容器里用 `ObsPin(mode="shadow")` 钉最新的一对 shadow 集合，按固定的六组观测条件做一次不落库的查询，输出 JSON，再在本机用前端 strict schema 校验。`mode` 参数只有这条命令能传，工具与路由都传不了 | ObsPin 只读 live；不这样做，打开开关时才第一次走完整链路 |
-| D41 | 部署守卫 `scripts/pick-deploy-guard.py`，两个会话部署 gateway、cron、前端前都跑：工作区干净且没有 `.env*`；HEAD 等于刚 fetch 的 `origin/main`；用 observer 的 DSN 文件读生产迁移头，本地迁移链认不出就拒绝；打印要记进 progress.md 的 SHA 与迁移头；前端模式另用 `git archive` 导出干净目录再部署 | S0 写的「通知另一会话」只靠人转告；记忆里记过 Vercel CLI 会上传 gitignore 文件 |
+| D41 | 部署守卫 `scripts/pick-deploy-guard.py`，两个会话部署 gateway、cron、前端前都跑：工作区干净且没有 `.env*`；HEAD 等于刚 fetch 的 `ggwork/main`（守卫默认远端 `ggwork`，其 URL 必须指向共享仓库；本检出的 `origin` 是上游 DeerFlow，不是部署来源）；用 observer 的 DSN 文件读生产迁移头，本地迁移链认不出就拒绝；打印要记进 progress.md 的 SHA 与迁移头；前端模式另用 `git archive` 导出干净目录再部署。守卫只核对来源，不核对合同能力（第 10 节回滚规则） | S0 写的「通知另一会话」只靠人转告；记忆里记过 Vercel CLI 会上传 gitignore 文件 |
 | D42 | `check_answer` 的 `trend_checked` 是**必填**关键字参数，没有默认值；唯一调用点 `_record_checks` 传 `task.trend_checked` | 给默认值会让生产调用点漏接线而测试全绿 |
 | D43 | 别名表只由 gsc 服务写：每轮第 0 步，按上一版本、当前共享批次与 `decisions_version` 生成新版本（确定性，内容没变就不产生新版本）；trends 只读最新版本 | 两个通道各有租约，双写会竞争；gsc 服务在阶段 0 的任何去向下都上线 |
 
@@ -570,9 +570,9 @@
 - **目标**：把跨会话防护从口头转告变成脚本（D41）。
 - **文件**：`scripts/pick-deploy-guard.py`；`t/test_deploy_guard.py`（按路径导入）；`docs/pick-workbench/observe-runbook/deploy-guard.md`。
 - **规格**
-  - 子命令 `gateway`、`cron <service>`、`frontend`。共同检查：工作区干净、没有未跟踪的 `.env*`；`git fetch` 后 HEAD 等于 `origin/main`；打印 SHA 与要记进 progress.md 的一行。
+  - 子命令 `gateway`、`cron <service>`、`frontend`。共同检查：工作区干净、没有未跟踪的 `.env*`；`git fetch` 后 HEAD 等于 `ggwork/main`（默认远端 `ggwork`，见 D41）；打印 SHA 与要记进 progress.md 的一行。
   - `gateway` 与 `cron` 另查：用 observer 的 DSN 文件（600 权限，路径来自 `PICK_OBS_DSN_FILE`）读 `ggwp_alembic_version`，本地迁移链认不出就拒绝；上一次记录的生产提交必须是 HEAD 的祖先。
-  - `frontend` 另做：`git archive origin/main frontend` 导出到 scratchpad 的干净目录，提示在那里执行 Vercel 部署。
+  - `frontend` 另做：`git archive <HEAD> frontend`（HEAD 已核对等于 `ggwork/main`）导出到新建的干净目录，提示在那里执行 Vercel 部署。
   - DSN、口令一律不打印。
 - **测试**：`test_refuses_dirty_tree`、`test_refuses_not_origin_main`、`test_refuses_unknown_prod_head`、`test_accepts_known_head`、`test_refuses_non_ancestor_prod_commit`、`test_never_prints_dsn`（用假 git 与假库）。
 - **验收**：两个会话都用它部署（U16 转告）；S1 起每次部署的输出行都记进 progress.md。
@@ -855,45 +855,53 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 
 ## 10. 部署与上线步骤
 
-步骤编号 S0–S13，与第 3 节的实现决策 D1–D43 区分。「对外」指改动生产库、生产服务或共享远端，每一步执行前都要用户明确同意。gateway、cron、前端的每次部署都先跑 TR-34 守卫，输出行记进 progress.md。
+步骤编号 S0–S13（S6 与 S7 之间另有 S6a），与第 3 节的实现决策 D1–D43 区分。「对外」指改动生产库、生产服务或共享远端，每一步执行前都要用户明确同意。gateway、cron、前端的每次部署都先跑 TR-34 守卫，输出行记进 progress.md。部署来源一律是经守卫核验的 `ggwork/main`：守卫默认远端 `ggwork`，URL 必须指向共享仓库；本检出的 `origin` 是上游 DeerFlow，不是部署来源（`deploy-guard.md`）。守卫只保证来源，合同能力另由回滚规则里的四格验证保证。
 
 | 步 | 内容 | 对外 | 谁 |
 |---|---|---|---|
-| S0 | **合并协调与部署冻结**：0007、models、TR-12 的授权与 D15 的发布授权、TR-34 守卫合进 `feat/trends-radar`，再按仓库现行做法合进 ggwork main。U16：用户转告另一会话 rebase，并约定 S0 到 S4 期间暂停 gateway 部署；双方确认共同 SHA。原因：库升到 0007 之后，不带 0007 的镜像会因迁移头领先而让扩展加载失败，宿主只记日志、`/health/ready` 照样通过，故障是静默的 | 是（共享远端） | 代理执行，推送前经用户同意；用户转告 |
-| S1 | 前端 TR-16 发 Vercel 生产，对应 7.5 第 1 步。用守卫的前端模式从 `origin/main`（含两个会话的提交）`git archive` 出的干净目录部署 | 是 | 用户批准后执行 |
+| S0 | **合并协调与部署冻结**：0007、models、TR-12 的授权与 D15 的发布授权、TR-34 守卫合进 `feat/trends-radar`，再按仓库现行做法合进 ggwork main。U16：用户转告另一会话 rebase，并约定 S0 到 S4 期间暂停 gateway 部署；双方确认共同 SHA。原因：库升到 0007 之后，不带 0007 的镜像会因迁移头领先而让扩展加载失败，宿主只记日志、`/health/ready` 照样通过，故障是静默的。**合并 main 之后必须重新刷新托管副本**（D21 的 `deerflow extensions upgrade`，只应改 `backend/extensions/sources/ggwork-pick/**` 与 `backend/uv.lock`），并在最终共同 SHA 上重跑：扩展完整套件（两种库，含 `test_managed_copy` 与守卫自己的测试）、前端 `pnpm test` 与 `pnpm typecheck`、守卫的 lint；守卫本身的核对在 S1（前端模式）与 S3（gateway 模式，S2 建好 observer 之后才读得到生产迁移头）照常在这个 SHA 或之后的 main 上跑。`c095fe4` 或任何合并前提交上的结果都不能替代合并后的证据。前提：第 14.3 节标「S0 前」的 G3 处置已合入 `feat/trends-radar` | 是（共享远端） | 代理执行，推送前经用户同意；用户转告 |
+| S1 | 前端 TR-16 发 Vercel 生产，对应 7.5 第 1 步。用守卫的前端模式从 `ggwork/main`（含两个会话的提交）`git archive` 出的干净目录部署；部署前在同一提交上跑合同能力检查的前端四格（回滚规则） | 是 | 用户批准后执行 |
 | S2 | 在生产库执行 `bootstrap-observer.sql`，用 `\password pick_observer` 设口令，然后用 `pg_roles` 核对 | 是 | 用户（postgres 身份） |
-| S3 | 部署带 0007 的 gateway，对应 7.5 第 2 步。从 S0 之后的 main 干净检出，守卫通过（生产上一次记录的提交是 HEAD 的祖先）后执行 `railway up --detach`；部署前在 main 上跑完整套件，不带 `-k` | 是 | 代理，经用户批准 |
-| S4 | 核对：日志里没有 `ggwork-pick` 的 `service start() failed`；容器里能导入 `ggwork_pick.observe.read`；迁移头 0007；`has_table_privilege('pick_observer',…)`、`has_schema_privilege('pick_board_reader','pick_obs','USAGE')`；anon 与 authenticated 没有 USAGE；以 observer 连接在只读事务里读当前镜像版本的 `rs_ids` 后回滚；授权缺失就在 gateway 里经 `railway ssh` 跑 `observe.admin regrant`；以登录用户访问 `/api/pick/sync` 返回 200，并打开资料页与一次不带趋势条件的选剧对话；只读统计共享批次里 v1 `gsc` 信号的条数（设计 1.2） | 是（只读核对，加一次补授权） | 代理 |
-| S5 | 新建 Railway 服务 `pick-obs-trends`：同一仓库，配置路径 `/deploy/pick-obs/trends/railway.toml`。变量名（不写值）：`PICK_DATABASE_URL`（observer 的 Supavisor session DSN，URL 不带 ssl 参数）、`PGSSLMODE`、`PICK_OBS_STATE_KEY`、`PICK_OBS_EXPECTED_COLLECTOR`、`PICK_OBS_EXPECTED_ROLE`、`PICK_DB_SIZE_CAP_BYTES`、`PICK_OBS_TRENDS_MODE=canary1`、`PICK_OBS_PUBLISH`（不设）、`PICK_OBS_EGRESS_URL`（U13 批准前不设）。确认 healthcheck 关闭、重启策略 NEVER。守卫通过后从干净检出执行 `railway up --detach --service pick-obs-trends`，不开推送自动部署 | 是 | 服务由代理经批准创建，机密变量由用户填 |
-| S6 | 以 `--selfcheck-only` 手动触发一次，核对日志里的包摘要、角色与迁移头 | 是 | 代理 |
-| S7 | 金丝雀开始，对应 7.5 第 3 步（开关关着） | 是（访问 Google） | 已批准；代理监控，TR-30 |
+| S3 | 部署带 0007 的 gateway，对应 7.5 第 2 步。从 S0 之后的 `ggwork/main` 干净检出，守卫通过（生产上一次记录的提交是 HEAD 的祖先；gateway 第一次经守卫部署时带 `--first-record`）后执行 `railway up --detach`；部署前在该提交上跑完整套件，不带 `-k` | 是 | 代理，经用户批准 |
+| S4 | 核对：日志里没有 `ggwork-pick` 的 `service start() failed`，扩展的启动日志正常；在 gateway 容器里（`railway ssh`，`cd /app/backend`）能导入本阶段已交付的 `ggwork_pick.observe.selfcheck` 与 `ggwork_pick.observe.grants`（`python -c "import ggwork_pick.observe.selfcheck, ggwork_pick.observe.grants"`）。`observe.read` 属于批次 3 的 TR-26，它的导入检查移到 S11，不为过这一步补空壳模块；迁移头 0007；`has_table_privilege('pick_observer',…)`、`has_schema_privilege('pick_board_reader','pick_obs','USAGE')`；anon 与 authenticated 没有 USAGE；在 gateway 里经 `railway ssh` 跑 `observe.admin regrant --check`，有缺项就跑 `regrant`，再 `--check` 到「授权齐全」（`observer-role.md`「S4」）；以 observer 连接在只读事务里读当前镜像版本的 `rs_ids` 后回滚（权限实读）；以登录用户访问 `/api/pick/sync` 返回 200，并打开资料页与一次不带趋势条件的选剧对话（宿主 `/health/ready` 通过不证明扩展加载成功）；只读统计共享批次里 v1 `gsc` 信号的条数（设计 1.2） | 是（只读核对，加一次补授权） | 代理 |
+| S5 | 新建 Railway 服务 `pick-obs-trends`：同一仓库、同一项目与环境，不开推送自动部署。**配置路径先填自检配置** `/deploy/pick-obs/trends/selfcheck/railway.toml`：第一次部署就是 S6 的自检，S6 核对通过后才切到 `/deploy/pick-obs/trends/railway.toml`（`packaging.md` 第 3.2 节、第 5 节第 4 步）。变量名（不写值；全表、谁填与来历见 `packaging.md` 第 5 节）：`PICK_DATABASE_URL`（observer 的 Supavisor session DSN，URL 不带 ssl 参数）、`PGSSLMODE`、`PICK_OBS_STATE_KEY`、`PICK_OBS_EXPECTED_COLLECTOR`、`PICK_OBS_EXPECTED_ROLE`、`PICK_DB_SIZE_CAP_BYTES`、`PICK_OBS_TRENDS_MODE=canary1`；`PICK_OBS_TRENDS_ROUTE` 与 `PICK_OBS_TRENDS_GRANULARITY`（取值由 G2 定，显式写入，不能靠默认值落回 `both`、`H`）；`PICK_OBS_TRENDS_PACE`（默认 `user`，即阶段 0 第二天用的桶 4、每分钟补 2；由 G3 的节奏修复加入，名字与可选值以实现为准）；`PICK_OBS_PUBLISH`（不设）；`PICK_OBS_EGRESS_ECHO_URL`（U13 批准前不设；旧稿写的 `PICK_OBS_EGRESS_URL` 是错名，代码不读，只在 stderr 点名提示，不会开出口测量）。ROUTE、GRANULARITY、PACE 在金丝雀期间都不改。确认 healthcheck 关闭、重启策略 NEVER。守卫通过后（首次带 `--first-record`）从干净检出执行 `railway up --detach --service pick-obs-trends`；后续顺序见 S6 | 是 | 服务由代理经批准创建，机密变量由用户填 |
+| S6 | **自检，再切回 cron**（与 S5 连着做；步骤、核对项与失败处理以 `packaging.md` 第 5 节第 4 步与第 6 节为准，这里只列顺序）：① 守卫只在开头跑一次（S5）；② 以自检配置部署，它立即以 `--selfcheck-only` 运行一次后退出；③ 读这次部署的日志，核对 `selfcheck ok` 一行里的包摘要（等于在所部署提交的干净检出里算出的 `package_digest`）、角色 `pick_observer`、迁移头（等于守卫刚打印的生产迁移头）与 collector，不通过就停；④ 从同一检出、同一提交把配置路径切回 `/deploy/pick-obs/trends/railway.toml`，再 `railway up` 一次，核对 cron 计划、重启 NEVER、没有健康检查、没开推送自动部署；⑤ 最后才把守卫这一轮的记录行追加进 progress.md，经用户同意推到 `ggwork/main`。期间 `ggwork/main` 前进或间隔过久，按 `packaging.md` 的规则在第二次部署前原样重跑守卫；被拒就在最新 main 的干净检出里从头重走（提交变了，包摘要要重核）。只在 UTC 02:00–20:00 做。自检只证明配置、角色、迁移链与包，不证明当晚的任务负载合格（S6a） | 是 | 代理 |
+| S6a | **不发 HTTP 的金丝雀预检**（G3 接缝 1）：用同一镜像、同一服务变量执行 `python -m ggwork_pick.observe.trends preflight`（命令名、运行方式、判据与输出以实现为准，`packaging.md`、`trends-session.md` 同步写法）。它读当前共享批次，列出各组对照的匹配数与缺失项、近期剧目数、展开与截断后的计划请求数，不发 HTTP。未达最低负载或缺必要对照时不进 S7；金丝雀期间某一晚出现同样情况，该日记为无效验收日，不计入三天、七天，原因在日志与 `status` 里看得见 | 是（只读） | 代理 |
+| S7 | 金丝雀开始，对应 7.5 第 3 步（开关关着）。前提：S6a 通过；所部署的提交含第 14.3 节的金丝雀修复（有效负载准入、生产节奏与排期、首次验证码即终止） | 是（访问 Google） | 已批准；代理监控，TR-30 |
 | S8 | 旧页快照导入：在本机用 observer 的 DSN（600 权限文件）执行 `observe.admin import-legacy`；U14 批准时同时 `import-editorial` | 是 | 代理，经批准 |
 | S9 | 新建 `pick-obs-gsc` 服务：配置 `/deploy/pick-obs/gsc/railway.toml`，变量 `PICK_DATABASE_URL`、`PGSSLMODE`、`PICK_GSC_SA_EMAIL`、`PICK_GSC_SA_PRIVATE_KEY`、`PICK_GSC_SITE_URL`、`PICK_OBS_EXPECTED_COLLECTOR`、`PICK_OBS_EXPECTED_ROLE`、`PICK_DB_SIZE_CAP_BYTES`。TR-21 到 TR-23b 完成后以影子模式运行；没有快照时它不发布（TR-23b） | 是 | 同 S5 |
 | S10 | 金丝雀通过，而且 TR-17、TR-18、TR-20 已部署到 trends 服务之后，改成 stable 模式，开始影子运行 2 周 | 是 | 代理，经批准 |
-| S11 | 发前端 TR-24、TR-25（资料页能看到 shadow 集合与 shadow 联动）；再部署带 TR-26 至 TR-28 的 gateway，`PICK_OBS_AGENT` 不设（工具 schema 与改动前相同）；然后跑 TR-36 | 是 | 代理，经批准 |
+| S11 | 发前端 TR-24、TR-25（资料页能看到 shadow 集合与 shadow 联动）；再部署带 TR-26 至 TR-28 的 gateway，`PICK_OBS_AGENT` 不设（工具 schema 与改动前相同）；gateway 上线后在容器里核对能导入 `ggwork_pick.observe.read`（TR-26 交付，自 S4 移来），并按 S4 的其余各项复核；然后跑 TR-36 | 是 | 代理，经批准 |
 | S12a | gsc 服务设 `PICK_OBS_PUBLISH=1`。门槛：GSC 影子抽检通过、TR-36 通过、G5 | 是 | 用户拍板，代理执行 |
 | S12b | trends 服务设 `PICK_OBS_PUBLISH=1`，对应 7.5 第 4 步。门槛按第 8 节的去向：阶段 0 至少过一道闸门、金丝雀阶段 2 达标、影子抽检通过、TR-36 通过、G5 | 是 | 用户拍板，代理执行 |
-| S13 | gateway 设 `PICK_OBS_AGENT=1`（Railway 改变量即重启，工具 schema 随之打开），对应 7.5 第 5 步。先提醒大家刷新页面（照 P4-1 的做法）。需过 G6 | 是 | 用户拍板 |
+| S13 | gateway 设 `PICK_OBS_AGENT=1`（Railway 改变量即重启，工具 schema 随之打开），对应 7.5 第 5 步。先提醒大家刷新页面（照 P4-1 的做法）。需过 G6。从这一步产生新卡起，gateway 的最低可回滚版本升为 M1，按回滚规则的四格验证核对 | 是 | 用户拍板 |
 
 **回滚规则**（设计 3.8）
-- S1 之后，前端不回退到 TR-16 之前的版本；前端只从守卫导出的 `origin/main` 目录部署。
-- S3 之后，gateway 永远不回退到不带 0007 的镜像。最低可回滚版本是 M0（带 0007）；S13 之后是 M1（认识观测字段）。plan 6.10 的 48 小时回滚不适用于这里。回滚一律用 main 上的 revert 提交，守卫拒绝从旧检出部署。
-- 要关掉功能，按顺序关 `PICK_OBS_AGENT`、关 `PICK_OBS_PUBLISH`、停 cron（去掉 cronSchedule 或暂停服务），不回退镜像。
+- **每次发布与回滚都做两类检查，缺一不可**（`rollback-matrix.md`「来源检查与合同能力检查」）：
+  - **来源检查**（TR-34 守卫）：提交来自共享仓库的 `ggwork/main`、工作区干净、没有 `.env*`、是生产上一次记录提交的后代（不从旧检出回退）、迁移链认识生产迁移头（cron 还要求等于链头）。守卫**只保证来源，不保证合同能力**：在 main 上 revert 掉 TR-16 的前端解析改动（或 S13 之后 revert 掉 TR-26 至 TR-28），新提交仍是上次生产提交的后代、仍在 main 上，守卫照样放行，解析器却可能已退回 F0（gateway 退回 M0）。守卫也证明不了 Railway 控制台里的配置。
+  - **合同能力检查**：旧卡、新卡、混合会话、存量快照四格，在要部署的那个提交上跑，revert 提交也不例外；用例被删、被跳过或找不到，一律按没过处理。前端、gateway 各用哪些现有测试，部署后在生产上怎样手工核对，见 `rollback-matrix.md`「四格验证」。S13 之后的 M1 下限按同样方法验证。
+- S1 之后，前端不回退到 F0；前端只从守卫导出的 `ggwork/main` 目录部署。
+- S3 之后，gateway 永远不回退到 G0。最低可回滚版本是 M0（带 0007）；产生新卡之后（S13 起）是 M1（认识观测字段）。plan 6.10 的 48 小时回滚不适用于这里。回滚一律用 main 上的 revert 提交，守卫拒绝从旧检出部署；revert 提交照样要过合同能力检查。
+- **止损的正确方向**：按顺序关 `PICK_OBS_AGENT`、关 `PICK_OBS_PUBLISH`、停 cron（去掉 cronSchedule 或暂停服务），保留 DB0007 与最低兼容网关（S3 之后 M0，S13 之后 M1）；不回退镜像，不降级库。
 - cron 服务可以单独回退，前提是回退后的代码认识生产的迁移头（D5）。
 - 任何新迁移（本功能的 0008 或另一会话的迁移）上生产后，同步重部署 gateway 与两个 cron。
-- 0007 的降级只在测试库上用，生产不降。
+- 0007 的 downgrade 不是无损回滚：它删掉观测表、视图与候选集的新增列，观测历史随之丢失。只在测试库上用，生产不降。
 
-**回滚矩阵**（前端 F0=TR-16 之前、F1=TR-16 及以后；gateway G0=不带 0007、M0=带 0007、M1=认识观测字段；卡片旧、新、混合）
+**回滚矩阵**（前端 F0=TR-16 之前、F1=TR-16 及以后；gateway G0=不带 0007、M0=带 0007、M1=认识观测字段；库 DB0006=生产迁移头 0006、DB0007=0007 或之后本镜像认识的修订；卡片旧、新、混合会话、存量快照。逐格的测试与手工核对见 `rollback-matrix.md`）
 
-| 时段 | 组合 | 允许 | 由谁保证 |
+| 时段 | 组合（前端 × gateway × 库 × 卡片） | 允许 | 由谁保证 |
 |---|---|---|---|
-| S1–S12 | F1 × M0 × 旧卡 | 是 | TR-16 测试「新前端读旧卡与存量快照」 |
-| S11 起 | F1 × M1（开关关）× 旧卡 | 是 | TR-27 测试 |
-| S13 起 | F1 × M1 × 旧卡、新卡、混合会话 | 是 | TR-16 前端三格、TR-27 后端两格 |
-| S13 起开关又关 | F1 × M1（开关关）× 新卡 | 是，换一批返回「趋势条件尚未开放」 | TR-27 测试 |
-| S3 起 | 任何 × G0 | 否 | 回滚规则；守卫拒绝迁移头认不出的部署 |
-| S13 起 | 任何 × M0 × 新卡 | 否（M0 解析不了新条件） | 回滚规则；只用 revert 提交回滚 |
-| S1 起 | F0 × 任何 | 否 | 回滚规则；守卫前端模式 |
+| S1–S2 | F1 × G0 × DB0006 × 旧卡 | 是，S1 到 S3 之间的实际过渡状态 | TR-16 前端格「F1 x old card」「F1 x stored snapshots」；G0 是当时生产上未改的 gateway |
+| S3 部署中 | M0 启动时面对 DB0006 | 升级过程：M0 启动时把库迁到 DB0007，不是计划长期运行的组合 | TR-11 的 0007 升级测试；S4 核对迁移头 |
+| S3–S12 | F1 × M0 × DB0007 × 旧卡 | 是，S3 之后本阶段的正常状态 | 前端四格；gateway 的旧卡格（`test_frontend_contract.py` 等）；S4 的认证业务路径 |
+| S11 起 | F1 × M1（开关关）× DB0007 × 旧卡 | 是 | TR-27 测试 |
+| S13 起 | F1 × M1 × DB0007 × 旧卡、新卡、混合会话 | 是 | TR-16 前端三格、TR-27 后端两格、TR-36 |
+| S13 起开关又关 | F1 × M1（开关关）× DB0007 × 新卡 | 是，换一批返回「趋势条件尚未开放」 | TR-27 测试 |
+| S3 起 | 任意前端 × G0 × DB0007 | 否：旧扩展不认识迁移头，扩展加载失败；宿主 readiness 仍可能通过，不能靠健康检查判断 | 回滚规则；守卫拒绝迁移头认不出的 gateway 部署；S4 的业务路径核对 |
+| 已有新卡后（S13 起） | 回滚到 M0（任意前端 × M0 × DB0007 × 新卡） | 否，不能当安全回滚方案：M0 解析不了新条件 | 回滚规则；合同能力检查（守卫放行 main 上的 revert，拦不住） |
+| S1 起，已有新卡后尤甚 | 恢复 F0（F0 × 任意） | 否：新卡的 `observations`、`sort=obs` 等让 strict 解析失败；Git revert 本身不保证解析能力 | 回滚规则；合同能力检查的前端四格；守卫前端模式只管来源 |
+| 任何时候 | 生产执行 0007 downgrade | 否，不是无损回滚：删掉观测表、视图与新增列 | 回滚规则 |
+| 任何时候 | 停 cron、关开关、保留 DB0007 与最低兼容网关 | 是，正确的止损方向；S3 之后最低 M0，产生新卡后最低 M1 | 回滚规则 |
 
 ---
 
@@ -926,7 +934,7 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 每批都要求：两种库全绿（任务分支 deselect `test_managed_copy`，D21）；ruff 与 format 通过；`ggwork_pick.observe` 覆盖率 ≥80%；集成分支刷新托管副本后完整套件（含 `test_managed_copy`）绿；本批任务归属的反例（第 12.2 节）都有「换成错误实现后变红」的日志附在 PR 里。
 - **批次 0**：延迟导入的子进程测试绿；依赖已锁定，托管副本已刷新；合同夹具两端可用。
 - **批次 1**：0007 的升级、降级、重跑在两种库上都绿，JSON 列全覆盖测试仍绿；阶段 0 在本机跑完并出报告；GSC 七项实测有结论；RealShort 的 PR 测试绿、线上代码零改动、差分核对方案就绪；通过 G2。
-- **批次 2a**：金丝雀执行器用假 transport 加本机 PG 端到端跑通，传输层包络测试绿；自检、Railway 配置、守卫、前端合同测试都绿；通过 G3；上线步骤 S0–S7 完成，金丝雀开跑。
+- **批次 2a**：金丝雀执行器用假 transport 加本机 PG 端到端跑通，传输层包络测试绿；自检、Railway 配置、守卫、前端合同测试都绿；通过 G3，第 14.3 节标「S0 前」的处置已合入；上线步骤 S0–S7（含 S6a 预检）完成，金丝雀开跑。
 - **批次 2b**：两个采集服务用真实 runner 与假 transport 端到端跑通（GSC 从空库起）；资料页集成测试与本机 e2e 零 skip；通过 G4，影子运行开始。
 - **批次 3**：智能体测试绿，合同夹具已重新生成，回滚矩阵的允许格全绿；TR-36 在生产 shadow 数据上通过；通过 G5、G6 之后，才分别执行 S12a/S12b、S13。
 
@@ -947,8 +955,8 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 | 11 | 序列整体乘常数；同请求加一条强变体 | TR-17 `test_scale_invariance`、`test_strong_variant_no_flip` |
 | 12 | 只改查询组成，平均排名不变而曝光上涨 | TR-09 `test_no_causal_label` |
 | 13 | first 很多但始终没有后续事件 | TR-10 `test_leadtime_denominator` |
-| 14 | 开启新功能后回滚 gateway | 第 10 节回滚矩阵；TR-16 前端格；TR-27 后端格；TR-34 守卫；S4 的认证业务路径核验（`test_bootstrap.py:58-69` 只证明初始化会抛错，不证明业务可用） |
-| 15 | 镜像里装的是旧扩展快照 | TR-13 `test_selfcheck`；TR-15 部署验证（S6）；`test_managed_copy` |
+| 14 | 开启新功能后回滚 gateway | 第 10 节回滚矩阵；TR-16 前端格；TR-27 后端格；TR-34 守卫（只管来源）；每次发布与回滚在要部署的提交上跑四格验证（合同能力，`rollback-matrix.md`）；S4 的认证业务路径核验（`test_bootstrap.py:58-69` 只证明初始化会抛错，不证明业务可用） |
+| 15 | 镜像里装的是旧扩展快照 | TR-13 `test_selfcheck`；TR-15 部署验证（S6 的包摘要）；`test_managed_copy`；S0 合并 main 后刷新托管副本并在最终共同 SHA 上重跑 |
 | 16 | W−1 漏掉某页的行、W0 出现 20 次曝光 | TR-09 `test_from_zero_needs_v_agreement`；TR-23b `test_e2e_counterexample_16` |
 | 17 | A′ 不支持且 A″ 失败 | TR-09 `test_site_admission`（unverifiable 分支） |
 | 18 | 规则改版前一天 rising、改版后一天 rising | TR-17 `test_confirmed_comparability` |
@@ -981,7 +989,7 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 |---|---|---|
 | G1 | 本计划定稿、批次 0 开工前 | 计划与设计的对照、四个前提、D1–D43、第 14 节处置、TR-33 合同 |
 | G2 | 批次 1 合并后，TR-17 编码前，RealShort PR 合并前 | 阶段 0 报告、trend-rules 全文与去向；GSC 实测结论；RealShort 零改动方案的等价性 |
-| G3 | 0007 上生产前（S0 之前） | 迁移、授权、视图、预置行、回滚矩阵、租约与唯一写入口、金丝雀执行器、守卫 |
+| G3 | 0007 上生产前（S0 之前） | 迁移、授权、视图、预置行、回滚矩阵、租约与唯一写入口、金丝雀执行器、守卫。**本轮结论（2026-09-25，`feat/trends-radar` 的 `c095fe4`）**：分层审有条件放行基础设施（迁移、授权、租约、唯一写入口没有上线阻塞，4 项 P2、2 项 P3），但不批准按当前限速与排期开跑 S7；接缝审暂不通过（4 项 P1：金丝雀有效负载准入、阶段 0 节奏没进生产且排期漏算半速、首次验证码没有跨日终止、S4 导入 S11 才交付的模块；另有 2 项 P2）。逐条处置与门槛见第 14.3 节 |
 | G4 | 批次 2b 完成、影子运行开始前 | 采集状态机、切片、准入与逐剧核对、冻结输入、清理、联动配对、反例表 |
 | G5 | 打开 `PICK_OBS_PUBLISH` 前（S12a、S12b 各一次） | 金丝雀报告、影子抽检、TR-36、连接账实测 |
 | G6 | 打开 `PICK_OBS_AGENT` 前 | 智能体侧、schema 开关、提示词、核对接线、前端混合会话 |
@@ -1088,3 +1096,25 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 | A-15 | P2 | 联动物化后缓存，缺时效重判 | 采纳 | D13：缓存冻结事实，可行动性在判定时刻计算；TR-10 `test_link_actionability_read_time`、TR-24 `obs-link.test` |
 | A-16 | P2 | 回答核对可能漏接线；「所有反例变红」只在 2b 是门槛 | 采纳 | 核实：`middleware.py:103` 只传两个参数。D42 必填参数；TR-28 走真实 `_record_checks`；12.1 要求每批都附本批反例的变红日志 |
 | A-17 | P2 | 35.5 人日只能算条件预算，日历依据不足 | 采纳 | 第 13 节重估并单列等待、标注与运行时长；第 9 节写明并行人数与用户响应假设 |
+
+### 14.3 G3 处置
+
+评审对象：`feat/trends-radar` 的 `c095fe4`（基线 `1df57d6`），两路：分层审与接缝补漏批判。两路都没有访问 Google、生产库或生产服务，也没有重跑数据库套件（扩展 3417、前端 2747 通过是已有证据）。编号沿用评审原文：「分层 P2-1」是分层审的 P2-1，「接缝 1」是接缝审的第 1 条，A–E 是两路对同一组问题的回答；两路指向同一问题的合成一行。分层审没有核实到 P1；接缝审列了 4 项 P1。
+
+**放行口径**：标「S0 前」的各项合入 `feat/trends-radar`，并按第 10 节 S0 在最终共同 SHA 上重跑之后，才开始 S0；S7 另需 S6a 通过。标「G4 前」的不阻塞 S0–S7（金丝雀不发布集合），在 G4 之前关闭。本节记的是处置决定与落点；各项是否已经合入，以集成时的提交与测试为准。落点里的「G3 金丝雀修复」「G3 D24 修复」「G3 文档对齐」是本轮 G3 修复的三组工作。G3 文档对齐另加 `customizations/pick-workbench/tests/observe/test_rollout_plan.py`，把第 10 节的 S0、S4、S5、S11、部署来源与回滚矩阵（两份一致、含库维度）、`deploy-guard.md` 的 cron 一条、四格验证点名的测试，以及本节列全两路的编号，都对着代码与文件钉住；CI 的触发路径随之加上本计划与 `api.test.ts`。
+
+| 编号 | 级别 | 要点 | 处置 | 落点 | 门槛 |
+|---|---|---|---|---|---|
+| 接缝 1 | P1 | 共享批次存在不等于有效负载：对照身份缺失、近期剧目为零时只跑市场词，也能报 100% 覆盖；缺失清单只写在 `plan_json.notes`，`status` 看不到 | 采纳 | 新增 S6a 不发 HTTP 的预检 `python -m ggwork_pick.observe.trends preflight`（以实现为准）；明确最低负载与必要对照，不满足就拒跑，或把该日记为无效验收日、不计入三天与七天，原因进日志与 `status`。G3 金丝雀修复；第 10 节 S6a 由 G3 文档对齐写入 | S0 前 |
+| 接缝 2、分层 P2-1、两路的 A | P1、P2 | 阶段 0 的 `--pace user`（桶 4、每分钟补 2）没进生产，`run.py` 固定构造默认 `EnvelopePacer()`（桶 8、每分钟补 4）；容量校验「计划 ÷ 2.9 + 40 分钟」漏算熔断后整晚半速，canary2 的排期装不下一次早期熔断 | 采纳 | 生产节奏经 `PICK_OBS_TRENDS_PACE`（默认 `user`）交付，与计划量、起跑时刻一起冻结；容量校验绑定所选节奏，用真实执行器与假时钟覆盖无熔断、早期 429 后半速、午夜续跑、截止截断，不能只改常数 2.9；优先减量或提前起跑，保留 01:45 硬截止，`ModeLimits`、cron 小时范围、部署安全时段、测试与手册一起改（第 9 节、`budget.py`、`deploy/pick-obs/trends/railway.toml`、`packaging.md`）；target_date 与 D23 不变，`window_end` 随首次建批次的时刻变；参数在计入验收天数之前固定，中途改就开新的验收周期。G3 金丝雀修复；S5 变量表的 `PICK_OBS_TRENDS_PACE` 由 G3 文档对齐写入 | S0 前 |
+| 接缝 3 | P1 | 第 9 节「出现验证码即终止」没有跨日落实：`session_summary.py` 与 `run.py` 只看熄火天数达到 2，第一次验证码之后次日照常采集；`test_trends_run.py:280` 钉住了这一行为 | 采纳 | 「验证码或同意墙出现一次」与「其他原因熄火累计两天」分开判定，依据持久化记录，启动拒跑与收尾同一口径，崩溃后也成立；改掉钉住错误行为的测试。G3 金丝雀修复 | S0 前 |
+| 接缝 4、分层 P2-3 | P1、P2 | S4 要求导入 S11 才交付的 `ggwork_pick.observe.read`，照单执行必卡；扩展入口不依赖它，不是网关启动故障 | 采纳 | 第 10 节 S4 改验 `observe.selfcheck`、`observe.grants` 的导入，保留迁移头、扩展启动日志、权限实读、`regrant --check`、认证后的 `/api/pick/sync` 与普通选剧对话；`observe.read` 的导入检查移到 S11；不补空壳模块。G3 文档对齐 | S0 前 |
+| 接缝 6、分层 P3-1、两路的 E | P2、P3 | S5/S6 与 `packaging.md` 分叉：变量写成错名 `PICK_OBS_EGRESS_URL`，首次部署直接用 cron 配置，S6 没写怎样传 `--selfcheck-only`；计划写的是 `origin/main` | 采纳 | S5/S6 统一引用 `packaging.md` 的双配置流程（先自检配置、核对包摘要／角色／迁移头，再从同一提交切回 cron 配置，最后记守卫结果）；变量名统一为 `PICK_OBS_EGRESS_ECHO_URL`，代码不加旧名别名；S5 补 `PICK_OBS_TRENDS_ROUTE`、`PICK_OBS_TRENDS_GRANULARITY`（G2 定）与 `PICK_OBS_TRENDS_PACE`；D41、TR-34、第 10 节与手册改为经守卫核验的 `ggwork/main`；`deploy-guard.md` 的 cron 一条改指 `packaging.md`。G3 文档对齐 | S0 前 |
+| 分层 P2-4 | P2 | 守卫只保证 Git 来源与迁移链，不保证回滚后仍有 F1、M1 的合同能力：main 上 revert 掉 TR-16 的提交，守卫照样放行 | 采纳 | 第 10 节回滚规则、`rollback-matrix.md`、`deploy-guard.md` 把来源检查与合同能力检查分开写；每次发布与回滚在要部署的提交上跑四格验证，前端用例名必须出现在输出里，被删或被跳过按没过；S13 之后的 M1 下限同法验证。G3 文档对齐 | S0 前 |
+| 分层「回滚矩阵应明确数据库维度」 | — | 矩阵没有库维度：F1×G0×DB0006 与 F1×M0×DB0007 的允许格、任意前端×G0×DB0007 的禁止格、已有新卡后回滚 M0 或恢复 F0、0007 downgrade、止损方向 | 采纳 | 第 10 节回滚矩阵与 `rollback-matrix.md` 逐格补齐。G3 文档对齐 | S0 前 |
+| 接缝「S0 合并」 | — | 合并 main 之后没写要刷新托管副本、在最终共同 SHA 上重跑；`c095fe4` 的结果不能替代合并后的证据 | 采纳 | 第 10 节 S0。G3 文档对齐 | S0 |
+| 分层 P2-2、接缝 5、两路的 C | P2 | 标题 A→B→A 让人工对应确认自动恢复，违反 D24 的「失效后重新确认」；`test_decisions_state.py:122` 钉住了这一行为。空平台拒绝确认可以接受 | 采纳 | 确认绑定对应关系的修订号，标题、平台或有效身份映射变化就推进修订号，只有新确认才能恢复；旧集合按冻结版本读，不改写历史；改掉钉住错误行为的测试。空平台不放宽 `CorrespondenceConfirm.platform`，不用占位值，页面说明「平台未知，先补全来源资料」（TR-25）。G3 D24 修复 | G4 前 |
+| 分层 P3-2、两路的 D | P3 | 强停后「不会丢状态」说过了头：预算先提交，请求日志与熔断状态在响应之后才提交，中间被杀会丢未提交的响应并重做未完成单元；没有 SIGTERM 处理 | 手册改写；SIGTERM 收尾列为后续改进 | `packaging.md` 改为「已提交的状态保留，预算不退；未提交的响应、最新 cookie 或熔断事件可能丢失，续跑可能重做未完成单元；五分钟是租约失效的上界，不是恢复时间」；有界 SIGTERM 收尾（停发新请求、完成当前响应事务、释放租约）不阻塞 G3 | 手册 S0 前；SIGTERM 后续 |
+| 两路的 B | — | 市场对照短语补齐只保证清单完整，不证明该市场、该粒度下有数据 | 采纳；不阻塞 0007，也不阻塞验证出口、限速、预算、租约的金丝雀 | 每个 geo 在金丝雀开始前按用途（可用性正对照、行业大盘对照）选词，按 G2 的粒度小样本验证后冻结；中途换词就开新基线；`no_data` 记为该市场对照不可用，不补零，不为刷出数据重试；没有合格基线时不出依赖它的业务结论（TR-17 `control_unavailable`、TR-30 汇总）；所有正对照都缺、退化成接缝 1 那种小负载时，阻塞有效验收 | 金丝雀开始前冻结 |
+| 接缝「共享数据库」 | — | 没有已成立的「采集拖垮网关」路径；NullPool 不证明 Supavisor 端只有两条物理连接，连接余量（约 52–57／上限 60）待实测；`status` 短时多一条连接；0007 的 DDL 会取迁移锁 | 记录 | S0–S4 部署冻结照旧；S7 首晚与 G5 的连接账实测（`supabase.md` 连接账） | G5 |
+| 其余逐层与逐接缝判断 | — | 迁移 0007、observer 授权、`db.py`／`lease.py`／唯一写入口、`selfcheck.py`、守卫的迁移防回退、Railway 仓库配置、前端 F1 先于网关上线、S2→S3 授权自举、S3 网关启动、镜像与共享批次链路：可以上线，没有发现阻塞 | 无需处置 | — | — |

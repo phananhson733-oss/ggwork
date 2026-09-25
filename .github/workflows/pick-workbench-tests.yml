@@ -45,6 +45,8 @@ on:
       - '**/.gitignore'
       - '**/.railwayignore'
       - 'docs/pick-workbench/observe-runbook/**'
+      - 'docs/plans/2026-09-25-trends-radar-impl-plan.md'
+      - 'frontend/tests/unit/core/pick/api.test.ts'
       - 'scripts/pick-deploy-guard.py'
       - 'scripts/_pick_deploy_guard_readers.py'
   pull_request:
@@ -80,6 +82,8 @@ on:
       - '**/.gitignore'
       - '**/.railwayignore'
       - 'docs/pick-workbench/observe-runbook/**'
+      - 'docs/plans/2026-09-25-trends-radar-impl-plan.md'
+      - 'frontend/tests/unit/core/pick/api.test.ts'
       - 'scripts/pick-deploy-guard.py'
       - 'scripts/_pick_deploy_guard_readers.py'
   workflow_dispatch:
