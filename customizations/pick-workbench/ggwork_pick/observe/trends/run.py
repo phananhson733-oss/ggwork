@@ -15,9 +15,13 @@ One trigger, in this order (plan TR-14 step 1-6):
    lease);
 6. the summary and the codes; a canary session is withheld: it never publishes a set.
 
-TR-20 seam: publishing lands in _finish (the `publish` argument). A canary session never calls it; a stable session in
-this task has no task source yet (TR-18's WatchTaskSource) and is refused before it starts, so with no publisher the
-outcome is withheld. TR-20 passes a publisher that writes the set in the finishing step and returns its id.
+TR-20's seams, both unused here (a canary session never publishes, and a stable one has no task source yet, TR-18):
+- `refetch` (executor.Refetch): after the task list, a hook that may run more units through the executor's gate, on
+  the same client, for design 4.9 #6's consistency re-fetch of the first hits. The finishing step cannot send a request.
+- `publish`: called in the finishing step with a Finishing (the batch, its plan and progress, the machines, the summary
+  document, the codes the session came to, and the uncovered dramas in the contract's UncoveredUnit shape), returns a
+  Published: the set's id or None, and the status codes it adds (not_published_low_coverage when design 4.10's 80%
+  gate holds the set back). The batch is published when there is an id, withheld otherwise, with every code.
 """
 
 import logging
@@ -31,8 +35,9 @@ from uuid import uuid4
 import httpx
 
 from ggwork_pick.observe.clock import Clock
+from ggwork_pick.observe.contract import STATUS_CODES
 from ggwork_pick.observe.crypto import StateCipher
-from ggwork_pick.observe.errors import ExitCode, Refused
+from ggwork_pick.observe.errors import ExitCode, Refused, StateUnavailable
 from ggwork_pick.observe.instants import instant, stamp
 from ggwork_pick.observe.lease import DbStateStore, LeasedStep, LeasedWriter, ReadStep, collector_session
 from ggwork_pick.observe.trends import budget, pacing
@@ -41,7 +46,7 @@ from ggwork_pick.observe.trends import session_summary as summary
 from ggwork_pick.observe.trends.canary import SourceUnits
 from ggwork_pick.observe.trends.contract_check import contract_check_due, contract_check_units, contract_check_verdict
 from ggwork_pick.observe.trends.egress import EgressProbe
-from ggwork_pick.observe.trends.executor import Executor, Machines, UnitOutcome, restore_machines
+from ggwork_pick.observe.trends.executor import Executor, Machines, Refetch, UnitOutcome, restore_machines
 from ggwork_pick.observe.trends.settings import Settings
 from ggwork_pick.observe.trends.units import SessionPlan, cut_to_plan, ordered, plan_budget
 
@@ -49,7 +54,6 @@ logger = logging.getLogger(__name__)
 
 TRENDS = "trends"
 WINDOW_LAG = timedelta(hours=3)  # design 4.9: the latest hours Trends still revises are left out
-Publish = Callable[[LeasedStep, rows.BatchRow], Awaitable[str | None]]
 
 
 def window_end_of(created_at: datetime) -> datetime:
@@ -114,10 +118,17 @@ async def refusal_codes(step: ReadStep, day: Day, machines: Machines) -> tuple[s
 
 
 async def mark_refused(step: LeasedStep, day: Day, codes: tuple[str, ...]) -> None:
-    """The target date's row carries the codes: added to an existing row, or a refusal row (no plan, no window)."""
+    """The target date's row carries the codes: added to an existing row, or a refusal row (no plan, no window). A
+    session that died and left its row (or an earlier night's) running is closed as failed: a refused day does not run
+    again, so nothing would ever close it (the run_status view would show it running for good)."""
+    closed = await rows.abandon_unfinished(step, day.target_date)
+    if closed:
+        logger.warning("[pick-obs] trends closed %d earlier batch(es) left running", closed)
     batch = await rows.find_batch(step, day.target_date)
     if batch is not None:
-        await rows.update_batch(step, batch.id, status_codes_json=list(summary.ordered_codes({*batch.status_codes, *codes})))
+        merged = list(summary.ordered_codes({*batch.status_codes, *codes}))
+        closing = {"outcome": "failed", "finished_at": stamp(step.now)} if batch.outcome == "running" else {}
+        await rows.update_batch(step, batch.id, status_codes_json=merged, **closing)
         return
     carried = await carried_codes(step, day.target_date)
     values = {"window_end": None, "plan": None, "planned_units": None, "outcome": "failed", "finished_at": step.now}
@@ -172,6 +183,15 @@ async def _adopt(step: LeasedStep, batch_id: str, values: Mapping[str, Any]) -> 
     )
 
 
+def plan_of(batch: rows.BatchRow) -> SessionPlan:
+    """The batch's task list as it was written when the batch was created; StateUnavailable (exit 3) when it cannot be
+    read back, never a list made afresh in its place (counterexample 1: the list, like window_end, is the batch's)."""
+    try:
+        return SessionPlan.from_dict(batch.plan)
+    except (ValueError, TypeError, KeyError):
+        raise StateUnavailable(f"批次 {batch.id} 的 plan_json 读不回来：不另起任务清单，先查这一行（手册 trends-session.md）") from None
+
+
 class Progress:
     """The units done so far, as summary_json keeps them; replaced, never changed in place."""
 
@@ -208,6 +228,41 @@ class Ran:
     units: Mapping[str, Mapping[str, Any]]
     machines: Machines
     warmed: bool
+
+
+@dataclass(frozen=True)
+class Finishing:
+    """What the finishing step hands TR-20's publisher."""
+
+    ran: Ran
+    document: Mapping[str, Any]
+    codes: tuple[str, ...]
+
+    @property
+    def batch(self) -> rows.BatchRow:
+        return self.ran.batch
+
+    @property
+    def uncovered_dramas(self) -> tuple[dict[str, str], ...]:
+        """The uncovered units that name a drama, as the set summary's UncoveredUnit (identity, geo, reason): market
+        series and the contract check name none."""
+        listed = self.document["uncovered_units"]
+        return tuple({"identity": unit["identity"], "geo": unit["geo"], "reason": unit["reason"]} for unit in listed if unit["identity"] is not None)
+
+
+@dataclass(frozen=True)
+class Published:
+    """The publisher's answer: the set's id (None: held back) and the status codes it adds (contract STATUS_CODES)."""
+
+    set_id: str | None
+    codes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not set(self.codes) <= set(STATUS_CODES):
+            raise ValueError("a publisher adds only contract STATUS_CODES")
+
+
+Publish = Callable[[LeasedStep, Finishing], Awaitable[Published]]
 
 
 async def _judge(step: LeasedStep, day: Day, ran: Ran) -> summary.Judged:
@@ -255,8 +310,9 @@ async def _finish(writer: LeasedWriter, day: Day, ran: Ran, publish: Publish | N
         judged = await _judge(step, day, ran)
         codes = summary.session_codes(ran.machines.breaker, judged)
         document = _document(ran, judged)
-        set_id = None if day.settings.canary or publish is None else await publish(step, ran.batch)
-        outcome = "published" if set_id is not None else "withheld"
+        published = Published(None) if day.settings.canary or publish is None else await publish(step, Finishing(ran, document, codes))
+        codes = summary.ordered_codes({*codes, *published.codes})
+        outcome = "published" if published.set_id is not None else "withheld"
         await rows.update_batch(
             step,
             ran.batch.id,
@@ -267,7 +323,7 @@ async def _finish(writer: LeasedWriter, day: Day, ran: Ran, publish: Publish | N
             breaker_events=document["breaker_events"],
             summary_json=document,
             status_codes_json=list(codes),
-            published_set_id=set_id,
+            published_set_id=published.set_id,
         )
     logger.info(
         "[pick-obs] trends %s finished: %s, %d/%d units, codes %s",
@@ -279,7 +335,16 @@ async def _finish(writer: LeasedWriter, day: Day, ran: Ran, publish: Publish | N
     )
 
 
-async def run_session(day: Day, source: TaskSource, *, writer: LeasedWriter, cipher: StateCipher, wiring: Wiring, publish: Publish | None = None) -> ExitCode:
+async def run_session(
+    day: Day,
+    source: TaskSource,
+    *,
+    writer: LeasedWriter,
+    cipher: StateCipher,
+    wiring: Wiring,
+    publish: Publish | None = None,
+    refetch: Refetch | None = None,
+) -> ExitCode:
     """Steps 3-6 under a lease already held: refuse, open the batch, run what is left, finish."""
     loaded = await DbStateStore(writer, cipher).load()
     machines = restore_machines(loaded, target_date=day.target_date, now=wiring.clock.now())
@@ -289,7 +354,7 @@ async def run_session(day: Day, source: TaskSource, *, writer: LeasedWriter, cip
     if batch is None:
         logger.info("[pick-obs] trends %s is done already: nothing to do", day.target_date)
         return ExitCode.OK
-    plan = SessionPlan.from_dict(batch.plan)
+    plan = plan_of(batch)
     progress = Progress(batch, plan)
     store = DbStateStore(writer, cipher, limits=day.limits)
     executor = Executor(
@@ -306,7 +371,7 @@ async def run_session(day: Day, source: TaskSource, *, writer: LeasedWriter, cip
         transport=wiring.transport,
         on_unit=progress.on_unit,
     )
-    warmed = await executor.run(progress.pending())
+    warmed = await executor.run(progress.pending(), then=refetch)
     await _finish(writer, day, Ran(batch, plan, progress.units, executor.machines, warmed), publish)
     return ExitCode.OK
 
@@ -332,6 +397,7 @@ async def run_trends(
     environ: Mapping[str, str],
     wiring: Wiring,
     publish: Publish | None = None,
+    refetch: Refetch | None = None,
 ) -> ExitCode:
     """One trigger of the cron: nothing before the start or after the deadline; otherwise the session under the lease."""
     day, idle = day_of(settings, wiring.clock.now())
@@ -339,4 +405,4 @@ async def run_trends(
         logger.info("[pick-obs] trends %s: %s，什么都不做", day.target_date, idle)
         return ExitCode.OK
     async with collector_session(TRENDS, clock=wiring.clock, environ=environ) as session:
-        return await run_session(day, source, writer=session.writer, cipher=cipher, wiring=wiring, publish=publish)
+        return await run_session(day, source, writer=session.writer, cipher=cipher, wiring=wiring, publish=publish, refetch=refetch)

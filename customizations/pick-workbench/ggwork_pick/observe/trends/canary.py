@@ -3,7 +3,8 @@
 The control list is TR-05's trends/canary_controls.json (format trends-canary-controls-v1): identity keys, geo and
 group for each control drama, and one market phrase per geo, never a title. Titles come from the current shared
 catalog batch at run time, read through the collector's step (ggwp_import_batches and ggwp_drama_versions, which the
-observer may only read). Without the file the canary does not run: exit 2, before any request.
+observer may only read). Without the file the canary does not run: exit 2, before any request; nor without a published
+shared catalog batch (no titles, no controls: the market series alone measure nothing the canary is for).
 
 The canary's units, each one term (the bare title, design 4.7's judgement line) in a request of its own:
 - the market series: one per geo in the list (design 4.7's control series), priority 1. The list must have one for
@@ -12,8 +13,9 @@ The canary's units, each one term (the bare title, design 4.7's judgement line) 
   read each geo against its own. Checked when the source is built, before the database, so the load never changes
   in the middle of the canary when a title in a new language turns up;
 - the control dramas at their geo, priority 2;
-- the current batch's dramas in the six Euro-American languages listed within 14 days of the target date, at the geos
-  market-map-v1 plans for their language: first-round A geos at priority 3, B geos at priority 4;
+- the current batch's dramas in the six Euro-American languages listed within 14 days of the target date (listed_at
+  from target-14 to the target date, both ends in: ages 0 to 14, the span design 4.6's rule 2 splits into 0-7 and
+  8-14), at the geos market-map-v1 plans for their language: first-round A geos at priority 3, B geos at priority 4;
 - relatedsearches on every RELATED_EVERY-th drama unit in truncation order, unless the route is a_only (section 8).
 Only the titles are the day's own; the parameters stay fixed for the whole canary, so its days compare (section 9).
 """
@@ -260,6 +262,8 @@ class CanaryTaskSource:
         """The day's units in truncation order, relatedsearches mixed in; a control whose identity the current batch
         does not hold is left out and named in the notes."""
         batch_id, dramas = await current_catalog(step)
+        if batch_id is None:
+            raise Refused("没有已发布的共享剧库批次：金丝雀没有剧名与对照剧可查，只剩市场序列，拒绝跑金丝雀")
         by_identity = {drama.identity: drama for drama in dramas if _usable(drama.title)}
         market = tuple(self._market_units())
         controls, missing = self._control_units(by_identity)

@@ -8,6 +8,7 @@ process. What the session wrote is read back through a separate engine.
 
 import io
 import json
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -32,13 +33,17 @@ from trends_session_helpers import (
 )
 
 from ggwork_pick.observe.admin import cmd_reset_disable
-from ggwork_pick.observe.clock import ManualClock
+from ggwork_pick.observe.clock import ManualClock, random_source
 from ggwork_pick.observe.crypto import load_cipher
 from ggwork_pick.observe.errors import ExitCode
 from ggwork_pick.observe.instants import stamp
-from ggwork_pick.observe.lease import DbStateStore, LeasedWriter
+from ggwork_pick.observe.lease import DbStateStore, LeasedWriter, collector_session
 from ggwork_pick.observe.state import RuntimeState
 from ggwork_pick.observe.trends import breaker
+from ggwork_pick.observe.trends.canary import SourceUnits
+from ggwork_pick.observe.trends.run import Day, Published, Wiring, run_session
+from ggwork_pick.observe.trends.settings import settings_from
+from ggwork_pick.observe.trends.units import QueryUnit, unit_key
 
 
 @pytest_asyncio.fixture
@@ -205,15 +210,34 @@ async def test_resume_after_midnight_same_window(obs_url, tmp_path):
     assert await trigger(env, clock, first, controls=controls) == ExitCode.FAILED
     (batch,) = await batches(obs_url)
     done_before = set(batch["summary_json"]["units"])
+    others = [drama(500 + index, listed_at=EVE, title=f"another drama {index}") for index in range(30)]
+    await seed_catalog(obs_url, others, batch_id="cat-2", published_at=at(TARGET, 0, 20))
     clock.advance((at(TARGET, 0, 30) - clock.now()).total_seconds())
     assert await trigger(env, clock, FakeGoogle(clock), controls=controls) == ExitCode.OK
     (after,) = await batches(obs_url)
     assert after["id"] == batch["id"] and after["target_date"] == "2026-09-26"
     assert after["window_end"] == stamp(at(EVE, 20)) != stamp(at(EVE, 21))
-    assert after["plan_json"] == batch["plan_json"]  # the task list is not recomputed either
+    # the task list is not recomputed either, although a newer shared catalog batch came out in between
+    assert after["plan_json"] == batch["plan_json"] and after["plan_json"]["catalog_batch_id"] == "cat-1"
     assert done_before < set(after["summary_json"]["units"]) and after["outcome"] == "withheld"
     budget = await rows(obs_url, "select budget_day from ggwp_obs_budget where channel = 'trends'")
     assert [row["budget_day"] for row in budget] == ["2026-09-26"]  # midnight did not open a new budget day (D23)
+
+
+@pytest.mark.asyncio
+async def test_next_night_closes_the_one_left_running(obs_url, tmp_path):
+    """A night that died after its last trigger stays running until the next night's batch opens: then it is closed
+    as failed (abandon_unfinished), and the new night runs as usual."""
+    _, controls = await _night(obs_url, tmp_path, dramas=12)
+    env = trends_env(obs_url)
+    clock = ManualClock(at(EVE, 22, 0))
+    crashing = FakeGoogle(clock, on_request=crash_when(clock, lambda ordinal, now: ordinal == 8))
+    assert await trigger(env, clock, crashing, controls=controls) == ExitCode.FAILED
+    clock.advance((at(TARGET, 22, 0) - clock.now()).total_seconds())
+    assert await trigger(env, clock, FakeGoogle(clock), controls=controls) == ExitCode.OK
+    first, second = await batches(obs_url)
+    assert (first["outcome"], first["finished_at"]) == ("failed", stamp(at(TARGET, 22, 0)))
+    assert second["outcome"] == "withheld" and second["target_date"] == f"{TARGET + timedelta(days=1):%Y-%m-%d}"
 
 
 # ---- the deadline and truncation --------------------------------------------------------------------------------------
@@ -288,6 +312,73 @@ async def _save_state(url, state, cipher, clock) -> None:
             await DbStateStore(writer, cipher).save(state)
     finally:
         await db.dispose()
+
+
+async def _disable(url, cipher, clock, day) -> None:
+    """The persisted state as it is, with the breaker's third extinguished day on `day`: disabled_7d."""
+    db = open_db(url)
+    try:
+        async with await LeasedWriter.acquire(db, "trends", clock=clock, owner="proc-setup") as writer:
+            store = DbStateStore(writer, cipher)
+            state = await store.load()
+            days = (day - timedelta(days=4), day - timedelta(days=2), day)
+            disabled = breaker.BreakerState(breaker.BreakerDay(day, extinguished="rate_limited"), days, day)
+            await store.save(replace(state, breaker=disabled.to_dict()))
+    finally:
+        await db.dispose()
+
+
+@pytest.mark.parametrize("later", [False, True])
+@pytest.mark.asyncio
+async def test_refusal_closes_a_session_left_running(obs_url, tmp_path, later):
+    """A session dies part-way, then the channel is refused (disabled_7d) on the same night or the next: the batch it
+    left running is closed as failed, so the run_status view never shows a night running forever; the refused night
+    carries the code."""
+    _, controls = await _night(obs_url, tmp_path, dramas=12)
+    env = trends_env(obs_url)
+    clock = ManualClock(at(EVE, 22, 0))
+    crashing = FakeGoogle(clock, on_request=crash_when(clock, lambda ordinal, now: ordinal == 8))
+    assert await trigger(env, clock, crashing, controls=controls) == ExitCode.FAILED
+    clock.advance((at(TARGET if later else EVE, 22, 0) - clock.now()).total_seconds() + (0 if later else 1800))
+    refused_day = TARGET + timedelta(days=1) if later else TARGET
+    await _disable(obs_url, load_cipher(env), clock, refused_day)
+    google = FakeGoogle(clock)
+    assert await trigger(env, clock, google, controls=controls) == ExitCode.REFUSED
+    assert google.seen == []
+    found = await batches(obs_url)
+    assert [row["outcome"] for row in found] == ["failed"] * len(found) and all(row["finished_at"] for row in found)
+    assert found[0]["plan_json"] is not None and len(found) == (2 if later else 1)
+    assert found[-1]["status_codes_json"] == ["disabled_7d"]
+
+
+@pytest.mark.asyncio
+async def test_no_shared_catalog_refuses_the_canary(obs_url, tmp_path):
+    """No published shared catalog batch: the canary has no titles and no controls to ask, so it refuses (exit 2)
+    rather than running the market series alone; no request, no batch row."""
+    controls = write_controls(tmp_path, [])
+    clock = ManualClock(at(EVE, 22, 0))
+    google = FakeGoogle(clock)
+    err = io.StringIO()
+    assert await trigger(trends_env(obs_url), clock, google, controls=controls, err=err) == ExitCode.REFUSED
+    assert google.seen == [] and await batches(obs_url) == [] and "共享剧库批次" in err.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_unreadable_plan_is_state_unavailable(obs_url, tmp_path):
+    """A running batch whose plan_json cannot be read back: exit 3 with no request, never a task list made afresh in
+    its place (counterexample 1: the list, like window_end, is the batch's)."""
+    _, controls = await _night(obs_url, tmp_path, dramas=12)
+    env = trends_env(obs_url)
+    clock = ManualClock(at(EVE, 22, 0))
+    crashing = FakeGoogle(clock, on_request=crash_when(clock, lambda ordinal, now: ordinal == 8))
+    assert await trigger(env, clock, crashing, controls=controls) == ExitCode.FAILED
+    await execute(obs_url, "update ggwp_obs_batches set plan_json = :p", p=json.dumps({"format": "trends-session-plan-v0"}))
+    clock.advance(1800)
+    google, err = FakeGoogle(clock), io.StringIO()
+    assert await trigger(env, clock, google, controls=controls, err=err) == ExitCode.STATE_UNAVAILABLE
+    assert google.seen == [] and "plan_json" in err.getvalue()
+    (row,) = await batches(obs_url)
+    assert row["outcome"] == "running"
 
 
 @pytest.mark.asyncio
@@ -382,6 +473,70 @@ async def test_contract_check_without_an_answer_keeps_parse_error(obs_url, tmp_p
     assert "parse_error" in last["status_codes_json"]
 
 
+# ---- TR-20's seam -----------------------------------------------------------------------------------------------------
+
+
+class FixedSource:
+    """A stand-in task source for the stable mode, whose own (TR-18's WatchTaskSource) is not here yet."""
+
+    name = "fixed"
+
+    def __init__(self, units):
+        self._units = tuple(units)
+
+    async def units(self, step, *, target_date):
+        return SourceUnits(self._units, None, {})
+
+
+def _unit(item: str, term: str, geo: str, identity: str | None = None) -> QueryUnit:
+    return QueryUnit(unit_key(item, identity or term, geo, "H"), item, geo, (term,), term, "H", 1 if item == "market" else 3, identity=identity)
+
+
+PUBLISHED = {"published": Published("set-1"), "gated": Published(None, ("not_published_low_coverage",))}
+
+
+@pytest.mark.parametrize("answer", sorted(PUBLISHED))
+@pytest.mark.asyncio
+async def test_publish_seam_for_tr20(obs_url, tmp_path, answer):
+    """TR-20's seam in a stable session: after the units, a refetch hook runs a unit again through the same gate (paced,
+    reserved, logged); then the publisher gets the whole finishing picture in the finishing step (the batch, the
+    summary document, the codes, the uncovered dramas in the contract's shape) and returns the set id and the codes it
+    adds. The row is published or withheld with them."""
+    env = trends_env(obs_url, mode="stable")
+    clock = ManualClock(at(EVE, 20, 30))
+    google = FakeGoogle(clock, script={5: "429"})  # the second unit fails at its multiline; the third starts with the probe
+    title = _unit("title", "synthetic drama 1", "US", identity_of(drama(1)))
+    units = [_unit("market", "short drama", "US"), title, _unit("market", "Kurzdrama", "DE")]
+    seen = {}
+
+    async def refetch(run_unit):
+        seen["refetched"] = await run_unit(units[0])
+
+    async def publish(step, finishing):
+        seen["finishing"] = finishing
+        return PUBLISHED[answer]
+
+    wiring = Wiring(clock=clock, rng=random_source(3), transport=google.transport())
+    day = Day(settings_from(env), TARGET, settings_from(env).limits)
+    async with collector_session("trends", clock=clock, environ=env) as session:
+        status = await run_session(day, FixedSource(units), writer=session.writer, cipher=load_cipher(env), wiring=wiring, publish=publish, refetch=refetch)
+    assert status == ExitCode.OK
+    finishing = seen["finishing"]
+    assert finishing.document["fetched_units"] == 2 and finishing.codes == ()
+    assert finishing.uncovered_dramas == ()  # the title failed (a 429), it was not left uncovered
+    assert [unit["status"] for unit in finishing.document["failed_units"]] == ["rate_limited"]
+    assert seen["refetched"].result.status.value == "ok" and len(google.seen) == 1 + 2 * 4
+    (batch,) = await batches(obs_url)
+    assert len(await request_rows(obs_url)) == await budget_requests(obs_url) == batch["requests"] == len(google.seen)
+    expected = ("published", "set-1", []) if answer == "published" else ("withheld", None, ["not_published_low_coverage"])
+    assert (batch["outcome"], batch["published_set_id"], batch["status_codes_json"]) == expected
+
+
+def test_published_codes_are_contract_codes():
+    with pytest.raises(ValueError):
+        Published("set-1", ("low_coverage",))
+
+
 # ---- the read-only commands -------------------------------------------------------------------------------------------
 
 
@@ -402,3 +557,43 @@ async def test_status_and_selfcheck_only(obs_url, tmp_path):
     assert await trigger(env, clock, google, controls=controls, argv=["--selfcheck-only"], out=out) == ExitCode.OK
     assert "selfcheck ok" in out.getvalue() and google.seen == []
     assert await runtime_row(obs_url) == before  # neither command took the lease or wrote anything
+
+
+BAD_CONFIGURATIONS = {
+    "mode": {"PICK_OBS_TRENDS_MODE": "canary9"},
+    "state_key": {"PICK_OBS_STATE_KEY": None},
+    "egress_url": {"PICK_OBS_EGRESS_ECHO_URL": "http://echo.invalid/secret-path"},
+    "controls": {},  # the control list is missing
+}
+
+
+@pytest.mark.parametrize("bad", sorted(BAD_CONFIGURATIONS))
+@pytest.mark.asyncio
+async def test_selfcheck_only_checks_the_session_configuration(obs_url, tmp_path, bad):
+    """S6 runs --selfcheck-only once after the deploy: it checks what a run checks before it reads or sends anything
+    (the mode, the control list, the state key, the egress URL), so a bad value exits 2 then, not at the first
+    night's trigger. No request, no lease, no value echoed."""
+    _, controls = await _night(obs_url, tmp_path, dramas=3)
+    env = {name: value for name, value in {**trends_env(obs_url), **BAD_CONFIGURATIONS[bad]}.items() if value is not None}
+    clock = ManualClock(at(EVE, 12, 0))  # daytime, as S6 is
+    google, out, err = FakeGoogle(clock), io.StringIO(), io.StringIO()
+    path = tmp_path / "absent.json" if bad == "controls" else controls
+    status = await trigger(env, clock, google, controls=path, argv=["--selfcheck-only"], out=out, err=err)
+    assert (status, google.seen, out.getvalue()) == (ExitCode.REFUSED, [], "")
+    assert "canary9" not in err.getvalue() and "secret-path" not in err.getvalue()
+    assert (await runtime_row(obs_url))["lease_generation"] == 0
+
+
+@pytest.mark.asyncio
+async def test_unknown_variables_are_named(obs_url, tmp_path):
+    """Plan S5 names PICK_OBS_EGRESS_URL; the code reads PICK_OBS_EGRESS_ECHO_URL. A PICK_OBS_* variable the trends
+    entry does not read is named on stderr with the closest name it does read (never its value), and the command goes
+    on as it would."""
+    _, controls = await _night(obs_url, tmp_path, dramas=3)
+    env = trends_env(obs_url, PICK_OBS_EGRESS_URL="https://echo.example/secret-path")
+    clock = ManualClock(at(EVE, 12, 0))
+    out, err = io.StringIO(), io.StringIO()
+    status = await trigger(env, clock, FakeGoogle(clock), controls=controls, argv=["--selfcheck-only"], out=out, err=err)
+    assert status == ExitCode.OK and "selfcheck ok" in out.getvalue()
+    assert "PICK_OBS_EGRESS_URL" in err.getvalue() and "PICK_OBS_EGRESS_ECHO_URL" in err.getvalue()
+    assert "secret-path" not in err.getvalue() and "echo.example" not in err.getvalue()

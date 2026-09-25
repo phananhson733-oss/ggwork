@@ -1,6 +1,6 @@
 # Trends 夜间会话与 cron 入口（TR-14）
 
-代码：`ggwork_pick/observe/trends/{__main__,run,executor,units,canary,contract_check,settings,session_rows,session_summary,cli_status}.py`。设计 3.2、4.2–4.5、4.9–4.11、6.3；计划 TR-14、第 8 节、第 9 节、D10、D11、D23、D34；反例 1、2、10。
+代码：`ggwork_pick/observe/trends/{__main__,run,executor,units,canary,contract_check,settings,session_rows,session_summary}.py`，以及两个 cron 共用的 `ggwork_pick/observe/{cron,cron_status}.py`。设计 3.2、4.2–4.5、4.9–4.11、6.3；计划 TR-14、第 8 节、第 9 节、D10、D11、D23、D34；反例 1、2、10。
 
 启动顺序（自检、租约、库内状态）与退出码的来历见 `lease-and-selfcheck.md`；客户端与执行器的接口见 `trends-client.md`。本页只讲会话本身。
 
@@ -12,9 +12,13 @@
 |---|---|
 | `python -m ggwork_pick.observe.trends` 或 `… trends run` | 一次触发：到点就跑（或接着跑）当晚的会话，不到点或已过截止就什么都不做 |
 | `python -m ggwork_pick.observe.trends status` | 只读查看：运行时行（不含 cookie 罐与 UA）、最近 7 个预算日、最近 7 个批次，每行一个 JSON；不取租约，不写任何东西 |
-| `python -m ggwork_pick.observe.trends --selfcheck-only` | 只做启动自检，打印自检行（S6 核对这一行），不取租约、不发请求 |
+| `python -m ggwork_pick.observe.trends --selfcheck-only` | 先校验会话配置（模式等变量、金丝雀对照清单与市场序列、状态密钥、出口测量地址，与 `run` 发请求前的校验相同），再做启动自检，打印自检行（S6 核对这一行）；不取租约、不发请求。配置不对以 2 退出，所以 S6 当场就能发现，不用等第一晚 |
 
-参数写错只打印 usage 和一行固定提示，退出码 2，不回显输入。
+参数写错只打印 usage 和一行固定提示，退出码 2，不回显输入。命令行、`status`、`--selfcheck-only` 与出错处理在 `observe/cron.py`，gsc 的入口（TR-21）用同一套。
+
+**环境变量名写错**：每条命令开始前，这个服务不读的 `PICK_OBS_*` 变量逐个在 stderr 上点名，并给出最接近的正确名字（只列名字，不回显值），命令照常继续。已知的一处：计划第 10 节 S5 写的是 `PICK_OBS_EGRESS_URL`，代码（TR-02）读的是 `PICK_OBS_EGRESS_ECHO_URL`。U13 批准后按代码的名字设，设错了出口测量会静默不开，这条警告就是为它加的。
+
+**连接账**：`status` 运行的那几秒里以 `ggwp-obs-admin` 多占 1 条连接（设计 3.4 的「实际最多 2 条」只数两个采集进程，不含这条），读完就释放。采集进程在请求在外、两次写库之间不占连接，所以采集进行中跑 `status` 也不会挤掉它（`test_status_connections`）。
 
 ## 退出码
 
@@ -22,8 +26,8 @@
 |---|---|---|
 | 0 | 跑完了；或者不到起跑时刻、已过 01:45 截止、当天批次已结束或已发布，什么都不做 | 无 |
 | 1 | 中途失败：租约在别的进程手里、启动时等锁或语句超时、跑到一半租约被接管（`LeaseLost`） | 下一次触发自动接着跑 |
-| 2 | 拒跑，一个请求都没发：配置不对、金丝雀对照清单缺失或不合格式、自检不过、stable 还没有任务来源、`disabled_7d`、`canary_terminated` | 看报错一行；后两种见下文 |
-| 3 | 库内状态或运行时行读不回来（D34） | 按 `lease-and-selfcheck.md` 处理，不要删运行时行 |
+| 2 | 拒跑，一个请求都没发：配置不对、金丝雀对照清单缺失或不合格式、清单缺某个要查的 geo 的市场序列、没有已发布的共享剧库批次、自检不过、stable 还没有任务来源、`disabled_7d`、`canary_terminated` | 看报错一行；后两种见下文 |
+| 3 | 库内状态或运行时行读不回来（D34）；当天批次的 `plan_json` 读不回来 | 按 `lease-and-selfcheck.md` 处理，不要删运行时行；`plan_json` 坏了先查那一行，程序不会另起任务清单（反例 1） |
 | 130 | 被中断 | 重跑是安全的 |
 
 `disabled_7d` 与 `canary_terminated` 持续期间，每次触发都以 2 退出，这是有意的：Railway 上一连串失败的 cron 本身就是告警。
@@ -99,7 +103,7 @@ cron 每 30 分钟触发一次（20:00 到 01:30，TR-15 配置）。早于起�
 
 - 市场序列：清单里每个 geo 一条；
 - 对照剧：在各自的 geo 上取；
-- 当前共享批次（最新一个已发布的 `system:shared` catalog 批次，只读）里 `listed_at` 落在 target_date 前 14 天到 target_date 之间（含两端）的欧美六语剧目（en、es、de、fr、it、pt），在市场映射 v1 给该语言的首轮 geo 上取；
+- 当前共享批次（最新一个已发布的 `system:shared` catalog 批次，只读）里 `listed_at` 落在 target_date 前 14 天到 target_date 之间（含两端）的欧美六语剧目（en、es、de、fr、it、pt），在市场映射 v1 给该语言的首轮 geo 上取。「14 天内」按上架天数 0–14 算，与设计 4.6 规则 2 的「7 天内进 A、8–14 天进 B」同一口径（14 天的算在内），所以是 15 个日历日；没有已发布的共享批次时金丝雀以 2 拒跑（只剩市场序列，量不出金丝雀要量的东西）；
 - 每个单元一个词，只用裸剧名；
 - 按截断顺序每第 4 个剧目单元加 relatedsearches，去向为 `a_only` 时不加；
 - 对照清单里的 identity 在当前批次里找不到的，记在 `plan_json.notes.missing_controls`，不中断。
@@ -118,7 +122,7 @@ stable 模式的任务来源是 TR-18 的 `WatchTaskSource`，本任务里还没
 
 只有最新一次运行的码会成为横幅（`status_rules.py`），所以持续的状况每一行都要重写：
 
-- 拒跑时，当天已有批次行就把码并进去；没有就写一行拒跑行（outcome failed，没有 `plan_json`、没有 `window_end`，finished_at 为拒跑时刻），数据页的红色横幅因此不会被清掉。
+- 拒跑时，当天已有批次行就把码并进去；没有就写一行拒跑行（outcome failed，没有 `plan_json`、没有 `window_end`，finished_at 为拒跑时刻），数据页的红色横幅因此不会被清掉。当天或更早还停在 running 的批次（会话中途崩溃留下的），拒跑时一并记成 failed：被拒的日子不会再跑，不收尾的话 run_status 视图会一直显示在跑。
 - 停用解除或终止规则重置后再触发，会接管这一行：写上 `window_end` 与任务清单、改回 running，拒跑时的码不再带着。
 - `parse_error` 由下一个批次从上一个批次接过来，直到某次合同检查通过。
 
@@ -140,8 +144,15 @@ TR-30 修复原因后要重跑金丝雀：设 `PICK_OBS_CANARY_SINCE=YYYY-MM-DD`
 
 ## 发布接缝（TR-20）
 
-收尾在 `run._finish` 里：`publish` 参数是 TR-20 要接的发布函数，在收尾那个租约步骤里写集合并返回集合 id，批次记 published。金丝雀会话从不调用它；本任务里 stable 还没有任务来源，也没有发布函数，所以收尾一律记 withheld。
+两个接缝，本任务里都不接（金丝雀从不发布；stable 还没有任务来源），收尾一律记 withheld：
+
+- `refetch`（`executor.Refetch`）：任务清单跑完之后、客户端关闭之前调用，拿到一个「再跑一个单元」的函数。设计 4.9 第 6 条对 first 命中的一致性复取要发 HTTP，而收尾步骤里不能发请求，所以放在这里；复取的每个请求照样等限速器、扣预算、写请求行。
+- `publish`：在收尾那个租约步骤里调用，拿到 `Finishing`（批次、任务清单与进度、状态机、汇总文档、会话得出的状态码，以及 `uncovered_dramas`：按合同 `UncoveredUnit` 的形状列出没覆盖的剧目单元，市场序列与合同检查单元没有 identity，已滤掉），返回 `Published`（集合 id 或 None，外加它要加的状态码，比如 80% 覆盖门槛没过时的 `not_published_low_coverage`；只收合同 `STATUS_CODES` 里的码）。有 id 记 published，否则 withheld，码并进批次行。
+
+测试：`test_publish_seam_for_tr20`。
 
 ## 验收记录
 
-`test_trends_wiring.py::test_simulated_canary2_night`：canary2 从 22:00 起跑，260 部剧目、6 个对照，注入一次 503 与一次超时（都重跑成功），在本机 SQLite 与 PostgreSQL 上各跑一遍：419 个请求，模拟时间 22:00 到 00:05，覆盖率 1.0，withheld，包络、预算、请求行、传输日志四者一致；墙钟时间 SQLite 约 3 秒、PostgreSQL 约 15 秒。
+`test_trends_wiring.py::test_simulated_canary2_night`：canary2 从 22:00 起跑，260 部剧目、6 个对照、8 个 geo 的市场序列，注入一次 503 与一次超时（都重跑成功），在本机 SQLite 与 PostgreSQL 上各跑一遍：420 个请求，模拟时间约 2 小时 06 分（22:00 到 00:06），覆盖率 1.0，withheld，包络、预算、请求行、传输日志四者一致；墙钟时间 SQLite 约 3 秒、PostgreSQL 约 15 秒。
+
+`test_night_as_the_observer`：以按 TR-12 授权的观测角色（生产里是 `pick_observer`）连库跑一整晚（含一次重跑与一次暂停）再跑 `status`，授权够用。

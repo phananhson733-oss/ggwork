@@ -105,6 +105,11 @@ class UnitOutcome:
 
 
 OnUnit = Callable[[LeasedStep, UnitOutcome], Awaitable[None]]
+RunUnit = Callable[[QueryUnit], Awaitable[UnitOutcome]]
+# TR-20's hook (design 4.9 #6, the consistency re-fetch): given a way to run one more unit through the same gate, on
+# the same client, after the task list. What it does with the outcomes is its own; each request of them is paced,
+# reserved and logged like any other.
+Refetch = Callable[[RunUnit], Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -156,16 +161,18 @@ class Executor:
     def machines(self) -> Machines:
         return self._machines
 
-    async def run(self, units: Sequence[QueryUnit]) -> str | None:
-        """The warm-up, then `units` in order, on one client (one connection pool, design 4.1). Returns the warm-up's
-        status (None when the jar was already warmed for the target date)."""
+    async def run(self, units: Sequence[QueryUnit], *, then: Refetch | None = None) -> str | None:
+        """The warm-up, then `units` in order, then TR-20's `then`, on one client (one connection pool, design 4.1).
+        Returns the warm-up's status (None when the jar was already warmed for the target date)."""
         async with TrendsClient(
             jar=self._machines.jar, clock=self._clock, gate=self._gate, on_request=self._on_request, transport=self._transport, egress=self._egress
         ) as client:
             self._client = client
             try:
-                warmed = await self._warm(client) if units else None
+                warmed = await self._warm(client) if units or then is not None else None
                 await self._run_units(client, units)
+                if then is not None:
+                    await then(lambda unit: self._run_unit(client, unit))
             finally:
                 self._machines, self._client = replace(self._machines, jar=client.jar), None
         return warmed

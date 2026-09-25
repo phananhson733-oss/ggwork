@@ -8,7 +8,9 @@ from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 
+from ggwork_pick.observe import cron, selfcheck
 from ggwork_pick.observe.errors import ExitCode, Refused
+from ggwork_pick.observe.trends import __main__ as trends_entry
 from ggwork_pick.observe.trends import breaker, budget
 from ggwork_pick.observe.trends import session_summary as summary
 from ggwork_pick.observe.trends.canary import (
@@ -19,6 +21,7 @@ from ggwork_pick.observe.trends.canary import (
     PRIORITY_FIRST_ROUND_B,
     PRIORITY_MARKET,
     CanaryTaskSource,
+    CatalogDrama,
     euro_american_geos,
     load_controls,
     missing_market_geos,
@@ -265,12 +268,39 @@ def test_euro_american_geos_follow_market_map():
     assert PRIORITY_MARKET < PRIORITY_CONTROL < PRIORITY_FIRST_ROUND_A < PRIORITY_FIRST_ROUND_B
 
 
+@pytest.mark.asyncio
+async def test_recent_titles_are_those_listed_within_14_days():
+    """listed_at from target-14 to the target date, both ends in: age 0 to 14 days, the span design 4.6's rule 2
+    splits into 0-7 (A) and 8-14 (B). Age 15, a future date and no date are out."""
+    ages = {"today": 0, "a week": 7, "two weeks": 14, "too old": 15, "future": -1}
+    dramas = [CatalogDrama(json.dumps(["realshort-pick", name, "en"]), name, "en", TARGET - timedelta(days=age), None) for name, age in ages.items()]
+    undated = CatalogDrama(json.dumps(["realshort-pick", "undated", "en"]), "undated", "en", None, None)
+    complete = parse_controls({**_controls_document(), "market": [{"geo": geo, "term": "short drama"} for geo in CANARY_TITLE_GEOS]})
+    source = CanaryTaskSource(complete, granularities=("H",), related=False)
+    recent = {unit.terms[0] for unit in source._recent_units([*dramas, undated], TARGET)}
+    assert recent == {"today", "a week", "two weeks"}
+
+
 def test_related_mixed_every_fourth_drama_and_never_on_a_only():
     market = replace(_unit("market", priority=1, item="market"), identity=None)  # a market series names no drama
     dramas = [_unit(f"d{index}") for index in range(8)]
     mixed = with_related((market, *dramas), related=True)
     assert [unit.related for unit in mixed] == [False, True, False, False, False, True, False, False, False]
     assert not any(unit.related for unit in with_related((market, *dramas), related=False))
+
+
+# ---- the cron entry --------------------------------------------------------------------------------------------------
+
+
+def test_selfcheck_variables_named():
+    """observe.cron names the self-check's two variables itself (the write-path door gives it selfcheck_only alone)."""
+    assert cron.SELFCHECK_VARIABLES == {selfcheck.EXPECTED_COLLECTOR_VARIABLE, selfcheck.EXPECTED_ROLE_VARIABLE}
+    assert cron.SELFCHECK_VARIABLES <= trends_entry.TRENDS_VARIABLES
+
+
+def test_unknown_variables_listed_by_name():
+    env = {"PICK_OBS_TRENDS_MODE": "canary1", "PICK_OBS_EGRESS_URL": "x", "PICK_DATABASE_URL": "y", "PICK_OBS_AGENT": "1"}
+    assert cron.unknown_variables(env, trends_entry.TRENDS_VARIABLES) == ("PICK_OBS_AGENT", "PICK_OBS_EGRESS_URL")
 
 
 # ---- the weekly contract check ------------------------------------------------------------------------------------

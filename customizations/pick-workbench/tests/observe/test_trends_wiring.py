@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import io
 import time
 from collections.abc import Iterator
 from datetime import timedelta
@@ -19,6 +20,7 @@ import pytest
 import pytest_asyncio
 from obs_db_helpers import execute, is_postgres, migrated, open_db, rows, runtime_row
 from test_db_state import UNREADABLE, _full_state, _save
+from test_lease_as_observer import observer_url  # noqa: F401  (a fixture)
 from test_selfcheck import MISMATCHES
 from trends_fake_google import PHASES, FakeGoogle
 from trends_session_helpers import (
@@ -37,13 +39,14 @@ from trends_session_helpers import (
 )
 from trends_session_sim import Sent, assert_envelope_bounds
 
-from ggwork_pick.observe import lease
+from ggwork_pick.observe import cron_status, lease
 from ggwork_pick.observe.clock import ManualClock
 from ggwork_pick.observe.crypto import load_cipher
-from ggwork_pick.observe.db import APPLICATION_NAMES, ObsDatabase, StepLimits, database_url
+from ggwork_pick.observe.db import ADMIN_APPLICATION_NAME, APPLICATION_NAMES, ObsDatabase, StepLimits, database_url
 from ggwork_pick.observe.errors import ExitCode
 from ggwork_pick.observe.instants import stamp
 from ggwork_pick.observe.lease import LEASE_SECONDS, LeasedWriter, locked_runtime
+from ggwork_pick.observe.trends import __main__ as trends_entry
 from ggwork_pick.observe.trends import breaker
 
 TRANSIENT = frozenset({"503", "timeout"})
@@ -112,16 +115,30 @@ async def _assert_one_for_one(url, google: FakeGoogle) -> list[dict]:
 # ---- the envelope on the transport log (counterexample 2) ---------------------------------------------------------
 
 
+def _gap(google: FakeGoogle, ordinal: int) -> timedelta:
+    """From the answer of request `ordinal` to the sending of the next one."""
+    return google.seen[ordinal].sent_at - google.seen[ordinal - 1].done_at
+
+
 @pytest.mark.asyncio
 async def test_transport_level_envelope(obs_url, tmp_path):
     google = await _faulty_night(obs_url, tmp_path)
     sent = await _assert_one_for_one(obs_url, google)
     items = [row["budget_item"] for row in sent]
     assert {"warmup", "retry", "probe"} <= set(items) and items[0] == "warmup"
+    for seen in google.seen:
+        if seen.answer in TRANSIENT:  # TR-03's RETRY: the rerun goes 30-60 s after the failure
+            assert timedelta(seconds=30) <= _gap(google, seen.ordinal) <= timedelta(seconds=60)
+            assert sent[seen.ordinal]["budget_item"] == "retry"
     limited = next(seen for seen in google.seen if seen.answer == "429")
     after = google.seen[limited.ordinal]  # the next request: the probe, after the 30-minute pause
     assert after.sent_at - limited.done_at >= timedelta(minutes=30) and sent[limited.ordinal]["budget_item"] == "probe"
-    assert_envelope_bounds(transport_log(google))
+    log = transport_log(google)
+    assert_envelope_bounds(log)
+    half = log[after.ordinal - 1 :]  # a good probe: half speed for the rest of the target date, every gap doubled
+    for previous, current in zip(half, half[1:], strict=False):
+        least = 3.0 if current.unit == previous.unit else 50.0
+        assert (current.sent_at - previous.done_at).total_seconds() >= least
     (batch,) = await batches(obs_url)
     assert batch["breaker_events"] >= 1 and batch["coverage"] > 0.9
 
@@ -222,6 +239,7 @@ async def test_takeover_mid_http_trends(obs_url, tmp_path):
     assert status == ExitCode.FAILED and transport.before is not None
     assert await _written(obs_url) == transport.before  # no request row, budget count or raw row from the old owner
     assert transport.before["requests"] == len(google.seen) - 1  # the one that was out when the lease was lost
+    assert transport.before["budget"] == len(google.seen)  # but its reservation was committed before it went, and kept
     row = await runtime_row(obs_url)
     assert (row["lease_owner"], row["lease_generation"]) == ("proc-new", transport.generation)
     assert google.seen[-1].phase == "multiline"  # and nothing went out after it
@@ -322,6 +340,80 @@ async def test_startup_error_matrix(obs_url, tmp_path, case, monkeypatch):
     assert status == STARTUP[case]
     assert (google.seen == []) == (case != "control")
     assert [row["target_date"] for row in await batches(obs_url)] == (["2026-09-26"] if case == "control" else [])
+
+
+# ---- status beside a running collector (design 3.4's connection count) ---------------------------------------------
+
+
+async def _connections(url: str) -> dict[str, int]:
+    found = await rows(url, "select application_name as name, count(*) as n from pg_stat_activity where datname = current_database() group by 1")
+    return {row["name"]: row["n"] for row in found}
+
+
+class StatusMidRequest(httpx.AsyncBaseTransport):
+    """FakeGoogle behind a transport that, while the first multiline is out, runs `status` through the real entry and
+    counts the database's connections by application_name before it, while it reads, and after it."""
+
+    def __init__(self, google: FakeGoogle, url: str, env: dict, monkeypatch):
+        self.google, self.url, self.env = google, url, env
+        self.counts: dict[str, dict[str, int]] = {}
+        self.status: int | None = None
+        original = cron_status.status_lines
+
+        async def counting(step, channel):
+            self.counts["during"] = await _connections(self.url)
+            return await original(step, channel)
+
+        monkeypatch.setattr(cron_status, "status_lines", counting)
+
+    def transport(self) -> httpx.AsyncBaseTransport:
+        return self
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if self.status is None and PHASES[request.url.path] == "multiline":
+            self.counts["before"] = await _connections(self.url)
+            self.status = await trends_entry.amain(["status"], environ=self.env, out=io.StringIO())
+            self.counts["after"] = await _connections(self.url)
+        return self.google.handler(request)
+
+
+@pytest.mark.asyncio
+async def test_status_connections(obs_url, tmp_path, monkeypatch):
+    """`status` while a request is out: the collector holds at most its one connection (none, between steps), status
+    adds one of its own as ggwp-obs-admin while it reads, and it is gone when status returns. The runbook counts it."""
+    if not is_postgres(obs_url):
+        pytest.skip("pg_stat_activity is PostgreSQL's")
+    controls = await _night(obs_url, tmp_path, dramas=3)
+    clock = ManualClock(at(EVE, 22, 0))
+    env = trends_env(obs_url)
+    transport = StatusMidRequest(FakeGoogle(clock), obs_url, env, monkeypatch)
+    assert await trigger(env, clock, transport, controls=controls) == ExitCode.OK and transport.status == ExitCode.OK
+    before, during, after = (transport.counts[moment] for moment in ("before", "during", "after"))
+    collector, admin = APPLICATION_NAMES["trends"], ADMIN_APPLICATION_NAME
+    assert before.get(collector, 0) <= 1 and before.get(admin, 0) == 0
+    assert during.get(collector, 0) <= 1 and during[admin] == 1
+    assert after.get(collector, 0) <= 1 and after.get(admin, 0) == 0
+
+
+# ---- the production role --------------------------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_night_as_the_observer(observer_url, tmp_path):  # noqa: F811  (the imported fixture)
+    """Production runs the cron as pick_observer (D3, S5): a whole canary night with a retry and a pause, the catalog
+    read, the batch, the request and raw rows, the budget and the state, then status, on that role's grants alone."""
+    url, admin = observer_url
+    catalog = recent_catalog(12)
+    await seed_catalog(admin, catalog)
+    controls = write_controls(tmp_path, catalog[:2])
+    clock = ManualClock(at(EVE, 22, 0))
+    google = FakeGoogle(clock, script={5: "503", 20: "429"})
+    env = trends_env(url)
+    assert await trigger(env, clock, google, controls=controls) == ExitCode.OK
+    (batch,) = await batches(admin)
+    assert (batch["outcome"], batch["breaker_events"], len(await request_rows(admin))) == ("withheld", 1, len(google.seen))
+    assert await budget_requests(admin) == len(google.seen) and len(await raw_rows(admin)) > 0
+    assert await trigger(env, clock, FakeGoogle(clock), controls=controls, argv=["status"], out=io.StringIO()) == ExitCode.OK
 
 
 # ---- acceptance: one simulated night, end to end ------------------------------------------------------------------
