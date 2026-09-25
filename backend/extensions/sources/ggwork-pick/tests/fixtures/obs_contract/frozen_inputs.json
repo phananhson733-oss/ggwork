@@ -1,0 +1,759 @@
+{
+  "about": [
+    "ggwp_obs_sets.frozen_inputs_json (D36): read once per GSC round or Trends session and frozen with the set.",
+    "Discriminated by channel. rules carries every rules version the set used with all of its parameters."
+  ],
+  "model": "FrozenInputs",
+  "valid": [
+    {
+      "name": "trends",
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "trends",
+        "rules": [
+          {
+            "version": "trend-rules-v1",
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
+          },
+          {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+        ],
+        "granularity": "H",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "trends_daily",
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "trends",
+        "rules": [
+          {
+            "version": "trend-rules-v1",
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
+          },
+          {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+        ],
+        "granularity": "D",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "gsc",
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "gsc",
+        "rules": [
+          {
+            "version": "gsc-rules-v1",
+            "params": {
+              "tau": 0.05,
+              "surge_abs": 2000,
+              "surge_rel": 0.5,
+              "formal_base_min": 20,
+              "rising_7d_min": 100,
+              "rising_7d_ratio": 1.5,
+              "rising_7d_delta": 30,
+              "consistency_rel": 0.1,
+              "consistency_abs": 3,
+              "bh_q": 0.1
+            }
+          }
+        ],
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+        "mirror_version": 12,
+        "slices": [
+          {
+            "dataset": "C",
+            "pt_date": "2026-09-24",
+            "version_id": 3301,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-24T18:00:00.000000+00:00",
+            "watermark_absent": false
+          },
+          {
+            "dataset": "E",
+            "pt_date": "2026-09-20",
+            "version_id": 3120,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": null,
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-21T07:00:00.000000+00:00",
+            "watermark_absent": false
+          }
+        ],
+        "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+      }
+    },
+    {
+      "name": "gsc_without_a_prime_or_mirror",
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "gsc",
+        "rules": [
+          {
+            "version": "gsc-rules-v1",
+            "params": {
+              "tau": 0.05,
+              "surge_abs": 2000,
+              "surge_rel": 0.5,
+              "formal_base_min": 20,
+              "rising_7d_min": 100,
+              "rising_7d_ratio": 1.5,
+              "rising_7d_delta": 30,
+              "consistency_rel": 0.1,
+              "consistency_abs": 3,
+              "bh_q": 0.1
+            }
+          }
+        ],
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+        "mirror_version": null,
+        "slices": [
+          {
+            "dataset": "C",
+            "pt_date": "2026-09-24",
+            "version_id": 3301,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-24T18:00:00.000000+00:00",
+            "watermark_absent": false
+          },
+          {
+            "dataset": "E",
+            "pt_date": "2026-09-20",
+            "version_id": 3120,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": null,
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-21T07:00:00.000000+00:00",
+            "watermark_absent": false
+          }
+        ],
+        "totals": {"a": [9001, 9002], "a_prime": null, "a2_all": [9004], "a2_final": [9005]},
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown_channel",
+      "why": "trends or gsc",
+      "error": {"type": "union_tag_invalid"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "youtube",
+        "rules": [
+          {
+            "version": "trend-rules-v1",
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
+          },
+          {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+        ],
+        "granularity": "H",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "trends_with_snapshot",
+      "why": "legacy snapshots are GSC's",
+      "error": {"type": "extra_forbidden", "loc": "trends.legacy_snapshot_id"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "trends",
+        "rules": [
+          {
+            "version": "trend-rules-v1",
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
+          },
+          {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+        ],
+        "granularity": "H",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "legacy_snapshot_id": "x"
+      }
+    },
+    {
+      "name": "gsc_without_snapshot",
+      "why": "GSC freezes its legacy snapshot",
+      "error": {"type": "missing", "loc": "gsc.legacy_snapshot_id"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "gsc",
+        "rules": [
+          {
+            "version": "gsc-rules-v1",
+            "params": {
+              "tau": 0.05,
+              "surge_abs": 2000,
+              "surge_rel": 0.5,
+              "formal_base_min": 20,
+              "rising_7d_min": 100,
+              "rising_7d_ratio": 1.5,
+              "rising_7d_delta": 30,
+              "consistency_rel": 0.1,
+              "consistency_abs": 3,
+              "bh_q": 0.1
+            }
+          }
+        ],
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "mirror_version": 12,
+        "slices": [
+          {
+            "dataset": "C",
+            "pt_date": "2026-09-24",
+            "version_id": 3301,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-24T18:00:00.000000+00:00",
+            "watermark_absent": false
+          },
+          {
+            "dataset": "E",
+            "pt_date": "2026-09-20",
+            "version_id": 3120,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": null,
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-21T07:00:00.000000+00:00",
+            "watermark_absent": false
+          }
+        ],
+        "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+      }
+    },
+    {
+      "name": "gsc_with_granularity",
+      "why": "granularity is Trends'",
+      "error": {"type": "extra_forbidden", "loc": "gsc.granularity"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "gsc",
+        "rules": [
+          {
+            "version": "gsc-rules-v1",
+            "params": {
+              "tau": 0.05,
+              "surge_abs": 2000,
+              "surge_rel": 0.5,
+              "formal_base_min": 20,
+              "rising_7d_min": 100,
+              "rising_7d_ratio": 1.5,
+              "rising_7d_delta": 30,
+              "consistency_rel": 0.1,
+              "consistency_abs": 3,
+              "bh_q": 0.1
+            }
+          }
+        ],
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+        "mirror_version": 12,
+        "slices": [
+          {
+            "dataset": "C",
+            "pt_date": "2026-09-24",
+            "version_id": 3301,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-24T18:00:00.000000+00:00",
+            "watermark_absent": false
+          },
+          {
+            "dataset": "E",
+            "pt_date": "2026-09-20",
+            "version_id": 3120,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": null,
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-21T07:00:00.000000+00:00",
+            "watermark_absent": false
+          }
+        ],
+        "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "granularity": "H"
+      }
+    },
+    {
+      "name": "no_rules",
+      "why": "at least one rules version",
+      "error": {"type": "too_short", "loc": "trends.rules"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "trends",
+        "rules": [],
+        "granularity": "H",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "rules_without_params",
+      "why": "all parameters are frozen",
+      "error": {"type": "missing", "loc": "trends.rules.0.params"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "trends",
+        "rules": [{"version": "trend-rules-v1"}],
+        "granularity": "H",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "missing_decisions_version",
+      "why": "D24",
+      "error": {"type": "missing", "loc": "trends.decisions_version"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "trends",
+        "rules": [
+          {
+            "version": "trend-rules-v1",
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
+          },
+          {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+        ],
+        "granularity": "H",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "negative_alias_version",
+      "why": "versions are >= 0",
+      "error": {"type": "greater_than_equal", "loc": "trends.alias_version"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": -1,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "trends",
+        "rules": [
+          {
+            "version": "trend-rules-v1",
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
+          },
+          {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+        ],
+        "granularity": "H",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "bad_granularity",
+      "why": "H, D or HD",
+      "error": {"type": "literal_error", "loc": "trends.granularity"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "trends",
+        "rules": [
+          {
+            "version": "trend-rules-v1",
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
+          },
+          {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+        ],
+        "granularity": "W",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "bad_market_map",
+      "why": "market-map-v<n>",
+      "error": {"type": "string_pattern_mismatch", "loc": "trends.market_map_version"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "trends",
+        "rules": [
+          {
+            "version": "trend-rules-v1",
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
+          },
+          {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+        ],
+        "granularity": "H",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "slice_unknown_dataset",
+      "why": "C, D, E or Q",
+      "error": {"type": "literal_error", "loc": "gsc.slices.0.dataset"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "gsc",
+        "rules": [
+          {
+            "version": "gsc-rules-v1",
+            "params": {
+              "tau": 0.05,
+              "surge_abs": 2000,
+              "surge_rel": 0.5,
+              "formal_base_min": 20,
+              "rising_7d_min": 100,
+              "rising_7d_ratio": 1.5,
+              "rising_7d_delta": 30,
+              "consistency_rel": 0.1,
+              "consistency_abs": 3,
+              "bh_q": 0.1
+            }
+          }
+        ],
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+        "mirror_version": 12,
+        "slices": [
+          {
+            "dataset": "A",
+            "pt_date": "2026-09-24",
+            "version_id": 3301,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-24T18:00:00.000000+00:00",
+            "watermark_absent": false
+          }
+        ],
+        "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+      }
+    },
+    {
+      "name": "slice_unknown_shape",
+      "why": "whole or by_country",
+      "error": {"type": "literal_error", "loc": "gsc.slices.0.shape"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "gsc",
+        "rules": [
+          {
+            "version": "gsc-rules-v1",
+            "params": {
+              "tau": 0.05,
+              "surge_abs": 2000,
+              "surge_rel": 0.5,
+              "formal_base_min": 20,
+              "rising_7d_min": 100,
+              "rising_7d_ratio": 1.5,
+              "rising_7d_delta": 30,
+              "consistency_rel": 0.1,
+              "consistency_abs": 3,
+              "bh_q": 0.1
+            }
+          }
+        ],
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+        "mirror_version": 12,
+        "slices": [
+          {
+            "dataset": "C",
+            "pt_date": "2026-09-24",
+            "version_id": 3301,
+            "shape": "by_page",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-24T18:00:00.000000+00:00",
+            "watermark_absent": false
+          }
+        ],
+        "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+      }
+    },
+    {
+      "name": "vcheck_summary_missing_count",
+      "why": "seven counts",
+      "error": {"type": "missing", "loc": "gsc.vcheck_summary.reused"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "gsc",
+        "rules": [
+          {
+            "version": "gsc-rules-v1",
+            "params": {
+              "tau": 0.05,
+              "surge_abs": 2000,
+              "surge_rel": 0.5,
+              "formal_base_min": 20,
+              "rising_7d_min": 100,
+              "rising_7d_ratio": 1.5,
+              "rising_7d_delta": 30,
+              "consistency_rel": 0.1,
+              "consistency_abs": 3,
+              "bh_q": 0.1
+            }
+          }
+        ],
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+        "mirror_version": 12,
+        "slices": [
+          {
+            "dataset": "C",
+            "pt_date": "2026-09-24",
+            "version_id": 3301,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-24T18:00:00.000000+00:00",
+            "watermark_absent": false
+          },
+          {
+            "dataset": "E",
+            "pt_date": "2026-09-20",
+            "version_id": 3120,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": null,
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-21T07:00:00.000000+00:00",
+            "watermark_absent": false
+          }
+        ],
+        "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "regex_overflow": 2}
+      }
+    },
+    {
+      "name": "mirror_version_zero",
+      "why": "mirror versions start at 1",
+      "error": {"type": "greater_than_equal", "loc": "gsc.mirror_version"},
+      "value": {
+        "collector_version": "obs-0.3.0",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "market_map_version": "market-map-v1",
+        "link_rules_version": "link-rules-v1",
+        "channel": "gsc",
+        "rules": [
+          {
+            "version": "gsc-rules-v1",
+            "params": {
+              "tau": 0.05,
+              "surge_abs": 2000,
+              "surge_rel": 0.5,
+              "formal_base_min": 20,
+              "rising_7d_min": 100,
+              "rising_7d_ratio": 1.5,
+              "rising_7d_delta": 30,
+              "consistency_rel": 0.1,
+              "consistency_abs": 3,
+              "bh_q": 0.1
+            }
+          }
+        ],
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+        "mirror_version": 0,
+        "slices": [
+          {
+            "dataset": "C",
+            "pt_date": "2026-09-24",
+            "version_id": 3301,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-24T18:00:00.000000+00:00",
+            "watermark_absent": false
+          },
+          {
+            "dataset": "E",
+            "pt_date": "2026-09-20",
+            "version_id": 3120,
+            "shape": "whole",
+            "status": "fetched",
+            "stale": false,
+            "first_incomplete_hour": null,
+            "first_incomplete_date": null,
+            "usable_until": "2026-09-21T07:00:00.000000+00:00",
+            "watermark_absent": false
+          }
+        ],
+        "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+      }
+    }
+  ]
+}

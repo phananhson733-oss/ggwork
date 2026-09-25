@@ -12,7 +12,17 @@ Versions, in id order:
   v2        published and current: c-1 renamed, shortmax's platformRules yt from ok to no
   building  created, never finalized nor granted
   failed    created, then failed (its schema dropped)
-plus pick_mirror.series for one canonical drama (d-1) and series_state through / trimmed_before.
+plus pick_mirror.series for one canonical drama (rs0001) and series_state through / trimmed_before.
+
+The ReelShort side is gate_world's, with its d-N ids renamed to ids shaped like RealShort's book ids (request.ts
+reelshortId only takes [a-z0-9]{6,40}), and what the board's query tests (P3-3) need on top: metrics_valid of each kind,
+a d1 tie that float8 arithmetic would break, the raw yesterday and 7-day snapshot values, publish dates for the buckets,
+exported bill ranks, one long tag list, a non-canonical sibling (rs0006) and an id with no canonical row (rs0007), bill
+rows tied to their canonical id (one booked under the sibling, some with no click on their day), theater rows matched to
+rs0001 and to the sibling, two candidates on a theater that only takes its YouTube list and is not in use, signal
+payloads with distinct daily ranks and real week labels, and a latest snapshot that follows each version's moment.
+The manifests' counts and control totals are recounted by hand for these rows; P2's own gates check them
+(test_board_fixture.py).
 
 From customizations/pick-workbench, with the backend venv's python and PICK_TEST_PG_URL naming a throwaway cluster as
 a superuser (the same variable the backend tests use):
@@ -56,8 +66,13 @@ READER_SETTINGS = (
     ("idle_in_transaction_session_timeout", "15s"),
     ("timezone", "UTC"),
 )
-# c-1 to c-4: shortmax is yt ok in v1 and no in v2; moboreels is no in both.
+# c-1 to c-4: shortmax is yt ok in v1 and no in v2; moboreels and flareflow are no in both.
 PLATFORMS = ("shortmax", "dramabox", "moboreels", "flareflow")
+# c-5 and c-6: candidates on starshort, which only takes the rows on its YouTube list (yt only) and is not in use;
+# c-5 is on the list, c-6 is not. Each has one sh signal. (row_key, youtube)
+LIST_ONLY_PLATFORM = "starshort"
+LIST_ONLY_ROWS = (("c-5", True), ("c-6", False))
+LIST_ONLY_KIND = "sh"
 OLDEST_TITLE = "c-1 的剧名（最早）"
 V1_TITLE = "c-1 的剧名"
 V2_TITLE = "c-1 的剧名（v2 改名）"
@@ -70,6 +85,55 @@ AS_OF = {
     "failed": datetime(2026, 9, 24, 3, 39, tzinfo=UTC),
 }
 SERIES_DAYS = (date(2026, 9, 21), date(2026, 9, 22), date(2026, 9, 23))
+# gate_world's d-N as RealShort-shaped book ids; rs0006 is d-6, the sibling, and rs0007 has no canonical row at all.
+BOOK_IDS = {f"d-{n}": f"rs{n:04d}" for n in range(1, 7)}
+SIBLING = ("rs0006", "rs0001")
+NO_CANONICAL = "rs0007"
+SERIES_DRAMA = "rs0001"
+# rs_rows columns on top of gate_world's, per book id; the publish dates are days before the version's as_of.
+# s1_* / s7_* are the raw snapshot values (unfiltered): set wherever gate_world's rr1 / p1 / rr7 / p7 are, and equal to
+# them. gate_world sets rr1 and p1 (rr7 and p7) independently, so that each growth count differs; RealShort sets them
+# together (rs:src/lib/observe/queries.ts:463-464). rs0003's yesterday snapshot is there but unverified.
+# bill_orders and last_bill_on sum the canonical drama's bill rows (gate_world's BILLS and EXTRA_BILLS), as billBySibling does.
+RS_EXTRA = {
+    "rs0001": {
+        "metrics_valid": True,
+        "bill_rank": 2,
+        "tag_list": [f"标签{n}" for n in range(1, 11)],
+        "s1_rr": 1.5,
+        "s1_p": 2,
+        "s7_rr": 3.0,
+        "s7_p": 1,
+        "bill_orders": 7,
+        "last_bill_on": "2026-09-20",
+    },
+    # rr − s1_rr ties at 1000.20 in numeric; in float8 1000.30 − 0.10 is 1000.1999999999999, so the tie breaks.
+    "rs0002": {"metrics_valid": True, "rr": 1000.30, "s1_rr": 0.10, "s1_p": 1, "s7_rr": 2.0, "s7_p": 1},
+    "rs0003": {"metrics_valid": True, "rr": 1000.20, "s1_rr": 0.00, "s1_p": 0, "s7_rr": 1.0, "s7_p": 0},
+    "rs0004": {"metrics_valid": False, "bill_rank": 1, "last_bill_on": "2026-09-22"},
+}
+# rs_bill_orders beyond gate_world's two, as (bill_date, book id, promotion_type, order_cnt, source_rows): an order
+# booked under the sibling (it counts for rs0001), and rs0004's, whose bill_orders gate_world set without a bill row.
+EXTRA_BILLS = (("2026-09-19", "rs0006", "cps", 2, 1), ("2026-09-22", "rs0004", "cps", 7, 1))
+# Filtered clicks on a bill's own day (rs_clicks14 has rs0001's on 2026-09-20); every other bill row had none, and
+# book-x is no drama at all.
+SAME_DAY_CLICKS = {("2026-09-20", "rs0001"): 1}
+# gate_world's hand-counted totals, recounted by hand for the rows added here: c-5 and c-6 with their sh signals, and
+# EXTRA_BILLS (5 source rows and 15 orders in all).
+COUNTS = {"catalog_rows": 6, "catalog_signals": 8, "rs_ids": 7, "rs_bill_orders": 4}
+FRESHNESS = {"rows": 6, "withSignal": 5, "signals": 8}
+RS_COUNTS = {"ledger": 5}
+RANK_COUNTS = {"sh": 2, "rs_ledger": 5}
+LEDGER = {"rows": 5, "orders": 15}
+# RealShort's daily snapshot lands at 12:00 UTC in this world: a version cut before it has the day before's.
+SNAPSHOT_HOUR = 12
+PUBLISHED_DAYS_BEFORE = {"rs0001": 5, "rs0002": 20}
+# catalog_signals payloads by gate_world's SIGNALS index: c-1's week list (kw), and kd ranks that differ on 2026-09-02.
+SIGNAL_PAYLOADS = {
+    1: {"h": [["2026-09-14", "9.14–9.20"], ["2026-09-07", "9.7–9.13"]], "weeks": 2},
+    4: {"h": [["2026-09-02", 1, ""]]},
+    5: {"h": [["2026-09-01", 2, ""]]},
+}
 SERIES_THROUGH = date(2026, 9, 23)
 SERIES_TRIMMED_BEFORE = date(2026, 6, 25)
 _MARK_DROPPED = "UPDATE pick_mirror.versions SET status = 'dropped', dropped_at = $2 WHERE id = $1 AND status = 'published'"
@@ -91,39 +155,148 @@ def as_of_text(moment: datetime) -> str:
 # ---- the synthetic worlds ----------------------------------------------------------------------------------------
 
 
-def _catalog_rows(world, title: str) -> list[dict]:
-    rows = zip(world.tables["catalog_rows"], PLATFORMS, strict=True)
+# Same-title matches (in_site_ids): c-2 to the canonical rs0001, c-3 to its sibling.
+IN_SITE_IDS = {"c-2": ["rs0001"], "c-3": [SIBLING[0]]}
+
+
+def _list_only_rows(start: int) -> list[dict]:
+    import gate_world as gw
+    from mirror_rows import synthetic_row
+
     return [
-        {**row, "platform": platform, "lang": LANGUAGE, "title": title if row["row_key"] == "c-1" else f"{row['row_key']} 的剧名"} for row, platform in rows
+        synthetic_row("catalog_rows", n, row_key=key, has_signal=True, off_on=None, imported_at=gw.IMPORTED, platform=LIST_ONLY_PLATFORM, youtube=youtube)
+        for n, (key, youtube) in enumerate(LIST_ONLY_ROWS, start)
     ]
 
 
-def _rs_tables(world) -> dict:
-    """ReelShort rows with real-looking locale, slug and a canonical id: every drama is its own canonical."""
-    rs_rows = [
-        {**row, "platform": "reelshort", "lang": LANGUAGE, "title": f"{row['drama_id']} 的剧名", "locale": "en", "slug": f"{row['drama_id']}-slug"}
-        for row in world.tables["rs_rows"]
+def _catalog_rows(world, title: str) -> list[dict]:
+    """Real theaters and one language, gate_world's four rows and the two list-only candidates."""
+    rows = [{**row, "platform": platform} for row, platform in zip(world.tables["catalog_rows"], PLATFORMS, strict=True)]
+    return [
+        {
+            **row,
+            "lang": LANGUAGE,
+            "title": title if row["row_key"] == "c-1" else f"{row['row_key']} 的剧名",
+            **({"in_site_ids": IN_SITE_IDS[row["row_key"]]} if row["row_key"] in IN_SITE_IDS else {}),
+        }
+        for row in [*rows, *_list_only_rows(len(rows) + 1)]
     ]
-    rs_ids = [
-        {**row, "canonical_id": row["id"], "is_public_canonical": True, "locale": "en", "slug": f"{row['id']}-slug", "title": f"{row['id']} 的剧名"}
-        for row in world.tables["rs_ids"]
-    ]
-    return {"rs_rows": rs_rows, "rs_ids": rs_ids}
+
+
+def _signals(world) -> list[dict]:
+    """gate_world's signals with the payloads the rank tests read, and one sh signal for each list-only candidate."""
+    import gate_world as gw
+
+    signals = [{**row, "payload": SIGNAL_PAYLOADS.get(n, row["payload"])} for n, row in enumerate(world.tables["catalog_signals"])]
+    extra = [gw.signal_row(n, key, LIST_ONLY_KIND, 0) for n, (key, _) in enumerate(LIST_ONLY_ROWS, len(signals) + 1)]
+    return [*signals, *extra]
+
+
+def _book(drama_id: str | None) -> str | None:
+    return BOOK_IDS.get(drama_id, drama_id) if drama_id is not None else None
+
+
+def _rs_row(row: dict, as_of: datetime) -> dict:
+    book = _book(row["drama_id"])
+    days = PUBLISHED_DAYS_BEFORE.get(book)
+    published = {"publish_at": as_of_text(as_of - timedelta(days=days))} if days is not None else {}
+    names = {"row_key": f"reelshort-{book}", "drama_id": book, "title": f"{book} 的剧名", "slug": f"{book}-slug"}
+    return {**row, **names, "platform": "reelshort", "lang": LANGUAGE, "locale": "en", **published, **RS_EXTRA.get(book, {})}
+
+
+def _rs_id(row: dict, book: str, canonical: str | None) -> dict:
+    public = canonical == book
+    return {**row, "id": book, "canonical_id": canonical, "is_public_canonical": public, "locale": "en", "slug": f"{book}-slug", "title": f"{book} 的剧名"}
+
+
+def _canonical_of(book: str) -> str:
+    sibling, canonical = SIBLING
+    return canonical if book == sibling else book
+
+
+def _rs_ids(world) -> list[dict]:
+    """Every book id its own canonical but the sibling, which points at rs0001, and one id with no canonical row."""
+    books = [(row, _book(row["id"])) for row in world.tables["rs_ids"]]
+    rows = [_rs_id(row, book, _canonical_of(book)) for row, book in books]
+    return [*rows, _rs_id(world.tables["rs_ids"][-1], NO_CANONICAL, None)]
+
+
+def _billed(row: dict) -> dict:
+    """A bill row under a book id: its canonical id as rs_ids has it (none for a book no drama has), its day's clicks."""
+    book = row["book_id"]
+    canonical = _canonical_of(book) if book in BOOK_IDS.values() else None
+    return {**row, "canonical_id": canonical, "same_day_clicks": SAME_DAY_CLICKS.get((row["bill_date"], book), 0)}
+
+
+def _bills(world) -> list[dict]:
+    import gate_world as gw
+
+    rows = [{**row, "book_id": _book(row["book_id"])} for row in world.tables["rs_bill_orders"]]
+    extra = [gw.bill_row(n, *spec) for n, spec in enumerate(EXTRA_BILLS, len(rows) + 1)]
+    return [_billed(row) for row in [*rows, *extra]]
+
+
+def _rs_tables(world, as_of: datetime) -> dict:
+    """ReelShort rows with real-looking ids, locale and slug; bills, clicks and posted records follow the new ids."""
+    return {
+        "rs_rows": [_rs_row(row, as_of) for row in world.tables["rs_rows"]],
+        "rs_ids": _rs_ids(world),
+        "rs_bill_orders": _bills(world),
+        "rs_clicks14": [{**row, "drama_id": _book(row["drama_id"])} for row in world.tables["rs_clicks14"]],
+        "catalog_posted": [{**row, "drama_ids": [_book(i) for i in row["drama_ids"]]} for row in world.tables["catalog_posted"]],
+        "catalog_signals": _signals(world),
+    }
+
+
+def _v1_key(row_key: str) -> str:
+    drama = row_key.removeprefix("reelshort-")
+    return f"reelshort-{_book(drama)}" if drama != row_key else row_key
+
+
+def _v1_rows(title: str) -> list[dict]:
+    """gate_world's v1 candidates under the renamed ids: an identity names the row key the mirror has."""
+    import gate_world as gw
+
+    rows = [gw.v1_row(_v1_key(row_key), kinds, records) for row_key, (kinds, records) in gw.V1_CANDIDATES.items()]
+    list_only = [gw.v1_row(key, (LIST_ONLY_KIND,), (), theater="StarShort") for key, _ in LIST_ONLY_ROWS]
+    # The v1 pull of the same moment shows the same title; its rules page names the moment, so each pair is distinct.
+    return [*({**row, "title": title} if n == 0 else row for n, row in enumerate(rows)), *list_only]
+
+
+def latest_snapshot(as_of: datetime) -> str:
+    """The last daily snapshot RealShort had taken at `as_of` (SNAPSHOT_HOUR UTC each day)."""
+    return (as_of.astimezone(UTC) - timedelta(hours=SNAPSHOT_HOUR)).date().isoformat()
+
+
+def _with_totals(world, as_of: datetime):
+    """The manifest as RealShort would send it for these rows: counts, control totals and the latest snapshot."""
+    import gate_world as gw
+
+    ranks = world.manifest["meta"]["control"]["rankCounts"]
+    day = latest_snapshot(as_of)
+    world = gw.with_counts(world, **COUNTS)
+    for key, value in FRESHNESS.items():
+        world = gw.with_manifest(world, ("meta", "freshness", key), value)
+    world = gw.with_manifest(world, ("meta", "rsCounts", "ledger"), RS_COUNTS["ledger"])
+    world = gw.with_manifest(world, ("meta", "control", "rankCounts"), {**ranks, **RANK_COUNTS})
+    world = gw.with_manifest(world, ("meta", "control", "ledger"), LEDGER)
+    world = gw.with_manifest(world, ("latestSnapshot",), day)
+    days = world.manifest["snapshotDays"]
+    return gw.with_manifest(world, ("snapshotDays",), [*days[:-1], {**days[-1], "day": day}])
 
 
 def board_world(title: str, shortmax_yt: str, as_of: datetime):
-    """gate_world's baseline with real theaters and languages, one title and one YouTube rule chosen, at `as_of`."""
+    """gate_world's baseline with real theaters, languages and book ids, one title and one YouTube rule chosen, at `as_of`."""
     import gate_world as gw
 
     world = gw.baseline()
     world = gw.with_table(world, "catalog_rows", _catalog_rows(world, title))
-    for table, rows in _rs_tables(world).items():
+    for table, rows in _rs_tables(world, as_of).items():
         world = gw.with_table(world, table, rows)
+    world = _with_totals(world, as_of)
     world = gw.with_manifest(world, ("asOf",), as_of_text(as_of))
     world = gw.with_manifest(world, ("meta", "rules", "platformRules", "shortmax", "yt"), shortmax_yt)
-    # The v1 pull of the same moment shows the same title; its rules page names the moment, so each pair is distinct.
-    world = gw.with_v1_row(world, 0, title=title)
-    return world
+    return gw.with_v1(world, _v1_rows(title))
 
 
 def _rules_text(as_of: datetime) -> str:
@@ -213,7 +386,7 @@ async def _versions(conn, shared, importer) -> dict[str, int]:
 
 async def _series(conn) -> None:
     moment = AS_OF["v2"] + timedelta(minutes=40)
-    await conn.execute(_SERIES, "d-1", list(SERIES_DAYS), [1250.0, 980.5, 1430.25], [3, 2, 4], moment)
+    await conn.execute(_SERIES, SERIES_DRAMA, list(SERIES_DAYS), [1250.0, 980.5, 1430.25], [3, 2, 4], moment)
     await conn.execute(_SERIES_STATE, SERIES_THROUGH, SERIES_TRIMMED_BEFORE, moment)
 
 

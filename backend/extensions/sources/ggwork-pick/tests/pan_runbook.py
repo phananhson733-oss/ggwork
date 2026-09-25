@@ -1,7 +1,8 @@
 """The weekly pan check's runbook, docs/pick-workbench/supabase.md section 6, as the tests read and run it.
 
-Shared by test_pan_runbook_sql.py (the two SQL scripts, the host's threads), test_pan_runbook_disk.py (the container's
-disk) and test_pan_runbook_text.py (the pattern, the runbook's text). Shell commands are taken from the runbook text and
+Shared by test_pan_runbook_sql.py (the two SQL scripts, the host's threads), test_pan_runbook_obs.py (the scripts on the
+observation radar's tables), test_pan_runbook_disk.py (the container's disk) and test_pan_runbook_text.py (the pattern, the
+runbook's text). Shell commands are taken from the runbook text and
 run with bash after its PAN= line, a test directory standing in for the gateway volume at /data.
 """
 
@@ -42,17 +43,71 @@ JSON_COLUMNS = [
     ("ggwp_knowledge_versions", "batch_id, document_id", "metadata_json"),
     ("ggwp_candidate_sets", "id", "data_as_of_json"),
     ("ggwp_sync_runs", "id", "details_json"),
+    # Migration 0007: the observation radar's JSON columns. Frozen sets, judgment rows, alerts and decisions are rewritten
+    # like the candidate snapshots: a hit is replaced, the identity-valued keys (REDACT_KEEPS_KEYS) never are.
+    ("ggwp_candidate_sets", "id", "obs_as_of_json"),
+    ("ggwp_obs_sets", "id", "frozen_inputs_json"),
+    ("ggwp_obs_sets", "id", "summary_json"),
+    ("ggwp_obs_states", "id", "labels_json"),
+    ("ggwp_obs_states", "id", "flags_json"),
+    ("ggwp_obs_states", "id", "metrics_json"),
+    ("ggwp_obs_states", "id", "quality_note_json"),
+    ("ggwp_obs_states", "id", "paste_row_json"),
+    ("ggwp_obs_alerts", "id", "evidence_json"),
+    ("ggwp_obs_decisions", "id", "payload_json"),
+    ("ggwp_obs_identity_alias", "id", "evidence_json"),
+    ("ggwp_obs_milestones", "id", "details_json"),
+    ("ggwp_obs_runtime", "channel", "state_json"),
+    ("ggwp_obs_batches", "id", "plan_json"),
+    ("ggwp_obs_batches", "id", "summary_json"),
+    ("ggwp_obs_batches", "id", "status_codes_json"),
+    ("ggwp_obs_raw", "id", "params_json"),
+    ("ggwp_obs_raw", "id", "data_json"),
+    ("ggwp_gsc_slices", "id", "details_json"),
+    ("ggwp_gsc_vchecks", "id", "slice_versions_json"),
 ]
-# Checked, never rewritten: the identities a query excluded, which 换一批 replays against.
-KEPT_JSON_COLUMNS = [("ggwp_candidate_sets", "id", "excluded_json")]
-# pan-redact.sql clears the first eleven; the last three it never changes (the runbook stops and discusses).
-LOCATIONS = [
+# (table, text column) replaced whole by the placeholder when it hits: the knowledge file name, then 0007's drama titles and
+# discovery terms (design 3.5).
+REWRITTEN_TEXT = [
+    ("ggwp_knowledge_versions", "title"),
+    ("ggwp_obs_watch", "title"),
+    ("ggwp_obs_states", "title"),
+    ("ggwp_obs_states", "normalized_title"),
+    ("ggwp_obs_identity_alias", "old_title"),
+    ("ggwp_obs_identity_alias", "new_title"),
+    ("ggwp_obs_discoveries", "term"),
+    ("ggwp_obs_discoveries", "normalized_term"),
+]
+# Rows deleted when the column hits: a GSC query is part of the row's key, so it is dropped, not rewritten (D18).
+DELETED_TEXT = [("ggwp_gsc_query_daily", "query")]
+# Checked, never changed: the knowledge text (the whole rules) and source (its document id's input).
+KEPT_TEXT = [("ggwp_knowledge_versions", "text"), ("ggwp_knowledge_versions", "source_ref")]
+# Checked, never rewritten: the identities a query excluded, which 换一批 replays against, and the resolution hops of an
+# immutable legacy-page snapshot (design 5.5).
+KEPT_JSON_COLUMNS = [("ggwp_candidate_sets", "id", "excluded_json"), ("ggwp_obs_legacy", "snapshot_id, raw_url", "hops_json")]
+# JSON keys whose string values pan-redact.sql never replaces: changing an identity or a request id would break what refers to it.
+REDACT_KEEPS_KEYS = ("identity", "source_id", "item_id", "citation_id", "request_id", "old_identity", "new_identity", "root_identity", "matched_identity")
+# What pan-redact.sql clears, in the order it prints one UPDATE (then DELETE) line for each; then what it leaves.
+CLEARED = [
     *(f"{table}.{column}" for table, _, column in JSON_COLUMNS),
-    *(f"ggwp_knowledge_versions.{c}" for c in ("title", "text", "source_ref")),
-    *(f"{table}.{column}" for table, _, column in KEPT_JSON_COLUMNS),
+    *(f"{table}.{column}" for table, column in REWRITTEN_TEXT),
+    *(f"{table}.{column}" for table, column in DELETED_TEXT),
 ]
-# One UPDATE per rewritten JSON column, then the knowledge title.
-REDACTED_NONE = [0] * (len(JSON_COLUMNS) + 1)
+KEPT = [*(f"{table}.{column}" for table, column in KEPT_TEXT), *(f"{table}.{column}" for table, _, column in KEPT_JSON_COLUMNS)]
+# pan-check.sql's first table: the cleared locations, then the ones the runbook stops at.
+LOCATIONS = [*CLEARED, *KEPT]
+REDACTED_NONE = [0] * len(CLEARED)
+UPDATES = len(JSON_COLUMNS) + len(REWRITTEN_TEXT)
+DELETES = len(DELETED_TEXT)
+# Where each migration's columns are: a database still below it lists them as 0, and the redaction leaves their lines out.
+ADDED_BY_0005 = ["ggwp_candidate_sets.data_as_of_json", "ggwp_sync_runs.details_json", "ggwp_candidate_sets.excluded_json"]
+ADDED_BY_0007 = [location for location in LOCATIONS if location.startswith(("ggwp_obs_", "ggwp_gsc_", "ggwp_candidate_sets.obs_"))]
+
+
+def cleared_at(revision: str) -> list[str]:
+    """The locations pan-redact.sql clears on a database at this revision, in the order of its output lines."""
+    missing = {"0004": ADDED_BY_0005 + ADDED_BY_0007, "0006": ADDED_BY_0007}.get(revision, [])
+    return [location for location in CLEARED if location not in missing]
 
 
 def feed_transport(rows, *, scope: str) -> httpx.MockTransport:

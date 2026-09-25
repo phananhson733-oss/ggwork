@@ -6,8 +6,9 @@ runbook's scripts run here as files from docs/, through psql, logged in as a sta
 of the deerflow schema and every table in it. The contaminated data is written by the real sync, import, selection and
 repository code; the host tables come from the host's own table definitions and langgraph's PostgresSaver.setup(). Every
 location the check reports and every host branch holds a hit of its own, so disabling any one of them turns a test red. The
-PostgreSQL half skips when PICK_TEST_PG_URL is unset. The container's disk is test_pan_runbook_disk.py; the pattern and the
-runbook's own text are test_pan_runbook_text.py.
+PostgreSQL half skips when PICK_TEST_PG_URL is unset. The observation radar's locations (migration 0007) are
+test_pan_runbook_obs.py, the container's disk is test_pan_runbook_disk.py; the pattern and the runbook's own text are
+test_pan_runbook_text.py.
 """
 
 import json
@@ -29,7 +30,9 @@ import yaml
 from engines import HOST_JSON_SERIALIZER, host_engine
 from pan_runbook import (
     CHECK,
+    CLEARED,
     CODE_NOTE,
+    DELETED_TEXT,
     JSON_COLUMNS,
     KEPT_JSON_COLUMNS,
     LOCATIONS,
@@ -38,10 +41,10 @@ from pan_runbook import (
     PASSWORD_TAB,
     PASSWORD_VT,
     REDACT,
-    REDACTED_NONE,
     ROOT,
     Scan,
     clean_scan,
+    cleared_at,
     feed_signal,
     feed_transport,
     password,
@@ -59,6 +62,8 @@ PLACEHOLDER = "[网盘信息已移除]"
 # pan-check.sql's owner for a thread the DELETE route cannot find (require_existing): the runbook stops there.
 NO_META = "(没有 threads_meta 行)"
 NOTHING = dict.fromkeys(LOCATIONS, 0)
+CLEARED_NONE = dict.fromkeys(CLEARED, 0)
+DELETED = {f"{table}.{column}" for table, column in DELETED_TEXT}
 
 # A note quoting a link, with escaped quotes and backslashes in the same string; the strings next to it hold escapes too
 # (grade ends in a backslash right before note's opening quote) and must come through byte for byte.
@@ -151,12 +156,14 @@ class Workbench:
         assert [location for location, _ in counts] == LOCATIONS
         return {location: int(rows) for location, rows in counts}, threads
 
-    def redact(self, updates: int = len(REDACTED_NONE)) -> list[int]:
-        """pan-redact.sql's UPDATE counts, in script order; the output is exactly what the runbook shows."""
+    def redact(self, revision: str = "head") -> dict[str, int]:
+        """pan-redact.sql's row counts by location; the output is exactly what the runbook shows for a database at that revision."""
+        cleared = cleared_at(revision)
         lines = self.run(REDACT).splitlines()
-        expected = ["BEGIN", "CREATE FUNCTION", *["UPDATE n"] * updates, "DROP FUNCTION", "COMMIT"]
-        assert [re.sub(r"^UPDATE \d+$", "UPDATE n", line) for line in lines] == expected, lines
-        return [int(line.split()[1]) for line in lines if line.startswith("UPDATE ")]
+        kinds = ["DELETE n" if location in DELETED else "UPDATE n" for location in cleared]
+        expected = ["BEGIN", "CREATE FUNCTION", *kinds, "DROP FUNCTION", "COMMIT"]
+        assert [re.sub(r"^(UPDATE|DELETE) \d+$", r"\1 n", line) for line in lines] == expected, lines
+        return dict(zip(cleared, [int(line.split()[1]) for line in lines if line.startswith(("UPDATE ", "DELETE "))], strict=True))
 
     def json_columns(self) -> dict[tuple, str]:
         """Every ggwp JSON value as stored, byte for byte; the columns added for the mirror are null on older rows."""
@@ -301,7 +308,7 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
 
     before = workbench.json_columns()
     counts, threads = workbench.check()
-    assert counts == {
+    assert counts == NOTHING | {
         "ggwp_drama_versions.payload_json": 12,
         "ggwp_candidate_sets.ordered_items_json": 1,
         "ggwp_candidate_sets.conditions_json": 1,
@@ -330,11 +337,12 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
         "ggwp_candidate_sets.excluded_json": 1,
     }
     assert workbench.check() == (NOTHING | kept, [])
-    assert redacted == [12, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1]
+    # The second receipt's hit is its request id, which stays; every other hit found above is cleared.
+    assert redacted == CLEARED_NONE | {location: counts[location] for location in CLEARED if counts[location]} | {"ggwp_selection_commands.receipt_json": 1}
     hits = (LINK_NOTE, CODE_NOTE, PASSWORD_NEWLINE, PASSWORD_TAB, PASSWORD_VT, PASSWORD_NBSP, "pan.baidu", *answer_notes, SCOPE, "提取码 x7k2", KNOWLEDGE_FILE)
     assert after == {key: _redacted(text, *hits) for key, text in before.items()}
     changed = {key for key in before if after[key] != before[key]}
-    assert len(changed) == sum(redacted[: len(JSON_COLUMNS)])
+    assert len(changed) == sum(redacted[f"{table}.{column}"] for table, _, column in JSON_COLUMNS)
     for key, text in after.items():
         assert PLACEHOLDER in text or key not in changed
         json.loads(text)
@@ -372,7 +380,7 @@ async def test_every_location_is_found_then_redacted_or_kept_by_design_and_the_w
 
     # Idempotent: a second run changes nothing.
     settled = workbench.json_columns()
-    assert workbench.redact() == REDACTED_NONE
+    assert workbench.redact() == CLEARED_NONE
     assert workbench.json_columns() == settled
 
 
@@ -407,13 +415,13 @@ async def test_identity_values_are_left_alone_and_the_check_keeps_reporting_them
     ]
     batch = await Importer(alice, service.data_dir).catalog(json.dumps(rows).encode(), "json")
     [(identity,)] = workbench.fetch("SELECT identity FROM deerflow.ggwp_drama_versions")
-    assert workbench.redact() == [1, *REDACTED_NONE[1:]]
+    assert workbench.redact() == CLEARED_NONE | {"ggwp_drama_versions.payload_json": 1}
     [row] = await alice.catalog_rows(batch["id"])
     assert (row["identity"], row["source_id"], row["original"]["source_id"]) == (identity, "k-pwd=1", "k-pwd=1")
     assert _notes(row) == [PLACEHOLDER] and row["original"]["signals"][0]["note"] == PLACEHOLDER
     # The runbook stops here: a hit left in an identity is not the script's to change.
     assert workbench.check()[0]["ggwp_drama_versions.payload_json"] == 1
-    assert workbench.redact() == REDACTED_NONE
+    assert workbench.redact() == CLEARED_NONE
 
 
 @pytest.mark.asyncio
@@ -434,7 +442,7 @@ async def test_both_scripts_still_run_on_a_database_at_0004(workbench):
         json.dumps({"request_id": "req-old", "note": "提取码 x7k2"}, ensure_ascii=False),
     )
     assert workbench.check() == (NOTHING | {"ggwp_selection_commands.receipt_json": 1}, [])
-    assert workbench.redact(len(REDACTED_NONE) - 2) == [0, 0, 0, 0, 1, 0, 0, 0, 0]
+    assert workbench.redact("0004") == dict.fromkeys(cleared_at("0004"), 0) | {"ggwp_selection_commands.receipt_json": 1}
     assert workbench.check() == (NOTHING, [])
     assert workbench.fetch("SELECT receipt_json::text FROM deerflow.ggwp_selection_commands") == [
         (json.dumps({"request_id": "req-old", "note": PLACEHOLDER}, ensure_ascii=False),)
@@ -461,7 +469,7 @@ async def test_text_escaped_as_unicode_escapes_is_found_and_redacted(workbench, 
         escaped,
     )
     assert workbench.check()[0]["ggwp_answer_checks.notes_json"] == 1
-    assert workbench.redact() == [0, 0, 0, 0, 0, 1, *REDACTED_NONE[6:]]
+    assert workbench.redact() == CLEARED_NONE | {"ggwp_answer_checks.notes_json": 1}
     assert workbench.check()[0]["ggwp_answer_checks.notes_json"] == 0
     [(stored,)] = workbench.fetch("SELECT notes_json::text FROM deerflow.ggwp_answer_checks")
     # The escaped strings are replaced whole; the clean one keeps its escapes byte for byte.
@@ -613,7 +621,7 @@ async def test_each_host_column_finds_its_thread_until_the_thread_is_deleted(wor
     assert workbench.check() == (NOTHING, listed)
     # pan-redact.sql never touches the host's tables.
     digest = workbench.checkpoint_digest()
-    assert workbench.redact() == REDACTED_NONE
+    assert workbench.redact() == CLEARED_NONE
     assert workbench.checkpoint_digest() == digest
     assert workbench.check()[1] == listed
 

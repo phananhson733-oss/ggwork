@@ -1,0 +1,271 @@
+{
+  "about": [
+    "Status banners per channel (plan TR-10, D10; design 3.7, 4.10). Python ggwork_pick.observe.status_rules and the data page's",
+    "TS copy (TR-24/TR-25 obs-banner-rules.ts) both reproduce every case; now is always explicit.",
+    "Input per case: the channel, now, the current live set's published_at (null: no live set) and the channel's latest run by",
+    "started_at (a pick_obs.run_status row, only the fields that decide a banner; null: the channel never ran).",
+    "Banners: every status code of the latest run (collectors write them, including a refusal such as disabled_7d or",
+    "canary_terminated as a run row of its own), plus three computed from time: stale_26h (Trends only: now - live",
+    "published_at > 26 h; exactly 26 h is not stale; no live set, no stale_26h), run_missed (Trends: from 02:30 UTC the due",
+    "target date is today, before it yesterday, and the latest run's target_date is earlier than the due date; GSC: now -",
+    "latest started_at > 4 h; exactly 4 h is not missed; a channel that never ran has no run_missed) and shadow_mode (the",
+    "latest run's mode is shadow). Each code once, ordered by level (red, warn, info) and then by STATUS_CODES order.",
+    "levels and texts are the code -> level and code -> banner text tables; both sides read them from here."
+  ],
+  "params": {
+    "trends_stale_hours": 26,
+    "trends_due_utc": "02:30",
+    "gsc_missed_hours": 4
+  },
+  "levels": {
+    "stale_26h": "red",
+    "not_published_low_coverage": "red",
+    "extinguished_today": "red",
+    "disabled_7d": "red",
+    "canary_terminated": "red",
+    "usertype_changed": "warn",
+    "all_zero_jump": "warn",
+    "legacy_unmapped_2pct": "warn",
+    "legacy_snapshot_missing": "red",
+    "gsc_gap_exceeded": "warn",
+    "gsc_unverifiable": "warn",
+    "run_missed": "red",
+    "shadow_mode": "info",
+    "db_size_cap": "red",
+    "parse_error": "red"
+  },
+  "texts": {
+    "stale_26h": "当前生效的 Trends 集合已超过 26 小时：带趋势条件的查询返回「数据陈旧」，不给加码建议",
+    "not_published_low_coverage": "A 档覆盖率低于 80%，本批没有发布，上一个集合继续生效",
+    "extinguished_today": "今天的直连采集已熄火（限流、验证页或同意墙），剩余单元未采",
+    "disabled_7d": "7 天内熄火 3 次，直连已停用，人工重置后才恢复",
+    "canary_terminated": "金丝雀已终止（验证码或熄火达到 2 次），不再运行",
+    "usertype_changed": "Trends 返回的 userType 变了，会话可能被标成自动访问",
+    "all_zero_jump": "全零序列的比例比前一天明显升高",
+    "legacy_unmapped_2pct": "未映射的旧页点击超过旧页总点击的 2%，需要 RealShort 重跑旧页解析导出",
+    "legacy_snapshot_missing": "没有可用的旧页解析快照，GSC 集合没有发布",
+    "gsc_gap_exceeded": "GSC 明细与全站总量的缺口超过门槛，本轮只出描述性标签",
+    "gsc_unverifiable": "GSC 全站总量取不到，覆盖无法核对，本轮只出描述性标签",
+    "run_missed": "采集没有按时运行：02:30 UTC 仍没有当天的 Trends 批次，或 GSC 超过 4 小时没有新轮次",
+    "shadow_mode": "发布开关关着：新集合只发成影子，智能体与联动不使用",
+    "db_size_cap": "数据库容量达到上限，集合没有发布",
+    "parse_error": "Trends 线上合同检查解析失败，接口可能改版，没有写入数值"
+  },
+  "cases": [
+    {
+      "name": "trends_fresh",
+      "channel": "trends",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "latest_run": {"started_at": "2026-09-24T20:30:05.000000+00:00", "mode": "live", "target_date": "2026-09-25", "status_codes": []},
+      "expected": []
+    },
+    {
+      "name": "trends_stale_after_low_coverage",
+      "channel": "trends",
+      "now": "2026-09-26T04:00:00.000000+00:00",
+      "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "latest_run": {
+        "started_at": "2026-09-25T20:30:04.000000+00:00",
+        "mode": "live",
+        "target_date": "2026-09-26",
+        "status_codes": ["not_published_low_coverage"]
+      },
+      "expected": [{"code": "stale_26h", "level": "red"}, {"code": "not_published_low_coverage", "level": "red"}]
+    },
+    {
+      "name": "trends_exactly_26h_not_stale",
+      "channel": "trends",
+      "now": "2026-09-26T03:52:10.000000+00:00",
+      "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "latest_run": {"started_at": "2026-09-25T20:30:04.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": []},
+      "expected": []
+    },
+    {
+      "name": "trends_just_over_26h",
+      "channel": "trends",
+      "now": "2026-09-26T03:52:10.000001+00:00",
+      "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "latest_run": {"started_at": "2026-09-25T20:30:04.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": []},
+      "expected": [{"code": "stale_26h", "level": "red"}]
+    },
+    {
+      "name": "trends_run_missed_at_0230",
+      "channel": "trends",
+      "now": "2026-09-26T02:30:00.000000+00:00",
+      "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "latest_run": {"started_at": "2026-09-24T20:30:05.000000+00:00", "mode": "live", "target_date": "2026-09-25", "status_codes": []},
+      "expected": [{"code": "run_missed", "level": "red"}]
+    },
+    {
+      "name": "trends_not_missed_before_0230",
+      "channel": "trends",
+      "now": "2026-09-26T02:29:59.999999+00:00",
+      "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "latest_run": {"started_at": "2026-09-24T20:30:05.000000+00:00", "mode": "live", "target_date": "2026-09-25", "status_codes": []},
+      "expected": []
+    },
+    {
+      "name": "trends_tomorrows_batch_running",
+      "channel": "trends",
+      "now": "2026-09-24T23:10:00.000000+00:00",
+      "live_published_at": "2026-09-24T01:52:10.000000+00:00",
+      "latest_run": {
+        "started_at": "2026-09-24T20:30:05.000000+00:00",
+        "mode": "live",
+        "target_date": "2026-09-25",
+        "status_codes": ["extinguished_today"]
+      },
+      "expected": [{"code": "extinguished_today", "level": "red"}]
+    },
+    {
+      "name": "trends_never_ran",
+      "channel": "trends",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": null,
+      "latest_run": null,
+      "expected": []
+    },
+    {
+      "name": "trends_shadow_before_switch",
+      "channel": "trends",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": null,
+      "latest_run": {"started_at": "2026-09-24T20:30:05.000000+00:00", "mode": "shadow", "target_date": "2026-09-25", "status_codes": []},
+      "expected": [{"code": "shadow_mode", "level": "info"}]
+    },
+    {
+      "name": "trends_switch_off_old_live",
+      "channel": "trends",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": "2026-09-22T01:50:00.000000+00:00",
+      "latest_run": {"started_at": "2026-09-24T20:30:05.000000+00:00", "mode": "shadow", "target_date": "2026-09-25", "status_codes": []},
+      "expected": [{"code": "stale_26h", "level": "red"}, {"code": "shadow_mode", "level": "info"}]
+    },
+    {
+      "name": "trends_disabled_with_quality_signals",
+      "channel": "trends",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "latest_run": {
+        "started_at": "2026-09-24T20:30:05.000000+00:00",
+        "mode": "live",
+        "target_date": "2026-09-25",
+        "status_codes": ["all_zero_jump", "usertype_changed", "disabled_7d"]
+      },
+      "expected": [
+        {"code": "disabled_7d", "level": "red"},
+        {"code": "usertype_changed", "level": "warn"},
+        {"code": "all_zero_jump", "level": "warn"}
+      ]
+    },
+    {
+      "name": "trends_canary_terminated",
+      "channel": "trends",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": null,
+      "latest_run": {
+        "started_at": "2026-09-24T22:00:03.000000+00:00",
+        "mode": "shadow",
+        "target_date": "2026-09-25",
+        "status_codes": ["parse_error", "canary_terminated"]
+      },
+      "expected": [
+        {"code": "canary_terminated", "level": "red"},
+        {"code": "parse_error", "level": "red"},
+        {"code": "shadow_mode", "level": "info"}
+      ]
+    },
+    {
+      "name": "trends_each_code_once",
+      "channel": "trends",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": null,
+      "latest_run": {
+        "started_at": "2026-09-24T20:30:05.000000+00:00",
+        "mode": "shadow",
+        "target_date": "2026-09-25",
+        "status_codes": ["shadow_mode", "extinguished_today", "extinguished_today"]
+      },
+      "expected": [{"code": "extinguished_today", "level": "red"}, {"code": "shadow_mode", "level": "info"}]
+    },
+    {
+      "name": "gsc_fresh",
+      "channel": "gsc",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "latest_run": {"started_at": "2026-09-25T03:25:02.000000+00:00", "mode": "live", "target_date": null, "status_codes": []},
+      "expected": []
+    },
+    {
+      "name": "gsc_exactly_4h_not_missed",
+      "channel": "gsc",
+      "now": "2026-09-25T07:25:02.000000+00:00",
+      "live_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "latest_run": {"started_at": "2026-09-25T03:25:02.000000+00:00", "mode": "live", "target_date": null, "status_codes": []},
+      "expected": []
+    },
+    {
+      "name": "gsc_over_4h_missed",
+      "channel": "gsc",
+      "now": "2026-09-25T07:25:02.000001+00:00",
+      "live_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "latest_run": {"started_at": "2026-09-25T03:25:02.000000+00:00", "mode": "live", "target_date": null, "status_codes": []},
+      "expected": [{"code": "run_missed", "level": "red"}]
+    },
+    {
+      "name": "gsc_old_live_is_not_stale_26h",
+      "channel": "gsc",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": "2026-09-23T03:31:40.000000+00:00",
+      "latest_run": {
+        "started_at": "2026-09-25T03:25:02.000000+00:00",
+        "mode": "live",
+        "target_date": null,
+        "status_codes": ["legacy_snapshot_missing"]
+      },
+      "expected": [{"code": "legacy_snapshot_missing", "level": "red"}]
+    },
+    {
+      "name": "gsc_descriptive_round",
+      "channel": "gsc",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "latest_run": {
+        "started_at": "2026-09-25T03:25:02.000000+00:00",
+        "mode": "live",
+        "target_date": null,
+        "status_codes": ["gsc_unverifiable", "legacy_unmapped_2pct", "gsc_gap_exceeded"]
+      },
+      "expected": [
+        {"code": "legacy_unmapped_2pct", "level": "warn"},
+        {"code": "gsc_gap_exceeded", "level": "warn"},
+        {"code": "gsc_unverifiable", "level": "warn"}
+      ]
+    },
+    {
+      "name": "gsc_size_cap_in_shadow",
+      "channel": "gsc",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": null,
+      "latest_run": {"started_at": "2026-09-25T03:25:02.000000+00:00", "mode": "shadow", "target_date": null, "status_codes": ["db_size_cap"]},
+      "expected": [{"code": "db_size_cap", "level": "red"}, {"code": "shadow_mode", "level": "info"}]
+    },
+    {
+      "name": "gsc_never_ran",
+      "channel": "gsc",
+      "now": "2026-09-25T04:00:00.000000+00:00",
+      "live_published_at": null,
+      "latest_run": null,
+      "expected": []
+    },
+    {
+      "name": "gsc_now_before_run_start",
+      "channel": "gsc",
+      "now": "2026-09-25T03:20:00.000000+00:00",
+      "live_published_at": "2026-09-25T00:31:40.000000+00:00",
+      "latest_run": {"started_at": "2026-09-25T03:25:02.000000+00:00", "mode": "live", "target_date": null, "status_codes": []},
+      "expected": []
+    }
+  ]
+}

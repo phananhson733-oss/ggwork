@@ -1,0 +1,573 @@
+{
+  "about": [
+    "agent_eligibility(row, conditions) truth table (TR-10; D31, design 4.7, 9 #4). row is a judgment row's fields that decide it",
+    "(merge onto a full state_rows.json row to validate); conditions are observation condition fields. reasons are every reason that",
+    "applies, in EXCLUSION_REASONS order; eligible is reasons == []. set_batch_mismatch comes from cross-batch mapping (TR-26), never",
+    "from this function. Only Trends rows in state rising or emerging and GSC rows are asked; filters (state, geo, country) are separate.",
+    "Trends: confirmed, or first with trend_include_first; emerging only with trend_state=emerging; ambiguity clear; not shared_title;",
+    "correspondence confirmed, or unconfirmed with strong id_evidence and trend_include_presumed; not stale, not carried_over, tier A,",
+    "not unstable, control available. GSC: admission formal, not migration_suspect, not mapping_changed; correspondence never asked.",
+    "A GSC row's state is its primary formal label or present, so a label short of its formal bar (a small-base surge) leaves",
+    "the row present: gsc_state=surge cannot match it, and eligibility reads admission only (design 5.8)."
+  ],
+  "reasons_order": [
+    "trend_first_only",
+    "emerging_not_requested",
+    "title_ambiguous",
+    "shared_title",
+    "correspondence_unconfirmed",
+    "correspondence_presumed",
+    "stale",
+    "carried_over",
+    "b_tier",
+    "unstable",
+    "control_unavailable",
+    "gsc_descriptive_only",
+    "migration_suspect",
+    "mapping_changed",
+    "set_batch_mismatch"
+  ],
+  "cases": [
+    {
+      "name": "trends_confirmed_default",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": true, "reasons": []}
+    },
+    {
+      "name": "trends_first_default",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "first",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["trend_first_only"]}
+    },
+    {
+      "name": "trends_first_with_flag",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "first",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {"trend_include_first": true},
+      "expected": {"eligible": true, "reasons": []}
+    },
+    {
+      "name": "trends_emerging_not_requested",
+      "row": {
+        "channel": "trends",
+        "state": "emerging",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["emerging_not_requested"]}
+    },
+    {
+      "name": "trends_emerging_requested",
+      "row": {
+        "channel": "trends",
+        "state": "emerging",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {"trend_state": "emerging"},
+      "expected": {"eligible": true, "reasons": []}
+    },
+    {
+      "name": "trends_emerging_first_requested",
+      "row": {
+        "channel": "trends",
+        "state": "emerging",
+        "confirmation": "first",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {"trend_state": "emerging"},
+      "expected": {"eligible": false, "reasons": ["trend_first_only"]}
+    },
+    {
+      "name": "trends_rising_with_emerging_condition",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {"trend_state": "emerging"},
+      "expected": {"eligible": true, "reasons": []}
+    },
+    {
+      "name": "trends_unresolved_title",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "unresolved",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["title_ambiguous"]}
+    },
+    {
+      "name": "trends_manual_required",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "manual_required",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["title_ambiguous"]}
+    },
+    {
+      "name": "trends_contained_title",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "contained",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {"trend_include_first": true},
+      "expected": {"eligible": false, "reasons": ["title_ambiguous"]}
+    },
+    {
+      "name": "trends_shared_title",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": ["shared_title"],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["shared_title"]}
+    },
+    {
+      "name": "trends_presumed_default",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "unconfirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["correspondence_presumed"]}
+    },
+    {
+      "name": "trends_presumed_with_flag",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "unconfirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {"trend_include_presumed": true},
+      "expected": {"eligible": true, "reasons": []}
+    },
+    {
+      "name": "trends_medium_evidence_with_flag",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "unconfirmed",
+        "id_evidence": "medium",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {"trend_include_presumed": true},
+      "expected": {"eligible": false, "reasons": ["correspondence_unconfirmed"]}
+    },
+    {
+      "name": "trends_weak_evidence",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "unconfirmed",
+        "id_evidence": "weak",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["correspondence_unconfirmed"]}
+    },
+    {
+      "name": "trends_confirmed_weak_evidence",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "weak",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": true, "reasons": []}
+    },
+    {
+      "name": "trends_stale",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": true,
+        "stale": true
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["stale", "carried_over"]}
+    },
+    {
+      "name": "trends_carried_over",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": true,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["carried_over"]}
+    },
+    {
+      "name": "trends_b_tier",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "B",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {"trend_include_first": true},
+      "expected": {"eligible": false, "reasons": ["b_tier"]}
+    },
+    {
+      "name": "trends_unstable",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "first",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": ["unstable"],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {"trend_include_first": true},
+      "expected": {"eligible": false, "reasons": ["unstable"]}
+    },
+    {
+      "name": "trends_control_unavailable",
+      "row": {
+        "channel": "trends",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": ["control_unavailable"],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["control_unavailable"]}
+    },
+    {
+      "name": "trends_everything_wrong",
+      "row": {
+        "channel": "trends",
+        "state": "emerging",
+        "confirmation": "first",
+        "admission": null,
+        "tier": "B",
+        "correspondence": "unconfirmed",
+        "id_evidence": "strong",
+        "ambiguity": "generic",
+        "flags": ["control_unavailable", "unstable", "shared_title"],
+        "carried_over": true,
+        "stale": true
+      },
+      "conditions": {},
+      "expected": {
+        "eligible": false,
+        "reasons": [
+          "trend_first_only",
+          "emerging_not_requested",
+          "title_ambiguous",
+          "shared_title",
+          "correspondence_presumed",
+          "stale",
+          "carried_over",
+          "b_tier",
+          "unstable",
+          "control_unavailable"
+        ]
+      }
+    },
+    {
+      "name": "gsc_formal",
+      "row": {
+        "channel": "gsc",
+        "state": "surge",
+        "confirmation": null,
+        "admission": "formal",
+        "tier": null,
+        "correspondence": null,
+        "id_evidence": null,
+        "ambiguity": null,
+        "flags": [],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": true, "reasons": []}
+    },
+    {
+      "name": "gsc_formal_presumed_flag_irrelevant",
+      "row": {
+        "channel": "gsc",
+        "state": "from_zero",
+        "confirmation": null,
+        "admission": "formal",
+        "tier": null,
+        "correspondence": null,
+        "id_evidence": null,
+        "ambiguity": null,
+        "flags": [],
+        "carried_over": false,
+        "stale": false,
+        "labels": [{"label": "from_zero", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}]
+      },
+      "conditions": {"trend_include_presumed": true, "trend_include_first": true},
+      "expected": {"eligible": true, "reasons": []}
+    },
+    {
+      "name": "gsc_descriptive",
+      "row": {
+        "channel": "gsc",
+        "state": "present",
+        "confirmation": null,
+        "admission": "descriptive",
+        "tier": null,
+        "correspondence": null,
+        "id_evidence": null,
+        "ambiguity": null,
+        "flags": ["detail_gap"],
+        "carried_over": false,
+        "stale": false,
+        "labels": [{"label": "surge", "formal": false, "condition": "见 gsc-rules-v1", "counts": {}}]
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["gsc_descriptive_only"]}
+    },
+    {
+      "name": "gsc_migration_suspect",
+      "row": {
+        "channel": "gsc",
+        "state": "surge",
+        "confirmation": null,
+        "admission": "formal",
+        "tier": null,
+        "correspondence": null,
+        "id_evidence": null,
+        "ambiguity": null,
+        "flags": ["migration_suspect"],
+        "carried_over": false,
+        "stale": false
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["migration_suspect"]}
+    },
+    {
+      "name": "gsc_mapping_changed_descriptive",
+      "row": {
+        "channel": "gsc",
+        "state": "present",
+        "confirmation": null,
+        "admission": "descriptive",
+        "tier": null,
+        "correspondence": null,
+        "id_evidence": null,
+        "ambiguity": null,
+        "flags": ["mapping_changed", "migration_suspect"],
+        "carried_over": false,
+        "stale": false,
+        "labels": [{"label": "surge", "formal": false, "condition": "见 gsc-rules-v1", "counts": {}}]
+      },
+      "conditions": {},
+      "expected": {"eligible": false, "reasons": ["gsc_descriptive_only", "migration_suspect", "mapping_changed"]}
+    },
+    {
+      "name": "gsc_present_formal",
+      "row": {
+        "channel": "gsc",
+        "state": "present",
+        "confirmation": null,
+        "admission": "formal",
+        "tier": null,
+        "correspondence": null,
+        "id_evidence": null,
+        "ambiguity": null,
+        "flags": [],
+        "carried_over": false,
+        "stale": false,
+        "labels": []
+      },
+      "conditions": {},
+      "expected": {"eligible": true, "reasons": []}
+    },
+    {
+      "name": "gsc_small_base_surge_is_present",
+      "row": {
+        "channel": "gsc",
+        "state": "present",
+        "confirmation": null,
+        "admission": "formal",
+        "tier": null,
+        "correspondence": null,
+        "id_evidence": null,
+        "ambiguity": null,
+        "flags": [],
+        "carried_over": false,
+        "stale": false,
+        "labels": [{"label": "surge", "formal": false, "condition": "见 gsc-rules-v1", "counts": {}}]
+      },
+      "conditions": {"gsc_state": "present"},
+      "expected": {"eligible": true, "reasons": []}
+    }
+  ]
+}

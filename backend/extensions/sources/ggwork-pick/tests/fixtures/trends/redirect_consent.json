@@ -1,0 +1,17 @@
+{
+  "about": "302 to the EU consent wall.",
+  "constructed": true,
+  "pending_stage0": [
+    "seen only from EU egress (research 1.4); the US egress is not expected to meet it"
+  ],
+  "response": {
+    "status": 302,
+    "headers": [
+      [
+        "location",
+        "https://consent.google.com/ml?continue=https://trends.google.com/trends/&gl=DE&hl=en-US"
+      ]
+    ],
+    "text": ""
+  }
+}

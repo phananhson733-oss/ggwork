@@ -566,8 +566,10 @@ async def test_a_missing_reader_role_is_skipped_without_failing(empty_pg_url, tm
     with caplog.at_level(logging.WARNING, logger="ggwork_pick.migrations"):
         await pg.migrate(empty_pg_url, tmp_path)
     # Production has the role: a skipped grant is worth a line in the gateway log, under a name and prefix one can filter on.
+    # 0006 skips pick_mirror's grants and 0007 pick_obs's, one line each under its own prefix.
     skipped = [record for record in caplog.records if pg.READER_ROLE_ENV in record.getMessage()]
-    assert [(record.name, record.getMessage().startswith("[pick-mirror] ")) for record in skipped] == [("ggwork_pick.migrations", True)]
+    prefixes = [(record.name, record.getMessage().split(" ", 1)[0]) for record in skipped]
+    assert prefixes == [("ggwork_pick.migrations", "[pick-mirror]"), ("ggwork_pick.migrations", "[pick-obs]")]
     engine = host_engine(empty_pg_url)
     try:
         assert await _scalar(engine, "select version_num from ggwp_alembic_version") == revisions.head()
@@ -585,9 +587,10 @@ async def test_a_malformed_reader_role_name_fails_the_whole_migration(empty_pg_u
     assert role.strip() not in str(failure.value)
     engine = host_engine(empty_pg_url)
     try:
-        # One transaction from 0001 to 0006: nothing of it stays behind.
+        # One transaction from 0001 to the head: nothing of it stays behind.
         assert await _scalar(engine, "select count(*) from pg_tables where tablename like 'ggwp%'") == 0
         assert not await _schema_exists(engine, "pick_mirror")
+        assert not await _schema_exists(engine, "pick_obs")
     finally:
         await engine.dispose()
 

@@ -255,6 +255,31 @@ async def test_cancel_cleans_and_unlocks(harness, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_a_cancel_while_the_run_record_is_written_closes_it(harness, monkeypatch):
+    """A cancel between start_sync_run's insert and its return: the record is closed as cancelled, nothing is opened."""
+    from ggwork_pick.repository import PickRepository
+
+    written, original = asyncio.Event(), PickRepository.start_sync_run
+
+    async def slow_return(self, *args, **kwargs):
+        record = await original(self, *args, **kwargs)
+        written.set()
+        await asyncio.sleep(1)
+        return record
+
+    monkeypatch.setattr(PickRepository, "start_sync_run", slow_return)
+    task = asyncio.create_task(make_sync(harness, world_fake(harness)).run("cron"))
+    await asyncio.wait_for(written.wait(), 10)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    [run] = await sync_runs(harness)
+    assert run["status"] == "failed" and run["details_json"]["outcome"] == "cancelled"
+    assert await versions(harness.engine) == [] and await batches(harness.engine) == []
+    assert await advisory_locks(harness.engine) == 0
+
+
+@pytest.mark.asyncio
 async def test_a_cancel_after_the_pair_published_records_the_pair(harness, monkeypatch):
     """flow-3: cancelled during the curve fold, after the pair went out, the run is recorded as what it published
     (success, its batches, after_cancelled), not as a cancelled run with no batch; the cancellation still propagates."""

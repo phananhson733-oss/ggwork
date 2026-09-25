@@ -1,0 +1,361 @@
+{
+  "about": [
+    "The result-level observations key (design 7.4, D28): strict, present only on results with observation conditions.",
+    "Python: contract.Observations; TS: pickObservationsSchema (TR-16). It is obs_as_of_json projected (obs_as_of.json)."
+  ],
+  "model": "Observations",
+  "valid": [
+    {
+      "name": "both_sets",
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "gsc_only",
+      "value": {
+        "trends": null,
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": null,
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {}
+      }
+    },
+    {
+      "name": "trends_only",
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": null,
+        "link_rules_version": null,
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "every_reason",
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {
+          "trend_first_only": 1,
+          "emerging_not_requested": 1,
+          "title_ambiguous": 1,
+          "shared_title": 1,
+          "correspondence_unconfirmed": 1,
+          "correspondence_presumed": 1,
+          "stale": 1,
+          "carried_over": 1,
+          "b_tier": 1,
+          "unstable": 1,
+          "control_unavailable": 1,
+          "gsc_descriptive_only": 1,
+          "migration_suspect": 1,
+          "mapping_changed": 1,
+          "set_batch_mismatch": 1
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown_key",
+      "why": "strict",
+      "error": {"type": "extra_forbidden", "loc": "score"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7},
+        "score": 1
+      }
+    },
+    {
+      "name": "missing_coverage",
+      "why": "every key is required",
+      "error": {"type": "missing", "loc": "coverage"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "unknown_reason",
+      "why": "reasons are EXCLUSION_REASONS",
+      "error": {"type": "literal_error", "loc": "excluded.low_heat.[key]"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"low_heat": 2}
+      }
+    },
+    {
+      "name": "zero_count",
+      "why": "a reason is listed only when it excluded something",
+      "error": {"type": "greater_than_equal", "loc": "excluded.stale"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"stale": 0}
+      }
+    },
+    {
+      "name": "negative_coverage",
+      "why": "counts are >= 0",
+      "error": {"type": "greater_than_equal", "loc": "coverage.gsc_observed"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": -1},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "set_id_not_hex",
+      "why": "set ids are 32 lower-case hex",
+      "error": {"type": "string_pattern_mismatch", "loc": "trends.set_id"},
+      "value": {
+        "trends": {
+          "set_id": "set-1",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "date_not_stamp",
+      "why": "moments are repository.stamp() strings",
+      "error": {"type": "string_pattern_mismatch", "loc": "judged_at"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "z_suffix_stamp",
+      "why": "stamp() writes +00:00 and six fractional digits",
+      "error": {"type": "string_pattern_mismatch", "loc": "judged_at"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00Z",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "trends_ref_without_block_end",
+      "why": "a Trends set is dated by its latest_block_end (D39)",
+      "error": {"type": "missing", "loc": "trends.latest_block_end"},
+      "value": {
+        "trends": {"set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c", "published_at": "2026-09-25T01:52:10.000000+00:00"},
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "gsc_ref_with_block_end",
+      "why": "a GSC set is dated by its cutoff",
+      "error": {"type": "extra_forbidden", "loc": "gsc.latest_block_end"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "coverage_extra_key",
+      "why": "coverage has three counts",
+      "error": {"type": "extra_forbidden", "loc": "coverage.both_observed"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988, "both_observed": 3},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "bad_link_rules_version",
+      "why": "rules versions look like link-rules-v1",
+      "error": {"type": "string_pattern_mismatch", "loc": "link_rules_version"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "gsc_ref_cutoff_null",
+      "why": "a GSC set always has a cutoff",
+      "error": {"type": "string_type", "loc": "gsc.cutoff"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {"set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c", "published_at": "2026-09-25T03:31:40.000000+00:00", "cutoff": null},
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    }
+  ]
+}

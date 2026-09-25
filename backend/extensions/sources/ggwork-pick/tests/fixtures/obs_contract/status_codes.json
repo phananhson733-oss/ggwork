@@ -1,0 +1,25 @@
+{
+  "about": [
+    "Status codes (TR-10's list with legacy_snapshot_missing, plus TR-14's weekly contract check parse_error) and banner levels.",
+    "The classification code -> level is TR-10's status_rules (obs_status_cases.json), shared with the data page's TS copy."
+  ],
+  "codes": [
+    "stale_26h",
+    "not_published_low_coverage",
+    "extinguished_today",
+    "disabled_7d",
+    "canary_terminated",
+    "usertype_changed",
+    "all_zero_jump",
+    "legacy_unmapped_2pct",
+    "legacy_snapshot_missing",
+    "gsc_gap_exceeded",
+    "gsc_unverifiable",
+    "run_missed",
+    "shadow_mode",
+    "db_size_cap",
+    "parse_error"
+  ],
+  "banner_levels": ["red", "warn", "info"],
+  "invalid_codes": ["", "STALE_26H", "stale", "no_data", "zero_impressions"]
+}

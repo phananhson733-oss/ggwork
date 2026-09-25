@@ -1,0 +1,208 @@
+{
+  "about": [
+    "POST /api/pick/obs/decisions bodies (D12, D24; TR-25 writes, TR-35 applies). Nine kinds, discriminated by kind;",
+    "StrictInput (whitespace stripped, NUL refused). The owner comes from authentication, never from the body."
+  ],
+  "model": "Decision",
+  "valid": [
+    {"name": "alias_confirm", "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alias_confirm", "alias_id": 5}},
+    {"name": "alias_reject", "value": {"request_id": "3e7c1f0a-1", "note": "标题相同但不是同一部", "kind": "alias_reject", "alias_id": 5}},
+    {
+      "name": "alias_pair",
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "alias_pair",
+        "old_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "new_identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]"
+      }
+    },
+    {
+      "name": "correspondence_confirm",
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "correspondence_confirm",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "platform": "ReelShort",
+        "normalized_title": "the alpha's bride"
+      }
+    },
+    {
+      "name": "correspondence_revoke",
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "correspondence_revoke",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]"
+      }
+    },
+    {
+      "name": "watch_add",
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "watch_add",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "geo": "US",
+        "active": true
+      }
+    },
+    {
+      "name": "watch_add_withdraw",
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "watch_add",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "geo": "US",
+        "active": false
+      }
+    },
+    {
+      "name": "watch_pause_all_geos",
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "watch_pause",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "geo": null,
+        "paused": true
+      }
+    },
+    {
+      "name": "watch_pause_one_geo",
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "watch_pause",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "geo": "WW",
+        "paused": false
+      }
+    },
+    {
+      "name": "ambiguity_override",
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "ambiguity_override",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "verdict": "clear"
+      }
+    },
+    {"name": "alert_irrelevant", "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alert_irrelevant", "alert_id": 88}},
+    {"name": "padded_request_id", "value": {"request_id": "  r-1  ", "note": "", "kind": "alert_irrelevant", "alert_id": 88}}
+  ],
+  "invalid": [
+    {
+      "name": "unknown_kind",
+      "why": "nine kinds",
+      "error": {"type": "union_tag_invalid"},
+      "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alias_delete", "alias_id": 5}
+    },
+    {
+      "name": "owner_in_body",
+      "why": "the owner is never a body field",
+      "error": {"type": "extra_forbidden", "loc": "alert_irrelevant.owner_id"},
+      "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alert_irrelevant", "alert_id": 88, "owner_id": "alice"}
+    },
+    {
+      "name": "string_id",
+      "why": "ids are strict ints",
+      "error": {"type": "int_type", "loc": "alias_confirm.alias_id"},
+      "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alias_confirm", "alias_id": "5"}
+    },
+    {
+      "name": "zero_id",
+      "why": "ids start at 1",
+      "error": {"type": "greater_than_equal", "loc": "alias_confirm.alias_id"},
+      "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alias_confirm", "alias_id": 0}
+    },
+    {
+      "name": "pair_same_identity",
+      "why": "a pair joins two identities",
+      "error": {"type": "obs_alias_pair", "loc": "alias_pair", "msg": "配对的是两个不同的身份"},
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "alias_pair",
+        "old_identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "new_identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]"
+      }
+    },
+    {
+      "name": "confirm_without_title",
+      "why": "a confirmation keys on identity, platform and normalized title",
+      "error": {"type": "missing", "loc": "correspondence_confirm.normalized_title"},
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "correspondence_confirm",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "platform": "ReelShort"
+      }
+    },
+    {
+      "name": "watch_add_country",
+      "why": "watch geos are Trends geos",
+      "error": {"type": "string_pattern_mismatch", "loc": "watch_add.geo"},
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "watch_add",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "geo": "USA",
+        "active": true
+      }
+    },
+    {
+      "name": "watch_add_string_bool",
+      "why": "strict bool",
+      "error": {"type": "bool_type", "loc": "watch_add.active"},
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "watch_add",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "geo": "US",
+        "active": "true"
+      }
+    },
+    {
+      "name": "override_unknown_verdict",
+      "why": "clear or ambiguous",
+      "error": {"type": "literal_error", "loc": "ambiguity_override.verdict"},
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "",
+        "kind": "ambiguity_override",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "verdict": "generic"
+      }
+    },
+    {
+      "name": "missing_request_id",
+      "why": "every decision carries a request_id",
+      "error": {"type": "missing", "loc": "alert_irrelevant.request_id"},
+      "value": {"kind": "alert_irrelevant", "alert_id": 88}
+    },
+    {
+      "name": "nul_in_note",
+      "why": "StrictInput refuses NUL",
+      "error": {"type": "unstorable_text", "loc": "alert_irrelevant", "msg": "含 NUL 字符或孤立代理项"},
+      "value": {"request_id": "3e7c1f0a-1", "note": "a\u0000b", "kind": "alert_irrelevant", "alert_id": 88}
+    },
+    {
+      "name": "long_note",
+      "why": "note <= 500",
+      "error": {"type": "string_too_long", "loc": "alert_irrelevant.note"},
+      "value": {
+        "request_id": "3e7c1f0a-1",
+        "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "kind": "alert_irrelevant",
+        "alert_id": 88
+      }
+    }
+  ]
+}
