@@ -78,10 +78,10 @@
   - 预热页路径、哪些 cookie 必需；API 被限时是跳 sorry 页还是直接 429；200 返回 HTML 的情形是否存在；
   - 空响应长什么样（全零还是空的 timelineData）。
 
-## 集成说明（批次 1a 合并 TR-02、TR-03、TR-04 时）
+## 集成说明（批次 1a 已合并 TR-02、TR-03、TR-04）
 
-- **一个罐**：TR-02 分支上还没有 `trends/cookies.py`，所以 `source.py` 里的 `SetCookie` 是 TR-04 `Cookie` 的替身，字段、默认值、`removal`、`key`、`expired` 与之一致，校验只严不宽。合并时把 `source.py` 里整个 `SetCookie` 类换成一行 `from ggwork_pick.observe.trends.cookies import Cookie as SetCookie`（或全部改名为 `Cookie`），解析器就直接造出罐自己的 cookie；`parse._set_cookie` 捕获 `ValueError`，TR-04 的校验拒收的行照样丢弃。测试里的 `FakeJar` 可以保留，也可以换成真罐。
-- **合并后自动生效的三条跨模块测试**（任务分支上是 skip）：`test_set_cookie_is_tr04_cookie`（上一条没做就红，报错信息指回这里）、`test_client_drives_tr04_cookie_jar`（客户端驱动 TR-04 真罐走预热、轮换、被拒）、`test_breaker_reads_only_walls_as_walls`（经 TR-03 的 `signal_of`，只有 sorry、consent 跳转映射成 WALL，站内跳转是 NEUTRAL）。在 scratch 里模拟过合并（本修复 + TR-03 + TR-04 的 2974b6e + 上面的一行替换），TR-02、TR-03、TR-04 的相关测试 261 条全过，没有 skip。
-- **`trends/__init__.py`**：三个分支各建了一份，TR-02 与 TR-03 逐字相同，TR-04 只是文档字符串不同，内容都只是包说明、不导入任何东西。合并时出现 add/add 冲突，留任意一份即可。
+- **一个罐**：已完成。`source.py` 里原先的 `SetCookie` 替身已删去，换成 `from ggwork_pick.observe.trends.cookies import Cookie as SetCookie`，解析器直接造出罐自己的 cookie；`parse._set_cookie` 捕获 `ValueError`，TR-04 的校验拒收的行照样丢弃。测试里的 `FakeJar` 保留。
+- **三条跨模块测试**（任务分支上是 skip，集成分支上都在跑）：`test_set_cookie_is_tr04_cookie`、`test_client_drives_tr04_cookie_jar`（客户端驱动 TR-04 真罐走预热、轮换、被拒）、`test_breaker_reads_only_walls_as_walls`（经 TR-03 的 `signal_of(status, captcha_or_consent=...)`：`captcha_or_consent` 是必填关键字参数，执行器传 `FetchResult.captcha_or_consent`；只有 sorry、consent 跳转映射成 WALL，站内跳转是 `parse_error`，即 NEUTRAL）。
+- **`trends/__init__.py`**：三个分支各建了一份，合并时三份逐字相同，自动合并，没有冲突；内容只是包说明，不导入任何东西。
 - **接线**（TR-05、TR-14）：`TrendsClient(jar=..., clock=..., gate=..., on_request=...)`，罐用 TR-04 的 `CookieJar`（新罐 `CookieJar.fresh(DEFAULT_USER_AGENT)`，或从状态存储读出的罐）；会话结束或每次熔断后把 `client.jar` 交回存储。
 - **deselect 的写法**：pytest 的 rootdir 是 `customizations/pick-workbench`，节点 id 是 `tests/test_managed_copy.py::...`，所以在仓库根目录跑时 `--deselect customizations/pick-workbench/tests/test_managed_copy.py` 匹配不上；任务分支上要跳过它，用 `--deselect tests/test_managed_copy.py` 或 `--ignore=customizations/pick-workbench/tests/test_managed_copy.py`。

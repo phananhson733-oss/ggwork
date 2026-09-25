@@ -21,6 +21,10 @@ from typing import Protocol, runtime_checkable
 
 from ggwork_pick.observe.contract import TREND_GEO_PATTERN
 
+# The channel's one cookie jar is TR-04's (plan 5): the parser builds the jar's own cookies, so a Set-Cookie line
+# that Cookie's checks refuse is dropped at the parser (trends-client.md, 集成说明).
+from ggwork_pick.observe.trends.cookies import Cookie as SetCookie
+
 SOURCE_NAME = "trends-direct"
 GEO_WORLDWIDE = "WW"  # the contract's worldwide geo; Google's own spelling of it is the empty string
 MAX_TERMS = 5  # comparisonItems in one explore
@@ -33,17 +37,8 @@ TIMEFRAMES = MappingProxyType({"H": "now 7-d", "D": "today 1-m"})
 GOOGLE_PROPERTIES = MappingProxyType({"web": "", "youtube": "youtube"})
 # A real browser's UA for CookieJar.fresh(): fixed for the jar's life and never rotated (design 4.4).
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
-MAX_COOKIE_NAME = 64
-MAX_COOKIE_VALUE = 4096
-MAX_COOKIE_DOMAIN = 253
-MAX_COOKIE_PATH = 1024
 _GEO = re.compile(rf"(?:{TREND_GEO_PATTERN})")
 _UNPRINTABLE = re.compile(r"[\x00-\x1f\x7f]")
-_COOKIE_NAME = re.compile(rf"[!#$%&'*+\-.^_`|~0-9A-Za-z]{{1,{MAX_COOKIE_NAME}}}")  # an RFC 9110 token
-_COOKIE_OCTETS = r"[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]"  # RFC 6265 cookie-octet
-_COOKIE_VALUE = re.compile(rf"{_COOKIE_OCTETS}{{0,{MAX_COOKIE_VALUE}}}")
-_COOKIE_PATH = re.compile(rf"/{_COOKIE_OCTETS}{{0,{MAX_COOKIE_PATH - 1}}}")
-_COOKIE_DOMAIN = re.compile(rf"[a-z0-9.-]{{0,{MAX_COOKIE_DOMAIN}}}")
 
 
 class FetchStatus(StrEnum):
@@ -149,49 +144,6 @@ class TrendsQuery:
             "tz": 0,
             "hl": "en-US",
         }
-
-
-@dataclass(frozen=True, repr=False)
-class SetCookie:
-    """One cookie an answer set: field for field TR-04's trends/cookies.Cookie, with the same bounds.
-
-    expires is Unix seconds, None for a session cookie; domain "" is host-only. A removal (Max-Age <= 0, an Expires
-    already past) is an expired cookie with no value, and the jar drops it with whatever it replaces. This class stands
-    in for Cookie until the batch 1a integration replaces it with an import of Cookie, so that the parser builds the
-    jar's own cookies (trends-client.md, 集成说明). The value never reaches a repr."""
-
-    name: str
-    value: str
-    domain: str = ""
-    path: str = "/"
-    expires: int | None = None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.name, str) or not _COOKIE_NAME.fullmatch(self.name):
-            raise ValueError("a cookie name is an HTTP token")
-        if not isinstance(self.value, str) or not _COOKIE_VALUE.fullmatch(self.value):
-            raise ValueError(f"cookie {self.name}: the value has characters a Cookie header cannot carry")
-        if not isinstance(self.domain, str) or not _COOKIE_DOMAIN.fullmatch(self.domain):
-            raise ValueError(f"cookie {self.name}: the domain is not a host name")
-        if not isinstance(self.path, str) or not _COOKIE_PATH.fullmatch(self.path):
-            raise ValueError(f"cookie {self.name}: the path is not absolute")
-        if self.expires is not None and type(self.expires) is not int:
-            raise ValueError(f"cookie {self.name}: expires is whole seconds")
-
-    @classmethod
-    def removal(cls, name: str, *, domain: str = "", path: str = "/") -> "SetCookie":
-        return cls(name, "", domain, path, 0)
-
-    @property
-    def key(self) -> tuple[str, str, str]:
-        """A cookie with the same name, domain and path replaces this one."""
-        return (self.name, self.domain, self.path)
-
-    def expired(self, now: datetime) -> bool:
-        return self.expires is not None and now.timestamp() >= self.expires
-
-    def __repr__(self) -> str:
-        return f"SetCookie(name={self.name!r}, domain={self.domain!r}, path={self.path!r}, value=<redacted>)"
 
 
 @runtime_checkable

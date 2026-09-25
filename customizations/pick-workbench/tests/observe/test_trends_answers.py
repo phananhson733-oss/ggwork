@@ -89,13 +89,18 @@ async def test_blocked_redirect_only_for_sorry_or_consent():
 @pytest.mark.asyncio
 async def test_breaker_reads_only_walls_as_walls():
     """Across the seam with TR-03 (skipped until the batch 1a integration brings trends/breaker.py): a redirect within
-    trends.google.com never puts the day out; a sorry page does."""
+    trends.google.com never puts the day out; a sorry page does. TR-03's signal_of takes the result's status and its
+    captcha_or_consent flag, as the executor passes them (the flag has no default, like D42)."""
     breaker = pytest.importorskip("ggwork_pick.observe.trends.breaker")
     signals = {}
     for location in REDIRECT_TARGETS:
         fake = FakeTrends(explore=_redirect(location))
         async with make_client(fake, Recorder(fake)) as client:
-            signals[location] = breaker.signal_of((await client.fetch(query_of("explore_4lines_us_h"))).status.value)
+            result = await client.fetch(query_of("explore_4lines_us_h"))
+        signals[location] = breaker.signal_of(result.status.value, captcha_or_consent=result.captcha_or_consent)
+        record = result.requests[-1]
+        walled = record.redirect_kind in (RedirectKind.SORRY, RedirectKind.CONSENT)
+        assert breaker.signal_of(record.fetch_status.value, captcha_or_consent=walled) is signals[location]
     assert {location for location, signal in signals.items() if signal is breaker.Signal.WALL} == {
         location for location, wall in REDIRECT_TARGETS.items() if wall
     }
