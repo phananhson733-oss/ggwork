@@ -1,5 +1,5 @@
-"""Reading Google Trends answers: classification, the )]}' prefix, explore widgets, timelines, related queries
-(design 4.1, 4.3, 4.10; plan TR-02).
+"""Reading Google Trends answers: classification, Set-Cookie, the )]}' prefix, explore widgets, timelines, related
+queries (design 4.1, 4.3, 4.4, 4.10; plan TR-02).
 
 Pure functions over what one HTTP answer held. Every shape the channel relies on is checked, and anything outside it
 raises ParseFailure, which the client reports as parse_error: an unexpected answer is a changed contract, never
@@ -14,6 +14,9 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
+from http.cookiejar import http2time
+from types import MappingProxyType
 from urllib.parse import urlsplit
 
 from ggwork_pick.observe.trends.source import (
@@ -23,6 +26,7 @@ from ggwork_pick.observe.trends.source import (
     RedirectKind,
     RelatedQuery,
     RelatedResult,
+    SetCookie,
     TimelineResult,
     TrendsQuery,
 )
@@ -34,11 +38,13 @@ BASE_HOST = "trends.google.com"
 MAX_POINTS = 2000  # now 7-d is 169 hourly points, today 1-m about 30 days
 MAX_VALUE = 100  # values are indexed to the peak of the request
 MAX_LABEL_LENGTH = 100
-_DIGITS = re.compile(r"^[0-9]{1,12}$")
-_LABEL = re.compile(r"^[\x20-\x7e]{1,100}$")
+_DIGITS = re.compile(r"[0-9]{1,12}")
+_LABEL = re.compile(r"[\x20-\x7e]{1,100}")
+_MAX_AGE = re.compile(r"-?[0-9]{1,12}")
 # Google's own hosts: www.google.com, ipv4.google.com, www.google.de, www.google.co.uk and the like.
 _GOOGLE_HOST = re.compile(r"^([a-z0-9-]+\.)*google\.[a-z]{2,3}(\.[a-z]{2})?$")
-_NAMED_STATUSES = {429: FetchStatus.RATE_LIMITED, 403: FetchStatus.FORBIDDEN}
+_NAMED_STATUSES = MappingProxyType({429: FetchStatus.RATE_LIMITED, 403: FetchStatus.FORBIDDEN})
+WALLS = frozenset({RedirectKind.SORRY, RedirectKind.CONSENT})  # design 4.3: the redirects that are limit signals
 
 
 class ParseFailure(Exception):
@@ -88,15 +94,19 @@ def _looks_html(headers: Mapping[str, str], body: bytes) -> bool:
 def classify(phase: Phase, status: int, headers: Mapping[str, str], body: bytes) -> FetchStatus | None:
     """The status an HTTP answer earns before its body is read; None means a 200 from an API path, to be parsed.
 
-    Design 4.3's limit signals: 429, a redirect to the sorry or consent page, HTML from an API path, 403. The warm-up
-    asks for the Trends page itself, so HTML is its success, and a redirect within trends.google.com still warms."""
+    Design 4.3's limit signals: 429, a redirect to the sorry or consent page (blocked_redirect, the wall that ends the
+    day, TR-03), HTML from an API path, 403. Any other redirect is a changed contract, parse_error: Google moving an API
+    path is not a limit signal. The warm-up asks for the Trends page itself, so HTML is its success, and a redirect
+    within trends.google.com still warms."""
     if status in _NAMED_STATUSES:
         return _NAMED_STATUSES[status]
     if 500 <= status < 600:
         return FetchStatus.SERVER_ERROR
     if 300 <= status < 400:
         kind, _ = redirect_kind(headers.get("location", ""))
-        return FetchStatus.OK if phase is Phase.WARMUP and kind is RedirectKind.SAME_HOST else FetchStatus.BLOCKED_REDIRECT
+        if kind in WALLS:
+            return FetchStatus.BLOCKED_REDIRECT
+        return FetchStatus.OK if phase is Phase.WARMUP and kind is RedirectKind.SAME_HOST else FetchStatus.PARSE_ERROR
     if status != 200:
         return FetchStatus.PARSE_ERROR  # a 4xx the design does not name: the request contract no longer holds
     if phase is Phase.WARMUP:
@@ -104,30 +114,46 @@ def classify(phase: Phase, status: int, headers: Mapping[str, str], body: bytes)
     return FetchStatus.HTML_BODY if _looks_html(headers, body) else None
 
 
-_COOKIE_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,64}$")
-_COOKIE_VALUE = re.compile(r"^[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]{0,4096}$")  # RFC 6265 cookie-octet
+def set_cookies(lines: Sequence[str], *, now: datetime, host: str = BASE_HOST) -> tuple[SetCookie, ...]:
+    """The cookies an answer's Set-Cookie lines set, in order, for the jar's updated() and warmed() (RFC 6265 5.2-5.3).
+
+    Max-Age wins over Expires, counted from `now`; Max-Age <= 0 or an Expires already past is a removal. A Domain is
+    kept without its leading dot and must be the request host or a parent of it, or the line is dropped, as a browser
+    would; without one the cookie is host-only (""). A missing or relative Path reads "/": the jar matches neither
+    domain nor path, it only keeps them apart. A line a Cookie header could not carry back is dropped."""
+    parsed = (_set_cookie(line, now, host) for line in lines)
+    return tuple(cookie for cookie in parsed if cookie is not None)
 
 
-def _removes(attributes: str) -> bool:
-    for attribute in attributes.split(";"):
-        key, _, value = attribute.partition("=")
-        if key.strip().lower() == "max-age" and re.fullmatch(r"-?[0-9]{1,12}", value.strip()) and int(value) <= 0:
-            return True
-    return False
+def _attributes(text: str) -> dict[str, str]:
+    """Attribute names lower-cased; a repeated attribute keeps its last value (RFC 6265 5.3)."""
+    return {key.strip().lower(): value.strip() for key, _, value in (part.partition("=") for part in text.split(";"))}
 
 
-def cookie_updates(set_cookies: Sequence[str]) -> tuple[tuple[str, str | None], ...]:
-    """Name and value of each Set-Cookie line, None for one that removes the cookie; malformed lines are dropped.
+def _expires(attributes: Mapping[str, str], now: datetime) -> int | None:
+    max_age = attributes.get("max-age", "")
+    if _MAX_AGE.fullmatch(max_age):
+        return int(now.timestamp()) + int(max_age) if int(max_age) > 0 else 0
+    stamp = http2time(attributes["expires"]) if attributes.get("expires") else None
+    return int(stamp) if stamp is not None else None
 
-    Attributes other than Max-Age are ignored: the client only ever talks to trends.google.com."""
-    updates = []
-    for line in set_cookies:
-        pair, _, attributes = line.partition(";")
-        name, sep, value = pair.partition("=")
-        name, value = name.strip(), value.strip()
-        if sep and _COOKIE_NAME.match(name) and _COOKIE_VALUE.match(value):
-            updates.append((name, None if not value or _removes(attributes) else value))
-    return tuple(updates)
+
+def _set_cookie(line: str, now: datetime, host: str) -> SetCookie | None:
+    pair, _, rest = line.partition(";")
+    name, sep, value = pair.partition("=")
+    attributes = _attributes(rest)
+    domain = attributes.get("domain", "").lstrip(".").lower()
+    if not sep or (domain and ("." not in domain or not (host == domain or host.endswith("." + domain)))):
+        return None
+    path = attributes.get("path", "")
+    path = path if path.startswith("/") else "/"
+    expires = _expires(attributes, now)
+    try:
+        if expires is not None and expires <= now.timestamp():
+            return SetCookie.removal(name.strip(), domain=domain, path=path)
+        return SetCookie(name.strip(), value.strip(), domain, path, expires)
+    except ValueError:  # the cookie's own checks: TR-04's Cookie after the integration
+        return None
 
 
 # ---- explore -------------------------------------------------------------------------------------------------------
@@ -185,15 +211,34 @@ def _path(value: object, *keys: str) -> object:
 
 def _label(value: object) -> str | None:
     """userType as sent, when it is a short printable string; anything else reads as absent, not as a failure."""
-    return value if isinstance(value, str) and _LABEL.match(value) else None
+    return value if isinstance(value, str) and _LABEL.fullmatch(value) else None
 
 
-def _related_widget(widgets: Sequence[Widget], keyword: str, single: bool) -> Widget | None:
+def _spelled(keyword: str | None) -> str | None:
+    return " ".join(keyword.split()).casefold() if keyword is not None else None
+
+
+def _related_widget(widgets: Sequence[Widget], terms: Sequence[str], keyword: str) -> Widget | None:
+    """The related-queries widget for `keyword`: by its keyword as sent, then as Google may normalise it (case,
+    spaces), then by position: RELATED_QUERIES_<i> for the i-th term, or a single term's only related widget.
+
+    None only when explore offered no related-queries widget at all, which is gate B's signal (a SCRAPER session may
+    lose them). Widgets that exist but none of which is the term's are a changed contract: a ParseFailure."""
     candidates = [widget for widget in widgets if widget.id.startswith(RELATED_WIDGET)]
-    matched = [widget for widget in candidates if widget.keyword == keyword]
-    if matched:
-        return matched[0]
-    return candidates[0] if single and len(candidates) == 1 else None
+    if not candidates:
+        return None
+    for match in (lambda widget: widget.keyword == keyword, lambda widget: _spelled(widget.keyword) == _spelled(keyword)):
+        found = next((widget for widget in candidates if match(widget)), None)
+        if found is not None:
+            return found
+    if len(terms) == 1:
+        found = candidates[0] if len(candidates) == 1 else None
+    else:
+        found = next((widget for widget in candidates if widget.id == f"{RELATED_WIDGET}_{terms.index(keyword)}"), None)
+    others = {_spelled(term) for term in terms if term != keyword}
+    if found is None or _spelled(found.keyword) in others:
+        raise ParseFailure("explore has related-queries widgets, none of them for the requested term")
+    return found
 
 
 def parse_explore(payload: object, query: TrendsQuery, *, timeline: bool, related: bool) -> Explore:
@@ -205,7 +250,7 @@ def parse_explore(payload: object, query: TrendsQuery, *, timeline: bool, relate
         raise ParseFailure("explore has no TIMESERIES widget")
     labelled = series or next(iter(widgets), None)
     user_type = _label(_path(labelled.request, "userConfig", "userType")) if labelled is not None else None
-    found = _related_widget(widgets, query.related_keyword, len(query.terms) == 1) if related else None
+    found = _related_widget(widgets, query.terms, query.related_keyword) if related else None
     return Explore(timeseries=series, related=found, user_type=user_type)
 
 
@@ -213,7 +258,7 @@ def parse_explore(payload: object, query: TrendsQuery, *, timeline: bool, relate
 
 
 def _time(value: object) -> int:
-    if isinstance(value, str) and _DIGITS.match(value):
+    if isinstance(value, str) and _DIGITS.fullmatch(value):
         return int(value)
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return value
@@ -256,21 +301,22 @@ def parse_timeline(payload: object, terms: Sequence[str]) -> TimelineResult:
     if not points:
         return TimelineResult(FetchStatus.NO_DATA)
     width = len(terms)
-    times = tuple(_time(point.get("time")) for point in points)
+    raw_times = tuple(point.get("time") for point in points)
+    times = tuple(map(_time, raw_times))
     if any(later <= earlier for earlier, later in zip(times, times[1:])):
         raise ParseFailure("timelineData is not in time order")
     values = [_values(point.get("value"), width) for point in points]
     has_data = [_flags(point, "hasData", width) for point in points]
     partial = tuple(_partial(point) for point in points)
-    lines = tuple(_line(term, index, times, values, has_data, partial) for index, term in enumerate(terms))
+    lines = tuple(_line(term, index, raw_times, values, has_data, partial) for index, term in enumerate(terms))
     zero = all(line.status is FetchStatus.OK_ZERO for line in lines)
     return TimelineResult(FetchStatus.OK_ZERO if zero else FetchStatus.OK, lines)
 
 
-def _line(term: str, index: int, times: tuple[int, ...], values: list, has_data: list, partial: tuple) -> Line:
+def _line(term: str, index: int, raw_times: tuple, values: list, has_data: list, partial: tuple) -> Line:
     column = tuple(row[index] for row in values)
     status = FetchStatus.OK if any(column) else FetchStatus.OK_ZERO
-    return Line(term=term, status=status, times=times, values=column, partial=partial, has_data=tuple(row[index] for row in has_data))
+    return Line(term=term, status=status, raw_times=raw_times, values=column, partial=partial, has_data=tuple(row[index] for row in has_data))
 
 
 # ---- relatedsearches -----------------------------------------------------------------------------------------------

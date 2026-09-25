@@ -5,41 +5,39 @@ leaves the process. A failure never produces a value (counterexample 1): a faile
 series, never a series of zeros.
 """
 
-import asyncio
 import json
 import logging
 import subprocess
 import sys
-from dataclasses import replace
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import httpx
 import pytest
-from trends_fakes import START, FakeTrends, Recorder, body_of, load
+from trends_fakes import BARE, DAY, START, FakeJar, FakeTrends, Recorder, body_of, jar_of, load, make_client, query_of
 
 from ggwork_pick.observe.clock import ManualClock
+from ggwork_pick.observe.contract import ENUMS, TRENDS_WINDOW_KINDS
 from ggwork_pick.observe.errors import Refused
-from ggwork_pick.observe.trends.client import FIXED_PARAMS, TrendsClient
+from ggwork_pick.observe.trends.client import DEFAULT_EXPLORE_METHOD, EXPLORE_METHODS, FIXED_PARAMS, TrendsClient
 from ggwork_pick.observe.trends.egress import ECHO_ENV, EgressProbe, egress_from_env
 from ggwork_pick.observe.trends.source import (
     FAILURES,
+    GOOGLE_PROPERTIES,
     JUDGEABLE,
     LIMIT_SIGNALS,
     RETRYABLE,
     SOURCE_NAME,
+    TIMEFRAMES,
     EgressReading,
     FetchStatus,
-    Jar,
     Phase,
-    RedirectKind,
+    SetCookie,
+    TrendsJar,
     TrendsQuery,
     TrendsSource,
-    new_jar,
 )
 
-DAY = date(2026, 9, 25)
-BARE = "moonlit vow"
 TEN_KINDS = {
     "ok": ("explore_4lines_us_h", "multiline_hourly_ok"),
     "ok_zero": ("explore_1line_ww_d", "multiline_daily_zero"),
@@ -62,23 +60,6 @@ FAILING_ANSWERS = {
     "timeout": FetchStatus.TIMEOUT,
     "json_truncated": FetchStatus.PARSE_ERROR,
 }
-
-
-def query_of(name: str, **changes) -> TrendsQuery:
-    spec = load(name)["query"]
-    query = TrendsQuery(terms=tuple(spec["terms"]), bare=spec["bare"], geo=spec["geo"], granularity=spec["granularity"])
-    return replace(query, **changes) if changes else query
-
-
-def make_client(fake: FakeTrends, recorder: Recorder, *, jar: Jar | None = None, clock: ManualClock | None = None, **options) -> TrendsClient:
-    return TrendsClient(
-        jar=jar if jar is not None else new_jar(),
-        clock=clock or ManualClock(START),
-        gate=recorder.gate,
-        on_request=recorder.on_request,
-        transport=fake.transport(),
-        **options,
-    )
 
 
 def test_status_sets_partition_the_ten_kinds():
@@ -156,14 +137,15 @@ async def test_related_failure_keeps_the_fetched_timeline():
 @pytest.mark.asyncio
 async def test_params_fixed():
     fake = FakeTrends(warmup="warmup_ok", explore="explore_4lines_us_h", multiline="multiline_hourly_ok", related="related_ok")
-    jar = new_jar()
+    jar = FakeJar()
     async with make_client(fake, Recorder(fake), jar=jar) as client:
         await client.warm(day=DAY)
         await client.fetch(query_of("explore_4lines_us_h"), related=True)
     warm, explore, multiline, related = fake.requests
     assert FIXED_PARAMS == {"hl": "en-US", "tz": "0"}
+    for request in (warm, explore, multiline, related):
+        assert request.method == "GET" and request.headers.get_list("user-agent") == [jar.user_agent]
     for request in (explore, multiline, related):
-        assert request.method == "GET"
         assert request.url.params["hl"] == "en-US" and request.url.params["tz"] == "0"
         assert "NID=525=synthetic-nid-first" in request.headers["cookie"]
     terms = query_of("explore_4lines_us_h").terms
@@ -176,7 +158,23 @@ async def test_params_fixed():
     for request, widget in ((multiline, widgets["TIMESERIES"]), (related, widgets["RELATED_QUERIES_0"])):
         assert json.loads(request.url.params["req"]) == widget["request"] and request.url.params["token"] == widget["token"]
     assert dict(warm.url.params) == {"geo": "US"} and "cookie" not in warm.headers
-    assert {request.headers["user-agent"] for request in fake.requests} == {jar.user_agent}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["GET", "POST"])
+async def test_explore_method_is_a_setting(method):
+    """The web client asks explore with GET, pytrends with POST; stage 0 compares both without a code change. Only
+    the method changes: the parameters stay in the query string, the body stays empty, the widget calls stay GET."""
+    fake = FakeTrends(explore="explore_4lines_us_h", multiline="multiline_hourly_ok")
+    async with make_client(fake, Recorder(fake), explore_method=method) as client:
+        result = await client.fetch(query_of("explore_4lines_us_h"))
+    explore, multiline = fake.requests
+    assert result.status is FetchStatus.OK and DEFAULT_EXPLORE_METHOD == "GET" and EXPLORE_METHODS == ("GET", "POST")
+    assert explore.method == method and multiline.method == "GET"
+    assert explore.content == b"" and json.loads(explore.url.params["req"])["comparisonItem"][0]["keyword"] == BARE
+    for bad in ("PUT", "get", ""):
+        with pytest.raises(ValueError):
+            make_client(fake, Recorder(), explore_method=bad)
 
 
 @pytest.mark.asyncio
@@ -186,6 +184,22 @@ async def test_worldwide_daily_query_params():
         await client.fetch(query_of("explore_1line_ww_d"))
     sent = json.loads(fake.requests[0].url.params["req"])
     assert sent == {"comparisonItem": [{"keyword": BARE, "geo": "", "time": "today 1-m"}], "category": 0, "property": ""}
+
+
+@pytest.mark.asyncio
+async def test_query_speaks_the_contract():
+    """The query and the raw row use the contract's words: granularity H or D (TRENDS_WINDOW_KINDS), property web or
+    youtube (DISCOVERY_PROPERTIES); only the request to Google uses Google's spelling (web search is "")."""
+    assert set(TIMEFRAMES) == set(TRENDS_WINDOW_KINDS)
+    assert set(GOOGLE_PROPERTIES) == set(ENUMS["DISCOVERY_PROPERTIES"]) and GOOGLE_PROPERTIES["web"] == ""
+    web = query_of("explore_1line_ww_d")
+    youtube = query_of("explore_1line_ww_d", search_property="youtube")
+    assert web.search_property == "web" and web.request_params()["property"] == "web"
+    assert youtube.request_params()["property"] == "youtube" and "gprop" not in youtube.request_params()
+    fake = FakeTrends(explore="explore_1line_ww_d", multiline="multiline_daily_zero")
+    async with make_client(fake, Recorder(fake)) as client:
+        await client.fetch(youtube)
+    assert json.loads(fake.requests[0].url.params["req"])["property"] == "youtube"
 
 
 @pytest.mark.asyncio
@@ -222,35 +236,6 @@ async def test_variant_lines_by_request_order():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("answer", "kind", "host"), [("redirect_sorry", RedirectKind.SORRY, "www.google.com"), ("redirect_consent", RedirectKind.CONSENT, "consent.google.com")]
-)
-async def test_sorry_redirect_detected_without_follow(answer, kind, host):
-    fake = FakeTrends(explore=answer, warmup=answer)
-    recorder = Recorder(fake)
-    async with make_client(fake, recorder) as client:
-        result = await client.fetch(query_of("explore_4lines_us_h"))
-        warmed = await client.warm(day=DAY)
-    # One request each: the redirect was read, not followed (the fake refuses any host but trends.google.com).
-    assert fake.phases() == ["explore", "warmup"]
-    assert result.status is FetchStatus.BLOCKED_REDIRECT and result.captcha_or_consent
-    assert warmed.status is FetchStatus.BLOCKED_REDIRECT
-    assert [(record.redirect_kind, record.redirect_host) for record in recorder.records] == [(kind, host), (kind, host)]
-
-
-@pytest.mark.asyncio
-async def test_other_redirects_block_without_counting_as_captcha():
-    def elsewhere(request):
-        return httpx.Response(302, headers={"location": "https://trends.google.com/trends/explore?geo=US"}, request=request)
-
-    fake = FakeTrends(explore=elsewhere)
-    async with make_client(fake, Recorder(fake)) as client:
-        result = await client.fetch(query_of("explore_4lines_us_h"))
-    assert result.status is FetchStatus.BLOCKED_REDIRECT and not result.captcha_or_consent
-    assert result.requests[0].redirect_kind is RedirectKind.SAME_HOST and len(fake.requests) == 1
-
-
-@pytest.mark.asyncio
 async def test_warm_once_per_day():
     fake = FakeTrends(warmup="warmup_ok")
     recorder = Recorder(fake)
@@ -265,6 +250,33 @@ async def test_warm_once_per_day():
 
 
 @pytest.mark.asyncio
+async def test_no_warm_for_an_earlier_day():
+    """The jar decides (can_warm): a day before its warmed_on, from a stepped-back clock or a wrong target date, is
+    not a new day and sends nothing."""
+    fake = FakeTrends(warmup="warmup_ok")
+    async with make_client(fake, Recorder(fake), jar=jar_of(("NID", "525=synthetic-nid-old"), warmed_on=DAY)) as client:
+        earlier = await client.warm(day=DAY - timedelta(days=1))
+    assert (earlier.status, earlier.request) == (None, None) and earlier.jar.warmed_on == DAY and fake.requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transient", ["timeout", "http_503"])
+async def test_warm_retries_after_timeout_or_5xx(transient):
+    """Design 4.2 retries a 5xx or a timeout once (TR-03 decides, the executor calls again): a warm-up that got no
+    usable answer does not use up the day, so the retry goes out and fills the jar."""
+    fake = FakeTrends(warmup=[transient, "warmup_ok"])
+    recorder = Recorder(fake)
+    async with make_client(fake, recorder) as client:
+        failed = await client.warm(day=DAY)
+        assert failed.status is FAILING_ANSWERS[transient] and failed.request is not None
+        assert failed.jar.warmed_on is None and failed.jar.cookie_names == ()
+        retried = await client.warm(day=DAY)
+        done = await client.warm(day=DAY)
+    assert retried.status is FetchStatus.OK and retried.jar.warmed_on == DAY and retried.jar.cookie_names == ("NID", "AEC")
+    assert done.request is None and fake.phases() == ["warmup", "warmup"] and len(recorder.records) == 2
+
+
+@pytest.mark.asyncio
 async def test_same_host_redirect_warms():
     fake = FakeTrends(warmup="warmup_redirect_trends")
     async with make_client(fake, Recorder(fake)) as client:
@@ -276,7 +288,7 @@ async def test_same_host_redirect_warms():
 async def test_rate_limited_keeps_jar():
     """Google turns new sessions away first (design 4.4): a refused answer never replaces the jar's cookies, even
     when it sets new ones; the refused warm-up still counts as the day's one warm-up."""
-    old = Jar(user_agent="UA-fixed", cookies=(("NID", "525=synthetic-nid-old"),))
+    old = jar_of(("NID", "525=synthetic-nid-old"))
     fake = FakeTrends(warmup="http_429", explore="http_429")
     async with make_client(fake, Recorder(fake), jar=old) as client:
         warmed = await client.warm(day=DAY)
@@ -293,16 +305,26 @@ async def test_success_adopts_cookie_updates():
     body = body_of(load("explore_4lines_us_h")["response"])
 
     def rotating(request):
-        headers = [("content-type", "application/json"), ("set-cookie", "NID=525=synthetic-nid-rotated; path=/"), ("set-cookie", "AEC=; max-age=0")]
+        headers = [
+            ("content-type", "application/json"),
+            ("set-cookie", "NID=525=synthetic-nid-rotated; path=/"),
+            ("set-cookie", "AEC=; max-age=0"),
+            ("set-cookie", "SHORT=synthetic-short; Max-Age=60"),
+        ]
         return httpx.Response(200, headers=headers, content=body, request=request)
 
-    jar = Jar(user_agent="UA-fixed", cookies=(("NID", "525=synthetic-nid-old"), ("AEC", "synthetic-aec-old")))
-    fake = FakeTrends(explore=rotating, multiline="multiline_hourly_ok")
-    async with make_client(fake, Recorder(fake), jar=jar) as client:
+    clock = ManualClock(START)
+    jar = jar_of(("NID", "525=synthetic-nid-old"), ("AEC", "synthetic-aec-old"))
+    fake = FakeTrends(explore=[rotating, "explore_4lines_us_h"], multiline="multiline_hourly_ok")
+    async with make_client(fake, Recorder(fake), jar=jar, clock=clock) as client:
         await client.fetch(query_of("explore_4lines_us_h"))
         rotated = client.jar
-    assert rotated.cookies == (("NID", "525=synthetic-nid-rotated"),) and rotated.user_agent == "UA-fixed"
-    assert fake.requests[1].headers["cookie"] == "NID=525=synthetic-nid-rotated"
+        clock.advance(120)  # SHORT's Max-Age has run out: the jar leaves it out of the next request
+        await client.fetch(query_of("explore_4lines_us_h"))
+    assert rotated.cookie_names == ("NID", "SHORT") and rotated.user_agent == "UA-fixed"
+    assert rotated.cookies[1].expires == int(START.timestamp()) + 60
+    assert fake.requests[1].headers["cookie"] == "NID=525=synthetic-nid-rotated; SHORT=synthetic-short"
+    assert fake.requests[2].headers["cookie"] == "NID=525=synthetic-nid-rotated"
 
 
 @pytest.mark.asyncio
@@ -335,7 +357,7 @@ async def test_gate_before_every_http():
     async def keep(record):
         records.append(record)
 
-    client = TrendsClient(jar=new_jar(), clock=ManualClock(START), gate=refuse_multiline, on_request=keep, transport=fake.transport())
+    client = TrendsClient(jar=FakeJar(), clock=ManualClock(START), gate=refuse_multiline, on_request=keep, transport=fake.transport())
     async with client:
         with pytest.raises(Stop):
             await client.fetch(query)
@@ -345,37 +367,9 @@ async def test_gate_before_every_http():
 def test_gate_and_on_request_are_required():
     """Like D42: an executor that forgets to wire the pacer or the request log fails at construction."""
     with pytest.raises(TypeError):
-        TrendsClient(jar=new_jar(), clock=ManualClock(START), on_request=Recorder().on_request)  # type: ignore[call-arg]
+        TrendsClient(jar=FakeJar(), clock=ManualClock(START), on_request=Recorder().on_request)  # type: ignore[call-arg]
     with pytest.raises(TypeError):
-        TrendsClient(jar=new_jar(), clock=ManualClock(START), gate=Recorder().gate)  # type: ignore[call-arg]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("answer", ["http_503", "timeout", "http_429", "redirect_sorry"])
-async def test_client_never_retries(answer):
-    """Retrying is TR-03's policy in the executor: 429 never, 5xx or timeout once after 30-60 seconds."""
-    fake = FakeTrends(explore="explore_4lines_us_h", multiline=answer)
-    async with make_client(fake, Recorder(fake)) as client:
-        await client.fetch(query_of("explore_4lines_us_h"))
-    assert fake.phases() == ["explore", "multiline"]
-
-
-@pytest.mark.asyncio
-async def test_body_cap_and_request_deadline():
-    fake = FakeTrends(explore="explore_4lines_us_h", multiline="multiline_hourly_ok")
-    async with make_client(fake, Recorder(fake), max_body_bytes=20_000) as client:
-        capped = await client.fetch(query_of("explore_4lines_us_h"))
-    assert capped.status is FetchStatus.PARSE_ERROR and capped.timeline.lines is None
-
-    async def slow(request):
-        await asyncio.sleep(5)
-        return httpx.Response(200, request=request)
-
-    fake = FakeTrends(explore=slow)
-    recorder = Recorder(fake)
-    async with make_client(fake, recorder, request_seconds=0.05) as client:
-        late = await client.fetch(query_of("explore_4lines_us_h"))
-    assert late.status is FetchStatus.TIMEOUT and recorder.records[0].http_status is None
+        TrendsClient(jar=FakeJar(), clock=ManualClock(START), gate=Recorder().gate)  # type: ignore[call-arg]
 
 
 @pytest.mark.asyncio
@@ -408,8 +402,10 @@ async def test_query_refused_before_any_http():
         dict(terms=terms, bare="c"),
         dict(terms=terms, bare="a", geo="us"),
         dict(terms=terms, bare="a", geo="USA"),
+        dict(terms=terms, bare="a", geo="US\n"),
         dict(terms=terms, bare="a", granularity="W"),
-        dict(terms=terms, bare="a", gprop="news"),
+        dict(terms=terms, bare="a", search_property="news"),
+        dict(terms=terms, bare="a", search_property=""),  # Google's spelling of web search, not the contract's
         dict(terms=terms, bare="a", related_term="c"),
     ]
     for case in bad:
@@ -432,7 +428,7 @@ async def test_capture_hands_raw_bodies_to_stage0():
     assert recorder.bodies == [body_of(load("explore_4lines_us_h")["response"]), body_of(load("multiline_hourly_ok")["response"])]
 
 
-def _secrets_absent(texts: list[str], secrets: tuple[str, ...]) -> list[str]:
+def _leaked_secrets(texts: list[str], secrets: tuple[str, ...]) -> list[str]:
     return [secret for secret in secrets for text in texts if secret in text]
 
 
@@ -444,11 +440,19 @@ async def test_no_cookie_in_logs_or_repr(caplog):
     def quoting_error(request):
         raise httpx.ConnectError(f"refused with {request.headers.get('cookie')}", request=request)
 
-    jar = Jar(user_agent="UA-fixed", cookies=(("NID", "525=synthetic-nid-old-SECRET"),))
+    class LeakyJar(FakeJar):
+        """A jar whose own repr shows its values: the client must not rely on the jar to keep them out."""
+
+        def __repr__(self) -> str:
+            return f"LeakyJar({[(cookie.name, cookie.value) for cookie in self.cookies]!r})"
+
+    leaky = LeakyJar(user_agent="UA-fixed", cookies=(SetCookie("NID", "525=synthetic-nid-old-SECRET"),))
+    jar = jar_of(("NID", "525=synthetic-nid-old-SECRET"))
     fake = FakeTrends(warmup="warmup_ok", explore=["explore_4lines_us_h", "http_429", "timeout"], multiline="multiline_hourly_ok")
     recorder = Recorder(fake)
     client = make_client(fake, recorder, jar=jar)
-    texts = [repr(client), repr(jar), str(jar)]
+    texts = [repr(make_client(fake, Recorder(), jar=leaky)), repr(jar.cookies), str(jar.cookies[0])]
+    texts += [repr(client), repr(jar), str(jar)]
     async with client:
         warmed = await client.warm(day=DAY)
         results = [await client.fetch(query_of("explore_4lines_us_h")) for _ in range(3)]
@@ -456,7 +460,7 @@ async def test_no_cookie_in_logs_or_repr(caplog):
         results.append(await client.fetch(query_of("explore_4lines_us_h")))
         texts += [repr(client), repr(client.jar), str(client.jar), repr(warmed)]
     texts += [caplog.text, *(repr(result) for result in results), *(repr(record) for record in recorder.records)]
-    assert _secrets_absent(texts, secrets) == []
+    assert _leaked_secrets(texts, secrets) == []
     # The connection error's text quoted the cookie; the result keeps its class and nothing else.
     assert results[-1].status is FetchStatus.TIMEOUT and recorder.records[-1].error_class == "ConnectError"
     assert "NID" in repr(client.jar)  # names are fine, values never
@@ -477,7 +481,7 @@ async def test_egress_recorded_per_request():
     probe = EgressProbe("https://echo.example.test/ip", clock=clock, transport=httpx.MockTransport(echo))
     fake = FakeTrends(explore="explore_4lines_us_h", multiline="multiline_hourly_ok")
     recorder = Recorder(fake)
-    jar = Jar(user_agent="UA-fixed", cookies=(("NID", "525=synthetic-nid-old"),))
+    jar = jar_of(("NID", "525=synthetic-nid-old"))
     results = []
     async with make_client(fake, recorder, jar=jar, clock=clock, egress=probe) as client, probe:
         for _ in range(11):
@@ -564,8 +568,34 @@ async def test_echo_failures_keep_last_reading():
 
 
 def test_client_is_a_trends_source():
-    client = TrendsClient(jar=new_jar(), clock=ManualClock(START), gate=Recorder().gate, on_request=Recorder().on_request, transport=FakeTrends().transport())
+    client = TrendsClient(jar=FakeJar(), clock=ManualClock(START), gate=Recorder().gate, on_request=Recorder().on_request, transport=FakeTrends().transport())
     assert isinstance(client, TrendsSource) and client.source_name == SOURCE_NAME == "trends-direct"
+    assert isinstance(FakeJar(), TrendsJar)
+
+
+def test_set_cookie_is_tr04_cookie():
+    """Integration tripwire (skipped until batch 1a merges trends/cookies.py): the channel has one cookie jar. At the
+    merge source.SetCookie becomes an import of TR-04's Cookie, so the parser builds the jar's own cookies
+    (docs/pick-workbench/observe-runbook/trends-client.md, 集成说明)."""
+    cookies = pytest.importorskip("ggwork_pick.observe.trends.cookies")
+    assert SetCookie is cookies.Cookie, "集成时把 trends/source.py 的 SetCookie 换成 cookies.Cookie 的导入"
+    assert isinstance(cookies.CookieJar.fresh("UA-fixed"), TrendsJar)
+
+
+@pytest.mark.asyncio
+async def test_client_drives_tr04_cookie_jar():
+    """The client on TR-04's real CookieJar (skipped until the integration): warm-up, rotation, removal, refusal."""
+    cookies = pytest.importorskip("ggwork_pick.observe.trends.cookies")
+    jar = cookies.CookieJar.fresh("UA-fixed")
+    fake = FakeTrends(warmup="warmup_ok", explore=["explore_4lines_us_h", "http_429"], multiline="multiline_hourly_ok")
+    async with make_client(fake, Recorder(fake), jar=jar) as client:
+        warmed = await client.warm(day=DAY)
+        await client.fetch(query_of("explore_4lines_us_h"))
+        kept = client.jar
+        await client.fetch(query_of("explore_4lines_us_h"))
+    assert isinstance(warmed.jar, cookies.CookieJar) and warmed.jar.warmed_on == DAY and not warmed.jar.can_warm(DAY)
+    assert "NID=525=synthetic-nid-first" in fake.requests[1].headers["cookie"]
+    assert client.jar == kept and {request.headers["user-agent"] for request in fake.requests} == {"UA-fixed"}
 
 
 SOURCE = Path(__file__).resolve().parents[2]

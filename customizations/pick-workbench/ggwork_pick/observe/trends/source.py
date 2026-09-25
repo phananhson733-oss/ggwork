@@ -1,5 +1,5 @@
-"""What a Trends source hands the session: the TrendsSource protocol, the ten fetch statuses and the result shapes
-(design 4.1, 4.4, 4.7, 4.10, 4.11; plan TR-02, D20).
+"""What a Trends source hands the session: the TrendsSource protocol, the ten fetch statuses and the result shapes,
+and the cookie-jar seam with TR-04 (design 4.1, 4.4, 4.7, 4.10, 4.11; plan TR-02, D20).
 
 A source turns one query unit (identity x geo x query shape x time range, design 4.5) into at most three HTTP requests:
 explore, then multiline for the series and relatedsearches for the related queries. The session (TR-14) owns pacing,
@@ -12,10 +12,11 @@ sources never confirm one another (design 4.11). The direct client is SOURCE_NAM
 """
 
 import re
-from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
 from ggwork_pick.observe.contract import TREND_GEO_PATTERN
@@ -24,15 +25,25 @@ SOURCE_NAME = "trends-direct"
 GEO_WORLDWIDE = "WW"  # the contract's worldwide geo; Google's own spelling of it is the empty string
 MAX_TERMS = 5  # comparisonItems in one explore
 MAX_TERM_LENGTH = 200
-MAX_COOKIES = 20  # a jar never grows past this, whatever a response sets
 # Granularity (contract TRENDS_WINDOW_KINDS) -> Google's time range: H is hourly over 7 days, D is daily over a month
 # (design 4.9 schemes H and D). Stage 0 chooses between them; any other range is refused.
-TIMEFRAMES = {"H": "now 7-d", "D": "today 1-m"}
-PROPERTIES = ("", "youtube")  # web search, and YouTube search for the stable-period seeds (design 4.8)
-# The warm-up hands out a jar; a real browser's UA, fixed for the jar's life and never rotated (design 4.4).
+TIMEFRAMES = MappingProxyType({"H": "now 7-d", "D": "today 1-m"})
+# Search property (contract DISCOVERY_PROPERTIES) -> Google's gprop: web search is the empty string; YouTube search
+# serves the stable-period seeds (design 4.8).
+GOOGLE_PROPERTIES = MappingProxyType({"web": "", "youtube": "youtube"})
+# A real browser's UA for CookieJar.fresh(): fixed for the jar's life and never rotated (design 4.4).
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
-_GEO = re.compile(rf"^({TREND_GEO_PATTERN})$")
+MAX_COOKIE_NAME = 64
+MAX_COOKIE_VALUE = 4096
+MAX_COOKIE_DOMAIN = 253
+MAX_COOKIE_PATH = 1024
+_GEO = re.compile(rf"(?:{TREND_GEO_PATTERN})")
 _UNPRINTABLE = re.compile(r"[\x00-\x1f\x7f]")
+_COOKIE_NAME = re.compile(rf"[!#$%&'*+\-.^_`|~0-9A-Za-z]{{1,{MAX_COOKIE_NAME}}}")  # an RFC 9110 token
+_COOKIE_OCTETS = r"[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]"  # RFC 6265 cookie-octet
+_COOKIE_VALUE = re.compile(rf"{_COOKIE_OCTETS}{{0,{MAX_COOKIE_VALUE}}}")
+_COOKIE_PATH = re.compile(rf"/{_COOKIE_OCTETS}{{0,{MAX_COOKIE_PATH - 1}}}")
+_COOKIE_DOMAIN = re.compile(rf"[a-z0-9.-]{{0,{MAX_COOKIE_DOMAIN}}}")
 
 
 class FetchStatus(StrEnum):
@@ -42,16 +53,19 @@ class FetchStatus(StrEnum):
     OK_ZERO = "ok_zero"  # a complete series of zeros: judged as sparse, never as a failure
     NO_DATA = "no_data"  # HTTP succeeded but there is nothing: no timeline points, no related queries
     RATE_LIMITED = "rate_limited"  # 429
-    BLOCKED_REDIRECT = "blocked_redirect"  # any redirect on an API path; sorry and consent pages among them
+    BLOCKED_REDIRECT = "blocked_redirect"  # a redirect to the sorry (captcha) or consent page: the wall, the day ends
     HTML_BODY = "html_body"  # an API path answered with an HTML page
     FORBIDDEN = "forbidden"  # 403
     SERVER_ERROR = "server_error"  # 5xx
-    TIMEOUT = "timeout"  # no HTTP answer: the time limits ran out, or the connection failed
-    PARSE_ERROR = "parse_error"  # an answer outside the shape the parser relies on, an unnamed 4xx, a body over the cap
+    TIMEOUT = "timeout"  # no HTTP answer: the time limits ran out, or the connection or the far end broke on the way
+    # A changed contract: an answer outside the shape the parser relies on, an unnamed 4xx, any other redirect, a 200
+    # over the body cap or undecodable, a request httpx could not send. Never retried, never a limit signal.
+    PARSE_ERROR = "parse_error"
 
 
 JUDGEABLE = frozenset({FetchStatus.OK, FetchStatus.OK_ZERO})
-# Design 4.3: the signals that trip the breaker. A sorry or consent redirect also ends the day (captcha_or_consent).
+# Design 4.3: the signals that trip the breaker. blocked_redirect, a sorry or consent page, also ends the day (TR-03's
+# Signal.WALL): no other redirect may produce it.
 LIMIT_SIGNALS = frozenset({FetchStatus.RATE_LIMITED, FetchStatus.BLOCKED_REDIRECT, FetchStatus.HTML_BODY, FetchStatus.FORBIDDEN})
 RETRYABLE = frozenset({FetchStatus.SERVER_ERROR, FetchStatus.TIMEOUT})  # design 4.2: once, 30-60 seconds later (TR-03)
 FAILURES = LIMIT_SIGNALS | RETRYABLE | {FetchStatus.PARSE_ERROR}
@@ -89,7 +103,7 @@ class TrendsQuery:
     bare: str | None
     geo: str
     granularity: str
-    gprop: str = ""
+    search_property: str = "web"  # contract DISCOVERY_PROPERTIES: web or youtube
     related_term: str | None = None
 
     def __post_init__(self) -> None:
@@ -100,12 +114,12 @@ class TrendsQuery:
         for name in ("bare", "related_term"):
             if getattr(self, name) is not None and getattr(self, name) not in self.terms:
                 raise ValueError(f"{name} is not one of the terms")
-        if not isinstance(self.geo, str) or not _GEO.match(self.geo):
+        if not isinstance(self.geo, str) or not _GEO.fullmatch(self.geo):
             raise ValueError("geo is WW or an ISO alpha-2 code")
         if self.granularity not in TIMEFRAMES:
             raise ValueError(f"granularity is one of {sorted(TIMEFRAMES)}")
-        if self.gprop not in PROPERTIES:
-            raise ValueError("gprop is web ('') or youtube")
+        if self.search_property not in GOOGLE_PROPERTIES:
+            raise ValueError(f"search_property is one of {sorted(GOOGLE_PROPERTIES)}")
 
     @property
     def timeframe(self) -> str:
@@ -116,64 +130,95 @@ class TrendsQuery:
         return "" if self.geo == GEO_WORLDWIDE else self.geo
 
     @property
+    def google_property(self) -> str:
+        return GOOGLE_PROPERTIES[self.search_property]
+
+    @property
     def related_keyword(self) -> str:
         return self.related_term or self.bare or self.terms[0]
 
     def request_params(self) -> dict:
-        """The request as the raw row keeps it (design 3.5 ggwp_obs_raw)."""
+        """The request as the raw row keeps it (design 3.5 ggwp_obs_raw), in the contract's words."""
         return {
             "terms": list(self.terms),
             "bare": self.bare,
             "geo": self.geo,
             "timeframe": self.timeframe,
-            "gprop": self.gprop,
+            "property": self.search_property,
             "category": 0,
             "tz": 0,
             "hl": "en-US",
         }
 
 
-@dataclass(frozen=True)
-class Jar:
-    """One service's cookies and the UA bound to them (design 4.4). Values never reach a repr, a log or an error.
+@dataclass(frozen=True, repr=False)
+class SetCookie:
+    """One cookie an answer set: field for field TR-04's trends/cookies.Cookie, with the same bounds.
 
-    Replaced, never changed: every update is a new Jar. warmed_on is the day of the last warm-up attempt (the session's
-    target date, D23): a jar warms at most once a day, and a refused warm-up counts as that day's."""
+    expires is Unix seconds, None for a session cookie; domain "" is host-only. A removal (Max-Age <= 0, an Expires
+    already past) is an expired cookie with no value, and the jar drops it with whatever it replaces. This class stands
+    in for Cookie until the batch 1a integration replaces it with an import of Cookie, so that the parser builds the
+    jar's own cookies (trends-client.md, 集成说明). The value never reaches a repr."""
 
-    user_agent: str
-    cookies: tuple[tuple[str, str], ...] = field(default=(), repr=False)
-    warmed_on: date | None = None
+    name: str
+    value: str
+    domain: str = ""
+    path: str = "/"
+    expires: int | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not _COOKIE_NAME.fullmatch(self.name):
+            raise ValueError("a cookie name is an HTTP token")
+        if not isinstance(self.value, str) or not _COOKIE_VALUE.fullmatch(self.value):
+            raise ValueError(f"cookie {self.name}: the value has characters a Cookie header cannot carry")
+        if not isinstance(self.domain, str) or not _COOKIE_DOMAIN.fullmatch(self.domain):
+            raise ValueError(f"cookie {self.name}: the domain is not a host name")
+        if not isinstance(self.path, str) or not _COOKIE_PATH.fullmatch(self.path):
+            raise ValueError(f"cookie {self.name}: the path is not absolute")
+        if self.expires is not None and type(self.expires) is not int:
+            raise ValueError(f"cookie {self.name}: expires is whole seconds")
+
+    @classmethod
+    def removal(cls, name: str, *, domain: str = "", path: str = "/") -> "SetCookie":
+        return cls(name, "", domain, path, 0)
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        """A cookie with the same name, domain and path replaces this one."""
+        return (self.name, self.domain, self.path)
+
+    def expired(self, now: datetime) -> bool:
+        return self.expires is not None and now.timestamp() >= self.expires
 
     def __repr__(self) -> str:
-        return f"Jar(user_agent={self.user_agent!r}, cookies={list(self.cookie_names)!r}, warmed_on={self.warmed_on!r})"
+        return f"SetCookie(name={self.name!r}, domain={self.domain!r}, path={self.path!r}, value=<redacted>)"
 
-    __str__ = __repr__
+
+@runtime_checkable
+class TrendsJar(Protocol):
+    """The cookie jar as the client uses it; TR-04's trends/cookies.CookieJar is the implementation (plan 5).
+
+    Immutable: updated() and warmed() return a new jar. The UA belongs to the jar and goes out with its cookies in
+    request_headers(), which leaves expired cookies out. warmed_on is the target date of the last warm-up (D23), and
+    can_warm(day) is False once warmed_on >= day: a jar warms at most once per target date, never for an earlier one.
+    The client reads nothing else, and never a repr: cookie values stay inside the jar and the Cookie header."""
 
     @property
-    def cookie_names(self) -> tuple[str, ...]:
-        return tuple(name for name, _ in self.cookies)
+    def user_agent(self) -> str: ...
 
     @property
-    def has_nid(self) -> bool:
-        return "NID" in self.cookie_names
+    def warmed_on(self) -> date | None: ...
 
-    def header(self) -> str | None:
-        return "; ".join(f"{name}={value}" for name, value in self.cookies) or None
+    @property
+    def cookie_names(self) -> tuple[str, ...]: ...
 
-    def updated(self, updates: Sequence[tuple[str, str | None]]) -> "Jar":
-        """A new jar with Set-Cookie updates applied in order: a value sets or replaces, None removes."""
-        cookies = dict(self.cookies)
-        for name, value in updates:
-            if value is None:
-                cookies.pop(name, None)
-            else:
-                cookies[name] = value
-        kept = tuple(cookies.items())[:MAX_COOKIES]
-        return self if kept == self.cookies else replace(self, cookies=kept)
+    def can_warm(self, day: date) -> bool: ...
 
+    def request_headers(self, now: datetime) -> Mapping[str, str]: ...
 
-def new_jar(user_agent: str = DEFAULT_USER_AGENT) -> Jar:
-    return Jar(user_agent=user_agent)
+    def updated(self, cookies: Iterable[SetCookie], *, now: datetime) -> "TrendsJar": ...
+
+    def warmed(self, cookies: Iterable[SetCookie], *, day: date, now: datetime) -> "TrendsJar": ...
 
 
 @dataclass(frozen=True)
@@ -213,21 +258,27 @@ class RequestRecord:
 
 @dataclass(frozen=True)
 class Line:
-    """One term's series, as sent: epoch seconds, values 0-100, isPartial and hasData (None where the key was absent)."""
+    """One term's series, as sent: each point's time as it came (epoch seconds, a string in the web client's answers),
+    values 0-100, isPartial and hasData (None where the key was absent)."""
 
     term: str
     status: FetchStatus  # OK or OK_ZERO
-    times: tuple[int, ...]
+    raw_times: tuple[str | int, ...]
     values: tuple[int, ...]
     partial: tuple[bool | None, ...]
     has_data: tuple[bool | None, ...]
 
+    @property
+    def times(self) -> tuple[int, ...]:
+        """Epoch seconds; the parser has checked every raw time is one."""
+        return tuple(int(time) for time in self.raw_times)
+
     def as_raw(self) -> dict:
-        """The series for ggwp_obs_raw: the arrays as the answer had them (design 3.5)."""
+        """The series for ggwp_obs_raw: the arrays as the answer had them, time included (design 3.5)."""
         return {
             "term": self.term,
             "status": self.status.value,
-            "time": list(self.times),
+            "time": list(self.raw_times),
             "value": list(self.values),
             "isPartial": list(self.partial),
             "hasData": list(self.has_data),
@@ -293,14 +344,14 @@ class FetchResult:
 
     @property
     def captcha_or_consent(self) -> bool:
-        """A sorry or consent page: design 4.3 ends the day on the first one."""
+        """A sorry or consent page, that is a blocked_redirect: design 4.3 ends the day on the first one."""
         return any(record.redirect_kind in (RedirectKind.SORRY, RedirectKind.CONSENT) for record in self.requests)
 
 
 @dataclass(frozen=True)
 class WarmResult:
-    status: FetchStatus | None  # None: already warmed on that day, nothing was sent
-    jar: Jar
+    status: FetchStatus | None  # None: the jar cannot warm on that day (warmed_on >= day), nothing was sent
+    jar: TrendsJar
     request: RequestRecord | None
 
     @property
@@ -315,7 +366,7 @@ class TrendsSource(Protocol):
     source_name: str
 
     @property
-    def jar(self) -> Jar: ...
+    def jar(self) -> TrendsJar: ...
 
     async def warm(self, *, day: date) -> WarmResult: ...
 

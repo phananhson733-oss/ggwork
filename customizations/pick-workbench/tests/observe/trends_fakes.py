@@ -7,14 +7,21 @@ under `pending_stage0` the shapes stage 0 (TR-05) still has to confirm against r
 """
 
 import json
-from collections.abc import Callable
-from datetime import UTC, datetime
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx
 
+from ggwork_pick.observe.clock import ManualClock
+from ggwork_pick.observe.trends.client import TrendsClient
+from ggwork_pick.observe.trends.source import SetCookie, TrendsJar, TrendsQuery
+
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "trends"
 START = datetime(2026, 9, 25, 22, 10, tzinfo=UTC)
+DAY = date(2026, 9, 25)  # the session's target date (D23)
+BARE = "moonlit vow"
 TRENDS_HOST = "trends.google.com"
 PATH_PHASES = {
     "/trends/": "warmup",
@@ -47,12 +54,12 @@ def respond(name: str, request: httpx.Request) -> httpx.Response:
 
 
 class FakeTrends:
-    """Answers each phase with the fixture named for it; a list of names answers successive calls in turn.
+    """Answers each phase with the fixture named for it, or a callable; a list answers successive calls in turn.
 
     Every request is recorded; a request to any host but trends.google.com fails the test (no redirect is followed,
     no third party is called through this transport)."""
 
-    def __init__(self, **answers: str | list[str] | Callable[[httpx.Request], httpx.Response]):
+    def __init__(self, **answers: str | Callable[[httpx.Request], httpx.Response] | list):
         self.answers = {phase: list(answer) if isinstance(answer, list) else answer for phase, answer in answers.items()}
         self.requests: list[httpx.Request] = []
         self.events: list[str] | None = None
@@ -67,10 +74,8 @@ class FakeTrends:
         if self.events is not None:
             self.events.append(f"http:{phase}")
         answer = self.answers[phase]
-        if callable(answer):
-            return answer(request)
-        name = answer.pop(0) if isinstance(answer, list) else answer
-        return respond(name, request)
+        answer = answer.pop(0) if isinstance(answer, list) else answer
+        return answer(request) if callable(answer) else respond(answer, request)
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handler)
@@ -97,3 +102,71 @@ class Recorder:
 
     async def capture(self, record, body: bytes) -> None:
         self.bodies.append(body)
+
+
+@dataclass(frozen=True, repr=False)
+class FakeJar:
+    """The TrendsJar protocol as TR-04's trends/cookies.CookieJar implements it, for the client tests.
+
+    Cookies are keyed by name, domain and path, a later Set-Cookie replaces an earlier one, and an expired cookie
+    (a removal included) leaves the jar at the update; the user agent goes out with the cookies; a jar warms once per
+    target date. The client tests pin the client's side of the seam; TR-04's own tests pin the jar."""
+
+    user_agent: str = "UA-fixed"
+    cookies: tuple = ()
+    warmed_on: date | None = None
+
+    @property
+    def cookie_names(self) -> tuple[str, ...]:
+        return tuple(cookie.name for cookie in self.cookies)
+
+    def can_warm(self, day: date) -> bool:
+        return self.warmed_on is None or self.warmed_on < day
+
+    def request_headers(self, now: datetime) -> Mapping[str, str]:
+        live = [cookie for cookie in self.cookies if not cookie.expired(now)]
+        cookie = {"Cookie": "; ".join(f"{one.name}={one.value}" for one in live)} if live else {}
+        return {"User-Agent": self.user_agent, **cookie}
+
+    def updated(self, cookies: Iterable, *, now: datetime) -> "FakeJar":
+        merged = {cookie.key: cookie for cookie in self.cookies} | {cookie.key: cookie for cookie in cookies}
+        return replace(self, cookies=tuple(cookie for cookie in merged.values() if not cookie.expired(now)))
+
+    def warmed(self, cookies: Iterable, *, day: date, now: datetime) -> "FakeJar":
+        if not self.can_warm(day):
+            raise ValueError("already warmed on that target date")
+        return replace(self.updated(cookies, now=now), warmed_on=day)
+
+    def __repr__(self) -> str:
+        return f"FakeJar(user_agent={self.user_agent!r}, cookies={list(self.cookie_names)!r}, warmed_on={self.warmed_on!r})"
+
+
+def streamed(status: int, body: bytes, headers: list[tuple[str, str]] | None = None) -> Callable[[httpx.Request], httpx.Response]:
+    """An answer whose body is read, and decoded, only when the client reads it (as on a real connection)."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, headers=headers or [], stream=httpx.ByteStream(body), request=request)
+
+    return answer
+
+
+def query_of(name: str, **changes) -> TrendsQuery:
+    """The query a fixture was answered for, with any field changed."""
+    spec = load(name)["query"]
+    query = TrendsQuery(terms=tuple(spec["terms"]), bare=spec["bare"], geo=spec["geo"], granularity=spec["granularity"])
+    return replace(query, **changes) if changes else query
+
+
+def jar_of(*pairs: tuple[str, str], warmed_on: date | None = None) -> FakeJar:
+    return FakeJar(user_agent="UA-fixed", cookies=tuple(SetCookie(name, value) for name, value in pairs), warmed_on=warmed_on)
+
+
+def make_client(fake: FakeTrends, recorder: Recorder, *, jar: TrendsJar | None = None, clock: ManualClock | None = None, **options) -> TrendsClient:
+    return TrendsClient(
+        jar=jar if jar is not None else FakeJar(),
+        clock=clock or ManualClock(START),
+        gate=recorder.gate,
+        on_request=recorder.on_request,
+        transport=fake.transport(),
+        **options,
+    )

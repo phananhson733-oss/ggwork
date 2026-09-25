@@ -5,6 +5,7 @@ come from constructed fixtures (tests/fixtures/trends) whose `pending_stage0` li
 """
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from trends_fakes import body_of, fixture_names, load
@@ -17,9 +18,10 @@ from ggwork_pick.observe.trends.parse import (
     parse_related,
     parse_timeline,
     redirect_kind,
+    set_cookies,
     strip_xssi,
 )
-from ggwork_pick.observe.trends.source import FetchStatus, Phase, RedirectKind, TrendsQuery
+from ggwork_pick.observe.trends.source import FetchStatus, Phase, RedirectKind, SetCookie, TrendsQuery
 
 BARE = "moonlit vow"
 TERMS4 = (BARE, f"{BARE} full movie", f"{BARE} drama", f"{BARE} episode")
@@ -107,10 +109,12 @@ def test_timeline_keeps_raw_points():
     assert line.times == tuple(int(point["time"]) for point in points)
     assert line.partial == tuple(point.get("isPartial") for point in points)
     assert line.has_data == tuple(point["hasData"][0] for point in points)
+    # The raw row keeps time as it was sent, a string of epoch seconds (design 3.5 "原样的 time").
+    assert line.raw_times == tuple(point["time"] for point in points) and isinstance(line.raw_times[0], str)
     assert line.as_raw() == {
         "term": BARE,
         "status": "ok",
-        "time": [int(point["time"]) for point in points],
+        "time": [point["time"] for point in points],
         "value": [point["value"][0] for point in points],
         "isPartial": [point.get("isPartial") for point in points],
         "hasData": [point["hasData"][0] for point in points],
@@ -133,6 +137,10 @@ MALFORMED_TIMELINES = {
     "value negative": {"default": {"timelineData": [_point(value=[-1, 2])]}},
     "time not digits": {"default": {"timelineData": [_point(time="Sep 18")]}},
     "time missing": {"default": {"timelineData": [{"value": [1, 2]}]}},
+    # [counterexample 1] a point without its values is a changed answer, never a point of zeros (ok_zero, judged sparse)
+    "value missing": {"default": {"timelineData": [{"time": "1789768800", "hasData": [True, True]}]}},
+    "value null": {"default": {"timelineData": [_point(value=None)]}},
+    "value missing on a later point": {"default": {"timelineData": [_point(), {"time": "1789772400", "hasData": [True, True]}]}},
     "times not increasing": {"default": {"timelineData": [_point(), _point()]}},
     "isPartial a string": {"default": {"timelineData": [_point(isPartial="true")]}},
     "hasData too short": {"default": {"timelineData": [_point(hasData=[True])]}},
@@ -144,6 +152,19 @@ MALFORMED_TIMELINES = {
 def test_timeline_shape_checked(case):
     with pytest.raises(ParseFailure):
         parse_timeline(MALFORMED_TIMELINES[case], ("a", "b"))
+
+
+def test_has_data_absent_reads_none():
+    """hasData is kept as sent: a point without the key reads None for every line, never a filled-in False."""
+    points = [
+        _point(value=[0, 5]),
+        {"time": "1789772400", "value": [0, 0]},
+        _point(time="1789776000", value=[0, 0], hasData=[False, True]),
+    ]
+    timeline = parse_timeline({"default": {"timelineData": points}}, ("a", "b"))
+    assert timeline.status is FetchStatus.OK
+    assert [line.has_data for line in timeline.lines] == [(True, None, False), (True, None, True)]
+    assert timeline.lines[0].as_raw()["hasData"] == [True, None, False]
 
 
 def test_explore_widgets():
@@ -159,6 +180,53 @@ def test_explore_widgets():
     scraper = parse_explore(_payload("explore_scraper_no_related"), _query("explore_scraper_no_related"), timeline=True, related=True)
     assert scraper.related is None and scraper.user_type == "USER_TYPE_SCRAPER"
     assert parse_explore(_payload("explore_4lines_us_h"), _query("explore_4lines_us_h"), timeline=True, related=False).related is None
+
+
+def _explore_with_keywords(*keywords: str) -> dict:
+    """explore_4lines_us_h with each RELATED_QUERIES_<i> widget's keyword replaced, as Google might normalise it."""
+    payload = _payload("explore_4lines_us_h")
+    for widget in payload["widgets"]:
+        if widget["id"].startswith("RELATED_QUERIES_"):
+            index = int(widget["id"].rsplit("_", 1)[1])
+            widget["request"]["restriction"]["complexKeywordsRestriction"]["keyword"][0]["value"] = keywords[index]
+    return payload
+
+
+def _without(payload: dict, *ids: str) -> dict:
+    return {**payload, "widgets": [widget for widget in payload["widgets"] if widget["id"] not in ids]}
+
+
+def test_related_widget_found_despite_keyword_normalisation():
+    """A widget whose keyword Google spelled differently is still the term's: by position (RELATED_QUERIES_<i>)."""
+    query = TrendsQuery(terms=TERMS4, bare=BARE, geo="US", granularity="H", related_term=TERMS4[2])
+    for spelled in ("Moonlit  Vow Drama", "moonlit vow drama "):
+        payload = _explore_with_keywords(TERMS4[0], TERMS4[1], spelled, TERMS4[3])
+        assert parse_explore(payload, query, timeline=True, related=True).related.id == "RELATED_QUERIES_2"
+    renamed = _explore_with_keywords("a", "b", "c", "d")  # nothing matches by keyword: the position decides
+    assert parse_explore(renamed, query, timeline=True, related=True).related.id == "RELATED_QUERIES_2"
+
+
+def test_related_widgets_that_do_not_fit_are_a_parse_failure():
+    """Related widgets that exist but none of which is the term's are a changed contract, not gate B's "no related
+    queries for this session" (widget_missing, which stays for an explore without any RELATED_QUERIES widget)."""
+    query = TrendsQuery(terms=TERMS4, bare=BARE, geo="US", granularity="H", related_term=TERMS4[2])
+    missing_own = _without(_explore_with_keywords("a", "b", "c", "d"), "RELATED_QUERIES_2")
+    swapped = _explore_with_keywords(TERMS4[0], TERMS4[1], TERMS4[3], "d")  # its slot names another requested term
+    for payload in (missing_own, swapped):
+        with pytest.raises(ParseFailure):
+            parse_explore(payload, query, timeline=True, related=True)
+    single = _query("explore_1line_ww_d")
+    two_unmatched = _payload("explore_1line_ww_d")
+    extra = json.loads(json.dumps(next(widget for widget in two_unmatched["widgets"] if widget["id"] == "RELATED_QUERIES")))
+    two_unmatched["widgets"] = [*two_unmatched["widgets"], {**extra, "id": "RELATED_QUERIES_1"}]
+    for widget in two_unmatched["widgets"]:
+        if widget["id"].startswith("RELATED_QUERIES"):
+            widget["request"]["restriction"]["complexKeywordsRestriction"]["keyword"][0]["value"] = "something else"
+    with pytest.raises(ParseFailure):
+        parse_explore(two_unmatched, single, timeline=True, related=True)
+    # No related widget at all: the SCRAPER signal, not a failure.
+    none_at_all = _without(_payload("explore_4lines_us_h"), *(f"RELATED_QUERIES_{index}" for index in range(4)))
+    assert parse_explore(none_at_all, query, timeline=True, related=True).related is None
 
 
 def test_explore_shape_checked():
@@ -229,7 +297,102 @@ def test_classify_by_phase():
     # A 4xx the design does not name means the request contract no longer holds.
     for status in (400, 401, 404, 410):
         assert classify(Phase.EXPLORE, status, as_json, b"") is FetchStatus.PARSE_ERROR
+
+
+WALLS = ("https://www.google.com/sorry/index?continue=x", "https://consent.google.com/ml?continue=x")
+ELSEWHERE = ("https://trends.google.com/trends/", "/trends/api/explore2", "https://accounts.google.com/ServiceLogin", "")
+
+
+def test_only_sorry_or_consent_is_blocked_redirect():
+    """blocked_redirect is the wall TR-03 ends the day on (design 4.3 names only sorry and consent redirects). Any
+    other redirect on an API path is a changed contract, parse_error, never a limit signal; the warm-up page may move
+    within trends.google.com."""
+    for phase in Phase:
+        for location in WALLS:
+            assert classify(phase, 302, {"location": location}, b"") is FetchStatus.BLOCKED_REDIRECT, (phase, location)
     for phase in (Phase.EXPLORE, Phase.MULTILINE, Phase.RELATED):
-        assert classify(phase, 302, {"location": "https://trends.google.com/trends/"}, b"") is FetchStatus.BLOCKED_REDIRECT
+        for status in (301, 302, 303, 307, 308):
+            for location in ELSEWHERE:
+                assert classify(phase, status, {"location": location}, b"") is FetchStatus.PARSE_ERROR, (phase, status, location)
     assert classify(Phase.WARMUP, 302, {"location": "https://trends.google.com/trends/explore"}, b"") is FetchStatus.OK
-    assert classify(Phase.WARMUP, 302, {"location": "https://www.google.com/sorry/index"}, b"") is FetchStatus.BLOCKED_REDIRECT
+    assert classify(Phase.WARMUP, 302, {"location": "/trends/explore"}, b"") is FetchStatus.OK
+    for location in ("https://accounts.google.com/ServiceLogin", ""):
+        assert classify(Phase.WARMUP, 302, {"location": location}, b"") is FetchStatus.PARSE_ERROR
+
+
+NOW = datetime(2026, 9, 25, 22, 0, tzinfo=UTC)
+
+
+def _unix(moment: datetime) -> int:
+    return int(moment.timestamp())
+
+
+def test_set_cookies_carry_expiry_domain_and_path():
+    """Set-Cookie lines become cookies for the jar with what TR-04's Cookie keeps: name, value, domain, path, expires."""
+    lines = [
+        "NID=525=synthetic-nid; expires=Fri, 26-Mar-2027 22:00:00 GMT; path=/; domain=.google.com; HttpOnly",
+        "AEC=synthetic-aec; Max-Age=3600; Expires=Fri, 26-Mar-2027 22:00:00 GMT; Path=/trends; Secure",
+        "SOCS=synthetic-socs",
+        "EMPTY=; path=/",
+    ]
+    nid, aec, socs, empty = set_cookies(lines, now=NOW)
+    assert all(isinstance(cookie, SetCookie) for cookie in (nid, aec, socs, empty))
+    assert (nid.name, nid.value, nid.domain, nid.path, nid.expires) == (
+        "NID",
+        "525=synthetic-nid",
+        "google.com",
+        "/",
+        _unix(datetime(2027, 3, 26, 22, tzinfo=UTC)),
+    )
+    # Max-Age wins over Expires (RFC 6265 5.3), counted from the moment the answer was read.
+    assert (aec.domain, aec.path, aec.expires) == ("", "/trends", _unix(NOW + timedelta(hours=1)))
+    assert (socs.domain, socs.path, socs.expires) == ("", "/", None)  # host-only session cookie
+    assert (empty.value, empty.expires) == ("", None)  # an empty value is a value, not a removal
+    assert not any(cookie.expired(NOW) for cookie in (nid, aec, socs, empty))
+
+
+def test_set_cookies_removals():
+    """Max-Age <= 0, or an Expires already past, removes the cookie: an expired cookie with no value."""
+    lines = ["AEC=gone; max-age=0", "NID=gone; Max-Age=-5; domain=google.com", "OLD=gone; expires=Thu, 01 Jan 1970 00:00:01 GMT; path=/x"]
+    removals = set_cookies(lines, now=NOW)
+    assert [(cookie.name, cookie.domain, cookie.path) for cookie in removals] == [("AEC", "", "/"), ("NID", "google.com", "/"), ("OLD", "", "/x")]
+    assert all(cookie.expired(NOW) and cookie.value == "" for cookie in removals)
+    assert all(cookie == SetCookie.removal(cookie.name, domain=cookie.domain, path=cookie.path) for cookie in removals)
+
+
+def test_set_cookies_drop_what_a_browser_would_refuse():
+    refused = [
+        "no-equals-sign",
+        "=value-without-name",
+        "bad name=x",
+        'QUOTED="x"',
+        "SPACE=a b",
+        "N" * 65 + "=x",
+        "LONG=" + "v" * 4097,
+        "ELSEWHERE=x; domain=youtube.com",  # not a domain trends.google.com belongs to
+        "SUFFIX=x; domain=.com",
+        "LOOKALIKE=x; domain=evilgoogle.com",
+        "WIDE=x; domain=www.trends.google.com",
+    ]
+    assert set_cookies(refused, now=NOW) == ()
+    kept = set_cookies(["OK=1; domain=trends.google.com", "UP=1; domain=GOOGLE.com", "ODD=1; max-age=soon; path=relative"], now=NOW)
+    assert [(cookie.name, cookie.domain, cookie.path, cookie.expires) for cookie in kept] == [
+        ("OK", "trends.google.com", "/", None),
+        ("UP", "google.com", "/", None),
+        ("ODD", "", "/", None),  # an unreadable Max-Age and a relative Path are ignored, not fatal
+    ]
+
+
+def test_set_cookie_never_shows_its_value():
+    cookie = SetCookie("NID", "525=synthetic-secret-value", "google.com")
+    assert "synthetic-secret-value" not in repr(cookie) and "synthetic-secret-value" not in str(cookie) and "NID" in repr(cookie)
+    for bad in (
+        dict(name="bad name", value="x"),
+        dict(name="N", value="a;b"),
+        dict(name="N", value="x", path="rel"),
+        dict(name="N", value="x", domain="a/b"),
+        dict(name="N", value="v\n"),
+        dict(name="N\n", value="v"),
+    ):
+        with pytest.raises(ValueError):
+            SetCookie(**bad)
