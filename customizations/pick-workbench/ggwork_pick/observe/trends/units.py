@@ -9,7 +9,7 @@ the uncovered units (design 4.5 "未覆盖 N 个单元").
 The truncation order (design 4.5): rule priority, then listed_at newest first, then the latest evidence date, then a
 hash of the identity and the target date, which rotates the ties from one day to the next. The plan keeps back the
 design's allowance for warm-up, probes and retries (4.5: about 15 in the canary, 20 when stable); the mode's cap is the
-hard ceiling on top of it, enforced request by request.
+hard ceiling on top of it, enforced request by request (budget.plan_budget).
 """
 
 import hashlib
@@ -20,7 +20,6 @@ from datetime import date
 from types import MappingProxyType
 from typing import Any
 
-from ggwork_pick.observe.trends import budget
 from ggwork_pick.observe.trends import state_codec as codec
 from ggwork_pick.observe.trends.source import TrendsQuery
 
@@ -29,9 +28,6 @@ PLAN_FORMAT = "trends-session-plan-v1"
 # where it falls: warmup, probe (the first request after a pause), retry (a unit's second attempt), related.
 UNIT_ITEMS = ("contract_check", "market", "control", "title")
 REQUEST_ITEMS = ("warmup", "probe", "retry", "related", *UNIT_ITEMS)
-# Design 4.5: warm-up, probes and retries are planned out of the day's total, not added to it.
-OVERHEAD = MappingProxyType({"canary1": 15, "canary2": 15, "stable": 20})
-DEFAULT_OVERHEAD = 20
 _KEY = re.compile(r"[a-z0-9_]{1,20}:[0-9a-f]{12}")
 _NO_DATE = -1  # sorts after every real date, newest first
 
@@ -145,11 +141,6 @@ def ordered(units: Iterable[QueryUnit], target_date: date) -> tuple[QueryUnit, .
             seen.add(unit.key)
             kept.append(unit)
     return tuple(kept)
-
-
-def plan_budget(limits: budget.ModeLimits) -> int:
-    """The requests the units may plan for: the mode's plan less design 4.5's allowance for warm-up, probes, retries."""
-    return max(0, limits.plan - OVERHEAD.get(limits.name, DEFAULT_OVERHEAD))
 
 
 @dataclass(frozen=True)

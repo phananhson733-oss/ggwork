@@ -1,21 +1,24 @@
 """The Trends daily budget, the target date and the session modes (design 3.2, 4.2, 4.5, 4.11; plan D23, section 9).
 
 The day every Trends count belongs to is the target date: the day whose 02:00 UTC publication the session feeds (D23).
-A session from 20:30 to the 01:45 hard deadline is one day, so midnight neither refills the budget nor relights an
-extinguished day. (GSC counts by UTC day, for its quota record only; that is not this module.)
+A session from its start the evening before to the 01:45 hard deadline is one day, so midnight neither refills the
+budget nor relights an extinguished day. (GSC counts by UTC day, for its quota record only; that is not this module.)
 
 Budget is reserved before a request is sent, every HTTP request (warm-up, probe, retry) included, and never given
-back: a timeout, a lost response or a crash between the two keeps its reservation. The mode sets the cap:
+back: a timeout, a lost response or a crash between the two keeps its reservation. The mode sets the start and the cap
+(G3 moved the starts earlier and cut the plans to the user pace, pacing.PRESETS["user"]):
 
 | mode    | start | plan | cap |
 |---------|-------|------|-----|
-| canary1 | 22:00 | 220  | 220 |
-| canary2 | 22:00 | 430  | 600 |
-| stable  | 20:30 | 650  | 800 |
+| canary1 | 21:00 | 220  | 220 |
+| canary2 | 18:30 | 300  | 450 |
+| stable  | 17:30 | 350  | 525 |
 
-The plan is what the task list is cut to; the cap is the hard ceiling after breaker pauses and retries. A mode is only
-accepted if its plan fits its window with room for one breaker episode: plan / 2.9 + 40 minutes <= deadline - start
-(raising stable to 800 therefore needs an earlier start). Two extinguished target dates in a row halve the next cap.
+The plan is what the task list is cut to; the cap is the hard ceiling after breaker pauses and retries (1.5 times the
+plan, canary1's excepted). Whether a mode's plan fits its window at a pace is capacity.py's question, asked when the
+settings are read (a mode that does not fit is refused, exit 2): a night with no limit signal must cover every unit,
+one with a 429 at the 56th request and half speed after it at least 95%. stable's numbers are provisional: TR-18 and
+G4 set them from the canary's data. Two extinguished target dates in a row halve the next cap.
 """
 
 from collections.abc import Mapping
@@ -29,8 +32,6 @@ from ggwork_pick.observe.trends import state_codec as codec
 
 PUBLISH_CUTOFF = time(2, 0)  # UTC: the target date's publication
 DEADLINE = time(1, 45)  # UTC: every session stops here (design 3.1)
-AVERAGE_REQUESTS_PER_MINUTE = 2.9  # design 4.2, rests included
-BREAKER_MARGIN_MINUTES = 40  # one breaker pause (30 minutes) and its probe
 
 StopReason = Literal["truncated", "skipped_breaker", "deadline"]
 TRUNCATED: StopReason = "truncated"  # the budget cannot hold the unit
@@ -62,10 +63,6 @@ class ModeLimits:
             raise ValueError(f"mode {self.name}: start and deadline are plain UTC times of day")
         if self.deadline > PUBLISH_CUTOFF:
             raise ValueError(f"mode {self.name}: the deadline must come before the 02:00 publication")
-        window = self.window_minutes()
-        needed = self.plan / AVERAGE_REQUESTS_PER_MINUTE + BREAKER_MARGIN_MINUTES
-        if needed > window:
-            raise ValueError(f"mode {self.name}: the plan needs {needed:.0f} minutes, the window has {window:.0f}; start earlier or plan less")
 
     def window(self, target_date: date) -> tuple[datetime, datetime]:
         """The session's start and hard deadline for `target_date`."""
@@ -83,11 +80,21 @@ class ModeLimits:
 
 MODES: Mapping[str, ModeLimits] = MappingProxyType(
     {
-        "canary1": ModeLimits("canary1", start=time(22, 0), plan=220, cap=220),
-        "canary2": ModeLimits("canary2", start=time(22, 0), plan=430, cap=600),
-        "stable": ModeLimits("stable", start=time(20, 30), plan=650, cap=800),
+        "canary1": ModeLimits("canary1", start=time(21, 0), plan=220, cap=220),
+        "canary2": ModeLimits("canary2", start=time(18, 30), plan=300, cap=450),
+        "stable": ModeLimits("stable", start=time(17, 30), plan=350, cap=525),
     }
 )
+
+
+# Design 4.5: warm-up, probes and retries are planned out of the day's total, not added to it.
+OVERHEAD: Mapping[str, int] = MappingProxyType({"canary1": 15, "canary2": 15, "stable": 20})
+DEFAULT_OVERHEAD = 20
+
+
+def plan_budget(limits: ModeLimits) -> int:
+    """The requests the units may plan for: the mode's plan less design 4.5's allowance for warm-up, probes, retries."""
+    return max(0, limits.plan - OVERHEAD.get(limits.name, DEFAULT_OVERHEAD))
 
 
 def mode_limits(name: str) -> ModeLimits:

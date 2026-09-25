@@ -44,6 +44,7 @@ DOORS = MappingProxyType(
                 "CollectorSession",
                 "collector_session",
                 "status_reader",
+                "stored_breaker",  # parses a runtime row a ReadStep read (trends preflight); opens nothing
                 "StepLimits",
                 "LEASE_SECONDS",
                 "RENEW_SECONDS",

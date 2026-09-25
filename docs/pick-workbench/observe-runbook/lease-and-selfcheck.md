@@ -92,7 +92,7 @@ backend/.venv/bin/python -c "import sys; sys.path.insert(0, 'customizations/pick
 | `cookie_jar` | cookie 罐的 Fernet 密文（与状态文件同一个 `PICK_OBS_STATE_KEY`），不进任何视图 |
 | `user_agent`、`cookie_warmed_at` | 与罐绑定的 UA；罐的这次预热第一次被存下的时刻（与其他 `_at` 列一样是 UTC stamp，同一次预热之后再存不变；预热所属的目标日在罐里） |
 | `disabled_at`、`reset_by`、`reset_at` | 停用（disabled_7d）开始时刻；最近一次解除的操作人与时刻 |
-| `ggwp_obs_budget`（channel, budget_day） | 每个目标日一行（D23：20:30 到次日 01:45 同属一天）：已预留请求数、首次限流前的请求数与时刻、当天熔断次数、429 次数、当时连续失败的探针数、熄火原因与时刻、模式与上限 |
+| `ggwp_obs_budget`（channel, budget_day） | 每个目标日一行（D23：起跑到次日 01:45 同属一天）：已预留请求数、首次限流前的请求数与时刻、当天熔断次数、429 次数、当时连续失败的探针数、熄火原因与时刻、模式与上限 |
 
 - 预算在发请求之前扣，超时、没收到响应的都不退回；库里的请求数只增不减，要写的数比库里少会被拒（退出码 3），这说明进程手里的状态已经过时。
 - 读不回来一律退出码 3，当天不跑，从不换一份空状态重来：罐用别的密钥封的、UA 列与罐里的 UA 不一致、罐与 UA 只存了一半、`state_json` 版本不认识、某个状态机的数据格式不对、预算行自相矛盾、`lease_until` 不是时刻、表读不了。处理同 `trends-state.md` 的「不要用删文件来修好」：先查清原因，不要删行、不要把列清空了事。
