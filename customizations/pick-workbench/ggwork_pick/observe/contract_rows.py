@@ -127,11 +127,13 @@ def _trends_row_problem(row) -> str | None:
             (row.latest_block_end is not None, "Trends 行带 latest_block_end（D39）"),
             (set(row.flags) <= set(TRENDS_FLAGS), "flags 不是 Trends 的标记"),
             (row.quality_note is None and row.paste_row is None, "质量注记与可粘贴行属于 GSC"),
+            (row.carried_over or not row.stale, "stale 是沿用超过 3 天的行，只有 carried_over 的行才会 stale（设计 4.10）"),
         )
     )
 
 
 def _gsc_row_problem(row) -> str | None:
+    formal = {hit.label for hit in row.labels if hit.formal}
     return first_problem(
         (
             (re.fullmatch(GSC_COUNTRY_PATTERN, row.scope) is not None, "scope 是三位国家码或 ALL"),
@@ -142,13 +144,16 @@ def _gsc_row_problem(row) -> str | None:
             (row.latest_block_end is None and not row.carried_over and not row.stale, "GSC 行没有块终点、沿用与陈旧"),
             (set(row.flags) <= set(GSC_FLAGS), "flags 不是 GSC 的标记"),
             (row.quality_note is None or row.window_kind == "7d", "质量注记只属于 7 天窗口"),
+            (row.admission != "descriptive" or not formal, "描述性行没有正式标签"),
+            (row.state in formal if row.state != "present" else not formal, "state 取正式命中的标签之一，没有正式标签时为 present（设计 5.8）"),
         )
     )
 
 
 class StateRow(Frozen):
-    """One judgment row. Trends: identity x geo. GSC: identity x country or ALL x window; state is the primary label or
-    present, labels lists every hit with its condition and raw counts (null: not observed, never 0)."""
+    """One judgment row. Trends: identity x geo. GSC: identity x country or ALL x window; state is the primary formal label,
+    or present when no label passed its formal bar; labels lists every hit, formal or descriptive, with its condition and
+    raw counts (null: not observed, never 0)."""
 
     row_id: RowId
     set_id: SetId
@@ -186,6 +191,9 @@ class StateRow(Frozen):
 
 
 # ---- V checks and totals (D26, D27) ------------------------------------------------------------------------------
+# Request statuses that yield no numbers: a failure never becomes a value, not even 0 (premise 1).
+NO_VALUE_VCHECK_STATUSES = ("failed", "regex_overflow")
+NO_VALUE_TOTALS_STATUSES = ("failed", "unsupported")
 
 
 class SliceDay(Frozen):
@@ -218,12 +226,14 @@ class VcheckRow(Frozen):
     @model_validator(mode="after")
     def _shape(self):
         hourly = self.check_kind == "vh"
+        no_value = (self.row_count, self.impressions, self.clicks) == (0, None, None)
         checks = (
             ((self.data_state == "hourly_all") == hourly, "Vh 用 hourly_all，Vd 用 all 或 final"),
             ((not self.slice_versions) == hourly, "Vd 列出它覆盖的 PT 日与切片版本，Vh 不列"),
             (not (hourly and self.reused), "Vh 每轮重取，从不复用"),
             (self.reused == (self.reused_from is not None), "复用时写明复用的行"),
             ((self.row_count == 0) == (self.impressions is None) == (self.clicks is None), "无行记空值，有行记计数"),
+            (self.request_status not in NO_VALUE_VCHECK_STATUSES or no_value, "失败或正则溢出的请求没有数值：row_count 为 0，计数为空"),
         )
         refuse("obs_vcheck_row", first_problem(checks))
         return self
@@ -256,6 +266,7 @@ class TotalsRow(Frozen):
             (self.data_state == data_state, f"{self.kind} 的 dataState 是 {data_state}"),
             ((self.hour is not None, self.pt_date is not None) == (period == "hour", period == "pt_date"), f"{self.kind} 按 {period} 记"),
             ((self.impressions is None) == (self.clicks is None), "曝光与点击同时为空"),
+            (self.request_status not in NO_VALUE_TOTALS_STATUSES or (self.impressions, self.clicks) == (None, None), "失败或不支持的请求没有数值，计数为空"),
         )
         refuse("obs_totals_row", first_problem(checks))
         return self
@@ -302,14 +313,30 @@ class LinkFact(Frozen):
         return self
 
 
+# The pairing's own timeliness bound per link-rules version (design 6.1: W0 and the latest block end at most 48 h apart).
+# TR-10's link_rules reads it from here; a new version registers here first (plan section 6).
+LINK_PAIR_MAX_GAP_MINUTES = MappingProxyType({"link-rules-v1": 48 * 60})
+
+
 class LinkRow(LinkFact, _LinkIds):
     """ggwp_obs_links and view pick_obs.links: the ids, then the fact, then when it was written."""
 
     created_at: Stamp
 
+    @model_validator(mode="after")
+    def _timely(self):
+        most = LINK_PAIR_MAX_GAP_MINUTES.get(self.link_rules_version)
+        checks = (
+            (most is not None, "link-rules 版本没有登记"),
+            (most is None or self.timely == (self.pair_gap_minutes <= most), "timely 是锚点相隔不超过该版本的上限"),
+        )
+        refuse("obs_link_row", first_problem(checks))
+        return self
+
 
 def dedupe_key_of(root_identity: str, channel: str, state: str, scope: str, mode: str) -> str:
-    """D37's key, written like an identity: [root_identity, channel, state, scope, mode]."""
+    """D37's key, written like an identity: [root_identity, channel, state, scope, mode]. The only implementation: TR-10's
+    leadtime and TR-20's store import it."""
     return json.dumps([root_identity, channel, state, scope, mode], ensure_ascii=False, separators=(",", ":"))
 
 
@@ -396,8 +423,13 @@ class Unknowable(Frozen):
 
 
 class SetSummaryGsc(Frozen):
+    """cutoff is never null: this round's H_c, or the previous GSC set's when A has no watermark (design 5.3, cutoff_carried).
+    formal_24h_window says this round has a formal 24-hour window; a carried cutoff never has one."""
+
     channel: Literal["gsc"]
-    cutoff: Stamp | None
+    cutoff: Stamp
+    cutoff_carried: StrictBool
+    formal_24h_window: StrictBool
     layers: list[CoverageLayers]
     unknowable: Unknowable
     site_admission_24h: SiteAdmission
@@ -406,6 +438,12 @@ class SetSummaryGsc(Frozen):
     requests: Count
     quota_errors: Count
     status_codes: list[StatusCode]
+
+    @model_validator(mode="after")
+    def _window(self):
+        carried_formal = self.cutoff_carried and self.formal_24h_window
+        refuse("obs_set_summary", None if not carried_formal else "沿用上一轮的 cutoff 时本轮没有正式 24 小时窗口")
+        return self
 
 
 SetSummary = Annotated[Union[SetSummaryTrends, SetSummaryGsc], Field(discriminator="channel")]  # noqa: UP007

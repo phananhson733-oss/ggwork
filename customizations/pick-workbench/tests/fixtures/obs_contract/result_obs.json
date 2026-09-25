@@ -124,6 +124,7 @@
     {
       "name": "evidence_payload",
       "why": "D8: evidence gains no key",
+      "error": {"type": "extra_forbidden", "loc": "payload"},
       "value": {
         "id": "8f14e45fceea167a5a36dedd4bea2543",
         "thread_id": "thread-1",
@@ -240,6 +241,7 @@
     {
       "name": "observations_extra",
       "why": "strict observations",
+      "error": {"type": "extra_forbidden", "loc": "status"},
       "value": {
         "id": "8f14e45fceea167a5a36dedd4bea2543",
         "thread_id": "thread-1",
@@ -356,6 +358,7 @@
     {
       "name": "obs_evidence_zero",
       "why": "premise 1",
+      "error": {"type": "greater_than_equal", "loc": "value.constrained-int"},
       "value": {
         "id": "8f14e45fceea167a5a36dedd4bea2543",
         "thread_id": "thread-1",
@@ -471,6 +474,7 @@
     {
       "name": "condition_bad_geo",
       "why": "alpha-2 geos",
+      "error": {"type": "string_pattern_mismatch", "loc": "trend_geos.0"},
       "value": {
         "id": "8f14e45fceea167a5a36dedd4bea2543",
         "thread_id": "thread-1",
@@ -586,6 +590,7 @@
     {
       "name": "observations_in_data_as_of",
       "why": "D28: never inside data_as_of",
+      "error": {"type": "assertion"},
       "value": {
         "id": "8f14e45fceea167a5a36dedd4bea2543",
         "thread_id": "thread-1",

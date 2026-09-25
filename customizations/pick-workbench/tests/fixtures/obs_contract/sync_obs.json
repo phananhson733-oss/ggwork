@@ -68,6 +68,7 @@
     {
       "name": "channels_out_of_order",
       "why": "trends then gsc",
+      "error": {"type": "obs_sync", "msg": "channels 依次是 trends、gsc"},
       "value": {
         "checked_at": "2026-09-25T04:10:00.000000+00:00",
         "channels": [
@@ -97,6 +98,7 @@
     {
       "name": "one_channel",
       "why": "both channels",
+      "error": {"type": "obs_sync", "msg": "channels 依次是 trends、gsc"},
       "value": {
         "checked_at": "2026-09-25T04:10:00.000000+00:00",
         "channels": [
@@ -116,6 +118,7 @@
     {
       "name": "unknown_code",
       "why": "STATUS_CODES",
+      "error": {"type": "literal_error", "loc": "channels.0.banners.0.code"},
       "value": {
         "checked_at": "2026-09-25T04:10:00.000000+00:00",
         "channels": [
@@ -145,6 +148,7 @@
     {
       "name": "unknown_level",
       "why": "BANNER_LEVELS",
+      "error": {"type": "literal_error", "loc": "channels.0.banners.0.level"},
       "value": {
         "checked_at": "2026-09-25T04:10:00.000000+00:00",
         "channels": [
@@ -174,11 +178,13 @@
     {
       "name": "error_free_text",
       "why": "the error names a class only",
+      "error": {"type": "string_pattern_mismatch", "loc": "error"},
       "value": {"error": "connection refused: password authentication failed"}
     },
     {
       "name": "error_with_status",
       "why": "error or status, not both",
+      "error": {"type": "extra_forbidden", "loc": "error"},
       "value": {
         "checked_at": "2026-09-25T04:10:00.000000+00:00",
         "channels": [

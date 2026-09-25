@@ -18,7 +18,14 @@
         "rules": [
           {
             "version": "trend-rules-v1",
-            "params": {"window_hours": 144, "lag_hours": 3, "rise_ratio": 1.5, "control_ratio": 1.2, "base_nonzero_min": 3, "recent_nonzero_min": 12}
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
           },
           {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
         ],
@@ -40,7 +47,14 @@
         "rules": [
           {
             "version": "trend-rules-v1",
-            "params": {"window_hours": 144, "lag_hours": 3, "rise_ratio": 1.5, "control_ratio": 1.2, "base_nonzero_min": 3, "recent_nonzero_min": 12}
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
           },
           {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
         ],
@@ -174,6 +188,7 @@
     {
       "name": "unknown_channel",
       "why": "trends or gsc",
+      "error": {"type": "union_tag_invalid"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -185,7 +200,14 @@
         "rules": [
           {
             "version": "trend-rules-v1",
-            "params": {"window_hours": 144, "lag_hours": 3, "rise_ratio": 1.5, "control_ratio": 1.2, "base_nonzero_min": 3, "recent_nonzero_min": 12}
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
           },
           {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
         ],
@@ -197,6 +219,7 @@
     {
       "name": "trends_with_snapshot",
       "why": "legacy snapshots are GSC's",
+      "error": {"type": "extra_forbidden", "loc": "trends.legacy_snapshot_id"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -208,7 +231,14 @@
         "rules": [
           {
             "version": "trend-rules-v1",
-            "params": {"window_hours": 144, "lag_hours": 3, "rise_ratio": 1.5, "control_ratio": 1.2, "base_nonzero_min": 3, "recent_nonzero_min": 12}
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
           },
           {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
         ],
@@ -221,6 +251,7 @@
     {
       "name": "gsc_without_snapshot",
       "why": "GSC freezes its legacy snapshot",
+      "error": {"type": "missing", "loc": "gsc.legacy_snapshot_id"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -281,6 +312,7 @@
     {
       "name": "gsc_with_granularity",
       "why": "granularity is Trends'",
+      "error": {"type": "extra_forbidden", "loc": "gsc.granularity"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -343,6 +375,7 @@
     {
       "name": "no_rules",
       "why": "at least one rules version",
+      "error": {"type": "too_short", "loc": "trends.rules"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -360,6 +393,7 @@
     {
       "name": "rules_without_params",
       "why": "all parameters are frozen",
+      "error": {"type": "missing", "loc": "trends.rules.0.params"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -377,6 +411,7 @@
     {
       "name": "missing_decisions_version",
       "why": "D24",
+      "error": {"type": "missing", "loc": "trends.decisions_version"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -387,7 +422,14 @@
         "rules": [
           {
             "version": "trend-rules-v1",
-            "params": {"window_hours": 144, "lag_hours": 3, "rise_ratio": 1.5, "control_ratio": 1.2, "base_nonzero_min": 3, "recent_nonzero_min": 12}
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
           },
           {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
         ],
@@ -399,6 +441,7 @@
     {
       "name": "negative_alias_version",
       "why": "versions are >= 0",
+      "error": {"type": "greater_than_equal", "loc": "trends.alias_version"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -410,7 +453,14 @@
         "rules": [
           {
             "version": "trend-rules-v1",
-            "params": {"window_hours": 144, "lag_hours": 3, "rise_ratio": 1.5, "control_ratio": 1.2, "base_nonzero_min": 3, "recent_nonzero_min": 12}
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
           },
           {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
         ],
@@ -422,6 +472,7 @@
     {
       "name": "bad_granularity",
       "why": "H, D or HD",
+      "error": {"type": "literal_error", "loc": "trends.granularity"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -433,7 +484,14 @@
         "rules": [
           {
             "version": "trend-rules-v1",
-            "params": {"window_hours": 144, "lag_hours": 3, "rise_ratio": 1.5, "control_ratio": 1.2, "base_nonzero_min": 3, "recent_nonzero_min": 12}
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
           },
           {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
         ],
@@ -445,6 +503,7 @@
     {
       "name": "bad_market_map",
       "why": "market-map-v<n>",
+      "error": {"type": "string_pattern_mismatch", "loc": "trends.market_map_version"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -456,7 +515,14 @@
         "rules": [
           {
             "version": "trend-rules-v1",
-            "params": {"window_hours": 144, "lag_hours": 3, "rise_ratio": 1.5, "control_ratio": 1.2, "base_nonzero_min": 3, "recent_nonzero_min": 12}
+            "params": {
+              "window_hours": 144,
+              "lag_hours": 3,
+              "rise_ratio": 1.5,
+              "control_ratio": 1.2,
+              "base_nonzero_min": 3,
+              "recent_nonzero_min": 12
+            }
           },
           {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
         ],
@@ -468,6 +534,7 @@
     {
       "name": "slice_unknown_dataset",
       "why": "C, D, E or Q",
+      "error": {"type": "literal_error", "loc": "gsc.slices.0.dataset"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -517,6 +584,7 @@
     {
       "name": "slice_unknown_shape",
       "why": "whole or by_country",
+      "error": {"type": "literal_error", "loc": "gsc.slices.0.shape"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -566,6 +634,7 @@
     {
       "name": "vcheck_summary_missing_count",
       "why": "seven counts",
+      "error": {"type": "missing", "loc": "gsc.vcheck_summary.reused"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
@@ -627,6 +696,7 @@
     {
       "name": "mirror_version_zero",
       "why": "mirror versions start at 1",
+      "error": {"type": "greater_than_equal", "loc": "gsc.mirror_version"},
       "value": {
         "collector_version": "obs-0.3.0",
         "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",

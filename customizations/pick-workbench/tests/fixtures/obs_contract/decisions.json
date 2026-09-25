@@ -95,21 +95,34 @@
     {"name": "padded_request_id", "value": {"request_id": "  r-1  ", "note": "", "kind": "alert_irrelevant", "alert_id": 88}}
   ],
   "invalid": [
-    {"name": "unknown_kind", "why": "nine kinds", "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alias_delete", "alias_id": 5}},
+    {
+      "name": "unknown_kind",
+      "why": "nine kinds",
+      "error": {"type": "union_tag_invalid"},
+      "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alias_delete", "alias_id": 5}
+    },
     {
       "name": "owner_in_body",
       "why": "the owner is never a body field",
+      "error": {"type": "extra_forbidden", "loc": "alert_irrelevant.owner_id"},
       "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alert_irrelevant", "alert_id": 88, "owner_id": "alice"}
     },
     {
       "name": "string_id",
       "why": "ids are strict ints",
+      "error": {"type": "int_type", "loc": "alias_confirm.alias_id"},
       "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alias_confirm", "alias_id": "5"}
     },
-    {"name": "zero_id", "why": "ids start at 1", "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alias_confirm", "alias_id": 0}},
+    {
+      "name": "zero_id",
+      "why": "ids start at 1",
+      "error": {"type": "greater_than_equal", "loc": "alias_confirm.alias_id"},
+      "value": {"request_id": "3e7c1f0a-1", "note": "", "kind": "alias_confirm", "alias_id": 0}
+    },
     {
       "name": "pair_same_identity",
       "why": "a pair joins two identities",
+      "error": {"type": "obs_alias_pair", "loc": "alias_pair", "msg": "配对的是两个不同的身份"},
       "value": {
         "request_id": "3e7c1f0a-1",
         "note": "",
@@ -121,6 +134,7 @@
     {
       "name": "confirm_without_title",
       "why": "a confirmation keys on identity, platform and normalized title",
+      "error": {"type": "missing", "loc": "correspondence_confirm.normalized_title"},
       "value": {
         "request_id": "3e7c1f0a-1",
         "note": "",
@@ -132,6 +146,7 @@
     {
       "name": "watch_add_country",
       "why": "watch geos are Trends geos",
+      "error": {"type": "string_pattern_mismatch", "loc": "watch_add.geo"},
       "value": {
         "request_id": "3e7c1f0a-1",
         "note": "",
@@ -144,6 +159,7 @@
     {
       "name": "watch_add_string_bool",
       "why": "strict bool",
+      "error": {"type": "bool_type", "loc": "watch_add.active"},
       "value": {
         "request_id": "3e7c1f0a-1",
         "note": "",
@@ -156,6 +172,7 @@
     {
       "name": "override_unknown_verdict",
       "why": "clear or ambiguous",
+      "error": {"type": "literal_error", "loc": "ambiguity_override.verdict"},
       "value": {
         "request_id": "3e7c1f0a-1",
         "note": "",
@@ -164,15 +181,22 @@
         "verdict": "generic"
       }
     },
-    {"name": "missing_request_id", "why": "every decision carries a request_id", "value": {"kind": "alert_irrelevant", "alert_id": 88}},
+    {
+      "name": "missing_request_id",
+      "why": "every decision carries a request_id",
+      "error": {"type": "missing", "loc": "alert_irrelevant.request_id"},
+      "value": {"kind": "alert_irrelevant", "alert_id": 88}
+    },
     {
       "name": "nul_in_note",
       "why": "StrictInput refuses NUL",
+      "error": {"type": "unstorable_text", "loc": "alert_irrelevant", "msg": "含 NUL 字符或孤立代理项"},
       "value": {"request_id": "3e7c1f0a-1", "note": "a\u0000b", "kind": "alert_irrelevant", "alert_id": 88}
     },
     {
       "name": "long_note",
       "why": "note <= 500",
+      "error": {"type": "string_too_long", "loc": "alert_irrelevant.note"},
       "value": {
         "request_id": "3e7c1f0a-1",
         "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",

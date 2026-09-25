@@ -11,7 +11,8 @@ before any of them is built. The contract is four modules:
 
 Shapes and constants only: nothing here judges, reads a table or calls out. Validators check a value's own shape (and the
 invariants the design states for it, such as "no row is null, never 0"), never business rules. Stored and wire shapes are
-Frozen (strict, closed, immutable, text kept verbatim); inputs from people and the model are StrictInput. The same content
+Frozen (strict, closed, immutable, text kept verbatim; nested lists and dicts are never changed in place, a change is a
+model_copy or a new model); inputs from people and the model are StrictInput. The same content
 is in docs/pick-workbench/observe-contract.md, with fixtures in tests/fixtures/obs_contract/ that the frontend reads too;
 tests/observe/test_contract.py keeps the three equal. Changing it follows the plan's section 6 rule (TR-33 or a PR approved
 at a G review, both sides' tests changed together).
@@ -167,7 +168,12 @@ ENUMS = MappingProxyType({name: get_args(literal) for name, literal in _ENUM_TYP
 
 
 class Frozen(BaseModel):
-    """A stored or wire shape: closed, strict (no coercion), immutable, text verbatim and storable."""
+    """A stored or wire shape: closed, strict (no coercion), immutable, text verbatim and storable.
+
+    frozen=True stops attribute assignment only: the lists and dicts inside (labels, flags, metrics, params, evidence,
+    excluded, slices...) are plain containers. They are never modified in place; a change is model_copy(update=...) or a
+    new model, like any other value here.
+    """
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True, allow_inf_nan=False)
 
@@ -288,33 +294,76 @@ class ObsAsOf(Frozen):
 
 
 # ---- evidence (D8, premise 1) --------------------------------------------------------------------------------------
+# The unobserved wording (premise 1). TR-10's wording.py imports these and keeps only the forbidden-word list.
 UNOBSERVED = "未观测到"
 UNOBSERVED_TRENDS = "在 Google Trends 返回的数据里未观测到"
 UNOBSERVED_GSC = "在 GSC 返回的数据里未观测到"
 NOTE_SEPARATOR = "；"
 LINK_NOTE_PREFIX = "联动："
-LINK_NOTE_PATTERN = re.compile(
-    rf"{LINK_NOTE_PREFIX}[^（）；]+（(?:{'|'.join(LINK_LABELS)})；"
-    rf"(?:可行动|不可行动：(?:{'|'.join(LINK_ACTIONABILITY_REASONS)})(?:,(?:{'|'.join(LINK_ACTIONABILITY_REASONS)}))*)；判定于 {STAMP_PATTERN}）"
+# The data page's and the note's text for each link label, in LINK_LABELS order (design 6.1).
+LINK_LABEL_TEXT = MappingProxyType(
+    {
+        "both_rising": "双涨",
+        "trends_lead_page": "站外先行·补页",
+        "trends_lead_distribution": "站外先行·仅分发",
+        "site_only": "站内独涨",
+        "cooling": "退潮",
+        "global_parallel": "全球同向",
+        "different_markets": "不同市场信号",
+    }
 )
+LABEL_NOT_ACTIONABLE = "label_not_actionable"
+_TIME_REASONS = tuple(reason for reason in LINK_ACTIONABILITY_REASONS if reason != LABEL_NOT_ACTIONABLE)
+
+
+def _ordered_reasons(reasons: tuple[str, ...]) -> str:
+    """A regex for a non-empty comma list of these reasons, each at most once, in this order."""
+    return "|".join(first + "".join(f"(?:,{later})?" for later in reasons[index + 1 :]) for index, first in enumerate(reasons))
+
+
+def _link_verdict(label: str) -> str:
+    """A LINK_STATES label is actionable or not for time reasons; the other two always and only carry label_not_actionable."""
+    if label in LINK_STATES:
+        return f"可行动|不可行动：(?:{_ordered_reasons(_TIME_REASONS)})"
+    return f"不可行动：{LABEL_NOT_ACTIONABLE}" + "".join(f"(?:,{reason})?" for reason in _TIME_REASONS)
+
+
+# One link segment of a note: 联动：<LINK_LABEL_TEXT[code]>（<code>；<verdict>；判定于 <judged_at>）.
+LINK_NOTE_PATTERN = re.compile(
+    LINK_NOTE_PREFIX
+    + "(?:"
+    + "|".join(f"{re.escape(text)}（{label}；(?:{_link_verdict(label)})" for label, text in LINK_LABEL_TEXT.items())
+    + rf")；判定于 {STAMP_PATTERN}）"
+)
+LINKED_KINDS = ("obs_trends", "obs_gsc")
 
 
 @dataclass(frozen=True, slots=True)
 class EvidenceRule:
-    """How one kind flattens: its values (None: GSC counts or a discovery term), grades, label scope, note rules family."""
+    """How one kind flattens: the grades each value allows (the key None stands for any value: GSC counts, a discovery
+    term), the label's scope, the note's rules family and its unobserved phrase."""
 
-    values: tuple[str, ...] | None
-    grades: tuple[str, ...]
+    grades: MappingProxyType
     scope: str
     rules: str
     unobserved: str | None
 
+    @property
+    def values(self) -> tuple[str, ...] | None:
+        return None if None in self.grades else tuple(self.grades)
 
+    def grades_for(self, value) -> tuple[str, ...]:
+        return self.grades.get(None) or self.grades.get(value, ())
+
+
+_TREND_GRADES = get_args(Confirmation)
 EVIDENCE_RULES = MappingProxyType(
     {
-        "obs_trends": EvidenceRule(("rising", "emerging", "cooling", ""), ("confirmed", "first", ""), TREND_GEO_PATTERN, "trend", UNOBSERVED_TRENDS),
-        "obs_gsc": EvidenceRule(None, get_args(Admission), GSC_COUNTRY_PATTERN, "gsc", UNOBSERVED_GSC),
-        "obs_discovery": EvidenceRule(None, get_args(IdEvidence), TREND_GEO_PATTERN, "trend", None),
+        "obs_trends": EvidenceRule(
+            MappingProxyType({"rising": _TREND_GRADES, "emerging": _TREND_GRADES, "cooling": ("",), "": ("",)}), TREND_GEO_PATTERN, "trend", UNOBSERVED_TRENDS
+        ),
+        "obs_gsc": EvidenceRule(MappingProxyType({None: get_args(Admission)}), GSC_COUNTRY_PATTERN, "gsc", UNOBSERVED_GSC),
+        "obs_discovery": EvidenceRule(MappingProxyType({None: get_args(IdEvidence)}), TREND_GEO_PATTERN, "trend", None),
     }
 )
 
@@ -322,10 +371,15 @@ EVIDENCE_RULES = MappingProxyType(
 def _evidence_value_problem(kind: str, value) -> str | None:
     rule = EVIDENCE_RULES[kind]
     if rule.values is not None:
-        return None if value in rule.values else f"value 只能是 {'、'.join(rule.values)}"
+        return None if value in rule.values else f"value 只能是 {'、'.join(v or '空串' for v in rule.values)}"
     if kind == "obs_gsc":
         return None if isinstance(value, int) or value == "" else "value 是正整数的曝光数，未观测到时为空串"
     return None if isinstance(value, str) and value else "value 是发现词"
+
+
+def _evidence_grade_problem(kind: str, value, grade: str) -> str | None:
+    allowed = EVIDENCE_RULES[kind].grades_for(value)
+    return None if grade in allowed else f"value 为「{value}」时 grade 只能是 {'、'.join(g or '空串' for g in allowed)}"
 
 
 def _link_segments_ok(note: str) -> bool:
@@ -350,10 +404,11 @@ class ObsEvidence(Frozen):
         rule = EVIDENCE_RULES[self.kind]
         checks = (
             (_evidence_value_problem(self.kind, self.value) is None, _evidence_value_problem(self.kind, self.value)),
-            (self.grade in rule.grades, f"grade 只能是 {'、'.join(rule.grades)}"),
+            (_evidence_grade_problem(self.kind, self.value, self.grade) is None, _evidence_grade_problem(self.kind, self.value, self.grade)),
             (re.match(rf"^({rule.scope}) · \S", self.label) is not None, "label 以 geo 或国家码加「 · 」开头"),
             (re.match(rf"^{rule.rules}-rules-v[0-9A-Za-z]+；截至 {STAMP_PATTERN}(；|$)", self.note) is not None, "note 以规则版本与「截至 T」开头"),
             (self.value != "" or rule.unobserved is None or rule.unobserved in self.note, f"空值要在 note 里写明「{rule.unobserved}」"),
+            (self.kind in LINKED_KINDS or LINK_NOTE_PREFIX not in self.note, "联动段只挂在 obs_trends 或 obs_gsc 上"),
             (_link_segments_ok(self.note), "联动段的写法不对"),
         )
         refuse("obs_evidence", first_problem(checks), kind=self.kind)

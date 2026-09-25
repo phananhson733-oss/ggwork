@@ -6,7 +6,9 @@
     "from this function. Only Trends rows in state rising or emerging and GSC rows are asked; filters (state, geo, country) are separate.",
     "Trends: confirmed, or first with trend_include_first; emerging only with trend_state=emerging; ambiguity clear; not shared_title;",
     "correspondence confirmed, or unconfirmed with strong id_evidence and trend_include_presumed; not stale, not carried_over, tier A,",
-    "not unstable, control available. GSC: admission formal, not migration_suspect, not mapping_changed; correspondence never asked."
+    "not unstable, control available. GSC: admission formal, not migration_suspect, not mapping_changed; correspondence never asked.",
+    "A GSC row's state is its primary formal label or present, so a label short of its formal bar (a small-base surge) leaves",
+    "the row present: gsc_state=surge cannot match it, and eligibility reads admission only (design 5.8)."
   ],
   "reasons_order": [
     "trend_first_only",
@@ -467,7 +469,8 @@
         "ambiguity": null,
         "flags": [],
         "carried_over": false,
-        "stale": false
+        "stale": false,
+        "labels": [{"label": "from_zero", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}]
       },
       "conditions": {"trend_include_presumed": true, "trend_include_first": true},
       "expected": {"eligible": true, "reasons": []}
@@ -476,7 +479,7 @@
       "name": "gsc_descriptive",
       "row": {
         "channel": "gsc",
-        "state": "surge",
+        "state": "present",
         "confirmation": null,
         "admission": "descriptive",
         "tier": null,
@@ -485,7 +488,8 @@
         "ambiguity": null,
         "flags": ["detail_gap"],
         "carried_over": false,
-        "stale": false
+        "stale": false,
+        "labels": [{"label": "surge", "formal": false, "condition": "见 gsc-rules-v1", "counts": {}}]
       },
       "conditions": {},
       "expected": {"eligible": false, "reasons": ["gsc_descriptive_only"]}
@@ -512,7 +516,7 @@
       "name": "gsc_mapping_changed_descriptive",
       "row": {
         "channel": "gsc",
-        "state": "surge",
+        "state": "present",
         "confirmation": null,
         "admission": "descriptive",
         "tier": null,
@@ -521,7 +525,8 @@
         "ambiguity": null,
         "flags": ["mapping_changed", "migration_suspect"],
         "carried_over": false,
-        "stale": false
+        "stale": false,
+        "labels": [{"label": "surge", "formal": false, "condition": "见 gsc-rules-v1", "counts": {}}]
       },
       "conditions": {},
       "expected": {"eligible": false, "reasons": ["gsc_descriptive_only", "migration_suspect", "mapping_changed"]}
@@ -539,9 +544,29 @@
         "ambiguity": null,
         "flags": [],
         "carried_over": false,
-        "stale": false
+        "stale": false,
+        "labels": []
       },
       "conditions": {},
+      "expected": {"eligible": true, "reasons": []}
+    },
+    {
+      "name": "gsc_small_base_surge_is_present",
+      "row": {
+        "channel": "gsc",
+        "state": "present",
+        "confirmation": null,
+        "admission": "formal",
+        "tier": null,
+        "correspondence": null,
+        "id_evidence": null,
+        "ambiguity": null,
+        "flags": [],
+        "carried_over": false,
+        "stale": false,
+        "labels": [{"label": "surge", "formal": false, "condition": "见 gsc-rules-v1", "counts": {}}]
+      },
+      "conditions": {"gsc_state": "present"},
       "expected": {"eligible": true, "reasons": []}
     }
   ]

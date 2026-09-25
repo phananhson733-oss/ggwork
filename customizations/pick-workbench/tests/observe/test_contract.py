@@ -2,9 +2,10 @@
 tests/fixtures/obs_contract/ and docs/pick-workbench/observe-contract.md say the same thing.
 
 Every fixture file is read here. Files naming a model hold valid cases that must parse and invalid ones that must be
-refused; the eligibility truth table and the link cases are checked against small reference evaluators written from the
-fixtures' own "about" text, so a hand-written expectation that contradicts the stated rule turns this red before TR-10 or
-TR-24 builds on it. The frontend (TR-16, TR-24) reads the same files.
+refused, each for the reason its "error" names (the frontend ignores that key); the eligibility truth table and the link
+cases are checked against small reference evaluators written from the fixtures' own "about" text, so a hand-written
+expectation that contradicts the stated rule turns this red before TR-10 or TR-24 builds on it. The frontend (TR-16, TR-24)
+reads the same files.
 """
 
 import ast
@@ -59,6 +60,32 @@ def test_every_fixture_file_is_checked():
     assert not set(MODEL_FILES) & OTHER_FILES
 
 
+def _dotted(loc) -> str:
+    return ".".join(str(part) for part in loc)
+
+
+def _matches(error: dict, expected: dict) -> bool:
+    """An entry of ValidationError.errors() against a case's "error": the type, and when given the field path (after any
+    union branch prefix pydantic puts in front of it) and a part of the message."""
+    loc = _dotted(error["loc"])
+    return (
+        error["type"] == expected["type"]
+        and ("loc" not in expected or loc == expected["loc"] or loc.endswith("." + expected["loc"]))
+        and ("msg" not in expected or expected["msg"] in error["msg"])
+    )
+
+
+def _refused_for_its_reason(label: str, case: dict, validate) -> None:
+    """The case is refused, and for the reason it names: a case refused for another reason pins nothing."""
+    expected = case["error"]
+    assert set(expected) <= {"type", "loc", "msg"} and expected["type"], label
+    with pytest.raises(ValidationError) as raised:
+        validate()
+        pytest.fail(f"{label} was accepted ({case['why']})")
+    errors = raised.value.errors()
+    assert any(_matches(error, expected) for error in errors), (label, expected, [(e["type"], _dotted(e["loc"]), e["msg"]) for e in errors])
+
+
 @pytest.mark.parametrize("name", MODEL_FILES)
 def test_contract_fixtures_valid(name):
     fixture = _load(name)
@@ -67,9 +94,15 @@ def test_contract_fixtures_valid(name):
     for case in fixture["valid"]:
         adapter.validate_python(case["value"])
     for case in fixture["invalid"]:
-        with pytest.raises(ValidationError):
-            adapter.validate_python(case["value"])
-            pytest.fail(f"{name}: {case['name']} was accepted ({case['why']})")
+        _refused_for_its_reason(f"{name}: {case['name']}", case, lambda case=case: adapter.validate_python(case["value"]))
+
+
+def test_every_case_is_named_once():
+    for path in FIXTURES.glob("*.json"):
+        fixture = json.loads(path.read_text(encoding="utf-8"))
+        for group in ("valid", "invalid", "cases", "facts_cases", "actionable_cases"):
+            names = [case["name"] for case in fixture.get(group, [])]
+            assert len(names) == len(set(names)), (path.name, group)
 
 
 def test_obs_as_of_projects_to_observations():
@@ -90,17 +123,31 @@ def test_observations_keys_are_ref_keys_then_summary_keys():
 
 
 def test_views_fixture_rows():
+    """Every row is validated by its view's row model: the stored row models for states, links and alerts, FrozenInputs and
+    SetSummary inside sets, the enums for the text columns naming one."""
     fixture = _load("views.json")
     assert {case["view"] for case in fixture["valid"]} == set(contract_views.VIEW_NAMES)
     for case in fixture["valid"]:
         contract_views.VIEW_ROW_MODELS[case["view"]].model_validate(case["row"])
+    unknown = [case for case in fixture["invalid"] if case["view"] not in contract_views.VIEW_NAMES]
+    assert [case["name"] for case in unknown] == ["unknown_view"]
     for case in fixture["invalid"]:
-        model = contract_views.VIEW_ROW_MODELS.get(case["view"])
-        if model is None:
+        if case in unknown:
             continue
-        with pytest.raises(ValidationError):
-            model.model_validate(case["row"])
-            pytest.fail(f"views.json: {case['why']} was accepted")
+        model = contract_views.VIEW_ROW_MODELS[case["view"]]
+        _refused_for_its_reason(f"views.json: {case['name']}", case, lambda case=case, model=model: model.model_validate(case["row"]))
+
+
+def test_view_row_models():
+    """The views exposing a stored row validate it with that row's model; the others type every enum column."""
+    models = contract_views.VIEW_ROW_MODELS
+    assert (models["states"], models["links"], models["alerts"]) == (contract_rows.StateRow, contract_rows.LinkRow, contract_rows.AlertRow)
+    for view, columns in contract_views.VIEW_COLUMNS.items():
+        for column in columns:
+            assert column.enum is None or column.enum in contract.ENUMS, (view, column.name)
+    enums = {(view, c.name): c.enum for view, columns in contract_views.VIEW_COLUMNS.items() for c in columns if c.enum}
+    assert enums[("sets", "mode")] == "MODES" and enums[("run_status", "status_codes")] == "STATUS_CODES"
+    assert enums[("confirm_queue", "state")] == "TREND_STATES" and enums[("discoveries", "route")] == "DISCOVERY_ROUTES"
 
 
 def test_views_follow_the_row_models():
@@ -194,9 +241,13 @@ def test_result_fixture():
         kinds = [e["kind"] for item in case["value"]["items"] for e in item["evidence"]]
         assert set(contract.EVIDENCE_KINDS) <= set(kinds)
     for case in fixture["invalid"]:
-        with pytest.raises((ValidationError, AssertionError)):
-            _check_result(case["value"])
-            pytest.fail(f"result_obs.json: {case['name']} was accepted ({case['why']})")
+        label = f"result_obs.json: {case['name']}"
+        if case["error"]["type"] == "assertion":
+            with pytest.raises(AssertionError):
+                _check_result(case["value"])
+                pytest.fail(f"{label} was accepted ({case['why']})")
+        else:
+            _refused_for_its_reason(label, case, lambda case=case: _check_result(case["value"]))
 
 
 # ---- eligibility truth table ------------------------------------------------------------------------------------
@@ -340,6 +391,7 @@ def test_link_cases_fixture():
     fixture = _load("obs_link_cases.json")
     params, bases = fixture["params"], _base_rows()
     assert tuple(params["excluded_flags"]) == contract.LINK_EXCLUDED_FLAGS
+    assert params["pair_max_gap_hours"] * 60 == contract_rows.LINK_PAIR_MAX_GAP_MINUTES[params["link_rules_version"]]
     for case in fixture["facts_cases"]:
         given = case["input"]
         for row in given["trends"] + given["gsc"]:
@@ -359,7 +411,7 @@ def test_link_cases_fixture():
 
 def test_contract_module_is_data_only():
     """Shapes and constants only (plan section 5): nothing that reaches a database, the network or the host runtime."""
-    allowed = {"dataclasses", "json", "re", "types", "typing", "pydantic", "pydantic_core", "ggwork_pick.contracts", contract.__name__}
+    allowed = {"dataclasses", "json", "re", "types", "typing", "pydantic", "pydantic_core", "ggwork_pick.contracts", contract.__name__, contract_rows.__name__}
     for module in CONTRACT_MODULES:
         tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
         imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
@@ -407,11 +459,16 @@ def test_contract_doc_lists_every_field():
         rows = [re.split(r"\s*\|\s*", line.strip("| ")) for line in sections.get(f"pick_obs.{view}", []) if line.startswith("| `")]
         documented = [(name.strip("`"), kind.strip("`"), nullable == "是") for name, kind, nullable, *_ in rows]
         assert documented == [(c.name, c.type, c.nullable) for c in columns], view
+        # A column typed by an enum names it in its description, and only such a column names one.
+        named = [next(iter(re.findall(r"`([A-Z][A-Z_]+)`", description)), None) for *_, description in rows]
+        assert named == [c.enum for c in columns], view
     for name, values in contract.ENUMS.items():
         listed = re.findall(r"`([^`]+)`", " ".join(line for line in sections.get(name, []) if line.startswith("取值")))
         assert tuple(listed) == values, name
     listed_files = set(re.findall(r"`([a-z_]+\.json)`", "\n".join(sections.get("obs_contract/", []))))
     assert listed_files == {path.name for path in FIXTURES.glob("*.json")}
+    texts = next(line for line in sections["LINK_LABELS"] if line.startswith("中文标签依次是"))
+    assert re.findall(r"`([^`]+)`（([^）]+)）", texts) == list(contract.LINK_LABEL_TEXT.items())
 
 
 def test_enums_are_the_literals():
@@ -421,5 +478,6 @@ def test_enums_are_the_literals():
     assert contract.ENUMS["EXCLUSION_REASONS"] == get_args(contract.ExclusionReason)
     assert contract.ENUMS["STATUS_CODES"] == get_args(contract.StatusCode)
     assert set(contract.LINK_STATES) < set(contract.LINK_LABELS)
+    assert tuple(contract.LINK_LABEL_TEXT) == contract.LINK_LABELS
     assert set(contract.LINK_EXCLUDED_FLAGS) <= set(contract.TRENDS_FLAGS) | set(contract.GSC_FLAGS)
     assert contract.DECISION_KINDS == tuple(get_args(model.model_fields["kind"].annotation)[0] for model in contract_api.DECISION_MODELS)

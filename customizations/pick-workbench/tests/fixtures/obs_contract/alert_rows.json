@@ -70,6 +70,7 @@
     {
       "name": "gsc_state_on_trends",
       "why": "states belong to their channel",
+      "error": {"type": "obs_alert_row", "msg": "提示状态属于它的通道"},
       "value": {
         "id": 88,
         "mode": "live",
@@ -80,7 +81,7 @@
         "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
         "state": "surge",
         "scope": "US",
-        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"trends\",\"rising_first\",\"US\",\"live\"]",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"trends\",\"surge\",\"US\",\"live\"]",
         "published_at": "2026-09-25T01:52:10.000000+00:00",
         "eval_rules_version": "eval-rules-v1",
         "alias_version": 4,
@@ -91,6 +92,7 @@
     {
       "name": "trends_state_on_gsc",
       "why": "states belong to their channel",
+      "error": {"type": "obs_alert_row", "msg": "提示状态属于它的通道"},
       "value": {
         "id": 89,
         "mode": "live",
@@ -101,7 +103,7 @@
         "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
         "state": "rising_confirmed",
         "scope": "USA",
-        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"gsc\",\"from_zero\",\"USA\",\"live\"]",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"gsc\",\"rising_confirmed\",\"USA\",\"live\"]",
         "published_at": "2026-09-25T03:31:40.000000+00:00",
         "eval_rules_version": "eval-rules-v1",
         "alias_version": 4,
@@ -112,6 +114,7 @@
     {
       "name": "dedupe_key_uses_identity",
       "why": "the key follows root_identity",
+      "error": {"type": "obs_alert_row", "msg": "去重键与各字段不一致"},
       "value": {
         "id": 88,
         "mode": "live",
@@ -133,6 +136,7 @@
     {
       "name": "dedupe_key_without_mode",
       "why": "shadow alerts never share live's window",
+      "error": {"type": "obs_alert_row", "msg": "去重键与各字段不一致"},
       "value": {
         "id": 88,
         "mode": "live",
@@ -154,6 +158,7 @@
     {
       "name": "gsc_geo_scope",
       "why": "GSC scope is alpha-3",
+      "error": {"type": "obs_alert_row", "msg": "Trends 记 geo，GSC 记国家"},
       "value": {
         "id": 89,
         "mode": "live",
@@ -164,7 +169,7 @@
         "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
         "state": "from_zero",
         "scope": "US",
-        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"gsc\",\"from_zero\",\"USA\",\"live\"]",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"gsc\",\"from_zero\",\"US\",\"live\"]",
         "published_at": "2026-09-25T03:31:40.000000+00:00",
         "eval_rules_version": "eval-rules-v1",
         "alias_version": 4,
@@ -175,6 +180,7 @@
     {
       "name": "missing_eval_version",
       "why": "eval-rules version",
+      "error": {"type": "missing", "loc": "eval_rules_version"},
       "value": {
         "id": 88,
         "mode": "live",
@@ -195,6 +201,7 @@
     {
       "name": "nul_in_evidence",
       "why": "a NUL anywhere in the evidence snapshot cannot be stored",
+      "error": {"type": "unstorable_text", "msg": "含 NUL 字符或孤立代理项"},
       "value": {
         "id": 88,
         "mode": "live",

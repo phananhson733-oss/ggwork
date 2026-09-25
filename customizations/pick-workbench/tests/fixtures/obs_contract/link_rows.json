@@ -1,7 +1,8 @@
 {
   "about": [
     "One materialized link fact (ggwp_obs_links, D13): new set x the other channel's latest set of the same mode, per link-rules version.",
-    "Only facts are frozen; actionability is computed at judgment time with an explicit now (obs_link_cases.json)."
+    "Only facts are frozen; actionability is computed at judgment time with an explicit now (obs_link_cases.json).",
+    "timely is pair_gap_minutes <= LINK_PAIR_MAX_GAP_MINUTES[link_rules_version] (2880 for link-rules-v1); no country, no geo; ALL pairs with WW."
   ],
   "model": "LinkRow",
   "valid": [
@@ -142,12 +143,36 @@
         "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
         "created_at": "2026-09-25T03:31:40.000000+00:00"
       }
+    },
+    {
+      "name": "timely_at_max_gap",
+      "value": {
+        "country": "USA",
+        "trends_geo": "US",
+        "label": "both_rising",
+        "trends_row_id": 41,
+        "gsc_row_id": 907,
+        "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+        "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+        "pair_gap_minutes": 2880,
+        "timely": true,
+        "published_gap_minutes": 99,
+        "stale": false,
+        "id": 71,
+        "link_rules_version": "link-rules-v1",
+        "trends_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "gsc_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
     }
   ],
   "invalid": [
     {
       "name": "global_label_on_country",
       "why": "global_parallel pairs WW with ALL",
+      "error": {"type": "obs_link_fact", "msg": "global_parallel 只配 WW 与 ALL"},
       "value": {
         "country": "USA",
         "trends_geo": "US",
@@ -172,6 +197,7 @@
     {
       "name": "different_markets_with_country",
       "why": "different_markets is identity level",
+      "error": {"type": "obs_link_fact", "msg": "different_markets 是身份层的事实，没有国家"},
       "value": {
         "country": "USA",
         "trends_geo": "US",
@@ -196,6 +222,7 @@
     {
       "name": "country_without_geo",
       "why": "a country fact names its Trends geo",
+      "error": {"type": "obs_link_fact", "msg": "国家配两位 geo"},
       "value": {
         "country": "USA",
         "trends_geo": null,
@@ -220,6 +247,7 @@
     {
       "name": "alpha2_country",
       "why": "alpha-3",
+      "error": {"type": "string_pattern_mismatch", "loc": "country"},
       "value": {
         "country": "US",
         "trends_geo": "US",
@@ -244,6 +272,7 @@
     {
       "name": "unknown_label",
       "why": "LINK_LABELS",
+      "error": {"type": "literal_error", "loc": "label"},
       "value": {
         "country": "USA",
         "trends_geo": "US",
@@ -268,6 +297,7 @@
     {
       "name": "actionable_frozen",
       "why": "actionability is never frozen",
+      "error": {"type": "extra_forbidden", "loc": "actionable"},
       "value": {
         "country": "USA",
         "trends_geo": "US",
@@ -293,6 +323,7 @@
     {
       "name": "negative_gap",
       "why": "gaps are absolute minutes",
+      "error": {"type": "greater_than_equal", "loc": "pair_gap_minutes"},
       "value": {
         "country": "USA",
         "trends_geo": "US",
@@ -307,6 +338,131 @@
         "stale": false,
         "id": 71,
         "link_rules_version": "link-rules-v1",
+        "trends_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "gsc_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "different_markets_with_geo",
+      "why": "no country, no geo",
+      "error": {"type": "obs_link_fact", "msg": "没有国家就没有 geo"},
+      "value": {
+        "country": null,
+        "trends_geo": "US",
+        "label": "different_markets",
+        "trends_row_id": null,
+        "gsc_row_id": null,
+        "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+        "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+        "pair_gap_minutes": 60,
+        "timely": true,
+        "published_gap_minutes": 99,
+        "stale": false,
+        "id": 71,
+        "link_rules_version": "link-rules-v1",
+        "trends_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "gsc_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "global_parallel_with_country_geo",
+      "why": "ALL pairs with WW",
+      "error": {"type": "obs_link_fact", "msg": "ALL 配 WW"},
+      "value": {
+        "country": "ALL",
+        "trends_geo": "US",
+        "label": "global_parallel",
+        "trends_row_id": 41,
+        "gsc_row_id": 907,
+        "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+        "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+        "pair_gap_minutes": 60,
+        "timely": true,
+        "published_gap_minutes": 99,
+        "stale": false,
+        "id": 71,
+        "link_rules_version": "link-rules-v1",
+        "trends_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "gsc_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "timely_beyond_max_gap",
+      "why": "timely is pair_gap_minutes <= the version's maximum (48 h for link-rules-v1)",
+      "error": {"type": "obs_link_row", "msg": "timely 是锚点相隔不超过该版本的上限"},
+      "value": {
+        "country": "USA",
+        "trends_geo": "US",
+        "label": "both_rising",
+        "trends_row_id": 41,
+        "gsc_row_id": 907,
+        "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+        "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+        "pair_gap_minutes": 2881,
+        "timely": true,
+        "published_gap_minutes": 99,
+        "stale": false,
+        "id": 71,
+        "link_rules_version": "link-rules-v1",
+        "trends_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "gsc_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "untimely_within_max_gap",
+      "why": "timely is pair_gap_minutes <= the version's maximum",
+      "error": {"type": "obs_link_row", "msg": "timely 是锚点相隔不超过该版本的上限"},
+      "value": {
+        "country": "USA",
+        "trends_geo": "US",
+        "label": "both_rising",
+        "trends_row_id": 41,
+        "gsc_row_id": 907,
+        "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+        "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+        "pair_gap_minutes": 60,
+        "timely": false,
+        "published_gap_minutes": 99,
+        "stale": false,
+        "id": 71,
+        "link_rules_version": "link-rules-v1",
+        "trends_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "gsc_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "unregistered_link_rules_version",
+      "why": "a stored fact names a registered link-rules version",
+      "error": {"type": "obs_link_row", "msg": "link-rules 版本没有登记"},
+      "value": {
+        "country": "USA",
+        "trends_geo": "US",
+        "label": "both_rising",
+        "trends_row_id": 41,
+        "gsc_row_id": 907,
+        "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+        "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+        "pair_gap_minutes": 60,
+        "timely": true,
+        "published_gap_minutes": 99,
+        "stale": false,
+        "id": 71,
+        "link_rules_version": "link-rules-v9",
         "trends_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
         "gsc_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
         "mode": "live",

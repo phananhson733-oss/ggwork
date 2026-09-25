@@ -8,7 +8,7 @@
   - `contract_views.py`：八个 pick_obs 视图（第 11 节）。
   - `contract_api.py`：人工决定的请求体与 /sync 的 obs 键（第 12、13 节）。
 - **夹具**：`customizations/pick-workbench/tests/fixtures/obs_contract/`，每项都有正例与反例；前端（TR-16、TR-24）读同一批文件。
-- **测试**：`customizations/pick-workbench/tests/observe/test_contract.py`。它核对三件事：正例能解析、反例被拒；本文每张字段表、视图表、枚举行与代码逐项相等（四个模块里每个公开模型都要有字段表）；资格真值表与联动用例和夹具自带的规则说明一致。
+- **测试**：`customizations/pick-workbench/tests/observe/test_contract.py`。它核对三件事：正例能解析，反例被拒而且是因它 `error` 字段写的原因被拒（第 15 节）；本文每张字段表、视图表、枚举行与代码逐项相等（四个模块里每个公开模型都要有字段表）；资格真值表与联动用例和夹具自带的规则说明一致。每条校验都有一个只违反它的反例：把任何一条检查改成恒真，测试都会变红。
 - **改合同**：按计划第 6 节，只能在 TR-33 或经 G 节点批准的后续 PR 里改，Python 与 TS 两端的测试同时改。本文、代码与夹具任何一处不一致，上面的测试就会变红。
 
 ---
@@ -16,6 +16,7 @@
 ## 1. 通用约定
 
 - **两类模型**。存储与 wire 形状继承 `Frozen`：键集合封闭、严格类型（不做 `"1"`→1 这类转换）、不可变、文本原样保存，并拒绝 NUL 与孤立代理项。来自人和模型的输入（条件、决定请求体）继承 `StrictInput`，与 `PickConditions` 同一写法（去首尾空白）。
+- **不可变只到属性一层**：`frozen=True` 只禁止给属性赋值，模型里的列表与对象（labels、flags、metrics、params、evidence、excluded、slices 等）仍是普通容器。约定是从不原地修改它们，要改一律 `model_copy(update=...)` 或新建模型。wire 解析要接受 JSON 数组，所以这些字段不改成 tuple。
 - **时间戳**：`repository.stamp()` 的形状，UTC、六位小数、`+00:00`，例如 `2026-09-25T01:52:10.000000+00:00`。`Z` 结尾或缺小数都不算。日期是 `YYYY-MM-DD`。GSC API 自带的 metadata 字符串（`first_incomplete_hour` 等）原样保存，不改写。
 - **标识**：集合 id 与 GSC 轮次 id 是 32 位小写十六进制（`uuid4().hex`）。判定行、联动行、V 状态行、总量行、提示行、决定行的 id 是自增正整数。身份是 `DramaInput.identity` 的 JSON 串，最长 512。
 - **地区**：Trends 的 geo 是 `WW` 或两位大写国家码；GSC 的国家是三位大写国家码，全站合计记 `ALL`。GSC API 返回的小写国家码（含未知国家 `zzz`）进入判定行、V 状态行与联动行之前转成大写；明细表可以按 API 原样存。
@@ -87,7 +88,7 @@ TR-27 用 `PickConditionsObs(PickConditions, ObsConditionFields)` 把七个字�
 |---|---|---|
 | `set_id` | 集合 id | 钉住的 GSC 集合 |
 | `published_at` | 时间戳 | 集合发布时刻 |
-| `cutoff` | 时间戳 | 数据截至，即共同截止 H_c |
+| `cutoff` | 时间戳 | 数据截至，即共同截止 H_c；从不为空，本轮没有 H_c 时是沿用的上一轮的值（第 10 节 `SetSummaryGsc`） |
 
 #### `ObsCoverage`
 
@@ -152,13 +153,19 @@ TR-27 用 `PickConditionsObs(PickConditions, ObsConditionFields)` 把七个字�
 
 | kind | value | grade | label 开头 | note 开头 |
 |---|---|---|---|---|
-| obs_trends | rising、emerging、cooling；未观测到或低量时为空串 | confirmed、first；cooling 与空值时为空串 | geo | trend-rules 版本 |
-| obs_gsc | W0 的曝光数（正整数，取哪一份计数由 TR-27 定）；未观测到时为空串 | formal、descriptive | 国家或 ALL | gsc-rules 版本 |
+| obs_trends | rising、emerging、cooling；未观测到或低量时为空串 | 按 value 取：rising、emerging 为 confirmed 或 first；cooling 与空值只能是空串 | geo | trend-rules 版本 |
+| obs_gsc | W0 的曝光数（正整数，取哪一份计数由 TR-27 定）；未观测到时为空串 | 判定行的 admission（两层准入的结果）：formal、descriptive | 国家或 ALL | gsc-rules 版本 |
 | obs_discovery | 发现词原文，不能为空 | 身份证据等级 strong、medium、weak | geo | trend-rules 版本 |
 
+- **grade 与 value 的对应**：`EVIDENCE_RULES` 给出每种 kind 在每个 value 下可用的 grade，模型按它校验；obs_trends 不会出现 rising 配空 grade、cooling 配 confirmed、空值配 confirmed。
+- **obs_gsc 的 grade 与 label**：grade 取判定行的 admission。label 在「 · 」之后写判定行 state 对应的标签；state 是 present 时不写任何标签名。没过正式门槛的描述性命中（例如「小基数曝光上升」）只写进 note，并注明是描述性的（第 6 节）。
 - **空值**：value 为空串时，note 必须写明 `UNOBSERVED_TRENDS` 或 `UNOBSERVED_GSC`。value 从不是 0，也不是 `"0"`。
 - **Trends 不给热度数值**：value 是状态码，不是指数。
-- **联动段**：联动事实挂在该 geo 的 obs_trends 条目上；该国没有 Trends 判定行时（site_only）挂在 obs_gsc 条目上。写成 note 里的一段 `联动：<中文标签>（<联动标签码>；可行动|不可行动：<原因,原因>；判定于 <时间戳>）`，标签码取自 `LINK_LABELS`，原因取自 `LINK_ACTIONABILITY_REASONS`，判定时刻就是 `judged_at`。智能体读钉住那一对集合的物化事实行，不自己重算事实（D13）。
+- **联动段**：联动事实挂在该 geo 的 obs_trends 条目上；该国没有 Trends 判定行时（site_only）挂在 obs_gsc 条目上；从不挂在 obs_discovery 上。写成 note 里的一段 `联动：<中文标签>（<联动标签码>；可行动|不可行动：<原因,原因>；判定于 <时间戳>）`，判定时刻就是 `judged_at`。智能体读钉住那一对集合的物化事实行，不自己重算事实（D13）。`LINK_NOTE_PATTERN` 按下面四条校验每一段：
+  - 中文标签与标签码绑定，取自 `LINK_LABEL_TEXT`（第 8 节枚举 `LINK_LABELS` 下的对照），两端不各自写死；
+  - 原因取自 `LINK_ACTIONABILITY_REASONS`，按它的顺序列出，每条至多一次；
+  - global_parallel、different_markets 永远是「不可行动」，原因里一定有 label_not_actionable；其余五个标签的原因里没有它；
+  - 「可行动」后面不带原因。
 
 #### 枚举 `EVIDENCE_KINDS`
 取值：`obs_trends`、`obs_gsc`、`obs_discovery`
@@ -263,7 +270,7 @@ TR-27 用 `PickConditionsObs(PickConditions, ObsConditionFields)` 把七个字�
 
 ## 6. 判定行（`ggwp_obs_states`，视图 `pick_obs.states`）
 
-资料页详情与智能体只读判定行（设计 7.1）。Trends 一行是身份 × geo；GSC 一行是身份 × 国家（或 ALL）× 窗口，`state` 取主标签，没有标签时为 present，`labels` 列出全部命中的标签及其命中条件与原始计数。
+资料页详情与智能体只读判定行（设计 7.1）。Trends 一行是身份 × geo；GSC 一行是身份 × 国家（或 ALL）× 窗口，`state` 取过了正式门槛的主标签，没有任何标签过正式门槛时为 present；`labels` 列出全部命中（正式与描述性），各带命中条件与原始计数。
 
 #### `LabelHit`
 
@@ -335,6 +342,13 @@ TR-27 用 `PickConditionsObs(PickConditions, ObsConditionFields)` 把七个字�
 | `paste_row` | `PasteRow` 或 null | 只属于有现行剧目页的 GSC 行 |
 | `created_at` | 时间戳 | 写入时刻 |
 
+模型另外校验这几条跨字段关系：
+
+- **GSC 的 state 与 labels**：state 不是 present 时，labels 里一定有同名且 `formal=true` 的命中；state 是 present 时，labels 里没有任何 `formal=true` 的命中（可以有描述性命中）。所以设计 5.8 的「小基数曝光上升」（曝光飙升条件成立但 W−1 < 20）是 present 配一条 `formal=false` 的 surge，不会成为 `gsc_state=surge` 的匹配对象。
+- **描述性行**：admission 为 descriptive 的行，全部命中都是 `formal=false`，state 因此是 present。
+- **Trends 的陈旧**：stale 是沿用超过 3 天（设计 4.10），只有 carried_over 的行才会 stale。
+- **按通道的字段**：Trends 行的 tier、correspondence、id_evidence、ambiguity、latest_block_end 必填，没有 admission、labels、质量注记与可粘贴行；GSC 行没有这些 Trends 字段，也没有 latest_block_end，carried_over、stale 恒为假；质量注记只属于 7 天窗口。
+
 #### 枚举 `TRENDS_ROW_STATES`
 取值：`rising`、`emerging`、`cooling`、`flat`、`sparse`、`insufficient_window`、`ambiguous`、`failed`
 
@@ -404,7 +418,7 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 | `impressions` | 非负整数或 null | X_flt；响应里没有行时为 null |
 | `clicks` | 非负整数或 null | 同上 |
 | `row_count` | 非负整数 | 响应行数；为 0 时两个计数都是 null |
-| `request_status` | `VCHECK_STATUSES` 之一 | 请求状态 |
+| `request_status` | `VCHECK_STATUSES` 之一 | 请求状态；failed、regex_overflow 时 row_count 为 0、两个计数为 null |
 | `chunk_count` | 非负整数 | 正则分块数 |
 | `slice_versions` | `SliceDay` 列表 | Vd 覆盖的日期与切片版本；Vh 为空列表 |
 | `fetched_at` | 时间戳 | 取数时刻 |
@@ -414,6 +428,8 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 #### `TotalsRow`
 
 `ggwp_gsc_totals`：A、A′ 按小时（hourly_all），A″a、A″f 按 PT 日（all、final）。final 还没有数据的日子记 null，request_status 仍是 fetched，表示「无行」。
+
+**失败不产生数值**（前提 1）：请求状态为 failed、unsupported 的总量行，与 failed、regex_overflow 的 V 状态行一样，计数一律为 null，不写 0，也不挂上一轮的旧值。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -425,7 +441,7 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 | `pt_date` | 日期或 null | A″ 的 PT 日 |
 | `impressions` | 非负整数或 null | 无行为 null |
 | `clicks` | 非负整数或 null | 与曝光同时为 null |
-| `request_status` | `TOTALS_STATUSES` 之一 | A′ 不支持时为 unsupported |
+| `request_status` | `TOTALS_STATUSES` 之一 | A′ 不支持时为 unsupported；failed、unsupported 时两个计数为 null |
 | `watermark` | 字符串或 null | A、A′ 为 first_incomplete_hour，A″ 为 first_incomplete_date，原样 |
 | `fetched_at` | 时间戳 | 取数时刻 |
 
@@ -465,15 +481,17 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 | `trends_row_id` | 行 id 或 null | 用到的 Trends 判定行 |
 | `gsc_row_id` | 行 id 或 null | 用到的 GSC 判定行 |
 | `trends_anchor` | 时间戳 | Trends 判定行的 latest_block_end，没有行时取集合的 |
-| `gsc_anchor` | 时间戳 | GSC 判定行的 W0 终点，没有行时取集合的 cutoff |
+| `gsc_anchor` | 时间戳 | GSC 判定行的 W0 终点，没有行时取集合的 cutoff（从不为空） |
 | `pair_gap_minutes` | 非负整数 | 两个锚点相隔的整分钟数 |
-| `timely` | 严格布尔 | 相隔不超过 48 小时 |
+| `timely` | 严格布尔 | 相隔不超过该 link-rules 版本的上限（v1 为 48 小时） |
 | `published_gap_minutes` | 非负整数 | 两个集合发布时刻相隔的整分钟数 |
 | `stale` | 严格布尔 | Trends 判定行是 carried_over 或 stale |
 
 #### `LinkRow`
 
-`ggwp_obs_links` 与视图 `pick_obs.links`：先是编号与配对，再是事实，最后是写入时刻。可行动性从不存储。
+`LinkFact` 校验地区的配法：different_markets 没有国家、global_parallel 的国家是 ALL（其余标签反之）；没有国家就没有 geo；ALL 配 WW；具体国家配两位 geo。
+
+`ggwp_obs_links` 与视图 `pick_obs.links`：先是编号与配对，再是事实，最后是写入时刻。可行动性从不存储。`LinkRow` 另外校验：`link_rules_version` 在 `LINK_PAIR_MAX_GAP_MINUTES` 里登记过（link-rules-v1 为 2880 分钟），`timely` 等于 `pair_gap_minutes` 不超过这个上限。TR-10 的 `link_rules` 从这里读上限，不另写一份。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -500,7 +518,7 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 
 - **只在同一国家内联动**。geo 与国家按 market-map-v1 配对：WW↔ALL、US↔USA、GB↔GBR、ES↔ESP、DE↔DEU、FR↔FRA、IT↔ITA、MX↔MEX、BR↔BRA、BG↔BGR。配不上的国家（菲律宾、印度等）不参与联动，只进全站合计。
 - **排除**：Trends 判定行带 unstable 时，这个国家整行不出事实。GSC 行带 migration_suspect、mapping_changed、gap_exceeded、unverifiable 的丢弃。GSC 降级（`[hour,page]` 加日级国家）时，按国家的 24 小时行视同不存在，只用 7 天行。
-- **记号**：up(t) 为 Trends 行 rising 且 confirmed；low(t) 为没有行，或状态是 flat、sparse；gsc_up 为某个两层准入为 formal 的 GSC 行带正式的 surge 或 from_zero（24 小时）或 rising（7 天）标签；gsc_low 为没有丢弃任何行、剩下的行都没有任何标签。
+- **记号**：up(t) 为 Trends 行 rising 且 confirmed；low(t) 为没有行，或状态是 flat、sparse；gsc_up 为某个两层准入为 formal 的 GSC 行带正式（`formal=true`）的 surge 或 from_zero（24 小时）或 rising（7 天）标签；gsc_low 为没有丢弃任何行、剩下的行都没有任何标签（描述性命中也算标签，所以小基数曝光上升既不是 up 也不是 low）。
 - **按序取第一个成立的**：cooling(t) → cooling；up 且 gsc_up → both_rising；up 且 gsc_low 且本站有现行剧目页 → trends_lead_page；up 且没有页面 → trends_lead_distribution；low 且 gsc_up → site_only；否则不出事实。first、emerging 既不算 up 也不算 low。
 - **全球**：WW 为 up 且 ALL 为 gsc_up，出 global_parallel（「全球同向」），不给动作。
 - **不同市场**：没有任何国家是 both_rising，但有一国 up、另一国 gsc_up 时，加一行 different_markets（「不同市场信号」）。
@@ -514,7 +532,9 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 #### 枚举 `LINK_LABELS`
 取值：`both_rising`、`trends_lead_page`、`trends_lead_distribution`、`site_only`、`cooling`、`global_parallel`、`different_markets`
 
-中文标签依次是：双涨、站外先行·补页、站外先行·仅分发、站内独涨、退潮、全球同向、不同市场信号。前五个也是 `link_state` 的取值。
+中文标签依次是：`both_rising`（双涨）、`trends_lead_page`（站外先行·补页）、`trends_lead_distribution`（站外先行·仅分发）、`site_only`（站内独涨）、`cooling`（退潮）、`global_parallel`（全球同向）、`different_markets`（不同市场信号）。
+
+代码里是 `LINK_LABEL_TEXT`，资料页与证据的联动段都用它。前五个也是 `link_state` 的取值。
 
 #### 枚举 `LINK_ACTIONABILITY_REASONS`
 取值：`label_not_actionable`、`untimely_pair`、`stale_row`、`trends_set_too_old`、`gsc_set_too_old`
@@ -613,7 +633,9 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `channel` | `gsc` | 区分字段 |
-| `cutoff` | 时间戳或 null | 共同截止；本轮不出正式 24 小时窗口时为 null |
+| `cutoff` | 时间戳 | 共同截止，从不为空：本轮算出的 H_c；A 缺水位时（设计 5.3「沿用上一轮」）沿用上一个已发布 GSC 集合的 cutoff |
+| `cutoff_carried` | 严格布尔 | cutoff 是沿用上一轮的 |
+| `formal_24h_window` | 严格布尔 | 本轮有正式 24 小时窗口：H_c 是本轮算出的，且 [H_c−48h, H_c) 被 C 的可用区间连续覆盖（设计 5.4）。为假时本集合的 24 小时行只出描述性标签；cutoff_carried 为真时它一定为假 |
 | `layers` | `CoverageLayers` 列表 | 第一、二层 |
 | `unknowable` | `Unknowable` | 第三层 |
 | `site_admission_24h` | `SITE_ADMISSIONS` 之一 | 24 小时窗口的全站层准入 |
@@ -622,6 +644,8 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 | `requests` | 非负整数 | 本轮请求数 |
 | `quota_errors` | 非负整数 | 配额错误数 |
 | `status_codes` | 状态码列表 | 本集合的状态码 |
+
+**cutoff 缺失的处理**：`GscSetRef.cutoff`、视图 `pick_obs.sets` 的 `as_of` 与联动的 `gsc_anchor` 都要一个非空的截至时刻，所以 cutoff 从不为空。本轮 A 缺水位时沿用上一个已发布 GSC 集合（不论模式）的 cutoff，记 `cutoff_carried`，24 小时窗口以这个 cutoff 为 W0 终点、只出描述性标签。冷启动的第一轮就缺水位、没有可沿用的 cutoff 时，这一轮不发布集合，`pick_obs.run_status` 记 withheld。
 
 #### 枚举 `UNCOVERED_REASONS`
 取值：`truncated`、`skipped_breaker`、`deadline`
@@ -643,16 +667,18 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 
 0007 在 PG 上建 `pick_obs` schema（TR-11），只放下面八个视图，列名与类型以本节为准，`pick_board_reader` 只读。运行时表（cookie 罐、请求日志、租约）不进视图。类型是合同类型，`VIEW_PG_TYPES` 给出 `information_schema.columns.data_type` 可以是什么：text 对应 text 或 character varying，int 对应 integer 或 bigint，bool 对应 boolean，json 对应 json，float 对应 double precision。json 列的内部形状见各节模型。
 
+`VIEW_ROW_MODELS` 按整行校验：states、links、alerts 直接用 `StateRow`、`LinkRow`、`AlertRow`；sets 的 `frozen_inputs`、`summary` 用 `FrozenInputs`、`SetSummary`；说明里写了枚举名的文本列只接受该枚举的值（json 列 `status_codes` 是该枚举值的列表）。sets 行另外校验与冻结输入一致：channel 与 `frozen_inputs.channel`、`summary.channel` 相同；Trends 的 target_date、window_end 取自冻结输入，round_id 为空，GSC 反之；source_catalog_batch_id、collector_version、link_rules_version、alias_version、decisions_version 与冻结输入相同；rules_version 是冻结输入里本通道的判定规则（trend-rules 或 gsc-rules）；GSC 的 as_of 等于 `summary.cutoff`。
+
 #### 视图 `pick_obs.sets`
 
 | 列 | 类型 | 可空 | 说明 |
 |---|---|---|---|
 | `set_id` | `text` | 否 | 集合 id |
-| `channel` | `text` | 否 | 通道 |
-| `mode` | `text` | 否 | live 或 shadow |
-| `status` | `text` | 否 | published 或 pruned |
+| `channel` | `text` | 否 | `CHANNELS` 之一 |
+| `mode` | `text` | 否 | `MODES` 之一 |
+| `status` | `text` | 否 | `SET_STATUSES` 之一 |
 | `published_at` | `text` | 否 | 发布时刻 |
-| `as_of` | `text` | 否 | Trends 为 latest_block_end，GSC 为 cutoff |
+| `as_of` | `text` | 否 | Trends 为 latest_block_end，GSC 为 summary 的 cutoff（从不为空） |
 | `source_catalog_batch_id` | `text` | 否 | 来源共享剧库批次 |
 | `collector_version` | `text` | 否 | 采集版本 |
 | `rules_version` | `text` | 否 | trend-rules 或 gsc-rules 版本 |
@@ -732,7 +758,7 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 |---|---|---|---|
 | `discovery_id` | `int` | 否 | 编号，证据 source_ref 用它 |
 | `set_id` | `text` | 否 | 所属 Trends 集合 |
-| `mode` | `text` | 否 | 模式 |
+| `mode` | `text` | 否 | `MODES` 之一 |
 | `geo` | `text` | 否 | 查询的 geo |
 | `seed` | `text` | 否 | 种子词 |
 | `property` | `text` | 否 | `DISCOVERY_PROPERTIES` 之一 |
@@ -775,11 +801,11 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 | `normalized_title` | `text` | 否 | 规范化标题 |
 | `language` | `text` | 否 | 语种 |
 | `geo` | `text` | 否 | 判出上升的 geo |
-| `state` | `text` | 否 | rising 或 emerging |
-| `confirmation` | `text` | 是 | confirmed 或 first |
-| `id_evidence` | `text` | 否 | 身份证据等级 |
+| `state` | `text` | 否 | `TREND_STATES` 之一 |
+| `confirmation` | `text` | 是 | `CONFIRMATIONS` 之一 |
+| `id_evidence` | `text` | 否 | `ID_EVIDENCE_LEVELS` 之一 |
 | `set_id` | `text` | 否 | 所属集合 |
-| `mode` | `text` | 否 | 模式 |
+| `mode` | `text` | 否 | `MODES` 之一 |
 | `since` | `text` | 否 | 首次进入队列的时刻 |
 
 #### 视图 `pick_obs.alerts`
@@ -810,9 +836,9 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 
 | 列 | 类型 | 可空 | 说明 |
 |---|---|---|---|
-| `channel` | `text` | 否 | 通道 |
+| `channel` | `text` | 否 | `CHANNELS` 之一 |
 | `batch_id` | `text` | 否 | 批次或轮次编号 |
-| `mode` | `text` | 否 | 这次运行会发布成的模式 |
+| `mode` | `text` | 否 | `MODES` 之一，这次运行会发布成的模式 |
 | `target_date` | `text` | 是 | Trends 的目标发布日 |
 | `round_id` | `text` | 是 | GSC 的轮次 |
 | `started_at` | `text` | 否 | 开始时刻 |
@@ -820,7 +846,7 @@ ambiguous 指泛词或被更长剧名包含、没有请求裸剧名，结果「�
 | `outcome` | `text` | 否 | `RUN_OUTCOMES` 之一 |
 | `requests` | `int` | 否 | 请求数 |
 | `published_set_id` | `text` | 是 | 发布出的集合 |
-| `status_codes` | `json` | 否 | 状态码列表 |
+| `status_codes` | `json` | 否 | `STATUS_CODES` 的列表 |
 
 #### 枚举 `VIEW_TYPES`
 取值：`text`、`int`、`bool`、`json`、`float`
@@ -998,11 +1024,14 @@ withheld 指跑完但没有发布（例如 A 档覆盖率不足 80%，上一个�
 
 - **Trends**：confirmed，或 `trend_include_first` 时放宽到 first（否则 `trend_first_only`）；emerging 只在 `trend_state=emerging` 时进入（否则 `emerging_not_requested`）；ambiguity 为 clear（否则 `title_ambiguous`）；不是 shared_title；对应已人工确认，或身份证据为强且 `trend_include_presumed`（强证据未确认且没放宽记 `correspondence_presumed`，中、弱证据未确认记 `correspondence_unconfirmed`）；不是 stale、carried_over；A 档（B 档记 `b_tier`）；不是 unstable；对照可用（否则 `control_unavailable`）。
 - **GSC**：两层准入为 formal（否则 `gsc_descriptive_only`）；没有 migration_suspect、mapping_changed。**不要求对应确认**，页面归属由 URL 决定。
+- **GSC 的标签正式性不另外检查**：判定行的 state 只取过了正式门槛的标签（第 6 节），没过门槛的命中让行停在 present。所以 admission 为 formal、只有一条「小基数曝光上升」的行可以进智能体，但只能以 present（在该国有两层准入的观测）的身份进，`gsc_state=surge` 匹配不到它，证据的 label 也不会写成曝光飙升（第 4 节）。用例 `gsc_small_base_surge_is_present`。
 - **`set_batch_mismatch`**：集合与候选集的剧库批次不同且按冻结别名版本映射不到（TR-26），不由这个函数给出。
 
 ---
 
 ## 15. 夹具
+
+每个带 `model` 的文件、`views.json` 与 `result_obs.json` 的反例都带 `error`，写明它该因什么被拒：`type` 是 pydantic 的错误类型（本合同自己的检查是 `obs_*`，NUL 与孤立代理项是 `unstorable_text`，`result_obs.json` 里断言不成立的是 `assertion`）；`loc` 可省略，是出错的字段路径（前面可以有 union 分支的前缀）；`msg` 可省略，是错误信息里必须出现的一段。测试要求至少有一条错误与它对上，这样反例不会因为别的原因被拒而让它要钉住的规则悄悄失效。前端可以忽略这个键。
 
 #### 夹具清单 `obs_contract/`
 
@@ -1041,4 +1070,18 @@ withheld 指跑完但没有发布（例如 A 档覆盖率不足 80%，上一个�
 7. **决定的九种**：别名确认、拒绝、手动配对，对应确认、撤销，人工加入（带撤回）、暂停（带恢复），歧义改判，提示标无关。每种都带 `request_id`。
 8. **集合摘要的形状**：计划只写了视图列名与类型，本合同另把 `summary` 的内部形状定下来（第 10 节），让 TR-20、TR-23b 写的与 TR-24 读的是同一份。
 9. **状态码**：在 TR-10 的十四个之外加了 TR-14 提到的 `parse_error`。
-10. **alias_queue 视图没有 mode 列**：别名与发布模式无关。
+10. **alias_queue 视图没有 mode 列**：别名与发布模式无关。TR-11「列与合同一致（含 mode）」按此理解为其余七个视图含 mode。
+11. **GSC 的 cutoff 从不为空**（审查 P2）：设计 5.3 写的是 A 缺水位时「沿用上一轮」，而 `GscSetRef.cutoff`、`pick_obs.sets.as_of`、`gsc_anchor` 都需要非空的截至时刻。本合同取「沿用上一个 GSC 集合的 cutoff，并用 `cutoff_carried`、`formal_24h_window` 两个布尔标出」，没有可沿用的 cutoff 时不发布（第 10 节）。没有选「改为可空并另定替代值」，因为那会让三处读者各写一套替代规则。
+12. **GSC 行级准入与标签正式性**（审查 P2）：state 只取过了正式门槛的标签，没有就为 present；descriptive 行没有正式标签。这样资格真值表、obs_gsc 证据的 grade 都只看 admission，不需要新增排除原因（第 6、14 节）。
+13. **证据 grade 按 value 校验**：`EVIDENCE_RULES` 从「每种 kind 一组 grade」改为「每个 value 一组 grade」（第 4 节）。
+14. **失败行不带数值**：failed、regex_overflow 的 V 状态行与 failed、unsupported 的总量行，计数为 null（第 7 节）。
+15. **联动段的写法**：中文标签取自 `LINK_LABEL_TEXT` 并与标签码绑定；原因按 `LINK_ACTIONABILITY_REASONS` 的顺序、不重复；label_not_actionable 当且仅当标签是 global_parallel 或 different_markets；联动段不挂在 obs_discovery 上（第 4 节）。
+16. **timely 的上限按版本登记**：`LINK_PAIR_MAX_GAP_MINUTES`（link-rules-v1 为 2880 分钟），`LinkRow` 按它校验 timely；TR-10 从这里读，新版本先在这里登记（第 8 节）。
+17. **夹具路径**：D10 写的是 `t/fixtures/obs_link_cases.json`，实际以 `t/fixtures/obs_contract/obs_link_cases.json` 为准；`obs_status_cases.json` 仍归 TR-10，放在 `t/fixtures/`。
+18. **「未观测到」的措辞常量**：计划第 5 节把措辞常量划给 TR-10 的 `wording.py`。`UNOBSERVED`、`UNOBSERVED_TRENDS`、`UNOBSERVED_GSC` 已在合同里定义（证据校验要用），`wording.py` 从合同导入，不再重新定义，只放禁用词清单。
+19. **去重键**：`dedupe_key_of` 放在合同的 `contract_rows.py`（`AlertRow` 的校验要用），是 TR-10 与 TR-20 唯一的去重键实现，两处都从这里导入。
+20. **四个模块**：计划第 5 节只列了 `contract.py`。为守住单文件 800 行的上限，合同拆成 `contract`、`contract_rows`、`contract_api`、`contract_views` 四个模块，都只有数据形状与常量（`test_contract_module_is_data_only` 钉住）。
+21. **不可变的范围**：`Frozen` 的不可变只到属性一层，嵌套容器不得原地修改（第 1 节）。
+22. **视图行的整行校验**：`VIEW_ROW_MODELS` 用存储行模型、`FrozenInputs`、`SetSummary` 与枚举校验整行，sets 行与冻结输入一致（第 11 节）。
+
+第 11 至 22 条随本次修复提交 G1 确认。

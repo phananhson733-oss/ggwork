@@ -25,7 +25,18 @@
     "pair_max_gap_hours": 48,
     "trends_max_age_hours": 26,
     "gsc_max_age_hours": 6,
-    "geo_country": {"WW": "ALL", "US": "USA", "GB": "GBR", "ES": "ESP", "DE": "DEU", "FR": "FRA", "IT": "ITA", "MX": "MEX", "BR": "BRA", "BG": "BGR"},
+    "geo_country": {
+      "WW": "ALL",
+      "US": "USA",
+      "GB": "GBR",
+      "ES": "ESP",
+      "DE": "DEU",
+      "FR": "FRA",
+      "IT": "ITA",
+      "MX": "MEX",
+      "BR": "BRA",
+      "BG": "BGR"
+    },
     "up_labels": {"24h": ["surge", "from_zero"], "7d": ["rising"]},
     "low_states": ["flat", "sparse"],
     "excluded_flags": ["migration_suspect", "mapping_changed", "gap_exceeded", "unverifiable", "unstable"]
@@ -536,9 +547,9 @@
             "row_id": 912,
             "scope": "USA",
             "window_kind": "24h",
-            "state": "surge",
+            "state": "present",
             "admission": "descriptive",
-            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "labels": [{"label": "surge", "formal": false, "condition": "见 gsc-rules-v1", "counts": {}}],
             "flags": ["detail_gap"],
             "window_end": "2026-09-24T18:00:00.000000+00:00"
           }
@@ -568,7 +579,7 @@
             "row_id": 913,
             "scope": "USA",
             "window_kind": "24h",
-            "state": "surge",
+            "state": "present",
             "admission": "formal",
             "labels": [{"label": "surge", "formal": false, "condition": "见 gsc-rules-v1", "counts": {}}],
             "flags": [],
@@ -1169,7 +1180,10 @@
       "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
       "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
       "now": "2026-09-27T00:00:00.000000+00:00",
-      "expected": {"actionable": false, "reasons": ["label_not_actionable", "untimely_pair", "stale_row", "trends_set_too_old", "gsc_set_too_old"]}
+      "expected": {
+        "actionable": false,
+        "reasons": ["label_not_actionable", "untimely_pair", "stale_row", "trends_set_too_old", "gsc_set_too_old"]
+      }
     },
     {
       "name": "now_before_publication",

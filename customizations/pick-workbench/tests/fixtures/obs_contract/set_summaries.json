@@ -2,7 +2,9 @@
   "about": [
     "ggwp_obs_sets.summary_json, shown by the data page from pick_obs.sets.summary (design 3.6, 4.5, 5.6).",
     "GSC keeps the three coverage layers per metric: received = attributed + every unattributed kind (layer 1); detail_gap =",
-    "site_total - received, site_total null when neither A' nor A'' was usable (layer 2); unknowable counts slices (layer 3)."
+    "site_total - received, site_total null when neither A' nor A'' was usable (layer 2); unknowable counts slices (layer 3).",
+    "cutoff is never null: this round's H_c, or, when A has no watermark (design 5.3), the previous GSC set's cutoff with cutoff_carried;",
+    "formal_24h_window says this round has a formal 24-hour window, never when the cutoff is carried."
   ],
   "model": "SetSummary",
   "valid": [
@@ -12,7 +14,9 @@
         "channel": "trends",
         "planned_units": 427,
         "fetched_units": 404,
-        "uncovered_units": [{"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}],
+        "uncovered_units": [
+          {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+        ],
         "a_tier_coverage": 0.96,
         "breaker_events": 1,
         "all_zero_rate": 0.41,
@@ -47,6 +51,8 @@
       "value": {
         "channel": "gsc",
         "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "cutoff_carried": false,
+        "formal_24h_window": true,
         "layers": [
           {
             "metric": "impressions",
@@ -97,6 +103,8 @@
       "value": {
         "channel": "gsc",
         "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "cutoff_carried": false,
+        "formal_24h_window": true,
         "layers": [
           {
             "metric": "impressions",
@@ -124,17 +132,124 @@
         "quota_errors": 0,
         "status_codes": ["gsc_unverifiable"]
       }
+    },
+    {
+      "name": "gsc_cutoff_carried",
+      "value": {
+        "channel": "gsc",
+        "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "cutoff_carried": true,
+        "formal_24h_window": false,
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88000,
+            "attributed": 61000,
+            "unattributed": {
+              "legacy_unmapped": 900,
+              "delisted": 3100,
+              "noncanonical": 120,
+              "locale_mismatch": 40,
+              "site_level": 17000,
+              "editorial": 800,
+              "offsite": 0,
+              "blog": 5040
+            },
+            "site_total": 91500,
+            "detail_gap": 3500
+          },
+          {
+            "metric": "clicks",
+            "received": 3400,
+            "attributed": 2100,
+            "unattributed": {
+              "legacy_unmapped": 30,
+              "delisted": 110,
+              "noncanonical": 4,
+              "locale_mismatch": 1,
+              "site_level": 1000,
+              "editorial": 20,
+              "offsite": 0,
+              "blog": 135
+            },
+            "site_total": 3550,
+            "detail_gap": 150
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "usable",
+        "site_admission_7d": "unverifiable",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": []
+      }
+    },
+    {
+      "name": "gsc_window_gap_no_formal_24h",
+      "value": {
+        "channel": "gsc",
+        "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "cutoff_carried": false,
+        "formal_24h_window": false,
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88000,
+            "attributed": 61000,
+            "unattributed": {
+              "legacy_unmapped": 900,
+              "delisted": 3100,
+              "noncanonical": 120,
+              "locale_mismatch": 40,
+              "site_level": 17000,
+              "editorial": 800,
+              "offsite": 0,
+              "blog": 5040
+            },
+            "site_total": 91500,
+            "detail_gap": 3500
+          },
+          {
+            "metric": "clicks",
+            "received": 3400,
+            "attributed": 2100,
+            "unattributed": {
+              "legacy_unmapped": 30,
+              "delisted": 110,
+              "noncanonical": 4,
+              "locale_mismatch": 1,
+              "site_level": 1000,
+              "editorial": 20,
+              "offsite": 0,
+              "blog": 135
+            },
+            "site_total": 3550,
+            "detail_gap": 150
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "usable",
+        "site_admission_7d": "unverifiable",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": ["gsc_unverifiable"]
+      }
     }
   ],
   "invalid": [
     {
       "name": "coverage_above_one",
       "why": "a_tier_coverage is a share",
+      "error": {"type": "less_than_equal", "loc": "trends.a_tier_coverage"},
       "value": {
         "channel": "trends",
         "planned_units": 427,
         "fetched_units": 404,
-        "uncovered_units": [{"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}],
+        "uncovered_units": [
+          {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+        ],
         "a_tier_coverage": 1.2,
         "breaker_events": 1,
         "all_zero_rate": 0.41,
@@ -149,11 +264,14 @@
     {
       "name": "unknown_status_code",
       "why": "STATUS_CODES",
+      "error": {"type": "literal_error", "loc": "trends.status_codes.0"},
       "value": {
         "channel": "trends",
         "planned_units": 427,
         "fetched_units": 404,
-        "uncovered_units": [{"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}],
+        "uncovered_units": [
+          {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+        ],
         "a_tier_coverage": 0.96,
         "breaker_events": 1,
         "all_zero_rate": 0.41,
@@ -168,11 +286,14 @@
     {
       "name": "unknown_uncovered_reason",
       "why": "UNCOVERED_REASONS",
+      "error": {"type": "literal_error", "loc": "trends.uncovered_units.0.reason"},
       "value": {
         "channel": "trends",
         "planned_units": 427,
         "fetched_units": 404,
-        "uncovered_units": [{"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "lazy"}],
+        "uncovered_units": [
+          {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "lazy"}
+        ],
         "a_tier_coverage": 0.96,
         "breaker_events": 1,
         "all_zero_rate": 0.41,
@@ -187,9 +308,12 @@
     {
       "name": "unknown_unattributed",
       "why": "UNATTRIBUTED_KINDS",
+      "error": {"type": "literal_error", "loc": "gsc.layers.0.unattributed.spam.[key]"},
       "value": {
         "channel": "gsc",
         "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "cutoff_carried": false,
+        "formal_24h_window": true,
         "layers": [
           {
             "metric": "impressions",
@@ -212,9 +336,12 @@
     {
       "name": "gap_without_total",
       "why": "detail_gap needs a site total",
+      "error": {"type": "obs_coverage_layers", "loc": "gsc.layers.0", "msg": "明细缺口等于全站总量减收到的明细，没有总量时为空"},
       "value": {
         "channel": "gsc",
         "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "cutoff_carried": false,
+        "formal_24h_window": true,
         "layers": [
           {
             "metric": "impressions",
@@ -246,9 +373,12 @@
     {
       "name": "unknown_admission",
       "why": "usable, gap_exceeded or unverifiable",
+      "error": {"type": "literal_error", "loc": "gsc.site_admission_7d"},
       "value": {
         "channel": "gsc",
         "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "cutoff_carried": false,
+        "formal_24h_window": true,
         "layers": [
           {
             "metric": "impressions",
@@ -297,9 +427,12 @@
     {
       "name": "gsc_with_units",
       "why": "units are Trends'",
+      "error": {"type": "extra_forbidden", "loc": "gsc.planned_units"},
       "value": {
         "channel": "gsc",
         "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "cutoff_carried": false,
+        "formal_24h_window": true,
         "layers": [
           {
             "metric": "impressions",
@@ -344,6 +477,168 @@
         "quota_errors": 0,
         "status_codes": ["gsc_unverifiable"],
         "planned_units": 3
+      }
+    },
+    {
+      "name": "gsc_layers_not_conserved",
+      "why": "layer 1: received = attributed + every unattributed kind",
+      "error": {"type": "obs_coverage_layers", "loc": "gsc.layers.0", "msg": "第一层不守恒"},
+      "value": {
+        "channel": "gsc",
+        "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "cutoff_carried": false,
+        "formal_24h_window": true,
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88001,
+            "attributed": 61000,
+            "unattributed": {
+              "legacy_unmapped": 900,
+              "delisted": 3100,
+              "noncanonical": 120,
+              "locale_mismatch": 40,
+              "site_level": 17000,
+              "editorial": 800,
+              "offsite": 0,
+              "blog": 5040
+            },
+            "site_total": 91500,
+            "detail_gap": 3499
+          },
+          {
+            "metric": "clicks",
+            "received": 3400,
+            "attributed": 2100,
+            "unattributed": {
+              "legacy_unmapped": 30,
+              "delisted": 110,
+              "noncanonical": 4,
+              "locale_mismatch": 1,
+              "site_level": 1000,
+              "editorial": 20,
+              "offsite": 0,
+              "blog": 135
+            },
+            "site_total": 3550,
+            "detail_gap": 150
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "usable",
+        "site_admission_7d": "unverifiable",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": ["gsc_unverifiable"]
+      }
+    },
+    {
+      "name": "gsc_cutoff_null",
+      "why": "cutoff is always known: this round's H_c, or the previous set's when A has no watermark",
+      "error": {"type": "string_type", "loc": "gsc.cutoff"},
+      "value": {
+        "channel": "gsc",
+        "cutoff": null,
+        "cutoff_carried": false,
+        "formal_24h_window": true,
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88000,
+            "attributed": 61000,
+            "unattributed": {
+              "legacy_unmapped": 900,
+              "delisted": 3100,
+              "noncanonical": 120,
+              "locale_mismatch": 40,
+              "site_level": 17000,
+              "editorial": 800,
+              "offsite": 0,
+              "blog": 5040
+            },
+            "site_total": 91500,
+            "detail_gap": 3500
+          },
+          {
+            "metric": "clicks",
+            "received": 3400,
+            "attributed": 2100,
+            "unattributed": {
+              "legacy_unmapped": 30,
+              "delisted": 110,
+              "noncanonical": 4,
+              "locale_mismatch": 1,
+              "site_level": 1000,
+              "editorial": 20,
+              "offsite": 0,
+              "blog": 135
+            },
+            "site_total": 3550,
+            "detail_gap": 150
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "usable",
+        "site_admission_7d": "unverifiable",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": ["gsc_unverifiable"]
+      }
+    },
+    {
+      "name": "gsc_carried_cutoff_formal_24h",
+      "why": "a carried cutoff means no formal 24-hour window this round",
+      "error": {"type": "obs_set_summary", "loc": "gsc", "msg": "沿用上一轮的 cutoff 时本轮没有正式 24 小时窗口"},
+      "value": {
+        "channel": "gsc",
+        "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "cutoff_carried": true,
+        "formal_24h_window": true,
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88000,
+            "attributed": 61000,
+            "unattributed": {
+              "legacy_unmapped": 900,
+              "delisted": 3100,
+              "noncanonical": 120,
+              "locale_mismatch": 40,
+              "site_level": 17000,
+              "editorial": 800,
+              "offsite": 0,
+              "blog": 5040
+            },
+            "site_total": 91500,
+            "detail_gap": 3500
+          },
+          {
+            "metric": "clicks",
+            "received": 3400,
+            "attributed": 2100,
+            "unattributed": {
+              "legacy_unmapped": 30,
+              "delisted": 110,
+              "noncanonical": 4,
+              "locale_mismatch": 1,
+              "site_level": 1000,
+              "editorial": 20,
+              "offsite": 0,
+              "blog": 135
+            },
+            "site_total": 3550,
+            "detail_gap": 150
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "usable",
+        "site_admission_7d": "unverifiable",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": []
       }
     }
   ]

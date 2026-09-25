@@ -2,7 +2,8 @@
   "about": [
     "One per-identity filter check (ggwp_gsc_vchecks, D26): identity x check x window x country x dataState.",
     "impressions and clicks are null when the response had no row (premise 1); Vh is fetched every round, never reused;",
-    "Vd lists the PT dates it covers with the D/E slice version effective for each, which is what reuse is judged by."
+    "Vd lists the PT dates it covers with the D/E slice version effective for each, which is what reuse is judged by.",
+    "A failed or regex_overflow request has row_count 0 and null counts: a failure never yields numbers."
   ],
   "model": "VcheckRow",
   "valid": [
@@ -149,6 +150,7 @@
     {
       "name": "zero_instead_of_null",
       "why": "no row is null, not 0",
+      "error": {"type": "obs_vcheck_row", "msg": "无行记空值，有行记计数"},
       "value": {
         "id": 501,
         "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
@@ -173,6 +175,7 @@
     {
       "name": "rows_but_null",
       "why": "rows present means counts present",
+      "error": {"type": "obs_vcheck_row", "msg": "无行记空值，有行记计数"},
       "value": {
         "id": 501,
         "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
@@ -197,6 +200,7 @@
     {
       "name": "vh_reused",
       "why": "Vh is never reused",
+      "error": {"type": "obs_vcheck_row", "msg": "Vh 每轮重取，从不复用"},
       "value": {
         "id": 501,
         "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
@@ -221,6 +225,7 @@
     {
       "name": "reused_without_source",
       "why": "reused names the row it reused",
+      "error": {"type": "obs_vcheck_row", "msg": "复用时写明复用的行"},
       "value": {
         "id": 502,
         "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
@@ -245,6 +250,7 @@
     {
       "name": "vh_daily_state",
       "why": "Vh is hourly_all",
+      "error": {"type": "obs_vcheck_row", "msg": "Vh 用 hourly_all，Vd 用 all 或 final"},
       "value": {
         "id": 501,
         "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
@@ -269,6 +275,7 @@
     {
       "name": "vd_hourly_state",
       "why": "Vd is all or final",
+      "error": {"type": "obs_vcheck_row", "msg": "Vh 用 hourly_all，Vd 用 all 或 final"},
       "value": {
         "id": 502,
         "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
@@ -293,6 +300,7 @@
     {
       "name": "vd_without_days",
       "why": "Vd lists its PT dates",
+      "error": {"type": "obs_vcheck_row", "msg": "Vd 列出它覆盖的 PT 日与切片版本，Vh 不列"},
       "value": {
         "id": 502,
         "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
@@ -317,6 +325,7 @@
     {
       "name": "vh_with_days",
       "why": "Vh has no slice versions",
+      "error": {"type": "obs_vcheck_row", "msg": "Vd 列出它覆盖的 PT 日与切片版本，Vh 不列"},
       "value": {
         "id": 501,
         "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
@@ -341,6 +350,7 @@
     {
       "name": "check_column_name",
       "why": "check is a reserved word",
+      "error": {"type": "extra_forbidden", "loc": "check"},
       "value": {
         "id": 501,
         "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
@@ -365,6 +375,7 @@
     {
       "name": "window_column_name",
       "why": "window is a reserved word",
+      "error": {"type": "extra_forbidden", "loc": "window"},
       "value": {
         "id": 501,
         "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
@@ -384,6 +395,56 @@
         "reused": false,
         "reused_from": null,
         "window": "w0"
+      }
+    },
+    {
+      "name": "vh_failed_with_counts",
+      "why": "a failed request yields no numbers (premise 1)",
+      "error": {"type": "obs_vcheck_row", "msg": "失败或正则溢出的请求没有数值：row_count 为 0，计数为空"},
+      "value": {
+        "id": 501,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "check_kind": "vh",
+        "window_label": "w0",
+        "window_start": "2026-09-23T18:00:00.000000+00:00",
+        "window_end": "2026-09-24T18:00:00.000000+00:00",
+        "country": "USA",
+        "data_state": "hourly_all",
+        "impressions": 325,
+        "clicks": 19,
+        "row_count": 24,
+        "request_status": "failed",
+        "chunk_count": 1,
+        "slice_versions": [],
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00",
+        "reused": false,
+        "reused_from": null
+      }
+    },
+    {
+      "name": "vh_regex_overflow_with_counts",
+      "why": "an overflowed regex was never sent, so it has no numbers",
+      "error": {"type": "obs_vcheck_row", "msg": "失败或正则溢出的请求没有数值：row_count 为 0，计数为空"},
+      "value": {
+        "id": 501,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "check_kind": "vh",
+        "window_label": "w0",
+        "window_start": "2026-09-23T18:00:00.000000+00:00",
+        "window_end": "2026-09-24T18:00:00.000000+00:00",
+        "country": "USA",
+        "data_state": "hourly_all",
+        "impressions": 325,
+        "clicks": 19,
+        "row_count": 24,
+        "request_status": "regex_overflow",
+        "chunk_count": 1,
+        "slice_versions": [],
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00",
+        "reused": false,
+        "reused_from": null
       }
     }
   ]
