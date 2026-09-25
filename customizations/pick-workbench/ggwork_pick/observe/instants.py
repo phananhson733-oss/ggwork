@@ -17,6 +17,12 @@ def instant(value: str | datetime) -> datetime:
     return moment.astimezone(UTC)
 
 
+def stamp(moment: datetime) -> str:
+    """repository.stamp()'s stored form (UTC, always six fractional digits) of an aware moment; a naive one is refused.
+    For the collectors, which never import the gateway's repository (TR-13, test_write_paths)."""
+    return instant(moment).isoformat(timespec="microseconds")
+
+
 def whole_minutes(delta: timedelta) -> int:
     """Whole minutes of a span, rounded toward zero: 90 seconds is 1, minus 90 seconds is -1."""
     size = abs(delta) // MINUTE
