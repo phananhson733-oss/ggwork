@@ -15,6 +15,7 @@ from typing import NamedTuple
 
 from sqlalchemy import Integer, text
 
+from ggwork_pick.mirror.connection import SEARCH_PATH
 from ggwork_pick.mirror.publish import DEFAULT_OBSERVER_ROLE, OBSERVER_ROLE_ENV, check_schema_name, grant_observer
 from ggwork_pick.models import metadata
 from ggwork_pick.observe.errors import Refused
@@ -30,6 +31,10 @@ TABLE_WRITES = ("SELECT", "INSERT", "UPDATE", "DELETE")
 SEQUENCE_USE = ("USAGE", "SELECT")
 MIRROR_SCHEMA = "pick_mirror"
 NOT_OWNER = "当前连接的角色不是工作台表的属主，授不了权：regrant 要在 gateway 容器里用 deerflow_app 的连接（gateway 自己的 PICK_DATABASE_URL）执行"
+NO_SCHEMA = (
+    f"当前连接的 search_path（{SEARCH_PATH}）用不了：库里没有这个 schema，或当前角色对它没有 USAGE，找不到工作台表。"
+    "确认连的是工作台的库，并用 deerflow_app 的连接（gateway 自己的 PICK_DATABASE_URL）执行"
+)
 NO_ROLE = f"观测角色不存在（取自 {OBSERVER_ROLE_ENV}，没设时是 {DEFAULT_OBSERVER_ROLE}）：先执行 bootstrap-observer.sql"
 NO_TABLES = "库里缺少观测表或镜像表（迁移 0007 还没执行）：先部署带 0007 的 gateway，再 regrant"
 
@@ -110,7 +115,10 @@ async def refuse_unless_ready(session, role: str) -> str:
     if (await session.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": role})).first() is None:
         raise Refused(NO_ROLE)
     who = (await session.execute(text(_WHO), {"r": role})).one()
-    if who.itself or who.schema is None or not who.owner:
+    if who.schema is None:
+        # PostgreSQL leaves out of the effective search_path a schema that is missing or lacks USAGE for this role.
+        raise Refused(NO_SCHEMA)
+    if who.itself or not who.owner:
         raise Refused(NOT_OWNER)
     tables = [*_qualified(session, who.schema, (*OBSERVER_READS, CANDIDATE_SETS, *observer_writes())), *_qualified(session, MIRROR_SCHEMA, OBSERVER_MIRROR)]
     owned = (await session.execute(text(_OWNED), {"tables": tables})).one()
@@ -137,15 +145,15 @@ async def grant_all(session, role: str, layout: Layout) -> None:
     def tables(names: Iterable[str]) -> str:
         return ", ".join(_qualified(session, layout.schema, names))
 
-    statements = [
+    sequences = ", ".join(spelled for spelled, _ in layout.sequences)
+    statements = (
         f"GRANT USAGE ON SCHEMA {schema}, {MIRROR_SCHEMA} TO {grantee}",
         f"GRANT SELECT ON {tables(OBSERVER_READS)} TO {grantee}",
         f"GRANT SELECT ({', '.join(OBSERVER_CANDIDATE_COLUMNS)}) ON {schema}.{CANDIDATE_SETS} TO {grantee}",
         f"GRANT {', '.join(TABLE_WRITES)} ON {tables(observer_writes())} TO {grantee}",
         f"GRANT SELECT ON {', '.join(f'{MIRROR_SCHEMA}.{name}' for name in OBSERVER_MIRROR)} TO {grantee}",
-    ]
-    if layout.sequences:
-        statements.append(f"GRANT {', '.join(SEQUENCE_USE)} ON SEQUENCE {', '.join(spelled for spelled, _ in layout.sequences)} TO {grantee}")
+        *((f"GRANT {', '.join(SEQUENCE_USE)} ON SEQUENCE {sequences} TO {grantee}",) if sequences else ()),
+    )
     for statement in statements:
         await session.execute(text(statement))
     for version in layout.versions:

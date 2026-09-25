@@ -12,7 +12,8 @@
 |---|---|---|
 | 库 `postgres` | CONNECT | bootstrap-observer.sql |
 | schema `deerflow`、`pick_mirror` | USAGE | bootstrap-observer.sql |
-| `ggwp_import_batches`、`ggwp_drama_versions`、`ggwp_alembic_version`、`ggwp_obs_decisions` | SELECT | 迁移 0007 |
+| `ggwp_alembic_version`（迁移头） | SELECT | bootstrap-observer.sql（新项目由迁移 0007 给；生产上 0007 以同一属主再授一次，ACL 里仍只有一条） |
+| `ggwp_import_batches`、`ggwp_drama_versions`、`ggwp_obs_decisions` | SELECT | 迁移 0007 |
 | `ggwp_candidate_sets` 的 `id`、`trends_set_id`、`gsc_set_id`、`created_at` 四列 | SELECT（列级，D16） | 迁移 0007 |
 | 其余 20 张 `ggwp_obs_*`、`ggwp_gsc_*`，含旧页快照 `ggwp_obs_legacy`（D14） | SELECT、INSERT、UPDATE、DELETE | 迁移 0007 |
 | 这些表的 12 个自增序列 | USAGE、SELECT | 迁移 0007 |
@@ -26,6 +27,7 @@
 ## 上线顺序
 
 - **S2 在 S3 之前。** 迁移 0007 给这个角色表级授权，但角色不存在时只在 gateway 日志里记一行 `[pick-obs] the role PICK_OBS_OBSERVER_ROLE names does not exist; observer table grants skipped` 就跳过，迁移照样成功。所以先建角色（S2），再部署带 0007 的 gateway（S3）。
+- **S3 的部署守卫靠 S2 的一条授权。** 部署带 0007 的 gateway 之前，守卫（计划 D41、TR-34，手册 `deploy-guard.md`）以这个角色登录读生产迁移头，这时库还在 0006。`regrant` 在 0007 之前会拒绝（「迁移 0007 还没执行」），所以 `ggwp_alembic_version` 的 SELECT 由 bootstrap-observer.sql 自己授，S2 做完守卫就能读到头。
 - **S4 补现存版本。** 0007 之前发布的镜像版本不会自动给这个角色授权（D15），S4 用 `regrant` 补齐。以后每次镜像发布都在发布事务里授予该版本的 `rs_ids`。
 - 顺序做反了（S3 先于 S2）也不要紧：建好角色后跑 `regrant`，它补的就是 0007 本来会给的那一份，外加现存版本。
 
@@ -49,6 +51,7 @@ CREATE ROLE
 GRANT
 SET
 GRANT
+GRANT
 RESET
 DO
 ALTER ROLE
@@ -64,9 +67,10 @@ COMMIT
 |---|---|
 | `当前连接的是 … 库` | 连错了库，连接串最后的库名必须是 `postgres` |
 | `没有找到 deerflow_app 或 deerflow、pick_mirror 两个 schema` | 连错了项目，或这个项目还没执行过 bootstrap。新项目直接用完整的 `bootstrap.sql`，里面已有这个角色 |
+| `没有找到 deerflow.ggwp_alembic_version` | gateway 还没在这个库上跑过迁移，不是生产项目（生产早已在 0006）。连错了项目就换连接串；新项目用完整的 `bootstrap.sql` |
 | `role "pick_observer" already exists` | 已经执行过。不要重跑，按下面的留档检查看现状；要推倒重来先撤销 |
 | `must be able to SET ROLE "deerflow_app"` 或 `permission denied for schema deerflow` | 连接用的不是 `postgres.<ref>`，或脚本被改过 |
-| `pick_observer 的库级 CONNECT 或两个 schema 的 USAGE 没有授上` | 某句 GRANT 只报了 WARNING、什么都没授（上面会有 WARNING 行）：连接角色不是库的属主，或脚本被改过。停下来排查，不要设口令 |
+| `pick_observer 的库级 CONNECT、两个 schema 的 USAGE 或迁移头的 SELECT 没有授上` | 某句 GRANT 只报了 WARNING、什么都没授（上面会有 WARNING 行）：连接角色不是库的属主，`ggwp_alembic_version` 的属主不是 `deerflow_app`，或脚本被改过。核对只认授给这个角色本身的项，PUBLIC 有的不算。停下来排查，不要设口令 |
 
 然后另开一个交互式 psql（同一个 `postgres` 连接串）设口令，口令用 `openssl rand -hex 32` 生成：
 
@@ -87,14 +91,18 @@ SELECT rolname, rolcanlogin, rolinherit, rolconnlimit, rolconfig FROM pg_roles W
 \dn+ (deerflow|pick_mirror|pick_obs)
 SELECT has_schema_privilege('pick_observer', 'deerflow', 'USAGE') AS observer_deerflow,
        has_schema_privilege('pick_observer', 'pick_mirror', 'USAGE') AS observer_mirror,
+       has_table_privilege('pick_observer', (SELECT oid FROM pg_class WHERE relnamespace = 'deerflow'::regnamespace AND relname = 'ggwp_alembic_version'), 'SELECT') AS observer_head,
+       has_table_privilege('pick_observer', (SELECT oid FROM pg_class WHERE relnamespace = 'deerflow'::regnamespace AND relname = 'ggwp_import_batches'), 'SELECT') AS observer_batches,
        has_database_privilege('pick_observer', 'postgres', 'CREATE') AS observer_create;
 ```
+
+两张表按 oid 查：`postgres` 不继承 `deerflow_app`，未必有 `deerflow` 的 USAGE，写成 `'deerflow.ggwp_alembic_version'` 按名字解析会报 permission denied。
 
 应当看到：
 - `rolcanlogin=t`、`rolinherit=f`、`rolconnlimit=20`。
 - `pick_observer` 的 rolconfig 是 `{search_path=deerflow,TimeZone=UTC,idle_in_transaction_session_timeout=1min,statement_timeout=2min}`。
 - `\dn+`：`deerflow` 与 `pick_mirror` 各多一行 `pick_observer=U/deerflow_app`，其余不变。S3 之前还没有 `pick_obs`；S3 之后它的权限只有 `deerflow_app=UC/deerflow_app` 与 `pick_board_reader=U/deerflow_app`，没有 `pick_observer`。
-- `observer_deerflow`、`observer_mirror` 为 t，其余为 f。
+- `observer_deerflow`、`observer_mirror`、`observer_head` 为 t，其余为 f。迁移头以外的表级授权要等 0007，所以 S3 之前 observer_batches 是 f。
 
 ## S4：核对与补授权
 
@@ -108,6 +116,7 @@ cd /app/backend && python -m ggwork_pick.observe.admin regrant --check
 
 - 第一次 `--check` 在生产上预期列出「缺少授权」：0007 之前已发布的镜像版本的 schema USAGE 与 `rs_ids` SELECT。0007 自己那一份在 S2 先于 S3 时本来就在；列表里出现 `deerflow.ggwp_obs_*` 这类表，说明 0007 跑时角色还不存在。
 - `regrant` 打印 `regrant：观测角色的授权已补齐：…`，退出码 0；最后一次 `--check` 打印 `授权齐全`，退出码 0。
+- 输出里出现 `已发布但没有 rs_ids 的镜像版本` 这一行就不算通过，这时退出码也是 1：观测侧解析不了那个版本的非正典 id（D15、D36）。按下面 regrant 一节处理后重跑。
 - 然后在本机以观测角色连库（登录命令同上，去掉 `-Atc …`），在 psql 里以 observer 连接、只读事务读当前版本的 rs_ids 后回滚，应打印当前版本名和一个大于 0 的行数，最后是 `ROLLBACK`：
 
 ```sql
@@ -123,8 +132,8 @@ ROLLBACK;
 
 - **做什么：** 在一个事务里把上表的授权全部 GRANT 一遍（重复执行不改变任何东西），然后从系统目录读回核对，还有缺项就整个事务回滚、以 1 退出。`--check` 只读不授权。两种模式最后都列出「越权」：观测角色持有、但不在上表里的授权（别的表或列、`pick_obs`、未发布版本的 schema 等）。
 - **什么时候用：** S4；cron 日志里出现 SQLSTATE `42501`（缺授权，见目录页的退出码说明）；撤销后重建角色之后；有人手工改过授权之后。
-- **退出码：** 0 授权齐全且没有越权；1 缺授权（`--check`）或有越权，或授权后读回仍缺（已回滚）；2 什么都没做就拒绝了：缺 `PICK_DATABASE_URL` 或 `PGSSLMODE`、`PICK_OBS_OBSERVER_ROLE` 不合规则、角色不存在（先做 S2）、连接的不是表的属主（例如拿观测角色或 reader 的连接串跑）、观测表不存在（0007 还没执行）。输出与报错都不带连接串或口令。
-- **已发布但没有 `rs_ids` 的版本**单独列出、跳过：那个版本没有可授的表。镜像的写入端改了表名时会出现，要与维护镜像的会话核对。
+- **退出码：** 0 授权齐全、没有越权、每个已发布版本都有 `rs_ids`；1 缺授权（`--check`）、有越权、有已发布却没有 `rs_ids` 的版本，或授权后读回仍缺（已回滚）；2 什么都没做就拒绝了：缺 `PICK_DATABASE_URL` 或 `PGSSLMODE`、`PICK_OBS_OBSERVER_ROLE` 不合规则、角色不存在（先做 S2）、连接的 search_path 用不了（`deerflow` 不存在或当前角色对它没有 USAGE，例如拿 reader 的连接串跑）、连接的不是表的属主（例如拿观测角色的连接串跑）、观测表不存在（0007 还没执行）。输出与报错都不带连接串或口令。
+- **已发布但没有 `rs_ids` 的版本**单独列出，以 1 退出（`regrant` 模式下其余授权照样提交）：那个版本没有可授的表，观测侧解析不了它的非正典 id。每个版本的 DDL 都建 `rs_ids`，只有镜像的写入端改了表名时才会出现，要与维护镜像的会话核对。
 - **锁等待：** 每条语句最多等锁 10 秒、执行 60 秒。镜像正在建版本或清理旧版本时可能等不到锁、以 1 退出（SQLSTATE `55P03`），什么都没改，稍后重跑。
 - **与镜像清理的关系：** 清理旧版本用 `DROP SCHEMA … CASCADE`，版本上给观测角色的授权随之消失，不用另外收回；观测 cron 正在读某个旧版本的 `rs_ids` 时，那次 DROP 会等锁，等不到就留给下一次清理，与资料页 reader 的情形相同。
 - **越权的处理：** `regrant` 从不收回。按列出的对象，以 `deerflow_app` 身份逐个收回，例如 `REVOKE ALL ON deerflow.ggwp_selections FROM pick_observer;`、`REVOKE SELECT (owner_id) ON deerflow.ggwp_candidate_sets FROM pick_observer;`、`REVOKE ALL ON SCHEMA pick_obs FROM pick_observer;`，再跑一次 `--check`。
@@ -159,7 +168,7 @@ ROLLBACK;
    ```
 
    退出状态为 3 时整个事务已回滚，角色与授权保持原样。`role "pick_observer" does not exist` 说明已经撤销过。其他报错多半是某个对象的授权不是 `deerflow_app` 给的（例如有人以别的身份手工授过），先按报错里的对象收回再重跑。
-3. 要重新启用：再执行一次 S2（新角色只有库的 CONNECT 与两个 schema 的 USAGE），设新口令并更新各处的连接串，然后按 S4 跑 `regrant`：旧角色的表级授权随它一起删掉了，0007 不会再跑一次。
+3. 要重新启用：再执行一次 S2（新角色只有库的 CONNECT、两个 schema 的 USAGE 与迁移头的 SELECT），设新口令并更新各处的连接串，然后按 S4 跑 `regrant`：旧角色的表级授权随它一起删掉了，0007 不会再跑一次。
 
 ## 连接账
 

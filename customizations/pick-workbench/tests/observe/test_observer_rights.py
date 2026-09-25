@@ -139,7 +139,9 @@ async def test_publish_grants_observer_rs_ids(observed, tmp_path):
 
 @pytest.mark.asyncio
 async def test_a_version_without_rs_ids_still_publishes_and_regrant_reports_it(observed, tmp_path):
-    """The observer never fails a pair: a writer change that drops rs_ids leaves the version to the reader alone."""
+    """A missing rs_ids never fails a pair: a writer change that drops it leaves the version to the reader alone. But the
+    observer cannot resolve that version's non-canonical ids (D15, D36), so regrant and --check both exit 1 over it: S4
+    must not pass on "授权齐全" alone."""
     from ggwork_pick.observe.admin.cmd_regrant import regrant
 
     engine, _, shared, importer = await open_service(observed.url_as(observed.app), tmp_path / "files")
@@ -151,9 +153,13 @@ async def test_a_version_without_rs_ids_still_publishes_and_regrant_reports_it(o
     finally:
         await engine.dispose()
     assert not observed.usage(observed.observer, schema)
-    out = io.StringIO()
-    assert await regrant(_dsn(observed), observed.observer, check=True, out=out) == 0, out.getvalue()
-    assert f"已发布但没有 rs_ids 的镜像版本（没有可授的表，跳过）：{schema}" in out.getvalue()
+    for check in (True, False):
+        out = io.StringIO()
+        assert await regrant(_dsn(observed), observed.observer, check=check, out=out) == 1, out.getvalue()
+        assert f"已发布但没有 rs_ids 的镜像版本 1 个（观测侧解析不了它的非正典 id，要与维护镜像的会话核对）：{schema}" in out.getvalue()
+    # Everything else is in place: the one line is what the exit status is about.
+    assert "缺少授权" not in out.getvalue() and "越权" not in out.getvalue()
+    assert not observed.usage(observed.observer, schema)
 
 
 @pytest.fixture
@@ -239,7 +245,12 @@ async def test_regrant_covers_published_versions(pg_cluster, tmp_path, monkeypat
     with stand_in_for(pg_cluster, tmp_path / "late", monkeypatch) as late:
         published, unpublished = await _production_without_observer(late, tmp_path / "late")
         schemas = ("deerflow", "pick_mirror", "pick_obs", *published, *unpublished)
-        assert _observer_grants(late, *schemas) == {("schema", "deerflow", "USAGE"), ("schema", "pick_mirror", "USAGE")}
+        # bootstrap-observer.sql's own three; the version table's SELECT, which the deploy guard needs before 0007 (D41).
+        assert _observer_grants(late, *schemas) == {
+            ("schema", "deerflow", "USAGE"),
+            ("schema", "pick_mirror", "USAGE"),
+            ("table", "deerflow.ggwp_alembic_version", "SELECT"),
+        }
         checked = io.StringIO()
         assert await regrant(_dsn(late), late.observer, check=True, out=checked) == 1
         assert "缺少授权" in checked.getvalue() and published[0] in checked.getvalue()
@@ -293,8 +304,10 @@ async def test_regrant_refuses_what_it_cannot_do(observed, tmp_path):
     # The cron's own connection cannot grant: regrant runs as the tables' owner, deerflow_app.
     with pytest.raises(Refused, match="deerflow_app"):
         await regrant(_dsn(observed, observed.observer), observed.observer, out=io.StringIO())
-    with pytest.raises(Refused, match="deerflow_app"):
+    # The reader has no USAGE on deerflow, so its search_path resolves to nothing: said as such, not as "not the owner".
+    with pytest.raises(Refused, match="search_path") as unusable:
         await regrant(_dsn(observed, observed.reader), observed.observer, out=io.StringIO())
+    assert "deerflow_app" in str(unusable.value) and "不是工作台表的属主" not in str(unusable.value)
     with pytest.raises(ValueError, match=OBSERVER_ROLE_ENV):
         await regrant(_dsn(observed), 'x"; DROP', out=io.StringIO())
 
@@ -374,6 +387,16 @@ async def observed_with_versions(observed, tmp_path):
     finally:
         await engine.dispose()
     yield observed, schemas[-1]
+
+
+def test_the_runbook_counts_what_the_lists_hold():
+    """observer-role.md's table names how many tables the observer writes and how many sequences they draw ids from."""
+    from ggwork_pick.observe import grants
+
+    text = OBSERVER_RUNBOOK.read_text(encoding="utf-8")
+    assert re.findall(r"其余 (\d+) 张 `ggwp_obs_\*`、`ggwp_gsc_\*`", text) == [str(len(grants.observer_writes()))]
+    assert re.findall(r"这些表的 (\d+) 个自增序列", text) == [str(len(grants.serial_writes()))]
+    assert len(grants.observer_writes()) == len(OBSERVER_WRITES)
 
 
 def test_regrant_lists_are_0007s():

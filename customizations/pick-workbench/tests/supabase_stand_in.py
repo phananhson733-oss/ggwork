@@ -230,6 +230,15 @@ async def migrate_as_app(stand_in: StandIn, workdir: Path, revision: str = "head
         await engine.dispose()
 
 
+def version_table(stand_in: StandIn, revision: str = "0006") -> None:
+    """The migrations' version table as the gateway's start-up upgrade leaves it, owned by deerflow_app, without running
+    the chain: production is at 0006 when S2 runs bootstrap-observer.sql, which grants the observer SELECT on it (D41)."""
+    with stand_in.connect() as conn:
+        conn.execute(f"SET ROLE {stand_in.app}")
+        conn.execute("CREATE TABLE deerflow.ggwp_alembic_version (version_num varchar(32) NOT NULL PRIMARY KEY)")
+        conn.execute("INSERT INTO deerflow.ggwp_alembic_version VALUES (%s)", (revision,))
+
+
 def host_tables(stand_in: StandIn) -> None:
     """What the host keeps next to the ggwp tables and the observer must never reach: users and the checkpoints."""
     with stand_in.connect(stand_in.app) as conn:

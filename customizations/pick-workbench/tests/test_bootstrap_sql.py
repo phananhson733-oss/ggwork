@@ -28,11 +28,14 @@ from supabase_stand_in import (
     sql_lines,
     stand_in_for,
     statuses,
+    version_table,
 )
 
 GRANT_SET = "GRANT deerflow_app TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;"
 SET_ROLE = "SET ROLE deerflow_app;"
 RESET_ROLE = "RESET ROLE;"
+SCHEMA_USAGE = "GRANT USAGE ON SCHEMA deerflow, pick_mirror TO pick_observer;"
+HEAD_SELECT = "GRANT SELECT ON deerflow.ggwp_alembic_version TO pick_observer;"
 # The git blob of docs/pick-workbench/supabase/bootstrap.sql at 5f0cd65, the version production ran (supabase.md section 12).
 P0_BLOB = "79be51f1bb1a7f82c298ae30eeb2c4b6410c0bc0"
 APP_CONFIG = {"search_path=deerflow", "TimeZone=UTC", "idle_in_transaction_session_timeout=5min"}
@@ -128,7 +131,9 @@ def test_the_incremental_script_holds_no_password_and_grants_as_the_owner():
     assert not [line for line in sql if "PASSWORD" in line.upper()]
     # D4: the same cap as the other two roles, the rule of supabase plan 922.
     assert [line for line in sql if line.startswith("CREATE ROLE")] == ["CREATE ROLE pick_observer LOGIN NOINHERIT CONNECTION LIMIT 20;"]
-    assert sql.index(SET_ROLE) < sql.index("GRANT USAGE ON SCHEMA deerflow, pick_mirror TO pick_observer;") < sql.index(RESET_ROLE)
+    assert sql.index(SET_ROLE) < sql.index(SCHEMA_USAGE) < sql.index(RESET_ROLE)
+    # D41, S3: the deploy guard reads production's head as the observer while production is still at 0006.
+    assert sql.index(SET_ROLE) < sql.index(HEAD_SELECT) < sql.index(RESET_ROLE)
 
 
 def test_the_p0_fixture_is_what_production_ran():
@@ -210,8 +215,9 @@ def test_the_runbook_check_reads_what_the_runbook_says(stand_in):
 
 
 def test_the_observer_check_reads_what_its_runbook_says(stand_in):
-    """observer-role.md's record check after S2 on production (P0, then bootstrap-observer.sql)."""
+    """observer-role.md's record check after S2 on production (P0, the migrations to 0006, then bootstrap-observer.sql)."""
     bootstrap(stand_in, P0_SCRIPT)
+    version_table(stand_in)
     bootstrap(stand_in, OBSERVER)
     _assert_runbook_claims(OBSERVER_RUNBOOK, *_check_output(stand_in, OBSERVER_RUNBOOK, "**留档检查**，以 `postgres` 身份执行"))
 
@@ -428,6 +434,21 @@ async def test_observer_bootstrap_incremental(stand_in, owner_kind, tmp_path):
     }
     assert not stand_in.query("SELECT has_table_privilege(%s, 'deerflow.ggwp_import_batches', 'SELECT')", observer)[0][0]
     assert stand_in.query("SELECT count(*) FROM pg_namespace WHERE nspname = 'pick_obs'") == [(0,)]
+    # D41, S3: before the gateway carrying 0007 goes out, the deploy guard logs in as the observer and reads production's
+    # head, still 0006; regrant would refuse (0007 not run), so the script grants this one itself, as the owner.
+    assert _head_grants(stand_in) == [(stand_in.app, "SELECT")]
+    stand_in.set_passwords(observer)
+    with stand_in.connect(observer) as conn:
+        assert conn.execute("SELECT version_num FROM ggwp_alembic_version").fetchall() == [("0006",)]
+
+
+def _head_grants(stand_in) -> list[tuple[str, str]]:
+    """(grantor, privilege) of each ACL entry naming the observer on the migrations' version table."""
+    return stand_in.query(
+        "SELECT a.grantor::regrole::text, a.privilege_type FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a"
+        " WHERE n.nspname = 'deerflow' AND c.relname = 'ggwp_alembic_version' AND a.grantee = %s::regrole",
+        stand_in.observer,
+    )
 
 
 def test_the_incremental_script_needs_the_p0_bootstrap(stand_in):
@@ -440,8 +461,21 @@ def test_the_incremental_script_needs_the_p0_bootstrap(stand_in):
     assert stand_in.leftovers() == []
 
 
+def test_the_incremental_script_needs_the_migrations(stand_in):
+    """S2 runs on production, which the gateway migrated long ago: without the version table there is no head to grant."""
+    bootstrap(stand_in, P0_SCRIPT)
+    script = stand_in.script(OBSERVER)
+    result = stand_in.run(script)
+    assert result.returncode == STOPPED, result.stdout
+    statement, message = error(result.stdout, script)
+    assert statement == "END $$;"
+    assert message.startswith("没有找到 deerflow.ggwp_alembic_version")
+    assert stand_in.leftovers() == sorted([stand_in.app, stand_in.reader, "deerflow", "pick_mirror"])
+
+
 def test_the_incremental_script_runs_once(stand_in):
     bootstrap(stand_in, P0_SCRIPT)
+    version_table(stand_in)
     bootstrap(stand_in, OBSERVER)
     before = _roles(stand_in), _schema_acls(stand_in, "deerflow", "pick_mirror")
     script = stand_in.script(OBSERVER)
@@ -457,14 +491,40 @@ def test_without_set_role_the_observer_check_stops_a_grant_that_only_warned(stan
     """The owner reading all data turns the missing SET ROLE into a WARNING; the script's own check makes it a stop."""
     stand_in.admin(f"GRANT {', '.join(READ_ALL)} TO {stand_in.owner}")
     bootstrap(stand_in, P0_SCRIPT)
+    version_table(stand_in)
     script = stand_in.script(OBSERVER, without=(SET_ROLE, RESET_ROLE))
     result = stand_in.run(script)
     assert result.returncode == STOPPED, result.stdout
     assert 'WARNING:  no privileges were granted for "deerflow"' in result.stdout
+    assert 'WARNING:  no privileges were granted for "ggwp_alembic_version"' in result.stdout
     statement, message = error(result.stdout, script)
     assert statement == "END $$;"
-    assert message.startswith(f"{stand_in.observer} 的库级 CONNECT 或两个 schema 的 USAGE 没有授上")
+    assert message.startswith(f"{stand_in.observer} 的库级 CONNECT、两个 schema 的 USAGE 或迁移头的 SELECT 没有授上")
     assert stand_in.leftovers() == sorted([stand_in.app, stand_in.reader, "deerflow", "pick_mirror"])
+
+
+@pytest.mark.parametrize(
+    "line, public",
+    [
+        (SCHEMA_USAGE, "GRANT USAGE ON SCHEMA deerflow, pick_mirror TO PUBLIC"),
+        (HEAD_SELECT, "GRANT SELECT ON deerflow.ggwp_alembic_version TO PUBLIC"),
+    ],
+)
+def test_the_observer_check_counts_only_grants_naming_the_role(stand_in, line, public):
+    """A privilege PUBLIC holds would satisfy has_schema_privilege or has_table_privilege with the role's own grant missing;
+    the check reads the ACL entries naming the role, the way it reads the database's CONNECT."""
+    bootstrap(stand_in, P0_SCRIPT)
+    version_table(stand_in)
+    with stand_in.connect() as conn:
+        conn.execute(f"SET ROLE {stand_in.app}")
+        conn.execute(public)
+    script = stand_in.script(OBSERVER, without=(line,))
+    result = stand_in.run(script)
+    assert result.returncode == STOPPED, result.stdout
+    statement, message = error(result.stdout, script)
+    assert statement == "END $$;"
+    assert message.startswith(f"{stand_in.observer} 的库级 CONNECT、两个 schema 的 USAGE 或迁移头的 SELECT 没有授上")
+    assert stand_in.observer not in stand_in.leftovers()
 
 
 def _normalized(stand_in, text: str) -> str:
@@ -548,15 +608,17 @@ async def test_observer_undo_rerun(stand_in, owner_kind, tmp_path):
     # The reader and the tables are untouched.
     assert stand_in.query("SELECT has_table_privilege(%s, %s, 'SELECT')", stand_in.reader, f"{schema}.rs_ids") == [(True,)]
     bootstrap(stand_in, OBSERVER)
-    # A new role: only the bootstrap's USAGE lines again, the table grants wait for regrant (runbook).
+    # A new role: only the bootstrap's own grants again, the head included; the table grants wait for regrant (runbook).
     assert stand_in.query("SELECT has_table_privilege(%s, 'deerflow.ggwp_obs_sets', 'SELECT')", stand_in.observer) == [(False,)]
     assert stand_in.usage(stand_in.observer, "deerflow")
+    assert _head_grants(stand_in) == [(stand_in.app, "SELECT")]
 
 
 def test_the_observer_undo_refuses_another_database(stand_in):
     elsewhere = f"{stand_in.database}_elsewhere"
     stand_in.admin(f"CREATE DATABASE {elsewhere} OWNER {stand_in.owner}")
     bootstrap(stand_in, P0_SCRIPT)
+    version_table(stand_in)
     bootstrap(stand_in, OBSERVER)
     script = stand_in.script(OBSERVER_UNDO)
     result = stand_in.run(script, database=elsewhere)

@@ -26,7 +26,7 @@
 - Database → Settings：开启 Enforce SSL。
 - Data API：关闭，或者把 Exposed schemas 清空。
 - 不使用 anon key 和 service_role key，不配置 Auth、Storage、Realtime。
-- Database Settings → Connection pooling：Pool Size 设 **20**，与两个业务角色的 `CONNECTION LIMIT` 相等（第 4 节）。
+- Database Settings → Connection pooling：Pool Size 设 **20**，与三个角色（`deerflow_app`、`pick_board_reader`、`pick_observer`）的 `CONNECTION LIMIT` 相等（第 4 节的表）。
 - PITR（付费附加）要不要开、Spend cap 开还是关：由操作员决定并记下。Pro 默认每日备份、保留 7 天；Spend cap 开启时，超出配额（例如磁盘超过 8 GB）会被限制。
 
 **禁止：** 以后任何时候都不要重新打开 Data API，也不要把 `deerflow`、`pick_mirror`、`pick_obs` 或 `pickm_v*` 加进 Exposed schemas。里面的推荐人、飞书记录 id、指标以及用户会话都会被公开（方案 10.1）。

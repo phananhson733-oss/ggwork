@@ -136,8 +136,10 @@ async def grant_reader(session, schema_name: str, role: str) -> bool:
 
 async def grant_observer(session, schema_name: str, role: str) -> bool:
     """Step 1 as well (trends radar D15): the observer resolves non-canonical ids through the version's rs_ids and reads
-    nothing else of it. Skipped like migration 0007 skips it when the role does not exist, and when the version has no
-    rs_ids, so the observer never fails a pair; `observe.admin regrant --check` reports a version without it."""
+    nothing else of it. Skipped, returning False, when the role does not exist (as migration 0007 skips it) or the version
+    has no rs_ids (`observe.admin regrant --check` reports such a version). A role name breaking the rule is refused like
+    the reader's: observer_role raises ValueError, and publish_mirror_pair reads it before any SQL, so the pair is not
+    published and the run degrades (runbook observer-role.md)."""
     schema, grantee = check_schema_name(schema_name), observer_role(role)
     if (await session.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": grantee})).first() is None:
         return False

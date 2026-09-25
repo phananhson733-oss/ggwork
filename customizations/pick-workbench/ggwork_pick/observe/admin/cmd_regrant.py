@@ -8,11 +8,13 @@ The grants are migration 0007's list and, for every published mirror version, US
 what each publish gives from 0007 on (ggwork_pick.observe.grants). regrant gives them all in one transaction, which is
 idempotent, and reads the catalog back before it commits: anything still missing rolls the transaction back. --check
 only reads. Either way a grant beyond the list (another table or column, pick_obs) is listed and exits 1; regrant never
-revokes, the runbook (observe-runbook/observer-role.md) says how.
+revokes, the runbook (observe-runbook/observer-role.md) says how. So does a published version without an rs_ids: there
+is nothing to grant on it, and the observer cannot resolve that version's non-canonical ids (D15, D36).
 
 Refused before any grant (exit 2): PICK_DATABASE_URL or PGSSLMODE missing, a malformed PICK_OBS_OBSERVER_ROLE, the role
-missing, a connection that does not own the tables (the crons' observer DSN, the reader), the tables missing (0007 not
-run yet). Exit 0 all granted, 1 something missing or beyond the list. Nothing printed carries the DSN or a password.
+missing, a search_path this connection cannot use (the reader), a connection that does not own the tables (the crons'
+observer DSN), the tables missing (0007 not run yet). Exit 0 all granted, 1 something missing, beyond the list or without
+an rs_ids. Nothing printed carries the DSN or a password.
 """
 
 import asyncio
@@ -133,20 +135,24 @@ def _counts(grants: frozenset[Grant]) -> str:
     return "、".join(f"{label} {len({grant.target for grant in grants if grant.kind == kind})} {unit}" for kind, label, unit in KINDS)
 
 
-def _print(report: Report, out: TextIO) -> int:
+def _headline(report: Report) -> tuple[str, ...]:
     layout = report.layout
     versions = f"，已发布镜像版本 {len(layout.versions)} 个{'（' + '、'.join(layout.versions) + '）' if layout.versions else ''}"
     scope = f"{_counts(layout.expected())}{versions}"
     if report.granted:
-        lines = [f"regrant：观测角色的授权已补齐：{scope}"]
-    elif report.missing:
-        lines = [f"regrant --check：缺少授权 {len(report.missing)} 项，执行 regrant 补齐：", *describe(report.missing)]
-    else:
-        lines = [f"regrant --check：授权齐全：{scope}"]
-    if layout.bare_versions:
-        lines.append(f"已发布但没有 rs_ids 的镜像版本（没有可授的表，跳过）：{'、'.join(layout.bare_versions)}")
-    if report.extra:
-        lines.extend([f"越权 {len(report.extra)} 项（regrant 不收回，按 observer-role.md「越权」处理）：", *describe(report.extra)])
+        return (f"regrant：观测角色的授权已补齐：{scope}",)
+    if report.missing:
+        return (f"regrant --check：缺少授权 {len(report.missing)} 项，执行 regrant 补齐：", *describe(report.missing))
+    return (f"regrant --check：授权齐全：{scope}",)
+
+
+def _print(report: Report, out: TextIO) -> int:
+    bare = report.layout.bare_versions
+    lines = (
+        *_headline(report),
+        *((f"已发布但没有 rs_ids 的镜像版本 {len(bare)} 个（观测侧解析不了它的非正典 id，要与维护镜像的会话核对）：{'、'.join(bare)}",) if bare else ()),
+        *((f"越权 {len(report.extra)} 项（regrant 不收回，按 observer-role.md「越权」处理）：", *describe(report.extra)) if report.extra else ()),
+    )
     for line in lines:
         print(line, file=out, flush=True)
-    return int(ExitCode.FAILED) if report.missing or report.extra else int(ExitCode.OK)
+    return int(ExitCode.FAILED) if report.missing or report.extra or bare else int(ExitCode.OK)
