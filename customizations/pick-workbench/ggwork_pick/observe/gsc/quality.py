@@ -5,9 +5,13 @@ rows at all):
 
 - rate ratio RR = sum(W0) / sum(W-1); a baseline without rows or summing to 0 is not tested ("基线未观测，不检验"), and
   neither is a W0 without rows or summing to 0, whose logarithm does not exist;
-- dispersion phi = max(1, sum over both windows of (x - mu)^2 / mu, divided by 12), mu the mean of the window x is in;
+- dispersion phi = max(1, sum over both windows of (x - mu)^2 / mu, divided by dispersion_dof), mu the mean of the
+  window x is in;
 - z = ln RR / sqrt(phi x (1/sum(W0) + 1/sum(W-1))), one-sided p = erfc(z / sqrt 2) / 2;
-- Benjamini-Hochberg over the family of every tested 7-day evaluation of one GSC set, q = 0.10.
+- Benjamini-Hochberg over the family of every tested 7-day evaluation of one GSC set at bh_q.
+
+dispersion_dof (12: 14 daily values less the two window means) and bh_q (0.10) are gsc-rules parameters (params.py),
+passed in by the caller, so the set's frozen FrozenInputs.rules is what computed its notes.
 
 Only the standard library's math. Which daily values: the detail's (D/E), the only per-day series a round keeps (Vd
 rows hold window sums); the caller passes them.
@@ -19,10 +23,9 @@ from dataclasses import dataclass
 from itertools import accumulate
 
 from ggwork_pick.observe.contract_rows import QualityNote
+from ggwork_pick.observe.gsc.params import GscRulesParams
 
 DAYS = 7
-DISPERSION_DOF = 12  # 14 daily values less the two window means
-BH_Q = 0.10
 NOTE_TESTED = "只作质量注记，不作门槛"
 NOTE_NO_BASELINE = "基线未观测，不检验"
 NOTE_NO_CURRENT = "本窗口未观测，不检验"
@@ -52,7 +55,7 @@ def _chi(values: tuple[int, ...]) -> float:
     return sum((value - mean) ** 2 for value in values) / mean
 
 
-def rate_test(w0_days: Sequence[int | None], w1_days: Sequence[int | None], *, dof: int = DISPERSION_DOF) -> RateTest:
+def rate_test(w0_days: Sequence[int | None], w1_days: Sequence[int | None], *, params: GscRulesParams) -> RateTest:
     """D38's overdispersed rate test for one 7-day evaluation."""
     current, baseline = _counts(w0_days, "W0"), _counts(w1_days, "W-1")
     if baseline is None or sum(baseline) == 0:
@@ -61,7 +64,7 @@ def rate_test(w0_days: Sequence[int | None], w1_days: Sequence[int | None], *, d
         return RateTest(False, None, None, None, None, NOTE_NO_CURRENT)
     total0, total1 = sum(current), sum(baseline)
     ratio = total0 / total1
-    dispersion = max(1.0, (_chi(current) + _chi(baseline)) / dof)
+    dispersion = max(1.0, (_chi(current) + _chi(baseline)) / params.dispersion_dof)
     z = math.log(ratio) / math.sqrt(dispersion * (1 / total0 + 1 / total1))
     return RateTest(True, ratio, dispersion, z, 0.5 * math.erfc(z / math.sqrt(2)), NOTE_TESTED)
 
@@ -77,13 +80,13 @@ def bh_adjust(p_values: Sequence[float]) -> tuple[float, ...]:
     return tuple(by_index[index] for index in range(m))
 
 
-def quality_notes[Key](tests: Mapping[Key, RateTest], *, q: float = BH_Q) -> dict[Key, QualityNote]:
+def quality_notes[Key](tests: Mapping[Key, RateTest], *, params: GscRulesParams) -> dict[Key, QualityNote]:
     """The notes of one GSC set: pass every 7-day evaluation of that set, and only that set, in one call.
 
     The BH family is the tested ones among them; an untested evaluation gets a note with every number empty."""
     tested = tuple(key for key, test in tests.items() if test.tested)
     adjusted = dict(zip(tested, bh_adjust(tuple(tests[key].p_value for key in tested))))
-    return {key: _note(test, adjusted.get(key), q) for key, test in tests.items()}
+    return {key: _note(test, adjusted.get(key), params.bh_q) for key, test in tests.items()}
 
 
 def _note(test: RateTest, adjusted: float | None, q: float) -> QualityNote:

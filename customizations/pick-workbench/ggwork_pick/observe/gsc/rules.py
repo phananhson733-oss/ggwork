@@ -1,5 +1,9 @@
 """gsc-rules-v1: the labels, their formal bars and one row's two-layer admission (plan TR-09, D38; design 5.6, 5.8).
 
+The rule modules (cutoff, pageset, params, coverage, quality, rules) are pure functions over values the collector has
+already read: no database, no HTTP, no clock of their own. Every threshold comes from the caller's GscRulesParams
+(params.py); a comparison made with other parameters than the judgment's is refused.
+
 A GSC judgment row is identity x country (or ALL) x window. It is admitted (formal) only when every coverage condition
 holds: the round has a formal window (24 hours: a fresh H_c whose 48 hours are covered; 7 days: no stale D/E day), the
 site layer is usable, and in both windows the detail sum and the filter request agree (coverage.per_identity_consistency).
@@ -12,72 +16,61 @@ Otherwise the row is descriptive and every hit on it is descriptive; reasons say
 | rank_push | weighted position 4-20 and Q shows the title with an intent word; ALL only     | W0 >= 50, Q on a PT day of W0             |
 | rising    | 7 days: W0 >= 100, ratio >= 1.5, increment >= 30                               | the 7-day row is admitted                 |
 
+rising with a W-1 that has no row, or rows summing to 0, still hits on W0 and the increment (D38 reserves "基线未观测，
+不检验" for its quality note): the ratio is undefined, and the condition says so instead of claiming it.
+
 mapping_changed keeps the rising kinds (surge, from_zero, rising) descriptive this round (design 5.5). A row's state is
 its first formal label in GSC_STATES order, present when none. Every hit carries its condition text and raw counts;
-None means not observed, never 0 (premise 1). No label gives a cause: a rise reads 曝光上升, with or without 伴随平均排名
+None means not observed, never 0, and an observed count is written as observed (观测到 n), so an observed 0 never reads
+like the forms premise 1 forbids (premise 1). No label gives a cause: a rise reads 曝光上升, with or without 伴随平均排名
 改善 >=2 位, and 原因未定 (counterexample 12). The quality note (quality.py) is attached after the whole set is judged and
 never changes a label (D38).
+
+Which identities get a filter request (pending, wants_filter) is decided on the detail values, a lower bound of the
+admitted value max(X_flt, X_det): gsc-rules-v1 keeps this deliberately conservative, so an identity just under a bar on
+the detail (W-1 detail 18, filter 20; W0 detail 1990, filter 2050) is never asked for and stays descriptive. The shadow
+run counts those near misses before a later version decides whether to widen the pre-filter by the consistency
+tolerance.
+
+The phrases below are spelled out here until wording.py (TR-10, same batch) can be imported; a test pins them to it.
 """
 
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any
 
-from ggwork_pick.observe.contract import GSC_FLAGS, GSC_STATES, UNOBSERVED_GSC, Admission, GscFlag, GscLabel, GscState, SiteAdmission
+from ggwork_pick.observe.contract import (
+    GSC_FLAGS,
+    GSC_STATES,
+    UNOBSERVED_GSC,
+    Admission,
+    GscFlag,
+    GscLabel,
+    GscState,
+    GscWindowKind,
+    SiteAdmission,
+)
 from ggwork_pick.observe.contract_rows import LabelHit, QualityNote
 from ggwork_pick.observe.gsc.coverage import ALL, Comparison
 from ggwork_pick.observe.gsc.cutoff import Cutoff, Window, daily_windows, hourly_windows
-from ggwork_pick.observe.versions import GSC_RULES_VERSION
+from ggwork_pick.observe.gsc.params import GscRulesParams
 
 W0_TEXT, W1_TEXT = "W0", "W−1"
 METRIC_TEXT = MappingProxyType({"impressions": "曝光", "clicks": "点击"})
 INPUT_FLAGS = ("migration_suspect", "mapping_changed", "short_history")  # attribution's and collection's; the rest are computed here
 RISING_KINDS = ("surge", "from_zero", "rising")
-RISE, NO_CAUSE = "曝光上升", "原因未定"
-FROM_ZERO_CHECKED = "W−1 两边都没有行（基线未观测到），W0 一致且 ≥ {n}"
-FROM_ZERO_BASE_ONLY = "W−1 两边都没有行（基线未观测到），W0 ≥ {n}（W0 两份下界不一致，只作描述）"
-FROM_ZERO_UNCHECKED = "W−1 明细没有行，W0 ≥ {n}（新出现，基线未核对）"
+RISE, NO_CAUSE = "曝光上升", "原因未定"  # wording.IMPRESSIONS_UP, wording.CAUSE_UNDETERMINED
+WITH_RANK_GAIN, WITHOUT_RANK_GAIN = "伴随平均排名改善 ≥{n} 位", "未伴随排名改善"  # wording.WITH_RANK_GAIN (n=2), WITHOUT_RANK_GAIN
+SMALL_BASE = "小基数曝光上升"  # wording.SMALL_BASE_SURGE
+FROM_ZERO_NOTE, NEW_UNCHECKED = "基线未观测到", "新出现，基线未核对"  # wording.FROM_ZERO_NOTE, wording.FROM_ZERO_UNCHECKED
+OBSERVED = "观测到 {n}"
+FROM_ZERO_CHECKED = f"W−1 两边都没有行（{FROM_ZERO_NOTE}），W0 一致且 ≥ {{n}}"
+FROM_ZERO_BASE_ONLY = f"W−1 两边都没有行（{FROM_ZERO_NOTE}），W0 ≥ {{n}}（W0 两份下界不一致，只作描述）"
+FROM_ZERO_UNCHECKED = f"W−1 明细没有行，W0 ≥ {{n}}（{NEW_UNCHECKED}）"
 # Reasons that only wait for this identity's (new) filter result; any other reason stops the per-identity requests.
 AWAITING_FILTER = ("filter_missing", "vh_not_this_round", "vd_invalid")
-
-
-@dataclass(frozen=True, slots=True)
-class GscRulesParams:
-    """gsc-rules-v1's thresholds (v9.5's values to start with, recalibrated after the shadow run as a new version).
-    Frozen into each GSC set's FrozenInputs.rules as as_params()."""
-
-    surge_min_w0: int = 2000
-    surge_ratio_percent: int = 150
-    surge_min_base: int = 20
-    from_zero_min_w0: int = 20
-    high_ctr_min_clicks: int = 50
-    high_ctr_min_percent: int = 5
-    rank_push_best: int = 4
-    rank_push_worst: int = 20
-    rank_push_min_impressions: int = 50
-    rising_min_w0: int = 100
-    rising_ratio_percent: int = 150
-    rising_min_increment: int = 30
-    rank_improvement: int = 2
-    consistency_percent: int = 10
-    consistency_floor: int = 3
-    site_gap_percent: int = 5
-    bh_q: float = 0.10
-    dispersion_dof: int = 12
-
-    def as_params(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-GSC_RULES_V1 = GscRulesParams()
-RULES = MappingProxyType({GSC_RULES_VERSION: GSC_RULES_V1})
-
-
-def params_of(version: str) -> GscRulesParams:
-    """The parameters a set was judged with, by its recorded version (an unknown version raises KeyError)."""
-    return RULES[version]
 
 
 # ---- inputs ----------------------------------------------------------------------------------------------------------
@@ -112,9 +105,12 @@ class Inputs24h:
 
 @dataclass(frozen=True, slots=True)
 class Inputs7d:
+    """latest_day: this round's latest complete PT day (cutoff.latest_complete_day); the windows must end on it."""
+
     scope: str
     impressions: MetricWindows
     site: SiteAdmission
+    latest_day: date
     stale_days: tuple[date, ...] = ()
     position_w0: float | None = None
     position_w_minus_1: float | None = None
@@ -151,7 +147,7 @@ class Judgment:
     admitted, which is what the per-identity requests are sent for. reasons: why the row, or a label on it, stayed
     descriptive."""
 
-    window_kind: Literal["24h", "7d"]
+    window_kind: GscWindowKind
     scope: str
     state: GscState
     admission: Admission
@@ -208,16 +204,19 @@ class Judgment:
 
 
 def wants_filter(judgment: Judgment) -> bool:
-    """Whether to send this identity's Vh (24 hours) or Vd (7 days): a label's own bar holds and nothing but the filter
-    result stands in the way (an admitted row waits for nothing). The site layer and the window must already pass (design 5.6), so a descriptive round sends
-    none; a Vd that is no longer valid (D26) or a Vh from another round is fetched again."""
+    """Whether to send this identity's Vh (24 hours) or Vd (7 days): a label's own bar holds on the detail values and
+    nothing but the filter result stands in the way (an admitted row waits for nothing). The site layer and the window
+    must already pass (design 5.6), so a descriptive round sends none. A Vh from another round, and a Vd that is no
+    longer valid (D26) or did not answer in an earlier round (coverage.vd_current), are asked again whatever their
+    status; this round's own failure is not asked twice."""
     waiting = any(reason in AWAITING_FILTER for reason in judgment.reasons)
     return bool(judgment.pending) and waiting and all(reason in (*AWAITING_FILTER, "mapping_changed") for reason in judgment.reasons)
 
 
 def count_text(value: int | None) -> str:
-    """A count as the page and the agent show it: not observed is said so, never written as 0 (premise 1)."""
-    return UNOBSERVED_GSC if value is None else str(value)
+    """A count as the page and the agent show it: not observed is said so, never written as 0, and an observed count,
+    0 included, is marked observed (premise 1)."""
+    return UNOBSERVED_GSC if value is None else OBSERVED.format(n=value)
 
 
 def _shown(comparison: Comparison, formal: bool) -> int | None:
@@ -227,7 +226,8 @@ def _shown(comparison: Comparison, formal: bool) -> int | None:
 def count_lines(judgment: Judgment) -> tuple[str, ...]:
     """The counts the labels were judged on: admitted values on a formal row, the detail's on a descriptive one.
 
-    Written "W0 的曝光", never "W0 曝光": the forbidden phrase 0 曝光 must not appear even inside a window name."""
+    Written "W0 的曝光", never "W0 曝光": the forbidden phrase 0 曝光 must not appear even inside a window name; the
+    count follows as count_text writes it (W−1 的点击：观测到 0)."""
     formal = judgment.admission == "formal"
     pairs = (("impressions", judgment.impressions), *((("clicks", judgment.clicks),) if judgment.clicks else ()))
     return tuple(
@@ -256,7 +256,7 @@ def _surge(i0: int | None, i1: int | None, row_formal: bool, blocked: bool, p: G
         return None
     branches = "、".join(text for hit, text in ((by_size, f"W0 ≥ {p.surge_min_w0}"), (by_ratio, f"W0 对 W−1 ≥ +{p.surge_ratio_percent - 100}%")) if hit)
     base_ok = i1 is not None and i1 >= p.surge_min_base
-    small = "（小基数曝光上升，只作描述）"
+    small = f"（{SMALL_BASE}，只作描述）"
     base = f"W−1 ≥ {p.surge_min_base}" if base_ok else (f"W−1 < {p.surge_min_base}{small}" if i1 is not None else f"W−1 {UNOBSERVED_GSC}{small}")
     pending = base_ok and not blocked
     return _Candidate("surge", pending, pending and row_formal, f"{branches}，{base}", {"w0": i0, "w_minus_1": i1})
@@ -296,12 +296,18 @@ def _rank_push(inputs: Inputs24h, i0: int | None, w0: Window, row_formal: bool, 
 
 
 def _rising(i0: int | None, i1: int | None, row_formal: bool, blocked: bool, p: GscRulesParams) -> _Candidate | None:
-    base = i1 or 0
+    base = i1 or 0  # no row, or rows summing to 0: the ratio is undefined and W0 and the increment decide
     if i0 is None or i0 < p.rising_min_w0 or i0 * 100 < p.rising_ratio_percent * base or i0 - base < p.rising_min_increment:
         return None
     pending = not blocked
-    condition = f"W0 ≥ {p.rising_min_w0}、比值 ≥ {p.rising_ratio_percent / 100:g}、增量 ≥ {p.rising_min_increment}"
-    return _Candidate("rising", pending, pending and row_formal, condition, {"w0": i0, "w_minus_1": i1})
+    return _Candidate("rising", pending, pending and row_formal, _rising_condition(i1, p), {"w0": i0, "w_minus_1": i1})
+
+
+def _rising_condition(i1: int | None, p: GscRulesParams) -> str:
+    bars = f"W0 ≥ {p.rising_min_w0}、增量 ≥ {p.rising_min_increment}"
+    if i1:
+        return f"W0 ≥ {p.rising_min_w0}、比值 ≥ {p.rising_ratio_percent / 100:g}、增量 ≥ {p.rising_min_increment}"
+    return f"W−1 {UNOBSERVED_GSC if i1 is None else count_text(i1)}（比值不适用），{bars}"
 
 
 # ---- assembling a row ------------------------------------------------------------------------------------------------
@@ -320,7 +326,7 @@ def _narrative(candidates, positions: tuple[float | None, float | None], p: GscR
         return ()
     now, before = positions
     improved = now is not None and before is not None and before - now >= p.rank_improvement
-    return RISE, (f"伴随平均排名改善 ≥{p.rank_improvement} 位" if improved else "未伴随排名改善"), NO_CAUSE
+    return RISE, (WITH_RANK_GAIN.format(n=p.rank_improvement) if improved else WITHOUT_RANK_GAIN), NO_CAUSE
 
 
 def _flags(given: tuple[str, ...], site: str, impressions: MetricWindows, stale: bool) -> tuple[GscFlag, ...]:
@@ -333,19 +339,22 @@ def _flags(given: tuple[str, ...], site: str, impressions: MetricWindows, stale:
     return tuple(flag for flag in GSC_FLAGS if flag in given or computed.get(flag, False))
 
 
-def _check_common(scope: str, flags: tuple[str, ...]) -> None:
+def _check_common(scope: str, flags: tuple[str, ...], pairs: tuple[MetricWindows, ...], params: GscRulesParams) -> None:
     if not (scope == ALL or (len(scope) == 3 and scope.isascii() and scope.isalpha() and scope.isupper())):
         raise ValueError(f"scope {scope!r} is ALL or an upper-case alpha-3 country")
     unknown = [flag for flag in flags if flag not in INPUT_FLAGS]
     if unknown:
         raise ValueError(f"flags {unknown} are computed by the rules, not passed in")
+    tolerance = (params.consistency_percent, params.consistency_floor)
+    if any(c.tolerance != tolerance for pair in pairs for c in (pair.w0, pair.w_minus_1)):
+        raise ValueError("the comparisons were made with other gsc-rules parameters than this judgment's")
 
 
 @dataclass(frozen=True, slots=True)
 class _Found:
     """What one judge_* call found, handed to _assemble; clicks and query exist for the 24-hour windows only."""
 
-    kind: Literal["24h", "7d"]
+    kind: GscWindowKind
     candidates: tuple[_Candidate | None, ...]
     coverage_reasons: tuple[str, ...]
     stale_days: tuple[date, ...]
@@ -378,9 +387,9 @@ def _assemble(inputs: Inputs24h | Inputs7d, found_in: _Found, p: GscRulesParams)
     )
 
 
-def judge_24h(inputs: Inputs24h, params: GscRulesParams = GSC_RULES_V1) -> Judgment:
-    """One identity x scope for the 24-hour windows of the cutoff's H_c."""
-    _check_common(inputs.scope, inputs.flags)
+def judge_24h(inputs: Inputs24h, params: GscRulesParams) -> Judgment:
+    """One identity x scope for the 24-hour windows of the cutoff's H_c, with the set's gsc-rules parameters."""
+    _check_common(inputs.scope, inputs.flags, (inputs.impressions, inputs.clicks), params)
     if inputs.cutoff.h_c is None:
         raise ValueError("no cutoff at all: nothing to judge the 24-hour windows against")
     w0, w1 = hourly_windows(inputs.cutoff.h_c)
@@ -404,12 +413,13 @@ def judge_24h(inputs: Inputs24h, params: GscRulesParams = GSC_RULES_V1) -> Judgm
     return _assemble(inputs, _Found("24h", candidates, coverage_reasons, stale_days, inputs.clicks, inputs.query), params)
 
 
-def judge_7d(inputs: Inputs7d, params: GscRulesParams = GSC_RULES_V1) -> Judgment:
-    """One identity x scope for the 7-day windows; the site layer covers all 14 PT days (coverage.site_admission_7d)."""
-    _check_common(inputs.scope, inputs.flags)
+def judge_7d(inputs: Inputs7d, params: GscRulesParams) -> Judgment:
+    """One identity x scope for the 7-day windows ending on the round's latest complete PT day, with the set's gsc-rules
+    parameters; the site layer covers all 14 PT days (coverage.site_admission_7d)."""
+    _check_common(inputs.scope, inputs.flags, (inputs.impressions,), params)
     w0, w1 = inputs.impressions.w0.window, inputs.impressions.w_minus_1.window
-    if w0.kind != "7d" or daily_windows(w0.days[-1]) != (w0, w1):
-        raise ValueError("the 7-day windows are the latest 7 complete PT days and the 7 before them")
+    if daily_windows(inputs.latest_day) != (w0, w1):
+        raise ValueError("the 7-day windows are this round's latest 7 complete PT days and the 7 before them")
     if any(day not in w0.days + w1.days for day in inputs.stale_days):
         raise ValueError("stale days lie within the 14 PT days")
     site_reasons = () if inputs.site == "usable" else (f"site_{inputs.site}",)

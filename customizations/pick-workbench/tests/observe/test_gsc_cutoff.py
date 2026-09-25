@@ -1,8 +1,9 @@
 """TR-09: usable ranges, the common cutoff and the comparison windows (design 5.3, 5.4).
 
 Every response keeps a usable range anchored on this round's A watermark. The common cutoff H_c takes the earliest of
-A's watermark, A''s when A' is available, and the usable end of the latest C slice; the day ends of older slices never
-take part (counterexample 23). A formal 24-hour window needs [H_c-48h, H_c) covered without a break by C slices that are
+A's watermark, A''s when A' is available, and the usable end of the latest C slice that starts before A's watermark; the
+day ends of older slices never take part (counterexample 23), and neither does a slice for a PT day that starts after
+the watermark (today's, between midnight PT and A crossing it). A formal 24-hour window needs [H_c-48h, H_c) covered without a break by C slices that are
 not stale; hours at or after H_c are provisional and never compared.
 """
 
@@ -96,6 +97,27 @@ def test_cutoff_takes_the_earliest_bound_on_the_hour():
     assert _cut(_slice(22), _slice(23), _slice(24, H_C), _slice(25)).h_c == H_C
 
 
+def test_cutoff_ignores_slices_after_the_anchor():
+    """Today's slice, fetched between midnight PT and A's watermark crossing it, starts after the watermark: its usable
+    range is empty and it takes no part in the minimum. Were it the latest C slice, H_c would jump to A past the 24th's
+    own watermark and the hours in between would read as a break in coverage."""
+    behind = H_C - timedelta(hours=2)  # C for the 24th was taken before A: its watermark is A's less two hours
+    without_today = _cut(_slice(22), _slice(23), _slice(24, behind))
+    assert (without_today.h_c, without_today.formal_24h) == (behind, True)
+    today_start = cutoff.pt_day_bounds(_day(25))[0]
+    for today in (_slice(25), _slice(25, today_start), _slice(25, today_start + timedelta(hours=3))):
+        got = _cut(_slice(22), _slice(23), _slice(24, behind), today)
+        assert (got.h_c, got.carried, got.formal_24h, got.reasons, got.gaps) == (behind, False, True, (), ()), today
+        assert _day(25) in dict(got.ranges)  # still recorded, only not compared
+    # The latest slice that starts before the watermark decides, watermark_absent included: the cutoff carries over.
+    absent = _cut(_slice(22), _slice(23), _slice(24), _slice(25), previous=PREVIOUS_CUTOFF)
+    assert (absent.h_c, absent.carried, absent.formal_24h, absent.reasons) == (PREVIOUS_CUTOFF, True, False, ("latest_slice_unusable",))
+    # No slice reaches the watermark at all: nothing to set a fresh H_c with.
+    only_today = _cut(_slice(25), previous=PREVIOUS_CUTOFF)
+    assert (only_today.h_c, only_today.carried, only_today.formal_24h, only_today.reasons) == (PREVIOUS_CUTOFF, True, False, ("no_slices",))
+    assert dict(only_today.ranges)[_day(25)].reason == "after_watermark"
+
+
 def test_cutoff_48h_gap():
     missing_day = _cut(_slice(22), _slice(24, H_C))
     assert (missing_day.formal_24h, missing_day.reasons) == (False, ("coverage_gap",))
@@ -106,10 +128,12 @@ def test_cutoff_48h_gap():
     assert short_start.gaps == ((H_C - timedelta(hours=48), cutoff.pt_day_bounds(_day(23))[0]),)
     assert not short_start.formal_24h
 
-    # The 24th's slice never arrived, the 25th's is empty so far: the break sits at the end of the 48 hours.
+    # The 24th's slice never arrived and the 25th's starts after the watermark: C reaches the end of the 23rd, which is
+    # where H_c goes, like a 24th slice whose watermark is its own start; the 48 hours before it are covered.
     missing_today = _cut(_slice(22), _slice(23), _slice(25))
-    assert (missing_today.h_c, missing_today.formal_24h) == (H_C, False)
-    assert missing_today.gaps == ((cutoff.pt_day_bounds(_day(24))[0], H_C),)
+    end_of_23rd = cutoff.pt_day_bounds(_day(23))[1]
+    assert (missing_today.h_c, missing_today.formal_24h, missing_today.gaps) == (end_of_23rd, True, ())
+    assert _cut(_slice(22), _slice(23), _slice(24, cutoff.pt_day_bounds(_day(24))[0])).h_c == end_of_23rd
 
 
 def test_uncovered_intervals():
@@ -156,7 +180,18 @@ def test_windows():
     assert d0.covers_day(_day(17)) and not d0.covers_day(_day(16)) and d1.covers_day(_day(16))
     assert cutoff.window_days(d0, d1) == tuple(_day(n) for n in range(10, 24))
 
-    assert cutoff.latest_complete_day(H_C) == _day(23)
-    assert cutoff.latest_complete_day(cutoff.pt_day_bounds(_day(25))[0]) == _day(24)
     with pytest.raises(ValueError):
         cutoff.hourly_windows(datetime(2026, 9, 24, 19, 30, tzinfo=UTC))
+
+
+def test_latest_complete_day_follows_d_not_h_c():
+    """The 7-day windows end on the day before D's first_incomplete_date, never on a day that has not ended by now, and
+    without the field on the PT day before now's: A's watermark and H_c take no part, so a round without them still has
+    its 7-day windows."""
+    now = datetime(2026, 9, 25, 3, 30, tzinfo=UTC)  # 20:30 PDT on the 24th
+    assert cutoff.latest_complete_day(first_incomplete_date=_day(23), now=now) == _day(22)
+    assert cutoff.latest_complete_day(first_incomplete_date=None, now=now) == _day(23)
+    assert cutoff.latest_complete_day(first_incomplete_date=_day(26), now=now) == _day(23)  # never a day not yet ended
+    assert cutoff.latest_complete_day(first_incomplete_date=None, now=cutoff.pt_day_bounds(_day(25))[0]) == _day(24)
+    with pytest.raises(ValueError):
+        cutoff.latest_complete_day(first_incomplete_date=None, now=datetime(2026, 9, 25, 3, 30))

@@ -10,10 +10,17 @@ first_incomplete_hour):
 - a PT day that starts at or after the anchor has nothing usable yet.
 
 The common cutoff H_c is the earliest of A's watermark, A''s when A' is available, and the usable end of the latest C
-slice, in UTC and floored to the hour (the hour H_c falls in is incomplete too). Day ends of older slices never take
-part: a complete slice of the 22nd must not pull H_c back to the 23rd (counterexample 23). The round has a formal 24-hour
-window only when [H_c-48h, H_c) is covered without a break by C's usable ranges and touches no stale slice; hours at or
-after H_c are provisional and never compared. The 7-day windows are the latest 7 complete PT days and the 7 before.
+slice, in UTC and floored to the hour (the hour H_c falls in is incomplete too). The latest C slice is the latest one
+whose PT day starts before A's watermark: today's slice, fetched between midnight PT and A's watermark crossing it, has
+an empty usable range and takes no part, or H_c would jump past the previous day's own watermark to A and leave a break
+behind (a missing slice of the day that spans the watermark leaves C, and H_c, at the end of the day before). Day ends of
+older slices never take part either: a complete slice of the 22nd must not pull H_c back to the 23rd (counterexample
+23). The round has a formal 24-hour window only when [H_c-48h, H_c) is covered without a break by C's usable ranges and
+touches no stale slice; hours at or after H_c are provisional and never compared.
+
+The 7-day windows are the latest 7 complete PT days and the 7 before, taken from D and E only (design 5.4): the latest
+complete day follows D's own metadata (first_incomplete_date) and the clock, never A's watermark or H_c, so a round
+without them still has its 7-day windows.
 
 All instants are timezone-aware and returned in UTC; PT means America/Los_Angeles, daylight saving included.
 """
@@ -24,6 +31,8 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from ggwork_pick.observe.contract import GscWindowKind, WindowLabel
+
 PT = ZoneInfo("America/Los_Angeles")
 HOUR = timedelta(hours=1)
 WINDOW_HOURS = timedelta(hours=24)
@@ -32,8 +41,6 @@ WINDOW_DAYS = 7
 
 RangeReason = Literal["whole_day", "until_watermark", "after_watermark", "watermark_absent", "no_anchor"]
 CutoffReason = Literal["a_watermark_absent", "no_slices", "latest_slice_unusable", "coverage_gap", "stale_slice"]
-WindowKind = Literal["24h", "7d"]
-WindowLabel = Literal["w0", "w_minus_1"]
 
 
 def utc(moment: datetime) -> datetime:
@@ -182,19 +189,22 @@ def common_cutoff(
 ) -> Cutoff:
     """H_c for this round (design 5.4). a_prime_watermark is None when A' is unsupported or failed: it then takes no part.
 
-    Without A's watermark, or without a usable latest C slice, no fresh H_c exists and the previous one carries over
-    (design 5.3: this round has no formal 24-hour window).
+    Without A's watermark, without a C slice whose PT day starts before it, or with a latest such slice that is not usable
+    (watermark_absent), no fresh H_c exists and the previous one carries over (design 5.3: no formal 24-hour window).
+    Every slice's range is recorded, those after the watermark included.
     """
     if a_watermark is None:
         return _carried(previous_cutoff, "a_watermark_absent")
+    anchor = utc(a_watermark)
     ordered = sorted(c_slices, key=lambda piece: piece.pt_date)
-    ranges = tuple((piece.pt_date, day_usable_range(piece.pt_date, watermark=piece.watermark, anchor=a_watermark)) for piece in ordered)
-    if not ranges:
-        return _carried(previous_cutoff, "no_slices")
-    latest = ranges[-1][1]
+    ranges = tuple((piece.pt_date, day_usable_range(piece.pt_date, watermark=piece.watermark, anchor=anchor)) for piece in ordered)
+    reaching = tuple(usable for _, usable in ranges if usable.start < anchor)
+    if not reaching:
+        return _carried(previous_cutoff, "no_slices", ranges)
+    latest = reaching[-1]
     if not latest.usable:
         return _carried(previous_cutoff, "latest_slice_unusable", ranges)
-    bounds = (utc(a_watermark), latest.end, *(() if a_prime_watermark is None else (utc(a_prime_watermark),)))
+    bounds = (anchor, latest.end, *(() if a_prime_watermark is None else (utc(a_prime_watermark),)))
     h_c = floor_hour(min(bounds))
     span = (h_c - CONTINUITY, h_c)
     gaps = uncovered(span, ((r.start, r.end) for _, r in ranges if r.usable))
@@ -212,7 +222,7 @@ class Window:
     daily rows by PT day)."""
 
     label: WindowLabel
-    kind: WindowKind
+    kind: GscWindowKind
     start: datetime
     end: datetime
     days: tuple[date, ...]
@@ -245,9 +255,12 @@ def hourly_windows(h_c: datetime) -> tuple[Window, Window]:
     return w0, Window("w_minus_1", "24h", w0.start - WINDOW_HOURS, w0.start, ())
 
 
-def latest_complete_day(anchor: datetime) -> date:
-    """The latest PT day that ends by the anchor (pass H_c, so both 24-hour and 7-day windows share one cutoff)."""
-    return pt_date_of(anchor) - timedelta(days=1)
+def latest_complete_day(*, first_incomplete_date: date | None, now: datetime) -> date:
+    """The last day of the 7-day windows: the day before D's first_incomplete_date (the metadata of this round's latest D
+    response), never a PT day that has not ended by now; without the field (the official contract leaves it out when
+    every requested day is complete), the PT day before now's."""
+    ended = pt_date_of(now) - timedelta(days=1)
+    return ended if first_incomplete_date is None else min(first_incomplete_date - timedelta(days=1), ended)
 
 
 def _days_window(label: WindowLabel, last: date) -> Window:

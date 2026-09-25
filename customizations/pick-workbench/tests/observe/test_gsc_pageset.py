@@ -51,6 +51,8 @@ STRANGERS = (
     f"https://{HOST}/es?id=38000",
     f"https://{HOST}/en?id=12",
     f"https://{HOST}/enxid=38000",
+    f"https://other.example/?next={NEW_PAGE}",  # a member inside another URL: only a match anchored at the start refuses it
+    f"https://other.example/?next={LEGACY}",
 )
 
 
@@ -58,8 +60,14 @@ def _members(**overrides) -> pageset.PageSet:
     return pageset.page_set(**{"canonical_id": CANON, "locale": "en", "sources": SOURCES, **overrides})
 
 
+def _as_re2(chunk: str) -> re.Pattern:
+    """How GSC reads an includingRegex chunk: RE2 matches anywhere in the URL (a search, not a full match) and its $ is
+    the end of the text only, which is Python's \\Z (Python's $ also matches before a final newline)."""
+    return re.compile(chunk[:-1] + r"\Z" if chunk.endswith(")$") else chunk)
+
+
 def _chunk_hits(plan: pageset.RegexPlan, url: str) -> int:
-    return sum(1 for chunk in plan.chunks if re.fullmatch(chunk, url))
+    return sum(1 for chunk in plan.chunks if _as_re2(chunk).search(url))
 
 
 def test_page_set_members():

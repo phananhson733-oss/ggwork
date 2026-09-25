@@ -9,6 +9,7 @@ not grant.
 from datetime import UTC, date, datetime
 
 from ggwork_pick.observe.gsc import coverage, cutoff
+from ggwork_pick.observe.gsc.params import GSC_RULES_V1 as V1
 
 H_C = datetime(2026, 9, 24, 19, 0, tzinfo=UTC)  # 12:00 PDT on the 24th
 ROUND = "a" * 32
@@ -40,12 +41,12 @@ def states_of(window: cutoff.Window, state: str | None = None) -> tuple[str, ...
     return (state or "final",) * len(window.days)
 
 
-def compare(window, det, flt=MISSING, *, status="fetched", current=True, flt_window=None, det_states=None, flt_states=None):
+def compare(window, det, flt=MISSING, *, status="fetched", current=True, flt_window=None, det_states=None, flt_states=None, params=V1):
     """One identity x country x window x metric: the detail sum det and, unless left out, the filter request's flt."""
     detail = coverage.DetailSide(window, det_states or states_of(window), value(det))
     if flt is MISSING:
-        return coverage.per_identity_consistency(detail, None)
+        return coverage.per_identity_consistency(detail, None, params=params)
     kind = "vh" if window.kind == "24h" else "vd"
     shown = flt_window or window
     filtered = coverage.FilterSide(kind, shown, flt_states or states_of(shown), status, current, value(flt))
-    return coverage.per_identity_consistency(detail, filtered)
+    return coverage.per_identity_consistency(detail, filtered, params=params)

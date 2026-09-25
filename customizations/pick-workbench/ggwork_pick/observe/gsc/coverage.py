@@ -11,12 +11,16 @@ A window without a row is "no row" (None, row_count 0), never 0 (premise 1). The
 counts as 0 in the difference and stays "no row" in the record. When they agree the admitted value is the larger one.
 Agreement is an admission rule only (premise 2): it proves neither completeness nor independence, and the result says
 only admitted and, when not, why. A filter result that failed, was truncated or overflowed its regex, a Vh from another
-round, a Vd no longer valid (D26), or a window or dataState that differs from the detail's is never compared.
+round, a Vd no longer valid (D26), or a window or dataState that differs from the detail's is never compared. A result
+that is not this round's is reported as such whatever became of it, so that it is asked again (premise 4): a Vh is
+this round's only when this round fetched it, and a Vd carries over (vd_current) only when it answered (fetched) and
+D26's three conditions still hold; a failed, truncated or overflowed one stands for the round that asked it.
 
-The site layer compares a site total with the detail sum. 24 hours: A' against C per window, summed over the window's
-hours; without A', A''a against C per PT day. 7 days: each of the 14 PT days against A''f when that day's detail is an E
-slice (final) and A''a when it is a D slice (all) (D27). A gap of at most tau (5%) is usable, more is gap_exceeded, a
-missing total or detail is unverifiable.
+The site layer compares a site total with the detail sum, unit by unit (design 5.6). 24 hours: A' against C hour by
+hour over both windows' 48 hours; without A', A''a against C per PT day. 7 days: each of the 14 PT days against A''f
+when that day's detail is an E slice (final) and A''a when it is a D slice (all) (D27). A unit whose gap is at most tau
+is usable, one more makes the check gap_exceeded, a missing total or detail makes it unverifiable. The percentages
+(premise 3's 10% and 3, tau) are the caller's GscRulesParams (params.py), recorded with the result.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -25,12 +29,12 @@ from datetime import date, datetime
 from types import MappingProxyType
 from typing import Literal, get_args
 
-from ggwork_pick.observe.contract import DataState, SiteAdmission, TotalsStatus, VcheckKind, VcheckStatus
+from ggwork_pick.observe.contract import DataState, Metric, SiteAdmission, TotalsStatus, VcheckKind, VcheckStatus
 from ggwork_pick.observe.gsc.cutoff import HOUR, Window, window_days
 from ggwork_pick.observe.gsc.pageset import PageSet
+from ggwork_pick.observe.gsc.params import GscRulesParams
 
 ALL = "ALL"
-Metric = Literal["impressions", "clicks"]
 METRICS = get_args(Metric)
 ADMISSION_TEXT = "两份下界一致（准入）"
 ComparisonReason = Literal[
@@ -41,9 +45,6 @@ COMPARISON_REASONS = get_args(ComparisonReason)
 VdInvalidReason = Literal["window_changed", "slice_version_changed", "datastate_changed"]
 SiteSource = Literal["a_prime", "a2_all", "a2_by_state", "none"]
 DATA_STATE_OF_DATASET = MappingProxyType({"C": "hourly_all", "D": "all", "E": "final"})  # D27: a 7-day day follows its active slice
-CONSISTENCY_PERCENT = 10
-CONSISTENCY_FLOOR = 3
-SITE_GAP_PERCENT = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,8 +129,9 @@ def detail_position(rows: Iterable[GscRow], pages: PageSet, window: Window, coun
     return sum(position * weight for position, weight in weighted) / total if total else None
 
 
-def consistent(x_flt: WindowValue, x_det: WindowValue, *, percent: int = CONSISTENCY_PERCENT, floor: int = CONSISTENCY_FLOOR) -> bool:
+def consistent(x_flt: WindowValue, x_det: WindowValue, *, params: GscRulesParams) -> bool:
     """|X_flt - X_det| <= max(percent% x max(X_flt, X_det), floor), in integers, no rounding."""
+    percent, floor = params.consistency_percent, params.consistency_floor
     larger = max(x_flt.as_int, x_det.as_int)
     difference = abs(x_flt.as_int - x_det.as_int)
     return difference <= floor or difference * 100 <= percent * larger
@@ -162,7 +164,7 @@ class DetailSide:
 @dataclass(frozen=True, slots=True)
 class FilterSide:
     """A Vh or Vd result for one window. status combines its chunks (combine_chunk_statuses); current is vh_current for
-    Vh and vd_valid for Vd."""
+    Vh and vd_current for Vd."""
 
     kind: VcheckKind
     window: Window
@@ -180,7 +182,8 @@ class FilterSide:
 @dataclass(frozen=True, slots=True)
 class Comparison:
     """Two lower bounds of one window (the detail's). admitted: they agree (两份下界一致（准入）); value is then the larger,
-    None when neither side had a row. reason says why a comparison was not admitted."""
+    None when neither side had a row. reason says why a comparison was not admitted. tolerance: the (percent, floor) of
+    the gsc-rules parameters it was compared with, which the judgment checks against its own."""
 
     window: Window
     x_det: WindowValue
@@ -188,6 +191,7 @@ class Comparison:
     admitted: bool
     value: int | None
     reason: ComparisonReason | None
+    tolerance: tuple[int, int]
 
 
 _STATUS_REASONS: Mapping[str, ComparisonReason] = MappingProxyType(
@@ -198,10 +202,10 @@ _STATUS_REASONS: Mapping[str, ComparisonReason] = MappingProxyType(
 def _not_comparable(detail: DetailSide, filtered: FilterSide | None) -> ComparisonReason | None:
     if filtered is None:
         return "filter_missing"
+    if not filtered.current:  # before its status: another round's failure is asked again, not read as this round's
+        return "vh_not_this_round" if filtered.kind == "vh" else "vd_invalid"
     if filtered.status in _STATUS_REASONS:
         return _STATUS_REASONS[filtered.status]
-    if not filtered.current:
-        return "vh_not_this_round" if filtered.kind == "vh" else "vd_invalid"
     if (filtered.window.kind, filtered.window.start, filtered.window.end, filtered.window.days) != (
         detail.window.kind, detail.window.start, detail.window.end, detail.window.days,
     ):  # fmt: skip
@@ -211,18 +215,18 @@ def _not_comparable(detail: DetailSide, filtered: FilterSide | None) -> Comparis
     return None
 
 
-def per_identity_consistency(
-    detail: DetailSide, filtered: FilterSide | None, *, percent: int = CONSISTENCY_PERCENT, floor: int = CONSISTENCY_FLOOR
-) -> Comparison:
+def per_identity_consistency(detail: DetailSide, filtered: FilterSide | None, *, params: GscRulesParams) -> Comparison:
     """The per-identity layer for one identity x country x window x metric (design 5.6, premise 3)."""
     x_flt = None if filtered is None else filtered.value
+    tolerance = (params.consistency_percent, params.consistency_floor)
     reason = _not_comparable(detail, filtered)
-    if reason is None and not consistent(x_flt, detail.value, percent=percent, floor=floor):
+    if reason is None and not consistent(x_flt, detail.value, params=params):
         reason = "detail_gap"
     if reason is not None:
-        return Comparison(detail.window, detail.value, x_flt, False, None, reason)
+        return Comparison(detail.window, detail.value, x_flt, False, None, reason, tolerance)
     both_empty = not detail.value.observed and not x_flt.observed
-    return Comparison(detail.window, detail.value, x_flt, True, None if both_empty else max(detail.value.as_int, x_flt.as_int), None)
+    value = None if both_empty else max(detail.value.as_int, x_flt.as_int)
+    return Comparison(detail.window, detail.value, x_flt, True, value, None, tolerance)
 
 
 def vh_current(fetched_round_id: str, round_id: str) -> bool:
@@ -239,10 +243,14 @@ class VdDay:
     data_state: DataState
 
 
-def vd_validity(previous: Sequence[VdDay], current: Sequence[VdDay]) -> VdInvalidReason | None:
-    """D26: a Vd result stays valid while its 14 PT days, their active slice versions and their dataStates are unchanged."""
+def vd_validity(previous: Sequence[VdDay], current: Sequence[VdDay], *, expected_days: Sequence[date]) -> VdInvalidReason | None:
+    """D26: a Vd result stays valid while its 14 PT days, their active slice versions and their dataStates are unchanged.
+
+    expected_days: this round's 14 PT days (cutoff.window_days of its two 7-day windows). Both sides must list exactly
+    those, each once; agreeing with each other is not enough."""
     before, now = sorted(previous, key=lambda d: d.pt_date), sorted(current, key=lambda d: d.pt_date)
-    if [d.pt_date for d in before] != [d.pt_date for d in now]:
+    expected = sorted(set(expected_days))
+    if len(expected) != len(expected_days) or any([d.pt_date for d in side] != expected for side in (before, now)):
         return "window_changed"
     if [d.version_id for d in before] != [d.version_id for d in now]:
         return "slice_version_changed"
@@ -251,8 +259,25 @@ def vd_validity(previous: Sequence[VdDay], current: Sequence[VdDay]) -> VdInvali
     return None
 
 
-def vd_valid(previous: Sequence[VdDay], current: Sequence[VdDay]) -> bool:
-    return vd_validity(previous, current) is None
+def vd_valid(previous: Sequence[VdDay], current: Sequence[VdDay], *, expected_days: Sequence[date]) -> bool:
+    return vd_validity(previous, current, expected_days=expected_days) is None
+
+
+def vd_current(
+    *,
+    status: VcheckStatus,
+    fetched_round_id: str,
+    round_id: str,
+    previous: Sequence[VdDay],
+    current: Sequence[VdDay],
+    expected_days: Sequence[date],
+) -> bool:
+    """FilterSide.current for a Vd result. This round's own result stands for this round whatever its status; one from an
+    earlier round carries over only when it answered (fetched) and D26 still holds: a failed, truncated or overflowed
+    result is never carried over, so it is asked again (premise 4) instead of waiting for the 14 days to move."""
+    if not vd_valid(previous, current, expected_days=expected_days):
+        return False
+    return fetched_round_id == round_id or status == "fetched"
 
 
 _CHUNK_ORDER: tuple[VcheckStatus, ...] = ("regex_overflow", "failed", "truncated")
@@ -271,7 +296,7 @@ def combine_chunk_statuses(statuses: Sequence[VcheckStatus]) -> VcheckStatus:
 
 @dataclass(frozen=True, slots=True)
 class GapUnit:
-    """One compared unit: a window (keyed by its start) or a PT day. None: that total or detail is not available."""
+    """One compared unit: a UTC hour or a PT day. None: that total or detail is not available."""
 
     key: datetime | date
     total: int | None
@@ -280,11 +305,14 @@ class GapUnit:
 
 @dataclass(frozen=True, slots=True)
 class SiteCheck:
+    """The site layer of one window kind; tau_percent is the gsc-rules parameter it was checked with."""
+
     admission: SiteAdmission
     source: SiteSource
     units: tuple[GapUnit, ...]
     exceeded: tuple[GapUnit, ...]
     missing: tuple[GapUnit, ...]
+    tau_percent: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,22 +347,17 @@ def within_gap(unit: GapUnit, tau_percent: int) -> bool:
     return abs(unit.total - unit.detail) * 100 <= tau_percent * unit.total
 
 
-def check_units(units: Sequence[GapUnit], source: SiteSource, tau_percent: int = SITE_GAP_PERCENT) -> SiteCheck:
+def check_units(units: Sequence[GapUnit], source: SiteSource, *, params: GscRulesParams) -> SiteCheck:
     """Every unit within tau is usable; a unit without its total or detail makes the whole check unverifiable."""
+    tau = params.site_gap_percent
     missing = tuple(unit for unit in units if unit.total is None or unit.detail is None)
-    exceeded = tuple(unit for unit in units if unit.total is not None and unit.detail is not None and not within_gap(unit, tau_percent))
-    if missing or not units:
-        return SiteCheck("unverifiable", source, tuple(units), exceeded, missing)
-    return SiteCheck("gap_exceeded" if exceeded else "usable", source, tuple(units), exceeded, missing)
+    exceeded = tuple(unit for unit in units if unit.total is not None and unit.detail is not None and not within_gap(unit, tau))
+    admission = "unverifiable" if missing or not units else ("gap_exceeded" if exceeded else "usable")
+    return SiteCheck(admission, source, tuple(units), exceeded, missing, tau)
 
 
 def _fetched(totals: HourlyTotals | DailyTotals | None) -> bool:
     return totals is not None and totals.status == "fetched"
-
-
-def _sum_known(values: Iterable[int | None]) -> int | None:
-    counted = tuple(values)
-    return None if any(v is None for v in counted) else sum(counted)
 
 
 def site_admission_24h(
@@ -344,28 +367,29 @@ def site_admission_24h(
     a2_all: DailyTotals | None,
     c_by_hour: Mapping[datetime, int],
     c_by_day: Mapping[date, int],
-    tau_percent: int = SITE_GAP_PERCENT,
+    params: GscRulesParams,
 ) -> SiteCheck:
-    """The site layer of both 24-hour windows: A' against C per window, or A''a against C per PT day without A'."""
+    """The site layer of both 24-hour windows: A' against C hour by hour (an hour without a C row has a detail of 0, one
+    without an A' row is unverifiable), or A''a against C per PT day without A'."""
     if _fetched(a_prime):
-        units = tuple(_hourly_unit(window, a_prime, c_by_hour) for window in windows)
-        return check_units(units, "a_prime", tau_percent)
+        units = tuple(GapUnit(hour, a_prime.by_hour.get(hour), c_by_hour.get(hour, 0)) for hour in _window_hours(windows))
+        return check_units(units, "a_prime", params=params)
     if _fetched(a2_all):
         units = tuple(GapUnit(day, a2_all.by_day.get(day), c_by_day.get(day)) for day in window_days(*windows))
-        return check_units(units, "a2_all", tau_percent)
-    return SiteCheck("unverifiable", "none", (), (), ())
+        return check_units(units, "a2_all", params=params)
+    return SiteCheck("unverifiable", "none", (), (), (), params.site_gap_percent)
 
 
-def _hourly_unit(window: Window, a_prime: HourlyTotals, c_by_hour: Mapping[datetime, int]) -> GapUnit:
-    hours = tuple(window.start + n * HOUR for n in range(window.span // HOUR))
-    return GapUnit(window.start, _sum_known(a_prime.by_hour.get(hour) for hour in hours), sum(c_by_hour.get(hour, 0) for hour in hours))
+def _window_hours(windows: Sequence[Window]) -> tuple[datetime, ...]:
+    """Every UTC hour of the windows, in order, each once."""
+    return tuple(sorted({window.start + n * HOUR for window in windows for n in range(window.span // HOUR)}))
 
 
-def site_admission_7d(windows: Sequence[Window], days: Sequence[DayTotals], *, tau_percent: int = SITE_GAP_PERCENT) -> SiteCheck:
+def site_admission_7d(windows: Sequence[Window], days: Sequence[DayTotals], *, params: GscRulesParams) -> SiteCheck:
     """The site layer of the 7-day windows: each of the 14 PT days against the total of its detail's dataState (D27)."""
     by_day = {day.pt_date: day for day in days}
     units = tuple(_daily_unit(day, by_day.get(day)) for day in window_days(*windows))
-    return check_units(units, "a2_by_state", tau_percent)
+    return check_units(units, "a2_by_state", params=params)
 
 
 def _daily_unit(day: date, totals: DayTotals | None) -> GapUnit:

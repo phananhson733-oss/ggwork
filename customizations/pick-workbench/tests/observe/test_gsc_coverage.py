@@ -9,7 +9,7 @@ from dataclasses import fields
 from datetime import timedelta
 
 import pytest
-from gsc_builders import D0, D1, H_C, PREVIOUS_ROUND, ROUND, W0, W1, compare, states_of, value
+from gsc_builders import D0, D1, H_C, PREVIOUS_ROUND, ROUND, V1, W0, W1, compare, states_of, value
 
 from ggwork_pick.observe.gsc import coverage, cutoff, pageset
 
@@ -65,11 +65,11 @@ def test_detail_position_is_impression_weighted():
 def test_consistency_denominator_is_max():
     cases = {(100, 91): True, (100, 89): False, (2, 5): True, (5, 2): True, (90, 100): True, (100, 90): True, (0, 3): True, (0, 4): False}
     for (flt, det), expected in cases.items():
-        assert coverage.consistent(value(flt), value(det)) is expected, (flt, det)
-        assert coverage.consistent(value(det), value(flt)) is expected, (det, flt)
+        assert coverage.consistent(value(flt), value(det), params=V1) is expected, (flt, det)
+        assert coverage.consistent(value(det), value(flt), params=V1) is expected, (det, flt)
     # A side with no row counts as 0 in the difference; the record keeps "no row".
-    assert coverage.consistent(value(None), value(3)) and not coverage.consistent(value(None), value(4))
-    assert coverage.consistent(value(None), value(None))
+    assert coverage.consistent(value(None), value(3), params=V1) and not coverage.consistent(value(None), value(4), params=V1)
+    assert coverage.consistent(value(None), value(None), params=V1)
     got = compare(W0, 90, 100)
     assert (got.admitted, got.value, got.reason) == (True, 100, None)
     one_sided = compare(W1, None, 3)
@@ -83,7 +83,7 @@ def test_consistency_country_scoped():
     for country in ("USA", "GBR"):
         detail = coverage.DetailSide(W0, states_of(W0), coverage.detail_value(det_rows, MEMBERS, W0, country))
         filtered = coverage.FilterSide("vh", W0, states_of(W0), "fetched", True, coverage.filter_value(flt_rows, W0, country))
-        admitted[country] = coverage.per_identity_consistency(detail, filtered).admitted
+        admitted[country] = coverage.per_identity_consistency(detail, filtered, params=V1).admitted
     assert admitted == {"USA": True, "GBR": False}
 
 
@@ -104,11 +104,16 @@ def test_comparison_reasons():
         "filter_truncated": compare(W0, 100, 100, status="truncated"),
         "vh_not_this_round": compare(W0, 100, 100, current=False),
         "vd_invalid": compare(D0, 100, 100, current=False),
+        # Another round's result is not this round's, whatever became of it: asked again, never read as a failure.
+        "vh_not_this_round/failed": compare(W0, 100, None, status="failed", current=False),
+        "vh_not_this_round/truncated": compare(W0, 100, 100, status="truncated", current=False),
+        "vd_invalid/failed": compare(D0, 100, None, status="failed", current=False),
+        "vd_invalid/regex_overflow": compare(D0, 100, None, status="regex_overflow", current=False),
         "window_mismatch": compare(W0, 100, 100, flt_window=shifted),
         "detail_gap": compare(W0, 100, 80),
     }
     for reason, got in cases.items():
-        assert (got.admitted, got.value, got.reason) == (False, None, reason), reason
+        assert (got.admitted, got.value, got.reason) == (False, None, reason.split("/")[0]), reason
     bad_sides = (
         lambda: coverage.FilterSide("vh", D0, states_of(D0), "fetched", True, value(1)),  # Vh never checks 7 days
         lambda: coverage.DetailSide(D0, ("final",) * 6, value(1)),  # one dataState per PT day
@@ -128,19 +133,55 @@ def test_vh_never_reused():
     assert (previous.admitted, previous.reason) == (False, "vh_not_this_round")
 
 
+def _vd_days(days, version=1000) -> tuple[coverage.VdDay, ...]:
+    return tuple(coverage.VdDay(day, version + n, "final" if n < 10 else "all") for n, day in enumerate(days))
+
+
 def test_vd_valid_rules():
     days = cutoff.window_days(D0, D1)
-    basis = tuple(coverage.VdDay(day, 1000 + n, "final" if n < 10 else "all") for n, day in enumerate(days))
-    assert coverage.vd_valid(basis, basis) and coverage.vd_validity(basis, tuple(reversed(basis))) is None
-    later = cutoff.window_days(*cutoff.daily_windows(D0.days[-1] + timedelta(days=1)))
-    moved = tuple(coverage.VdDay(day, 1000 + n, "final" if n < 10 else "all") for n, day in enumerate(later))
+    basis = _vd_days(days)
+    assert coverage.vd_valid(basis, basis, expected_days=days) and coverage.vd_validity(basis, tuple(reversed(basis)), expected_days=days) is None
+    later_days = cutoff.window_days(*cutoff.daily_windows(D0.days[-1] + timedelta(days=1)))
+    moved = _vd_days(later_days)
     new_version = basis[:3] + (coverage.VdDay(basis[3].pt_date, 9999, basis[3].data_state),) + basis[4:]
     now_final = basis[:12] + (coverage.VdDay(basis[12].pt_date, basis[12].version_id, "final"),) + basis[13:]
-    assert coverage.vd_validity(basis, moved) == "window_changed"
-    assert coverage.vd_validity(basis, basis[:13]) == "window_changed"
-    assert coverage.vd_validity(basis, new_version) == "slice_version_changed"
-    assert coverage.vd_validity(basis, now_final) == "datastate_changed"
-    assert not any(coverage.vd_valid(basis, other) for other in (moved, new_version, now_final))
+    assert coverage.vd_validity(basis, moved, expected_days=days) == "window_changed"
+    assert coverage.vd_validity(basis, basis[:13], expected_days=days) == "window_changed"
+    assert coverage.vd_validity(basis, new_version, expected_days=days) == "slice_version_changed"
+    assert coverage.vd_validity(basis, now_final, expected_days=days) == "datastate_changed"
+    assert not any(coverage.vd_valid(basis, other, expected_days=days) for other in (moved, new_version, now_final))
+
+
+def test_vd_validity_needs_this_rounds_14_days():
+    """Both sides list exactly this round's 14 PT days, each once: agreeing with each other is not enough."""
+    days = cutoff.window_days(D0, D1)
+    basis = _vd_days(days)
+    assert coverage.vd_validity((), (), expected_days=days) == "window_changed"
+    doubled = basis[:13] + (basis[12],)
+    assert coverage.vd_validity(doubled, doubled, expected_days=days) == "window_changed"
+    later_days = cutoff.window_days(*cutoff.daily_windows(D0.days[-1] + timedelta(days=1)))
+    assert coverage.vd_validity(_vd_days(later_days), _vd_days(later_days), expected_days=days) == "window_changed"
+    assert coverage.vd_validity(basis, basis, expected_days=later_days) == "window_changed"
+
+
+def test_failed_vd_is_asked_again():
+    """D26 carries a Vd result over only when it answered: a failed, truncated or overflowed one stands for the round
+    that asked it and is asked again in the next, so it cannot sit there until the 14 days move."""
+    days = cutoff.window_days(D0, D1)
+    basis = _vd_days(days)
+
+    def is_current(status, fetched_in, current_days=basis):
+        return coverage.vd_current(status=status, fetched_round_id=fetched_in, round_id=ROUND, previous=basis, current=current_days, expected_days=days)
+
+    assert is_current("fetched", ROUND) and is_current("fetched", PREVIOUS_ROUND)
+    for status in ("failed", "truncated", "regex_overflow"):
+        assert is_current(status, ROUND), status  # this round's own answer, whatever it was
+        assert not is_current(status, PREVIOUS_ROUND), status
+        this_round = compare(D0, 300, None if status != "truncated" else 300, status=status, current=is_current(status, ROUND))
+        next_round = compare(D0, 300, None if status != "truncated" else 300, status=status, current=is_current(status, PREVIOUS_ROUND))
+        assert this_round.reason in ("filter_failed", "filter_truncated", "regex_overflow") and next_round.reason == "vd_invalid"
+    moved = basis[:3] + (coverage.VdDay(basis[3].pt_date, 9999, basis[3].data_state),) + basis[4:]
+    assert not is_current("fetched", PREVIOUS_ROUND, moved)
 
 
 def test_combine_chunk_statuses():
@@ -154,7 +195,7 @@ def test_combine_chunk_statuses():
 
 def test_admission_wording():
     """Premise 2: the result carries admitted and a reason, and says only 两份下界一致（准入）."""
-    assert [field.name for field in fields(coverage.Comparison)] == ["window", "x_det", "x_flt", "admitted", "value", "reason"]
+    assert [field.name for field in fields(coverage.Comparison)] == ["window", "x_det", "x_flt", "admitted", "value", "reason", "tolerance"]
     assert coverage.ADMISSION_TEXT == "两份下界一致（准入）"
     words = [field.name for field in fields(coverage.Comparison)] + list(coverage.COMPARISON_REASONS) + [coverage.ADMISSION_TEXT]
     for forbidden in ("完整", "已核实", "核实", "独立", "verified", "complete", "independent", "proof"):
@@ -178,25 +219,28 @@ def _daily(status: str, per_day: int | None) -> coverage.DailyTotals:
 def test_site_admission():
     """Counterexamples 5 and 17: every request answered 200 and none was full, yet A' and C disagree; or neither total."""
     windows = (W0, W1)
-    usable = coverage.site_admission_24h(windows, a_prime=_hourly(100), a2_all=None, c_by_hour=_c_by_hour(97), c_by_day={})
+    usable = coverage.site_admission_24h(windows, a_prime=_hourly(100), a2_all=None, c_by_hour=_c_by_hour(97), c_by_day={}, params=V1)
     assert (usable.admission, usable.source) == ("usable", "a_prime")
-    exceeded = coverage.site_admission_24h(windows, a_prime=_hourly(100), a2_all=None, c_by_hour=_c_by_hour(94), c_by_day={})
+    exceeded = coverage.site_admission_24h(windows, a_prime=_hourly(100), a2_all=None, c_by_hour=_c_by_hour(94), c_by_day={}, params=V1)
     assert (exceeded.admission, exceeded.source) == ("gap_exceeded", "a_prime")
-    assert {unit.key for unit in exceeded.exceeded} == {W0.start, W1.start}
+    assert [unit.key for unit in exceeded.exceeded] == [W1.start + timedelta(hours=n) for n in range(48)]  # every hour
 
     days = cutoff.window_days(W0, W1)
     by_day = coverage.site_admission_24h(
-        windows, a_prime=coverage.HourlyTotals("unsupported", {}), a2_all=_daily("fetched", 2400), c_by_hour={}, c_by_day={d: 2350 for d in days}
+        windows, a_prime=coverage.HourlyTotals("unsupported", {}), a2_all=_daily("fetched", 2400), c_by_hour={}, c_by_day={d: 2350 for d in days}, params=V1
     )
     assert (by_day.admission, by_day.source) == ("usable", "a2_all")
     neither = coverage.site_admission_24h(
-        windows, a_prime=coverage.HourlyTotals("unsupported", {}), a2_all=_daily("failed", None), c_by_hour={}, c_by_day={d: 2350 for d in days}
+        windows, a_prime=coverage.HourlyTotals("unsupported", {}), a2_all=_daily("failed", None), c_by_hour={}, c_by_day={d: 2350 for d in days}, params=V1
     )
     assert (neither.admission, neither.source) == ("unverifiable", "none")
-    assert coverage.site_admission_24h(windows, a_prime=None, a2_all=None, c_by_hour={}, c_by_day={}).admission == "unverifiable"
+    assert coverage.site_admission_24h(windows, a_prime=None, a2_all=None, c_by_hour={}, c_by_day={}, params=V1).admission == "unverifiable"
 
     one_hour_missing = coverage.HourlyTotals("fetched", {hour: 100 for hour in list(_hourly(100).by_hour)[1:]})
-    assert coverage.site_admission_24h(windows, a_prime=one_hour_missing, a2_all=None, c_by_hour=_c_by_hour(100), c_by_day={}).admission == "unverifiable"
+    assert (
+        coverage.site_admission_24h(windows, a_prime=one_hour_missing, a2_all=None, c_by_hour=_c_by_hour(100), c_by_day={}, params=V1).admission
+        == "unverifiable"
+    )
 
 
 def _day_totals(day, state, *, detail=1000, a2_all=1000, a2_final=1000):
@@ -207,20 +251,35 @@ def test_site_admission_7d_datastate_per_day():
     days = cutoff.window_days(D0, D1)
     states = {day: ("final" if n < 10 else "all") for n, day in enumerate(days)}
     base = tuple(_day_totals(day, states[day]) for day in days)
-    assert coverage.site_admission_7d((D0, D1), base).admission == "usable"
+    assert coverage.site_admission_7d((D0, D1), params=V1, days=base).admission == "usable"
 
     # An E day is compared with A''f, a D day with A''a, whatever the other total says.
     e_day, d_day = days[2], days[12]
     final_gap = tuple(_day_totals(d, states[d], a2_final=1100) if d == e_day else t for d, t in zip(days, base))
-    assert coverage.site_admission_7d((D0, D1), final_gap).admission == "gap_exceeded"
+    assert coverage.site_admission_7d((D0, D1), params=V1, days=final_gap).admission == "gap_exceeded"
     all_gap_on_e_day = tuple(_day_totals(d, states[d], a2_all=5000) if d == e_day else t for d, t in zip(days, base))
-    assert coverage.site_admission_7d((D0, D1), all_gap_on_e_day).admission == "usable"
+    assert coverage.site_admission_7d((D0, D1), params=V1, days=all_gap_on_e_day).admission == "usable"
     all_gap_on_d_day = tuple(_day_totals(d, states[d], a2_all=5000) if d == d_day else t for d, t in zip(days, base))
-    assert coverage.site_admission_7d((D0, D1), all_gap_on_d_day).admission == "gap_exceeded"
+    assert coverage.site_admission_7d((D0, D1), params=V1, days=all_gap_on_d_day).admission == "gap_exceeded"
 
     # The matching total missing on any one day: the 7-day window is unverifiable, never judged with the other total.
     no_final = tuple(_day_totals(d, states[d], a2_final=None) if d == e_day else t for d, t in zip(days, base))
-    assert coverage.site_admission_7d((D0, D1), no_final).admission == "unverifiable"
+    assert coverage.site_admission_7d((D0, D1), params=V1, days=no_final).admission == "unverifiable"
     no_slice = tuple(_day_totals(d, None) if d == d_day else t for d, t in zip(days, base))
-    assert coverage.site_admission_7d((D0, D1), no_slice).admission == "unverifiable"
-    assert coverage.site_admission_7d((D0, D1), base[1:]).admission == "unverifiable"
+    assert coverage.site_admission_7d((D0, D1), params=V1, days=no_slice).admission == "unverifiable"
+    assert coverage.site_admission_7d((D0, D1), params=V1, days=base[1:]).admission == "unverifiable"
+
+
+def test_site_admission_24h_per_hour():
+    """Design 5.6: the 24-hour site layer compares A' with C hour by hour, as the 7-day one does day by day. One hour
+    that lost half its rows is gap_exceeded although the window's sum is within tau."""
+    broken = W0.start + timedelta(hours=5)
+    one_bad_hour = {**_c_by_hour(100), broken: 50}
+    w0_detail = sum(count for hour, count in one_bad_hour.items() if W0.covers_hour(hour))
+    assert (2400 - w0_detail) * 100 <= V1.site_gap_percent * 2400  # summed over W0, the gap is within tau
+    got = coverage.site_admission_24h((W0, W1), a_prime=_hourly(100), a2_all=None, c_by_hour=one_bad_hour, c_by_day={}, params=V1)
+    assert (got.admission, got.source, len(got.units)) == ("gap_exceeded", "a_prime", 48)
+    assert [(unit.key, unit.total, unit.detail) for unit in got.exceeded] == [(broken, 100, 50)]
+    assert [unit.key for unit in got.units] == [W1.start + timedelta(hours=n) for n in range(48)]
+    no_c_rows = {hour: count for hour, count in _c_by_hour(100).items() if hour != broken}  # C has no row that hour
+    assert coverage.site_admission_24h((W0, W1), a_prime=_hourly(100), a2_all=None, c_by_hour=no_c_rows, c_by_day={}, params=V1).admission == "gap_exceeded"
