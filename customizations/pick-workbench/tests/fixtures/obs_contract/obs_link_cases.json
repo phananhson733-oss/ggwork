@@ -1,0 +1,1183 @@
+{
+  "about": [
+    "link-rules-v1 (design 6.1, D13, D39). facts_cases: link_facts for one identity (Python, TR-10; materialized by TR-20/TR-23b).",
+    "actionable_cases: link_actionable at judgment time with an explicit now (Python TR-10 and TS obs-link.ts, TR-24).",
+    "Rows use state_rows.json field names; only the fields that decide a link are given. params are link-rules-v1's.",
+    "input.pair, when absent, is default_pair: the two sets being paired (TR-20 passes the new set and the other channel's latest).",
+    "Per country: a geo is paired through params.geo_country; t is the Trends row of that geo, G the GSC rows of that country.",
+    "Only countries that params.geo_country pairs with a geo take part (PHL, IND only count in the site total).",
+    "A Trends row flagged unstable voids the country. GSC rows flagged migration_suspect, mapping_changed, gap_exceeded or",
+    "unverifiable are dropped; with degraded_no_country_24h, 24h rows of a country are ignored as if absent (not dropped).",
+    "up(t) = rising and confirmed; low(t) = no row or state flat or sparse; gsc_up = a formal-admission row with a formal surge or",
+    "from_zero label (24h) or rising label (7d); gsc_low = no row was dropped and no remaining row has any label.",
+    "First match: cooling(t) -> cooling; up & gsc_up -> both_rising;",
+    "up & gsc_low & page -> trends_lead_page; up & no page -> trends_lead_distribution; low & gsc_up -> site_only; else no fact.",
+    "Referenced GSC row: the first gsc_up row, else the first row of G, ordered 24h then 7d. Global: up(WW) & gsc_up(ALL) ->",
+    "global_parallel. When no country fact is both_rising but one country has up(t) and another has gsc_up, add different_markets.",
+    "Anchors: trends_anchor is t's latest_block_end, else the set's; gsc_anchor is the referenced row's window_end, else the cutoff.",
+    "pair_gap_minutes = |gsc_anchor - trends_anchor| (whole minutes, floor); timely = gap <= pair_max_gap_hours; published_gap_minutes",
+    "= |gsc published_at - trends published_at| floor; stale = t carried_over or stale. Facts sort by country, null last.",
+    "Actionability reasons, in order: label_not_actionable (global_parallel, different_markets), untimely_pair, stale_row,",
+    "trends_set_too_old (now - trends published_at > 26 h), gsc_set_too_old (> 6 h). Exactly 26 h or 6 h still holds."
+  ],
+  "params": {
+    "link_rules_version": "link-rules-v1",
+    "pair_max_gap_hours": 48,
+    "trends_max_age_hours": 26,
+    "gsc_max_age_hours": 6,
+    "geo_country": {"WW": "ALL", "US": "USA", "GB": "GBR", "ES": "ESP", "DE": "DEU", "FR": "FRA", "IT": "ITA", "MX": "MEX", "BR": "BRA", "BG": "BGR"},
+    "up_labels": {"24h": ["surge", "from_zero"], "7d": ["rising"]},
+    "low_states": ["flat", "sparse"],
+    "excluded_flags": ["migration_suspect", "mapping_changed", "gap_exceeded", "unverifiable", "unstable"]
+  },
+  "default_pair": {
+    "link_rules_version": "link-rules-v1",
+    "trends": {
+      "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+      "published_at": "2026-09-25T01:52:10.000000+00:00",
+      "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+    },
+    "gsc": {
+      "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+      "published_at": "2026-09-25T03:31:40.000000+00:00",
+      "cutoff": "2026-09-24T18:00:00.000000+00:00",
+      "degraded_no_country_24h": false
+    }
+  },
+  "facts_cases": [
+    {
+      "name": "both_rising",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "both_rising",
+          "trends_row_id": 41,
+          "gsc_row_id": 907,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "different_countries_never_both",
+      "why": "counterexample 4: US Trends up and MEX GSC up is not both_rising",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 908,
+            "scope": "MEX",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "MEX",
+          "trends_geo": "MX",
+          "label": "site_only",
+          "trends_row_id": null,
+          "gsc_row_id": 908,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        },
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "trends_lead_page",
+          "trends_row_id": 41,
+          "gsc_row_id": null,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        },
+        {
+          "country": null,
+          "trends_geo": null,
+          "label": "different_markets",
+          "trends_row_id": null,
+          "gsc_row_id": null,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "cooling",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "cooling",
+            "confirmation": null,
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "cooling",
+          "trends_row_id": 41,
+          "gsc_row_id": 907,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "cooling_blocks_its_country_only",
+      "why": "counterexample 4: one country's cooling blocks that country only",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "cooling",
+            "confirmation": null,
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          },
+          {
+            "row_id": 42,
+            "scope": "GB",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          },
+          {
+            "row_id": 909,
+            "scope": "GBR",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "GBR",
+          "trends_geo": "GB",
+          "label": "both_rising",
+          "trends_row_id": 42,
+          "gsc_row_id": 909,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        },
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "cooling",
+          "trends_row_id": 41,
+          "gsc_row_id": 907,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "trends_lead_distribution",
+      "why": "",
+      "input": {
+        "has_site_page": false,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": []
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "trends_lead_distribution",
+          "trends_row_id": 41,
+          "gsc_row_id": null,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "trends_lead_page_present_row",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 910,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "present",
+            "admission": "formal",
+            "labels": [],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "trends_lead_page",
+          "trends_row_id": 41,
+          "gsc_row_id": 910,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "site_only_no_trends_row",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [],
+        "gsc": [
+          {
+            "row_id": 911,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "from_zero",
+            "admission": "formal",
+            "labels": [{"label": "from_zero", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "site_only",
+          "trends_row_id": null,
+          "gsc_row_id": 911,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "site_only_sparse_trends_row",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 43,
+            "scope": "US",
+            "state": "sparse",
+            "confirmation": null,
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 911,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "from_zero",
+            "admission": "formal",
+            "labels": [{"label": "from_zero", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "site_only",
+          "trends_row_id": 43,
+          "gsc_row_id": 911,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "first_rising_is_not_a_link",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "first",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": []
+    },
+    {
+      "name": "emerging_is_not_a_link",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "emerging",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": []
+    },
+    {
+      "name": "descriptive_gsc_is_neither_up_nor_low",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 912,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "descriptive",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": ["detail_gap"],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": []
+    },
+    {
+      "name": "informal_label_is_neither_up_nor_low",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 913,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": false, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": []
+    },
+    {
+      "name": "high_ctr_is_not_up",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [],
+        "gsc": [
+          {
+            "row_id": 914,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "high_ctr",
+            "admission": "formal",
+            "labels": [{"label": "high_ctr", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": []
+    },
+    {
+      "name": "global_parallel_only",
+      "why": "counterexample 19: WW and the site total rising together is parallel, not both_rising",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 44,
+            "scope": "WW",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 915,
+            "scope": "ALL",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "ALL",
+          "trends_geo": "WW",
+          "label": "global_parallel",
+          "trends_row_id": 44,
+          "gsc_row_id": 915,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "unstable_trends_excluded",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "first",
+            "flags": ["unstable"],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": []
+    },
+    {
+      "name": "migration_suspect_excluded",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": ["migration_suspect"],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": []
+    },
+    {
+      "name": "flagged_gsc_row_dropped_other_window_used",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": ["gap_exceeded"],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          },
+          {
+            "row_id": 916,
+            "scope": "USA",
+            "window_kind": "7d",
+            "state": "rising",
+            "admission": "formal",
+            "labels": [{"label": "rising", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T07:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "both_rising",
+          "trends_row_id": 41,
+          "gsc_row_id": 916,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T07:00:00.000000+00:00",
+          "pair_gap_minutes": 600,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "untimely_pair",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-22T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "both_rising",
+          "trends_row_id": 41,
+          "gsc_row_id": 907,
+          "trends_anchor": "2026-09-22T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 2940,
+          "timely": false,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "daily_granularity_anchor",
+      "why": "D39: plan D's latest_block_end is the last complete day's end",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T00:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "both_rising",
+          "trends_row_id": 41,
+          "gsc_row_id": 907,
+          "trends_anchor": "2026-09-24T00:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 1080,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "carried_over_row_is_stale_fact",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": true,
+            "stale": false,
+            "latest_block_end": "2026-09-23T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "both_rising",
+          "trends_row_id": 41,
+          "gsc_row_id": 907,
+          "trends_anchor": "2026-09-23T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 1500,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": true
+        }
+      ]
+    },
+    {
+      "name": "degraded_24h_ignored",
+      "why": "GSC fell back to [hour,page]: 24 h rows per country do not link, only 7 d ones",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ],
+        "pair": {
+          "link_rules_version": "link-rules-v1",
+          "trends": {
+            "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          },
+          "gsc": {
+            "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "published_at": "2026-09-25T03:31:40.000000+00:00",
+            "cutoff": "2026-09-24T18:00:00.000000+00:00",
+            "degraded_no_country_24h": true
+          }
+        }
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "trends_lead_page",
+          "trends_row_id": 41,
+          "gsc_row_id": null,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+          "pair_gap_minutes": 60,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "degraded_7d_still_links",
+      "why": "",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 41,
+            "scope": "US",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 907,
+            "scope": "USA",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          },
+          {
+            "row_id": 916,
+            "scope": "USA",
+            "window_kind": "7d",
+            "state": "rising",
+            "admission": "formal",
+            "labels": [{"label": "rising", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T07:00:00.000000+00:00"
+          }
+        ],
+        "pair": {
+          "link_rules_version": "link-rules-v1",
+          "trends": {
+            "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          },
+          "gsc": {
+            "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "published_at": "2026-09-25T03:31:40.000000+00:00",
+            "cutoff": "2026-09-24T18:00:00.000000+00:00",
+            "degraded_no_country_24h": true
+          }
+        }
+      },
+      "facts": [
+        {
+          "country": "USA",
+          "trends_geo": "US",
+          "label": "both_rising",
+          "trends_row_id": 41,
+          "gsc_row_id": 916,
+          "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+          "gsc_anchor": "2026-09-24T07:00:00.000000+00:00",
+          "pair_gap_minutes": 600,
+          "timely": true,
+          "published_gap_minutes": 99,
+          "stale": false
+        }
+      ]
+    },
+    {
+      "name": "unmapped_geo_ignored",
+      "why": "market-map-v1 pairs no PH geo; PHL only shows in the site total",
+      "input": {
+        "has_site_page": true,
+        "trends": [
+          {
+            "row_id": 45,
+            "scope": "PH",
+            "state": "rising",
+            "confirmation": "confirmed",
+            "flags": [],
+            "carried_over": false,
+            "stale": false,
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          }
+        ],
+        "gsc": [
+          {
+            "row_id": 917,
+            "scope": "PHL",
+            "window_kind": "24h",
+            "state": "surge",
+            "admission": "formal",
+            "labels": [{"label": "surge", "formal": true, "condition": "见 gsc-rules-v1", "counts": {}}],
+            "flags": [],
+            "window_end": "2026-09-24T18:00:00.000000+00:00"
+          }
+        ]
+      },
+      "facts": []
+    }
+  ],
+  "actionable_cases": [
+    {
+      "name": "fresh",
+      "fact": {"label": "both_rising", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-25T04:10:00.000000+00:00",
+      "expected": {"actionable": true, "reasons": []}
+    },
+    {
+      "name": "gsc_exactly_6h",
+      "fact": {"label": "both_rising", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-25T09:31:40.000000+00:00",
+      "expected": {"actionable": true, "reasons": []}
+    },
+    {
+      "name": "gsc_over_6h",
+      "fact": {"label": "both_rising", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-25T09:31:40.000001+00:00",
+      "expected": {"actionable": false, "reasons": ["gsc_set_too_old"]}
+    },
+    {
+      "name": "trends_exactly_26h",
+      "fact": {"label": "both_rising", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-26T03:31:40.000000+00:00",
+      "now": "2026-09-26T03:52:10.000000+00:00",
+      "expected": {"actionable": true, "reasons": []}
+    },
+    {
+      "name": "trends_over_26h",
+      "fact": {"label": "both_rising", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-26T03:31:40.000000+00:00",
+      "now": "2026-09-26T03:52:11.000000+00:00",
+      "expected": {"actionable": false, "reasons": ["trends_set_too_old"]}
+    },
+    {
+      "name": "no_new_sets_for_a_day",
+      "fact": {"label": "both_rising", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-26T05:00:00.000000+00:00",
+      "expected": {"actionable": false, "reasons": ["trends_set_too_old", "gsc_set_too_old"]}
+    },
+    {
+      "name": "untimely_pair",
+      "fact": {"label": "both_rising", "timely": false, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-25T04:10:00.000000+00:00",
+      "expected": {"actionable": false, "reasons": ["untimely_pair"]}
+    },
+    {
+      "name": "stale_row",
+      "fact": {"label": "both_rising", "timely": true, "stale": true},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-25T04:10:00.000000+00:00",
+      "expected": {"actionable": false, "reasons": ["stale_row"]}
+    },
+    {
+      "name": "global_parallel_never",
+      "fact": {"label": "global_parallel", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-25T04:10:00.000000+00:00",
+      "expected": {"actionable": false, "reasons": ["label_not_actionable"]}
+    },
+    {
+      "name": "different_markets_never",
+      "fact": {"label": "different_markets", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-25T04:10:00.000000+00:00",
+      "expected": {"actionable": false, "reasons": ["label_not_actionable"]}
+    },
+    {
+      "name": "cooling_fresh",
+      "fact": {"label": "cooling", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-25T04:10:00.000000+00:00",
+      "expected": {"actionable": true, "reasons": []}
+    },
+    {
+      "name": "site_only_fresh",
+      "fact": {"label": "site_only", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-25T04:10:00.000000+00:00",
+      "expected": {"actionable": true, "reasons": []}
+    },
+    {
+      "name": "every_reason",
+      "fact": {"label": "global_parallel", "timely": false, "stale": true},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-27T00:00:00.000000+00:00",
+      "expected": {"actionable": false, "reasons": ["label_not_actionable", "untimely_pair", "stale_row", "trends_set_too_old", "gsc_set_too_old"]}
+    },
+    {
+      "name": "now_before_publication",
+      "fact": {"label": "both_rising", "timely": true, "stale": false},
+      "trends_published_at": "2026-09-25T01:52:10.000000+00:00",
+      "gsc_published_at": "2026-09-25T03:31:40.000000+00:00",
+      "now": "2026-09-25T01:00:00.000000+00:00",
+      "expected": {"actionable": true, "reasons": []}
+    }
+  ]
+}

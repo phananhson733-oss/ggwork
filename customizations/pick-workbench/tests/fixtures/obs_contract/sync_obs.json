@@ -1,0 +1,210 @@
+{
+  "about": [
+    "/api/pick/sync's obs key (TR-25; D10): the status, or {error: <class name>} when the gateway could not read it; the frontend",
+    "declares it .nullable().optional().catch(undefined), so a malformed obs never breaks the rest of /sync.",
+    "banners come from status_rules (TR-10, obs_status_cases.json); checked_at is the now they were computed with."
+  ],
+  "model": "SyncObs",
+  "valid": [
+    {
+      "name": "status",
+      "value": {
+        "checked_at": "2026-09-25T04:10:00.000000+00:00",
+        "channels": [
+          {
+            "channel": "trends",
+            "live_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "latest_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_mode": "live",
+            "last_run_at": "2026-09-24T20:30:05.000000+00:00",
+            "banners": []
+          },
+          {
+            "channel": "gsc",
+            "live_set_id": null,
+            "live_published_at": null,
+            "latest_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "latest_published_at": "2026-09-25T03:31:40.000000+00:00",
+            "latest_mode": "shadow",
+            "last_run_at": "2026-09-25T03:25:04.000000+00:00",
+            "banners": [{"code": "shadow_mode", "level": "info"}]
+          }
+        ]
+      }
+    },
+    {
+      "name": "nothing_published_yet",
+      "value": {
+        "checked_at": "2026-09-25T04:10:00.000000+00:00",
+        "channels": [
+          {
+            "channel": "trends",
+            "live_set_id": null,
+            "live_published_at": null,
+            "latest_set_id": null,
+            "latest_published_at": null,
+            "latest_mode": null,
+            "last_run_at": null,
+            "banners": [{"code": "run_missed", "level": "red"}]
+          },
+          {
+            "channel": "gsc",
+            "live_set_id": null,
+            "live_published_at": null,
+            "latest_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "latest_published_at": "2026-09-25T03:31:40.000000+00:00",
+            "latest_mode": "shadow",
+            "last_run_at": "2026-09-25T03:25:04.000000+00:00",
+            "banners": [{"code": "shadow_mode", "level": "info"}]
+          }
+        ]
+      }
+    },
+    {"name": "read_error", "value": {"error": "OperationalError"}}
+  ],
+  "invalid": [
+    {
+      "name": "channels_out_of_order",
+      "why": "trends then gsc",
+      "value": {
+        "checked_at": "2026-09-25T04:10:00.000000+00:00",
+        "channels": [
+          {
+            "channel": "gsc",
+            "live_set_id": null,
+            "live_published_at": null,
+            "latest_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "latest_published_at": "2026-09-25T03:31:40.000000+00:00",
+            "latest_mode": "shadow",
+            "last_run_at": "2026-09-25T03:25:04.000000+00:00",
+            "banners": [{"code": "shadow_mode", "level": "info"}]
+          },
+          {
+            "channel": "trends",
+            "live_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "latest_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_mode": "live",
+            "last_run_at": "2026-09-24T20:30:05.000000+00:00",
+            "banners": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "one_channel",
+      "why": "both channels",
+      "value": {
+        "checked_at": "2026-09-25T04:10:00.000000+00:00",
+        "channels": [
+          {
+            "channel": "trends",
+            "live_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "latest_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_mode": "live",
+            "last_run_at": "2026-09-24T20:30:05.000000+00:00",
+            "banners": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown_code",
+      "why": "STATUS_CODES",
+      "value": {
+        "checked_at": "2026-09-25T04:10:00.000000+00:00",
+        "channels": [
+          {
+            "channel": "trends",
+            "live_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "latest_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_mode": "live",
+            "last_run_at": "2026-09-24T20:30:05.000000+00:00",
+            "banners": [{"code": "down", "level": "red"}]
+          },
+          {
+            "channel": "gsc",
+            "live_set_id": null,
+            "live_published_at": null,
+            "latest_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "latest_published_at": "2026-09-25T03:31:40.000000+00:00",
+            "latest_mode": "shadow",
+            "last_run_at": "2026-09-25T03:25:04.000000+00:00",
+            "banners": [{"code": "shadow_mode", "level": "info"}]
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown_level",
+      "why": "BANNER_LEVELS",
+      "value": {
+        "checked_at": "2026-09-25T04:10:00.000000+00:00",
+        "channels": [
+          {
+            "channel": "trends",
+            "live_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "latest_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_mode": "live",
+            "last_run_at": "2026-09-24T20:30:05.000000+00:00",
+            "banners": [{"code": "stale_26h", "level": "amber"}]
+          },
+          {
+            "channel": "gsc",
+            "live_set_id": null,
+            "live_published_at": null,
+            "latest_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "latest_published_at": "2026-09-25T03:31:40.000000+00:00",
+            "latest_mode": "shadow",
+            "last_run_at": "2026-09-25T03:25:04.000000+00:00",
+            "banners": [{"code": "shadow_mode", "level": "info"}]
+          }
+        ]
+      }
+    },
+    {
+      "name": "error_free_text",
+      "why": "the error names a class only",
+      "value": {"error": "connection refused: password authentication failed"}
+    },
+    {
+      "name": "error_with_status",
+      "why": "error or status, not both",
+      "value": {
+        "checked_at": "2026-09-25T04:10:00.000000+00:00",
+        "channels": [
+          {
+            "channel": "trends",
+            "live_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "live_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "latest_published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_mode": "live",
+            "last_run_at": "2026-09-24T20:30:05.000000+00:00",
+            "banners": []
+          },
+          {
+            "channel": "gsc",
+            "live_set_id": null,
+            "live_published_at": null,
+            "latest_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "latest_published_at": "2026-09-25T03:31:40.000000+00:00",
+            "latest_mode": "shadow",
+            "last_run_at": "2026-09-25T03:25:04.000000+00:00",
+            "banners": [{"code": "shadow_mode", "level": "info"}]
+          }
+        ],
+        "error": "OperationalError"
+      }
+    }
+  ]
+}

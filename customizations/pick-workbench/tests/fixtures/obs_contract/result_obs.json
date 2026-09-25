@@ -1,0 +1,722 @@
+{
+  "about": [
+    "One /api/pick/results payload with observation conditions, sort=obs, obs evidence and observations (TR-16 derives",
+    "frontend/tests/unit/core/pick/fixtures/backend-result-obs.json from the valid case; TR-27 regenerates it from a real run).",
+    "Python checks the observation parts only: conditions' seven fields, every obs_* evidence entry and observations."
+  ],
+  "valid": [
+    {
+      "name": "obs_result",
+      "value": {
+        "id": "8f14e45fceea167a5a36dedd4bea2543",
+        "thread_id": "thread-1",
+        "run_id": "run-1",
+        "run_status": "success",
+        "catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "knowledge_batch_id": null,
+        "rule_version": "pick-rules-v1",
+        "ranking_version": "obs-v1",
+        "conditions": {
+          "limit": 5,
+          "exclude_selected": true,
+          "confirmed_eligible_only": true,
+          "exclude_previous": false,
+          "sort": "obs",
+          "exclude_posted": false,
+          "tags": [],
+          "trend_state": "rising",
+          "trend_geos": ["US"],
+          "gsc_countries": ["USA"]
+        },
+        "items": [
+          {
+            "item_id": "5d41402abc4b2a76b9719d911017c592",
+            "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+            "title": "The Alpha's Bride",
+            "theater": "ReelShort",
+            "language": "en",
+            "availability": "active",
+            "reason": "符合本次筛选条件；有2条来源信号。",
+            "warnings": [],
+            "evidence": [
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:1",
+                "kind": "kd",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": "2026-09-24",
+                "value": null,
+                "label": "KalosTV日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:2",
+                "kind": "qc",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": null,
+                "value": null,
+                "label": "",
+                "rank": null,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+                "kind": "obs_trends",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "rising",
+                "label": "US · Google Trends 上升（已确认）",
+                "rank": null,
+                "grade": "confirmed",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强；联动：双涨（both_rising；可行动；判定于 2026-09-25T04:10:00.000000+00:00）"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+                "kind": "obs_gsc",
+                "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+                "observed_at": "2026-09-24T18:00:00.000000+00:00",
+                "value": 325,
+                "label": "USA · 曝光飙升（24 小时）",
+                "rank": null,
+                "grade": "formal",
+                "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:5",
+                "kind": "obs_discovery",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:12",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "reelshort the alpha's bride",
+                "label": "WW · 发现段命中（网页搜索）",
+                "rank": null,
+                "grade": "strong",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；种子 reelshort；只算发现证据"
+              }
+            ],
+            "matched_total": 1
+          }
+        ],
+        "created_at": "2026-09-25T04:10:00.000000+00:00",
+        "matched_total": 1,
+        "data_as_of": {"source_as_of": "2026-09-24T22:15:00.000Z", "published_at": "2026-09-24T22:20:00.000000+00:00", "shared": true},
+        "observations": {
+          "trends": {
+            "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          },
+          "gsc": {
+            "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "published_at": "2026-09-25T03:31:40.000000+00:00",
+            "cutoff": "2026-09-24T18:00:00.000000+00:00"
+          },
+          "link_rules_version": "link-rules-v1",
+          "judged_at": "2026-09-25T04:10:00.000000+00:00",
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "evidence_payload",
+      "why": "D8: evidence gains no key",
+      "value": {
+        "id": "8f14e45fceea167a5a36dedd4bea2543",
+        "thread_id": "thread-1",
+        "run_id": "run-1",
+        "run_status": "success",
+        "catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "knowledge_batch_id": null,
+        "rule_version": "pick-rules-v1",
+        "ranking_version": "obs-v1",
+        "conditions": {
+          "limit": 5,
+          "exclude_selected": true,
+          "confirmed_eligible_only": true,
+          "exclude_previous": false,
+          "sort": "obs",
+          "exclude_posted": false,
+          "tags": [],
+          "trend_state": "rising",
+          "trend_geos": ["US"],
+          "gsc_countries": ["USA"]
+        },
+        "items": [
+          {
+            "item_id": "5d41402abc4b2a76b9719d911017c592",
+            "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+            "title": "The Alpha's Bride",
+            "theater": "ReelShort",
+            "language": "en",
+            "availability": "active",
+            "reason": "符合本次筛选条件；有2条来源信号。",
+            "warnings": [],
+            "evidence": [
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:1",
+                "kind": "kd",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": "2026-09-24",
+                "value": null,
+                "label": "KalosTV日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:2",
+                "kind": "qc",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": null,
+                "value": null,
+                "label": "",
+                "rank": null,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+                "kind": "obs_trends",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "rising",
+                "label": "US · Google Trends 上升（已确认）",
+                "rank": null,
+                "grade": "confirmed",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强；联动：双涨（both_rising；可行动；判定于 2026-09-25T04:10:00.000000+00:00）",
+                "payload": {"r": 1.9}
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+                "kind": "obs_gsc",
+                "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+                "observed_at": "2026-09-24T18:00:00.000000+00:00",
+                "value": 325,
+                "label": "USA · 曝光飙升（24 小时）",
+                "rank": null,
+                "grade": "formal",
+                "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:5",
+                "kind": "obs_discovery",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:12",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "reelshort the alpha's bride",
+                "label": "WW · 发现段命中（网页搜索）",
+                "rank": null,
+                "grade": "strong",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；种子 reelshort；只算发现证据"
+              }
+            ],
+            "matched_total": 1
+          }
+        ],
+        "created_at": "2026-09-25T04:10:00.000000+00:00",
+        "matched_total": 1,
+        "data_as_of": {"source_as_of": "2026-09-24T22:15:00.000Z", "published_at": "2026-09-24T22:20:00.000000+00:00", "shared": true},
+        "observations": {
+          "trends": {
+            "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          },
+          "gsc": {
+            "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "published_at": "2026-09-25T03:31:40.000000+00:00",
+            "cutoff": "2026-09-24T18:00:00.000000+00:00"
+          },
+          "link_rules_version": "link-rules-v1",
+          "judged_at": "2026-09-25T04:10:00.000000+00:00",
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+        }
+      }
+    },
+    {
+      "name": "observations_extra",
+      "why": "strict observations",
+      "value": {
+        "id": "8f14e45fceea167a5a36dedd4bea2543",
+        "thread_id": "thread-1",
+        "run_id": "run-1",
+        "run_status": "success",
+        "catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "knowledge_batch_id": null,
+        "rule_version": "pick-rules-v1",
+        "ranking_version": "obs-v1",
+        "conditions": {
+          "limit": 5,
+          "exclude_selected": true,
+          "confirmed_eligible_only": true,
+          "exclude_previous": false,
+          "sort": "obs",
+          "exclude_posted": false,
+          "tags": [],
+          "trend_state": "rising",
+          "trend_geos": ["US"],
+          "gsc_countries": ["USA"]
+        },
+        "items": [
+          {
+            "item_id": "5d41402abc4b2a76b9719d911017c592",
+            "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+            "title": "The Alpha's Bride",
+            "theater": "ReelShort",
+            "language": "en",
+            "availability": "active",
+            "reason": "符合本次筛选条件；有2条来源信号。",
+            "warnings": [],
+            "evidence": [
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:1",
+                "kind": "kd",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": "2026-09-24",
+                "value": null,
+                "label": "KalosTV日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:2",
+                "kind": "qc",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": null,
+                "value": null,
+                "label": "",
+                "rank": null,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+                "kind": "obs_trends",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "rising",
+                "label": "US · Google Trends 上升（已确认）",
+                "rank": null,
+                "grade": "confirmed",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强；联动：双涨（both_rising；可行动；判定于 2026-09-25T04:10:00.000000+00:00）"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+                "kind": "obs_gsc",
+                "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+                "observed_at": "2026-09-24T18:00:00.000000+00:00",
+                "value": 325,
+                "label": "USA · 曝光飙升（24 小时）",
+                "rank": null,
+                "grade": "formal",
+                "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:5",
+                "kind": "obs_discovery",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:12",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "reelshort the alpha's bride",
+                "label": "WW · 发现段命中（网页搜索）",
+                "rank": null,
+                "grade": "strong",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；种子 reelshort；只算发现证据"
+              }
+            ],
+            "matched_total": 1
+          }
+        ],
+        "created_at": "2026-09-25T04:10:00.000000+00:00",
+        "matched_total": 1,
+        "data_as_of": {"source_as_of": "2026-09-24T22:15:00.000Z", "published_at": "2026-09-24T22:20:00.000000+00:00", "shared": true},
+        "observations": {
+          "trends": {
+            "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          },
+          "gsc": {
+            "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "published_at": "2026-09-25T03:31:40.000000+00:00",
+            "cutoff": "2026-09-24T18:00:00.000000+00:00"
+          },
+          "link_rules_version": "link-rules-v1",
+          "judged_at": "2026-09-25T04:10:00.000000+00:00",
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7},
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "name": "obs_evidence_zero",
+      "why": "premise 1",
+      "value": {
+        "id": "8f14e45fceea167a5a36dedd4bea2543",
+        "thread_id": "thread-1",
+        "run_id": "run-1",
+        "run_status": "success",
+        "catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "knowledge_batch_id": null,
+        "rule_version": "pick-rules-v1",
+        "ranking_version": "obs-v1",
+        "conditions": {
+          "limit": 5,
+          "exclude_selected": true,
+          "confirmed_eligible_only": true,
+          "exclude_previous": false,
+          "sort": "obs",
+          "exclude_posted": false,
+          "tags": [],
+          "trend_state": "rising",
+          "trend_geos": ["US"],
+          "gsc_countries": ["USA"]
+        },
+        "items": [
+          {
+            "item_id": "5d41402abc4b2a76b9719d911017c592",
+            "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+            "title": "The Alpha's Bride",
+            "theater": "ReelShort",
+            "language": "en",
+            "availability": "active",
+            "reason": "符合本次筛选条件；有2条来源信号。",
+            "warnings": [],
+            "evidence": [
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:1",
+                "kind": "kd",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": "2026-09-24",
+                "value": null,
+                "label": "KalosTV日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:2",
+                "kind": "qc",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": null,
+                "value": null,
+                "label": "",
+                "rank": null,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+                "kind": "obs_trends",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "rising",
+                "label": "US · Google Trends 上升（已确认）",
+                "rank": null,
+                "grade": "confirmed",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强；联动：双涨（both_rising；可行动；判定于 2026-09-25T04:10:00.000000+00:00）"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+                "kind": "obs_gsc",
+                "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+                "observed_at": "2026-09-24T18:00:00.000000+00:00",
+                "value": 0,
+                "label": "USA · 曝光飙升（24 小时）",
+                "rank": null,
+                "grade": "formal",
+                "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:5",
+                "kind": "obs_discovery",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:12",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "reelshort the alpha's bride",
+                "label": "WW · 发现段命中（网页搜索）",
+                "rank": null,
+                "grade": "strong",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；种子 reelshort；只算发现证据"
+              }
+            ],
+            "matched_total": 1
+          }
+        ],
+        "created_at": "2026-09-25T04:10:00.000000+00:00",
+        "matched_total": 1,
+        "data_as_of": {"source_as_of": "2026-09-24T22:15:00.000Z", "published_at": "2026-09-24T22:20:00.000000+00:00", "shared": true},
+        "observations": {
+          "trends": {
+            "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          },
+          "gsc": {
+            "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "published_at": "2026-09-25T03:31:40.000000+00:00",
+            "cutoff": "2026-09-24T18:00:00.000000+00:00"
+          },
+          "link_rules_version": "link-rules-v1",
+          "judged_at": "2026-09-25T04:10:00.000000+00:00",
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+        }
+      }
+    },
+    {
+      "name": "condition_bad_geo",
+      "why": "alpha-2 geos",
+      "value": {
+        "id": "8f14e45fceea167a5a36dedd4bea2543",
+        "thread_id": "thread-1",
+        "run_id": "run-1",
+        "run_status": "success",
+        "catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "knowledge_batch_id": null,
+        "rule_version": "pick-rules-v1",
+        "ranking_version": "obs-v1",
+        "conditions": {
+          "limit": 5,
+          "exclude_selected": true,
+          "confirmed_eligible_only": true,
+          "exclude_previous": false,
+          "sort": "obs",
+          "exclude_posted": false,
+          "tags": [],
+          "trend_state": "rising",
+          "trend_geos": ["usa"],
+          "gsc_countries": ["USA"]
+        },
+        "items": [
+          {
+            "item_id": "5d41402abc4b2a76b9719d911017c592",
+            "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+            "title": "The Alpha's Bride",
+            "theater": "ReelShort",
+            "language": "en",
+            "availability": "active",
+            "reason": "符合本次筛选条件；有2条来源信号。",
+            "warnings": [],
+            "evidence": [
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:1",
+                "kind": "kd",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": "2026-09-24",
+                "value": null,
+                "label": "KalosTV日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:2",
+                "kind": "qc",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": null,
+                "value": null,
+                "label": "",
+                "rank": null,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+                "kind": "obs_trends",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "rising",
+                "label": "US · Google Trends 上升（已确认）",
+                "rank": null,
+                "grade": "confirmed",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强；联动：双涨（both_rising；可行动；判定于 2026-09-25T04:10:00.000000+00:00）"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+                "kind": "obs_gsc",
+                "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+                "observed_at": "2026-09-24T18:00:00.000000+00:00",
+                "value": 325,
+                "label": "USA · 曝光飙升（24 小时）",
+                "rank": null,
+                "grade": "formal",
+                "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:5",
+                "kind": "obs_discovery",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:12",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "reelshort the alpha's bride",
+                "label": "WW · 发现段命中（网页搜索）",
+                "rank": null,
+                "grade": "strong",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；种子 reelshort；只算发现证据"
+              }
+            ],
+            "matched_total": 1
+          }
+        ],
+        "created_at": "2026-09-25T04:10:00.000000+00:00",
+        "matched_total": 1,
+        "data_as_of": {"source_as_of": "2026-09-24T22:15:00.000Z", "published_at": "2026-09-24T22:20:00.000000+00:00", "shared": true},
+        "observations": {
+          "trends": {
+            "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          },
+          "gsc": {
+            "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "published_at": "2026-09-25T03:31:40.000000+00:00",
+            "cutoff": "2026-09-24T18:00:00.000000+00:00"
+          },
+          "link_rules_version": "link-rules-v1",
+          "judged_at": "2026-09-25T04:10:00.000000+00:00",
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+        }
+      }
+    },
+    {
+      "name": "observations_in_data_as_of",
+      "why": "D28: never inside data_as_of",
+      "value": {
+        "id": "8f14e45fceea167a5a36dedd4bea2543",
+        "thread_id": "thread-1",
+        "run_id": "run-1",
+        "run_status": "success",
+        "catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "knowledge_batch_id": null,
+        "rule_version": "pick-rules-v1",
+        "ranking_version": "obs-v1",
+        "conditions": {
+          "limit": 5,
+          "exclude_selected": true,
+          "confirmed_eligible_only": true,
+          "exclude_previous": false,
+          "sort": "obs",
+          "exclude_posted": false,
+          "tags": [],
+          "trend_state": "rising",
+          "trend_geos": ["US"],
+          "gsc_countries": ["USA"]
+        },
+        "items": [
+          {
+            "item_id": "5d41402abc4b2a76b9719d911017c592",
+            "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+            "title": "The Alpha's Bride",
+            "theater": "ReelShort",
+            "language": "en",
+            "availability": "active",
+            "reason": "符合本次筛选条件；有2条来源信号。",
+            "warnings": [],
+            "evidence": [
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:1",
+                "kind": "kd",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": "2026-09-24",
+                "value": null,
+                "label": "KalosTV日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:2",
+                "kind": "qc",
+                "source_ref": "kalostv:daily:2026-09-24",
+                "observed_at": null,
+                "value": null,
+                "label": "",
+                "rank": null,
+                "grade": "",
+                "note": ""
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+                "kind": "obs_trends",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "rising",
+                "label": "US · Google Trends 上升（已确认）",
+                "rank": null,
+                "grade": "confirmed",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强；联动：双涨（both_rising；可行动；判定于 2026-09-25T04:10:00.000000+00:00）"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+                "kind": "obs_gsc",
+                "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+                "observed_at": "2026-09-24T18:00:00.000000+00:00",
+                "value": 325,
+                "label": "USA · 曝光飙升（24 小时）",
+                "rank": null,
+                "grade": "formal",
+                "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+              },
+              {
+                "citation_id": "5d41402abc4b2a76b9719d911017c592:5",
+                "kind": "obs_discovery",
+                "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:12",
+                "observed_at": "2026-09-24T17:00:00.000000+00:00",
+                "value": "reelshort the alpha's bride",
+                "label": "WW · 发现段命中（网页搜索）",
+                "rank": null,
+                "grade": "strong",
+                "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；种子 reelshort；只算发现证据"
+              }
+            ],
+            "matched_total": 1
+          }
+        ],
+        "created_at": "2026-09-25T04:10:00.000000+00:00",
+        "matched_total": 1,
+        "data_as_of": {
+          "source_as_of": "2026-09-24T22:15:00.000Z",
+          "published_at": "2026-09-24T22:20:00.000000+00:00",
+          "shared": true,
+          "observations": {
+            "trends": {
+              "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+              "published_at": "2026-09-25T01:52:10.000000+00:00",
+              "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+            },
+            "gsc": {
+              "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+              "published_at": "2026-09-25T03:31:40.000000+00:00",
+              "cutoff": "2026-09-24T18:00:00.000000+00:00"
+            },
+            "link_rules_version": "link-rules-v1",
+            "judged_at": "2026-09-25T04:10:00.000000+00:00",
+            "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+            "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+          }
+        },
+        "observations": {
+          "trends": {
+            "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+            "published_at": "2026-09-25T01:52:10.000000+00:00",
+            "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+          },
+          "gsc": {
+            "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+            "published_at": "2026-09-25T03:31:40.000000+00:00",
+            "cutoff": "2026-09-24T18:00:00.000000+00:00"
+          },
+          "link_rules_version": "link-rules-v1",
+          "judged_at": "2026-09-25T04:10:00.000000+00:00",
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+        }
+      }
+    }
+  ]
+}

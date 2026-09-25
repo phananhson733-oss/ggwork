@@ -1,0 +1,350 @@
+{
+  "about": [
+    "ggwp_obs_sets.summary_json, shown by the data page from pick_obs.sets.summary (design 3.6, 4.5, 5.6).",
+    "GSC keeps the three coverage layers per metric: received = attributed + every unattributed kind (layer 1); detail_gap =",
+    "site_total - received, site_total null when neither A' nor A'' was usable (layer 2); unknowable counts slices (layer 3)."
+  ],
+  "model": "SetSummary",
+  "valid": [
+    {
+      "name": "trends",
+      "value": {
+        "channel": "trends",
+        "planned_units": 427,
+        "fetched_units": 404,
+        "uncovered_units": [{"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}],
+        "a_tier_coverage": 0.96,
+        "breaker_events": 1,
+        "all_zero_rate": 0.41,
+        "user_types": ["USER_TYPE_LEGIT_USER"],
+        "ambiguous_undecided": 9,
+        "carried_over": 4,
+        "stale": 0,
+        "rule4_no_data": false,
+        "status_codes": ["shadow_mode"]
+      }
+    },
+    {
+      "name": "trends_no_zero_rate",
+      "value": {
+        "channel": "trends",
+        "planned_units": 427,
+        "fetched_units": 404,
+        "uncovered_units": [],
+        "a_tier_coverage": 0.96,
+        "breaker_events": 1,
+        "all_zero_rate": null,
+        "user_types": ["USER_TYPE_LEGIT_USER"],
+        "ambiguous_undecided": 9,
+        "carried_over": 4,
+        "stale": 0,
+        "rule4_no_data": false,
+        "status_codes": []
+      }
+    },
+    {
+      "name": "gsc",
+      "value": {
+        "channel": "gsc",
+        "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88000,
+            "attributed": 61000,
+            "unattributed": {
+              "legacy_unmapped": 900,
+              "delisted": 3100,
+              "noncanonical": 120,
+              "locale_mismatch": 40,
+              "site_level": 17000,
+              "editorial": 800,
+              "offsite": 0,
+              "blog": 5040
+            },
+            "site_total": 91500,
+            "detail_gap": 3500
+          },
+          {
+            "metric": "clicks",
+            "received": 3400,
+            "attributed": 2100,
+            "unattributed": {
+              "legacy_unmapped": 30,
+              "delisted": 110,
+              "noncanonical": 4,
+              "locale_mismatch": 1,
+              "site_level": 1000,
+              "editorial": 20,
+              "offsite": 0,
+              "blog": 135
+            },
+            "site_total": 3550,
+            "detail_gap": 150
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "usable",
+        "site_admission_7d": "unverifiable",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": ["gsc_unverifiable"]
+      }
+    },
+    {
+      "name": "gsc_no_site_total",
+      "value": {
+        "channel": "gsc",
+        "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88000,
+            "attributed": 61000,
+            "unattributed": {
+              "legacy_unmapped": 900,
+              "delisted": 3100,
+              "noncanonical": 120,
+              "locale_mismatch": 40,
+              "site_level": 17000,
+              "editorial": 800,
+              "offsite": 0,
+              "blog": 5040
+            },
+            "site_total": null,
+            "detail_gap": null
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "unverifiable",
+        "site_admission_7d": "unverifiable",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": ["gsc_unverifiable"]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "coverage_above_one",
+      "why": "a_tier_coverage is a share",
+      "value": {
+        "channel": "trends",
+        "planned_units": 427,
+        "fetched_units": 404,
+        "uncovered_units": [{"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}],
+        "a_tier_coverage": 1.2,
+        "breaker_events": 1,
+        "all_zero_rate": 0.41,
+        "user_types": ["USER_TYPE_LEGIT_USER"],
+        "ambiguous_undecided": 9,
+        "carried_over": 4,
+        "stale": 0,
+        "rule4_no_data": false,
+        "status_codes": ["shadow_mode"]
+      }
+    },
+    {
+      "name": "unknown_status_code",
+      "why": "STATUS_CODES",
+      "value": {
+        "channel": "trends",
+        "planned_units": 427,
+        "fetched_units": 404,
+        "uncovered_units": [{"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}],
+        "a_tier_coverage": 0.96,
+        "breaker_events": 1,
+        "all_zero_rate": 0.41,
+        "user_types": ["USER_TYPE_LEGIT_USER"],
+        "ambiguous_undecided": 9,
+        "carried_over": 4,
+        "stale": 0,
+        "rule4_no_data": false,
+        "status_codes": ["trends_down"]
+      }
+    },
+    {
+      "name": "unknown_uncovered_reason",
+      "why": "UNCOVERED_REASONS",
+      "value": {
+        "channel": "trends",
+        "planned_units": 427,
+        "fetched_units": 404,
+        "uncovered_units": [{"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "lazy"}],
+        "a_tier_coverage": 0.96,
+        "breaker_events": 1,
+        "all_zero_rate": 0.41,
+        "user_types": ["USER_TYPE_LEGIT_USER"],
+        "ambiguous_undecided": 9,
+        "carried_over": 4,
+        "stale": 0,
+        "rule4_no_data": false,
+        "status_codes": ["shadow_mode"]
+      }
+    },
+    {
+      "name": "unknown_unattributed",
+      "why": "UNATTRIBUTED_KINDS",
+      "value": {
+        "channel": "gsc",
+        "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88000,
+            "attributed": 61000,
+            "unattributed": {"spam": 3},
+            "site_total": 91500,
+            "detail_gap": 3500
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "usable",
+        "site_admission_7d": "unverifiable",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": ["gsc_unverifiable"]
+      }
+    },
+    {
+      "name": "gap_without_total",
+      "why": "detail_gap needs a site total",
+      "value": {
+        "channel": "gsc",
+        "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88000,
+            "attributed": 61000,
+            "unattributed": {
+              "legacy_unmapped": 900,
+              "delisted": 3100,
+              "noncanonical": 120,
+              "locale_mismatch": 40,
+              "site_level": 17000,
+              "editorial": 800,
+              "offsite": 0,
+              "blog": 5040
+            },
+            "site_total": null,
+            "detail_gap": 3500
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "usable",
+        "site_admission_7d": "unverifiable",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": ["gsc_unverifiable"]
+      }
+    },
+    {
+      "name": "unknown_admission",
+      "why": "usable, gap_exceeded or unverifiable",
+      "value": {
+        "channel": "gsc",
+        "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88000,
+            "attributed": 61000,
+            "unattributed": {
+              "legacy_unmapped": 900,
+              "delisted": 3100,
+              "noncanonical": 120,
+              "locale_mismatch": 40,
+              "site_level": 17000,
+              "editorial": 800,
+              "offsite": 0,
+              "blog": 5040
+            },
+            "site_total": 91500,
+            "detail_gap": 3500
+          },
+          {
+            "metric": "clicks",
+            "received": 3400,
+            "attributed": 2100,
+            "unattributed": {
+              "legacy_unmapped": 30,
+              "delisted": 110,
+              "noncanonical": 4,
+              "locale_mismatch": 1,
+              "site_level": 1000,
+              "editorial": 20,
+              "offsite": 0,
+              "blog": 135
+            },
+            "site_total": 3550,
+            "detail_gap": 150
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "usable",
+        "site_admission_7d": "complete",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": ["gsc_unverifiable"]
+      }
+    },
+    {
+      "name": "gsc_with_units",
+      "why": "units are Trends'",
+      "value": {
+        "channel": "gsc",
+        "cutoff": "2026-09-24T18:00:00.000000+00:00",
+        "layers": [
+          {
+            "metric": "impressions",
+            "received": 88000,
+            "attributed": 61000,
+            "unattributed": {
+              "legacy_unmapped": 900,
+              "delisted": 3100,
+              "noncanonical": 120,
+              "locale_mismatch": 40,
+              "site_level": 17000,
+              "editorial": 800,
+              "offsite": 0,
+              "blog": 5040
+            },
+            "site_total": 91500,
+            "detail_gap": 3500
+          },
+          {
+            "metric": "clicks",
+            "received": 3400,
+            "attributed": 2100,
+            "unattributed": {
+              "legacy_unmapped": 30,
+              "delisted": 110,
+              "noncanonical": 4,
+              "locale_mismatch": 1,
+              "site_level": 1000,
+              "editorial": 20,
+              "offsite": 0,
+              "blog": 135
+            },
+            "site_total": 3550,
+            "detail_gap": 150
+          }
+        ],
+        "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+        "site_admission_24h": "usable",
+        "site_admission_7d": "unverifiable",
+        "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+        "requests": 57,
+        "quota_errors": 0,
+        "status_codes": ["gsc_unverifiable"],
+        "planned_units": 3
+      }
+    }
+  ]
+}

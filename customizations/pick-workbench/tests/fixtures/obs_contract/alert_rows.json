@@ -1,0 +1,217 @@
+{
+  "about": [
+    "One alert (ggwp_obs_alerts, design 6.2, D37), kept 180 days. dedupe_key is the JSON array",
+    "[root_identity, channel, state, scope, mode] written like an identity (ensure_ascii=False, compact separators)."
+  ],
+  "model": "AlertRow",
+  "valid": [
+    {
+      "name": "trends_first",
+      "value": {
+        "id": 88,
+        "mode": "live",
+        "channel": "trends",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "state_row_id": 41,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "rising_first",
+        "scope": "US",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"trends\",\"rising_first\",\"US\",\"live\"]",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "name": "gsc_from_zero",
+      "value": {
+        "id": 89,
+        "mode": "live",
+        "channel": "gsc",
+        "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "state_row_id": 907,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "from_zero",
+        "scope": "USA",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"gsc\",\"from_zero\",\"USA\",\"live\"]",
+        "published_at": "2026-09-25T03:31:40.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "name": "shadow",
+      "value": {
+        "id": 88,
+        "mode": "shadow",
+        "channel": "trends",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "state_row_id": 41,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "rising_first",
+        "scope": "US",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"trends\",\"rising_first\",\"US\",\"shadow\"]",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "gsc_state_on_trends",
+      "why": "states belong to their channel",
+      "value": {
+        "id": 88,
+        "mode": "live",
+        "channel": "trends",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "state_row_id": 41,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "surge",
+        "scope": "US",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"trends\",\"rising_first\",\"US\",\"live\"]",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "name": "trends_state_on_gsc",
+      "why": "states belong to their channel",
+      "value": {
+        "id": 89,
+        "mode": "live",
+        "channel": "gsc",
+        "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "state_row_id": 907,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "rising_confirmed",
+        "scope": "USA",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"gsc\",\"from_zero\",\"USA\",\"live\"]",
+        "published_at": "2026-09-25T03:31:40.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "name": "dedupe_key_uses_identity",
+      "why": "the key follows root_identity",
+      "value": {
+        "id": 88,
+        "mode": "live",
+        "channel": "trends",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "state_row_id": 41,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "rising_first",
+        "scope": "US",
+        "dedupe_key": "[\"[\\\"realshort\\\",\\\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\\\",\\\"en\\\"]\",\"trends\",\"rising_first\",\"US\",\"live\"]",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "name": "dedupe_key_without_mode",
+      "why": "shadow alerts never share live's window",
+      "value": {
+        "id": 88,
+        "mode": "live",
+        "channel": "trends",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "state_row_id": 41,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "rising_first",
+        "scope": "US",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"trends\",\"rising_first\",\"US\"]",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "name": "gsc_geo_scope",
+      "why": "GSC scope is alpha-3",
+      "value": {
+        "id": 89,
+        "mode": "live",
+        "channel": "gsc",
+        "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "state_row_id": 907,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "from_zero",
+        "scope": "US",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"gsc\",\"from_zero\",\"USA\",\"live\"]",
+        "published_at": "2026-09-25T03:31:40.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "name": "missing_eval_version",
+      "why": "eval-rules version",
+      "value": {
+        "id": 88,
+        "mode": "live",
+        "channel": "trends",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "state_row_id": 41,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "rising_first",
+        "scope": "US",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"trends\",\"rising_first\",\"US\",\"live\"]",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "name": "nul_in_evidence",
+      "why": "a NUL anywhere in the evidence snapshot cannot be stored",
+      "value": {
+        "id": 88,
+        "mode": "live",
+        "channel": "trends",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "state_row_id": 41,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "rising_first",
+        "scope": "US",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"trends\",\"rising_first\",\"US\",\"live\"]",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"note": "a\u0000b"},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    }
+  ]
+}

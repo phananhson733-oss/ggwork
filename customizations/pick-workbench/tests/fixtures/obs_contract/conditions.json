@@ -1,0 +1,67 @@
+{
+  "about": [
+    "The seven observation condition fields (D31, design 7.3), as the tool takes them and as conditions_json stores them.",
+    "Python: contract.ObsConditionFields; TS: the seven optional keys of pickConditionsSchema (TR-16).",
+    "Every key may be absent; stored conditions drop the falsy ones (None, [], false), so absent is the usual form."
+  ],
+  "model": "ObsConditionFields",
+  "valid": [
+    {"name": "empty", "value": {}},
+    {
+      "name": "all_seven",
+      "value": {
+        "trend_state": "rising",
+        "trend_geos": ["WW", "US"],
+        "trend_include_first": true,
+        "trend_include_presumed": true,
+        "gsc_state": "surge",
+        "gsc_countries": ["USA", "ALL"],
+        "link_state": "both_rising"
+      }
+    },
+    {"name": "emerging_one_geo", "value": {"trend_state": "emerging", "trend_geos": ["GB"]}},
+    {"name": "gsc_only_from_zero", "value": {"gsc_state": "from_zero", "gsc_countries": ["GBR"]}},
+    {"name": "gsc_present_any_country", "value": {"gsc_state": "present"}},
+    {"name": "gsc_high_ctr", "value": {"gsc_state": "high_ctr"}},
+    {"name": "gsc_rank_push_site", "value": {"gsc_state": "rank_push", "gsc_countries": ["ALL"]}},
+    {"name": "gsc_rising_7d", "value": {"gsc_state": "rising", "gsc_countries": ["DEU", "FRA"]}},
+    {"name": "link_trends_lead_page", "value": {"link_state": "trends_lead_page"}},
+    {"name": "link_trends_lead_distribution", "value": {"link_state": "trends_lead_distribution"}},
+    {"name": "link_site_only", "value": {"link_state": "site_only"}},
+    {"name": "link_cooling", "value": {"link_state": "cooling"}},
+    {
+      "name": "explicit_defaults",
+      "value": {
+        "trend_state": null,
+        "trend_geos": [],
+        "trend_include_first": false,
+        "trend_include_presumed": false,
+        "gsc_state": null,
+        "gsc_countries": [],
+        "link_state": null
+      }
+    }
+  ],
+  "invalid": [
+    {"name": "unknown_trend_state", "why": "trend_state only takes rising or emerging", "value": {"trend_state": "cooling"}},
+    {"name": "confirmed_is_not_a_state", "why": "confirmation is trend_include_first, not a state", "value": {"trend_state": "confirmed"}},
+    {"name": "lowercase_geo", "why": "trend_geos are upper-case alpha-2 or WW", "value": {"trend_geos": ["us"]}},
+    {"name": "alpha3_as_geo", "why": "Trends geos are alpha-2", "value": {"trend_geos": ["USA"]}},
+    {"name": "all_as_geo", "why": "ALL is the GSC site total; Trends says WW", "value": {"trend_geos": ["ALL"]}},
+    {"name": "geo_not_list", "why": "trend_geos is a list", "value": {"trend_geos": "US"}},
+    {
+      "name": "too_many_geos",
+      "why": "at most 10 geos",
+      "value": {"trend_geos": ["WW", "US", "GB", "ES", "DE", "FR", "IT", "MX", "BR", "BG", "PH"]}
+    },
+    {"name": "string_bool_first", "why": "include flags are strict booleans", "value": {"trend_include_first": "true"}},
+    {"name": "int_bool_presumed", "why": "include flags are strict booleans", "value": {"trend_include_presumed": 1}},
+    {"name": "unknown_gsc_state", "why": "gsc_state enum", "value": {"gsc_state": "rising_7d"}},
+    {"name": "alpha2_as_country", "why": "GSC countries are alpha-3", "value": {"gsc_countries": ["US"]}},
+    {"name": "ww_as_country", "why": "GSC says ALL for the site total", "value": {"gsc_countries": ["WW"]}},
+    {"name": "lowercase_country", "why": "contract country codes are upper-case", "value": {"gsc_countries": ["usa"]}},
+    {"name": "unknown_link_state", "why": "global_parallel is display only, not a condition", "value": {"link_state": "global_parallel"}},
+    {"name": "different_markets_not_condition", "why": "display only", "value": {"link_state": "different_markets"}},
+    {"name": "unknown_key", "why": "the seven fields only", "value": {"trend_score": 3}}
+  ]
+}

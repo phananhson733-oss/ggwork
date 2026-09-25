@@ -1,0 +1,526 @@
+{
+  "about": [
+    "Observation evidence flattened into the existing evidence shape (D8): no new keys, rank always null.",
+    "Structured data stays in the judgment row, found by source_ref obs:<set_id>:<row_id>. Premise 1: an unobserved value is the",
+    "empty string with the kind's unobserved phrase in note, never 0 or \"0\". Links ride on the obs_trends entry of that geo, or on",
+    "the obs_gsc entry when there is no Trends row (site_only), as one note segment 联动：<text>（<code>；可行动|不可行动：<reasons>；判定于 T）."
+  ],
+  "model": "ObsEvidence",
+  "valid": [
+    {
+      "name": "trends_confirmed",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "trends_with_link",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强；联动：双涨（both_rising；可行动；判定于 2026-09-25T04:10:00.000000+00:00）"
+      }
+    },
+    {
+      "name": "trends_first",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（首次，仅一天）",
+        "rank": null,
+        "grade": "first",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "trends_emerging",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "emerging",
+        "label": "GB · Google Trends 从零起量观察",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "trends_cooling_blocks",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "cooling",
+        "label": "US · Google Trends 冲高回退",
+        "rank": null,
+        "grade": "",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强；联动：退潮（cooling；可行动；判定于 2026-09-25T04:10:00.000000+00:00）"
+      }
+    },
+    {
+      "name": "trends_unobserved_for_site_only",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "",
+        "label": "US · Google Trends",
+        "rank": null,
+        "grade": "",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；在 Google Trends 返回的数据里未观测到或低量"
+      }
+    },
+    {
+      "name": "gsc_formal",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": 325,
+        "label": "USA · 曝光飙升（24 小时）",
+        "rank": null,
+        "grade": "formal",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+      }
+    },
+    {
+      "name": "gsc_site_only_link_not_actionable",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": 325,
+        "label": "USA · 曝光飙升（24 小时）",
+        "rank": null,
+        "grade": "formal",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定；联动：站内独涨（site_only；不可行动：gsc_set_too_old；判定于 2026-09-25T10:00:00.000000+00:00）"
+      }
+    },
+    {
+      "name": "gsc_descriptive",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": 325,
+        "label": "USA · 小基数曝光上升（24 小时）",
+        "rank": null,
+        "grade": "descriptive",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+      }
+    },
+    {
+      "name": "gsc_unobserved",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": "",
+        "label": "USA · 前一窗口",
+        "rank": null,
+        "grade": "formal",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W−1 在 GSC 返回的数据里未观测到"
+      }
+    },
+    {
+      "name": "gsc_site_total",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": 1450,
+        "label": "ALL · 7 天上升",
+        "rank": null,
+        "grade": "formal",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+      }
+    },
+    {
+      "name": "discovery",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:5",
+        "kind": "obs_discovery",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:12",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "reelshort the alpha's bride",
+        "label": "WW · 发现段命中（网页搜索）",
+        "rank": null,
+        "grade": "strong",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；种子 reelshort；只算发现证据"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "payload_key",
+      "why": "D8: no new keys",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强",
+        "payload": {"r": 1.8}
+      }
+    },
+    {
+      "name": "missing_note",
+      "why": "every key is present",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed"
+      }
+    },
+    {
+      "name": "rank_set",
+      "why": "observation evidence is never ranked",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": 325,
+        "label": "USA · 曝光飙升（24 小时）",
+        "rank": 1,
+        "grade": "formal",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+      }
+    },
+    {
+      "name": "unknown_kind",
+      "why": "three kinds only",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_link",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "gsc_zero_number",
+      "why": "premise 1: unobserved is the empty string",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": 0,
+        "label": "USA · 曝光飙升（24 小时）",
+        "rank": null,
+        "grade": "formal",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+      }
+    },
+    {
+      "name": "gsc_zero_string",
+      "why": "premise 1: never \"0\"",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": "0",
+        "label": "USA · 曝光飙升（24 小时）",
+        "rank": null,
+        "grade": "formal",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+      }
+    },
+    {
+      "name": "empty_without_phrase",
+      "why": "the empty value needs the unobserved phrase",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": "",
+        "label": "USA · 曝光飙升（24 小时）",
+        "rank": null,
+        "grade": "formal",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "trends_index_value",
+      "why": "no heat numbers from Trends",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": 87,
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "trends_unknown_value",
+      "why": "value is the state code",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "surge",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "trends_bad_grade",
+      "why": "Trends grade is confirmed or first",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "formal",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "gsc_bad_grade",
+      "why": "GSC grade is formal or descriptive",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": 325,
+        "label": "USA · 曝光飙升（24 小时）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+      }
+    },
+    {
+      "name": "discovery_bad_grade",
+      "why": "discovery grade is the identity evidence level",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:5",
+        "kind": "obs_discovery",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:12",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "reelshort the alpha's bride",
+        "label": "WW · 发现段命中（网页搜索）",
+        "rank": null,
+        "grade": "formal",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；种子 reelshort；只算发现证据"
+      }
+    },
+    {
+      "name": "discovery_empty_term",
+      "why": "a discovery names its term",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:5",
+        "kind": "obs_discovery",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:12",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "",
+        "label": "WW · 发现段命中（网页搜索）",
+        "rank": null,
+        "grade": "strong",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；种子 reelshort；只算发现证据"
+      }
+    },
+    {
+      "name": "source_ref_shape",
+      "why": "obs:<set_id>:<row_id>",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "trends:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "source_ref_row_zero",
+      "why": "row ids start at 1",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:0",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "note_without_rules",
+      "why": "note starts with the rules version",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "截至 2026-09-24T17:00:00.000000+00:00"
+      }
+    },
+    {
+      "name": "note_wrong_rules",
+      "why": "obs_gsc cites gsc-rules",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": 325,
+        "label": "USA · 曝光飙升（24 小时）",
+        "rank": null,
+        "grade": "formal",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "note_without_as_of",
+      "why": "the second segment is 截至 T",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；geo=US"
+      }
+    },
+    {
+      "name": "label_without_scope",
+      "why": "label starts with the geo or country",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "Google Trends 上升",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "gsc_label_alpha2",
+      "why": "GSC scope is alpha-3 or ALL",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:4",
+        "kind": "obs_gsc",
+        "source_ref": "obs:3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c:907",
+        "observed_at": "2026-09-24T18:00:00.000000+00:00",
+        "value": 325,
+        "label": "US · 曝光飙升",
+        "rank": null,
+        "grade": "formal",
+        "note": "gsc-rules-v1；截至 2026-09-24T18:00:00.000000+00:00；W0 曝光 325，W−1 曝光 82；两份下界一致（准入）；原因未定"
+      }
+    },
+    {
+      "name": "observed_at_null",
+      "why": "the data as-of moment is always known",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": null,
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强"
+      }
+    },
+    {
+      "name": "link_segment_unknown_code",
+      "why": "link codes are LINK_LABELS",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强；联动：双涨（double_up；可行动；判定于 2026-09-25T04:10:00.000000+00:00）"
+      }
+    },
+    {
+      "name": "link_segment_bad_reason",
+      "why": "reasons are LINK_ACTIONABILITY_REASONS",
+      "value": {
+        "citation_id": "5d41402abc4b2a76b9719d911017c592:3",
+        "kind": "obs_trends",
+        "source_ref": "obs:7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c:41",
+        "observed_at": "2026-09-24T17:00:00.000000+00:00",
+        "value": "rising",
+        "label": "US · Google Trends 上升（已确认）",
+        "rank": null,
+        "grade": "confirmed",
+        "note": "trend-rules-v1；截至 2026-09-24T17:00:00.000000+00:00；geo=US；对应已人工确认；身份证据 强；联动：双涨（both_rising；不可行动：too_old；判定于 2026-09-25T04:10:00.000000+00:00）"
+      }
+    }
+  ]
+}
