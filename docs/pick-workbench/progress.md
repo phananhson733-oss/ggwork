@@ -136,7 +136,7 @@
   - 详见 [pick-board-parity.md](pick-board-parity.md)「核对记录」。
 - 21:12 UTC 新后端的第一次同步配对发布了版本 2，保留 v1。
 - 后续：
-  - 分页边界换行的放行要回镜像库查缺行，现在是人工核，可以做进比对脚本。
+  - 分页边界换行已由比对脚本的并列补全处理（fe155eb，2026-09-25 在镜像 v4 上实跑：白名单外 0 条，见 [pick-board-parity.md](pick-board-parity.md)「核对记录」）。代价是 RealShort 那边快照从约 4 分钟涨到约 13 分钟：可以改成第 1 页直接取 100 行，少一次翻页；parity 遇到 `MirrorBusy` 时可以对那个用例自动重试一次。
   - 选剧与全部剧库的 HTML 约 520 KB，可以瘦身。
   - `@vercel/functions` 的 `attachDatabasePool` 没装：装它会改动 lockfile 里无关的条目。
   - `perf:check` 有 10 项旧的超预算。
