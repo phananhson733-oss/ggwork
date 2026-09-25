@@ -23,7 +23,9 @@ MIN_LIMITED_COVERAGE of them.
 
 Where the estimate stands against a night (tests/observe/test_trends_capacity.py runs the three nights through the real
 executor, on a ManualClock against a MockTransport, and checks that the estimate never finishes sooner and never
-covers more):
+covers more). It is a baseline at LATENCY_SECONDS per answer, not a bound for every answer time: with 29-second
+answers the executor's canary1 night runs about 177 minutes clear and 250 with one 429 against estimates of 127 and 230
+(G3 recheck), so the first nights' real answer times recalibrate it (TR-30):
 - MARGIN is what makes it the later one, and the only thing. At the user pace the bucket's refill sets the speed:
   LATENCY_SECONDS and the long-end gaps hardly count (both at their other extreme, 0 s and the short end, move the
   canary modes' estimates by under a minute).

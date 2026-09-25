@@ -45,7 +45,7 @@
 | 字段 | 值 | 为什么 |
 |---|---|---|
 | `[build]` | 与根目录 `railway.toml` 相同：`builder = "DOCKERFILE"`，`dockerfilePath = "docker/Dockerfile.pick-gateway"` | 与 gateway 同一个镜像 |
-| `startCommand` | `/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends run"` | Railway 按 exec 形式执行启动命令，不经 shell，`cd` 与 `&&` 要靠 `/bin/sh -c`；`exec` 让 python 替换 shell、成为这个进程本身（大概率是容器的 PID 1）。观测包不处理 SIGTERM：Railway 停容器时进程不做任何收尾，随后被 SIGKILL 终止（只有 SIGINT 会变成 KeyboardInterrupt、以 130 退出）。被强停时：已提交状态保留、预算不退；未提交的响应、最新 cookie、熔断事件可能丢失；续跑可能重做未完成单元；五分钟是租约失效上界，不是恢复时间，通常要等下一次半小时触发（第 7 节）。请求预算在发出之前就已在租约下扣掉，所以续跑不会多发超出预算的请求 |
+| `startCommand` | `/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends run"` | Railway 按 exec 形式执行启动命令，不经 shell，`cd` 与 `&&` 要靠 `/bin/sh -c`；`exec` 让 python 替换 shell、成为这个进程本身（大概率是容器的 PID 1）。观测包不处理 SIGTERM：Railway 停容器时进程不做任何收尾，可能直接被 SIGTERM 按默认行为结束，也可能在停止超时后被 SIGKILL 终止，取决于进程与容器的信号行为（只有 SIGINT 会变成 KeyboardInterrupt、以 130 退出）。被强停时：已提交状态保留、预算不退；未提交的响应、最新 cookie、熔断事件可能丢失；续跑可能重做未完成单元；五分钟是租约失效上界，不是恢复时间，通常要等下一次半小时触发（第 7 节）。请求预算在发出之前就已在租约下扣掉，所以续跑不会多发超出预算的请求 |
 | `restartPolicyType` | `NEVER` | 失败不立刻重跑：1 由下一次触发续跑，2、3 要人处理，重跑只会原样再失败 |
 | `cronSchedule` | `*/30 17-23,0-1 * * *`（UTC） | 见下表 |
 | 不写 `healthcheckPath` | | cron 不监听端口；写了就会一直等不到健康而判失败 |
@@ -166,7 +166,7 @@
    {"preflight": {"target_date": "<今晚供给的日期>", "mode": "canary1", "pace": {"preset": "user", "bucket_capacity": 4, "refill_per_minute": 2}, …, "reasons": [], "refused_by": [], "estimates": […]}}
    ```
 
-   第一行出现之前，入口已经校验过会话配置（模式与节奏、金丝雀对照清单与市场序列、状态密钥、出口测量地址），与每晚 `run` 发请求之前的校验相同；自检与预检都只读、不取租约、不写任何行、不发任何 HTTP 请求（`test_trends_entrypoint_argv_selfcheck_only` 从自检配置读出启动命令，经 `/bin/sh` 与真实的 `__main__` 在两种库上钉住）。只有第一行、退出码不是 0：自检没过，预检没跑，按第 4 步的表处理。两行都在、退出码 2：镜像没问题，今晚会被负载闸门或停用、终止拒跑，按第 3 步处理。
+   第一行出现之前，入口已经校验过会话配置（模式与节奏、金丝雀对照清单与市场序列、状态密钥、出口测量地址），与每晚 `run` 发请求之前的校验相同；自检与预检都只读、不取租约、不写任何行、不发任何 HTTP 请求（`test_trends_entrypoint_argv_selfcheck_only` 从自检配置读出启动命令，经 `/bin/sh` 与真实的 `__main__` 在两种库上钉住）。没有第一行、退出码不是 0：配置校验或自检没过，预检没跑，按第 4 步的表处理。有第一行、没有第二行、退出码 3：自检通过，预检读状态失败（运行时行缺失或状态读不回），按 `lease-and-selfcheck.md` 的退出码 3 处理。两行都在、退出码 2：镜像没问题，今晚会被负载闸门或停用、终止拒跑，按第 3 步处理。
 2. **逐项核对第一行（S6）**：
    - `collector` 等于所部署提交的 `versions.COLLECTOR_VERSION`；
    - `head` 等于守卫刚打印的生产迁移头；
