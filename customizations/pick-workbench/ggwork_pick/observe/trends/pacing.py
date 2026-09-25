@@ -70,6 +70,9 @@ class PacingState:
     intra_gap: float = 0.0  # drawn at the last record: seconds before the next request of the same unit
     unit_gap: float = 0.0  # ... before the first request of the next unit
 
+    def __post_init__(self):
+        codec.aware_or_none((self.settled_at, self.segment_started_at, self.last_done_at, *self.recent), "pacing times")
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "tokens": self.tokens,

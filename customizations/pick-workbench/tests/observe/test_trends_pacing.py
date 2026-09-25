@@ -63,6 +63,38 @@ def test_noop_pacer_fails_envelope():
         sim.assert_envelope(result.sent, span=THREE_HOURS)
 
 
+def _mixed_run(pacer=None):
+    """What TR-14's transport-level test sees: units of 2 and 3 requests (related queries), 5xx answers retried 30-60 s
+    later, a 429 with its 30-minute pause, the probe and the rest of the night at half speed."""
+    signals = {12: breaker.Signal.TRANSIENT, 150: breaker.Signal.RATE_LIMITED, 200: breaker.Signal.TRANSIENT}
+    return sim.run(
+        clock=ManualClock(START),
+        rng=random_source(13),
+        responder=sim.script(signals),
+        units=itertools.cycle((2, 3)),
+        pacer=pacer,
+        until=START + THREE_HOURS,
+    )
+
+
+def test_bounds_envelope_holds_through_retries_pauses_and_half_speed():
+    result = _mixed_run()
+    retries = [c for p, c in itertools.pairwise(result.sent) if (c.unit, c.index) == (p.unit, p.index)]
+    assert len(retries) == 2 and sum(s.probe for s in result.sent) == 1 and result.sent[-1].half_speed
+    assert {3} <= {s.index + 1 for s in result.sent}  # three-request units ran
+    sim.assert_envelope_bounds(result.sent)
+    # The full-speed envelope is exact and only fits a run like test_pacing_envelope_3h: here a retry waits 30-60 s
+    # inside its unit, a pause pulls the average down and half speed doubles every gap.
+    with pytest.raises(AssertionError):
+        sim.assert_envelope(result.sent, span=THREE_HOURS)
+
+
+def test_noop_pacer_fails_the_bounds_envelope():
+    """[counterexample 2] The upper bounds alone still catch a pacer that never waits."""
+    with pytest.raises(AssertionError):
+        sim.assert_envelope_bounds(_mixed_run(NoopPacer()).sent)
+
+
 def test_bucket_caps_a_burst_at_12_a_minute():
     """One long unit (retries, related searches) only has the 1.5-3 s gaps; the bucket holds it to 8 + 4 a minute."""
     clock = ManualClock(START)
@@ -233,6 +265,15 @@ def test_state_from_dict_refuses_bad_input(mutate):
     state = pacer.record(pacing.initial_state(), sent_at=START, done_at=START, rng=random_source(1), half_speed=False)
     with pytest.raises(ValueError):
         pacing.PacingState.from_dict(mutate(state.to_dict()))
+
+
+@pytest.mark.parametrize("field", ["settled_at", "segment_started_at", "last_done_at", "recent"])
+def test_state_refuses_naive_times(field):
+    """A naive time would be written in the host's zone (8 hours off on a Shanghai laptop): refused when built."""
+    naive = START.replace(tzinfo=None)
+    value = (START, naive) if field == "recent" else naive
+    with pytest.raises(ValueError):
+        pacing.PacingState(tokens=8.0, **{field: value})
 
 
 def test_record_refuses_naive_or_backwards_times():

@@ -7,7 +7,10 @@ sorry wall put the day out; two extinguished days in a row halve the next cap; t
 direct access until an operator clears it.
 """
 
+import importlib.util
+import inspect
 import json
+import typing
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta, timezone
 
@@ -17,6 +20,7 @@ import trends_session_sim as sim
 from ggwork_pick.observe import contract
 from ggwork_pick.observe.clock import ManualClock, random_source
 from ggwork_pick.observe.trends import breaker, budget
+from ggwork_pick.observe.trends import state_codec as codec
 
 S = breaker.Signal
 A = breaker.Action
@@ -42,16 +46,59 @@ def _pause_minutes(decisions, start=EVENING, at=()):
 # ---- signals ---------------------------------------------------------------------------------------------------------
 
 
+def _signal(name, captcha_or_consent=False):
+    return breaker.signal_of(name, captcha_or_consent=captcha_or_consent)
+
+
 def test_every_fetch_status_has_a_signal():
     """TR-02's ten fetch statuses (design 4.10); an unknown one is refused, never guessed."""
     assert set(breaker.FETCH_STATUS_SIGNALS) == set(FETCH_STATUSES)
-    assert breaker.signal_of("rate_limited") is S.RATE_LIMITED
-    assert breaker.signal_of("blocked_redirect") is S.WALL  # sorry or consent host
-    assert {breaker.signal_of(name) for name in ("forbidden", "html_body")} == {S.LIMITED}
-    assert {breaker.signal_of(name) for name in ("server_error", "timeout")} == {S.TRANSIENT}
-    assert {breaker.signal_of(name) for name in ("ok", "ok_zero", "no_data")} == {S.SUCCESS}
+    assert _signal("rate_limited") is S.RATE_LIMITED
+    assert {_signal(name) for name in ("forbidden", "html_body")} == {S.LIMITED}
+    assert {_signal(name) for name in ("server_error", "timeout")} == {S.TRANSIENT}
+    assert {_signal(name) for name in ("ok", "ok_zero", "no_data")} == {S.SUCCESS}
+    assert _signal("parse_error") is S.NEUTRAL
     with pytest.raises(ValueError):
-        breaker.signal_of("captcha_maybe")
+        _signal("captcha_maybe")
+
+
+def test_only_a_captcha_or_consent_redirect_is_a_wall():
+    """TR-02 files every redirect on an API path as blocked_redirect and says separately whether it went to the sorry or
+    consent page (captcha_or_consent). Only those end the day (design 4.3); any other redirect is a limit signal: a
+    pause and a probe, never the day."""
+    assert _signal("blocked_redirect", captcha_or_consent=True) is S.WALL
+    assert _signal("blocked_redirect", captcha_or_consent=False) is S.LIMITED
+    # A captcha seen is a captcha, whatever status came with it (TR-02 never pairs them, so this is only a backstop).
+    assert {_signal(name, captcha_or_consent=True) for name in FETCH_STATUSES} == {S.WALL}
+    # The flag has no default, so a call site cannot forget it (as D42 does for check_answer), and it is a real bool.
+    with pytest.raises(TypeError):
+        breaker.signal_of("blocked_redirect")  # type: ignore[call-arg]
+    for flag in (None, 1, "yes"):
+        with pytest.raises(ValueError):
+            breaker.signal_of("blocked_redirect", captcha_or_consent=flag)
+
+
+def test_other_redirect_pauses_without_putting_the_day_out():
+    state, decisions = _feed(breaker.initial_state(TARGET), [(0, _signal("blocked_redirect"))])
+    assert decisions[-1].action is A.PAUSE and state.day.trips == 1
+    assert not breaker.halted(state) and state.extinguished_days == ()
+    # On a probe it is a failed probe, not a wall.
+    probed, decisions = _feed(state, [(30, _signal("blocked_redirect"))])
+    assert decisions[-1].action is A.PAUSE and probed.day.probe_failures == 1 and not breaker.halted(probed)
+
+
+def test_signals_agree_with_tr02_fetch_statuses():
+    """The seam with TR-02 (batch 1a): the same ten statuses, the same limit and retry classes. It skips until
+    trends/source.py is on the branch, and runs from the integration merge on."""
+    if importlib.util.find_spec("ggwork_pick.observe.trends.source") is None:
+        pytest.skip("TR-02's trends/source.py is not on this branch; the seam is checked after integration")
+    source = importlib.import_module("ggwork_pick.observe.trends.source")
+    assert set(breaker.FETCH_STATUS_SIGNALS) == {status.value for status in source.FetchStatus}
+    by_signal = {signal: {name for name in FETCH_STATUSES if _signal(name) is signal} for signal in S}
+    assert by_signal[S.RATE_LIMITED] | by_signal[S.LIMITED] == {status.value for status in source.LIMIT_SIGNALS}
+    assert by_signal[S.TRANSIENT] == {status.value for status in source.RETRYABLE}
+    assert {status.value for status in source.JUDGEABLE} <= by_signal[S.SUCCESS]
+    assert by_signal[S.WALL] == set()  # a wall needs captcha_or_consent, which TR-02 reports beside the status
 
 
 # ---- 429 and the probe ladder -----------------------------------------------------------------------------------------
@@ -73,7 +120,14 @@ def test_429_zero_requests_30min():
 
 
 def test_probe_ladder():
-    """Each pause of the day is one rung higher: 30, 60, 120 through failed probes, and a later trip carries on to 240."""
+    """Each pause of the day is one rung higher: 30, 60, 120 through failed probes, and a later trip carries on to 240.
+
+    Design 4.3 asks for both "a failed probe pauses 60, 120, then 240 minutes" and "three failed probes put the day out",
+    so failed probes alone never reach 240: the third ends the day first. The reading here (to be confirmed by the user
+    at G2): the rung never goes down within a target date; failed probes count in a row and a good probe clears the
+    count; so 240 comes only from a new trip after a good probe, which carries on from the rung reached instead of
+    starting again at 30. Within one night's window (at most 315 minutes) counting failed probes in a row or per day
+    makes no difference."""
     state, decisions = _feed(
         breaker.initial_state(TARGET),
         [(0, S.LIMITED), (30, S.LIMITED), (90, S.LIMITED), (210, S.SUCCESS), (215, S.LIMITED), (455, S.SUCCESS), (460, S.LIMITED)],
@@ -112,7 +166,7 @@ EXTINGUISH_CASES = {
         "rate_limited",  # also the third trip: the 429 count is checked first
     ),
     "captcha_or_consent": ([(0, S.WALL)], "wall"),
-    "sorry_page": ([(0, breaker.signal_of("blocked_redirect"))], "wall"),
+    "sorry_page": ([(0, breaker.signal_of("blocked_redirect", captcha_or_consent=True))], "wall"),
     "wall_while_probing": ([(0, S.LIMITED), (30, S.WALL)], "wall"),
 }
 
@@ -158,7 +212,7 @@ def test_retry_policy():
         _, decision = breaker.observe(fresh, signal, now=EVENING, rng=rng)
         assert decision.action is A.PAUSE
     # A 5xx or timeout is retried once, 30-60 s later.
-    for signal in (breaker.signal_of("server_error"), breaker.signal_of("timeout")):
+    for signal in (_signal("server_error"), _signal("timeout")):
         once, decision = breaker.observe(fresh, signal, now=EVENING, rng=rng)
         assert decision.action is A.RETRY and not decision.abandon_unit
         assert 30 <= (decision.resume_at - EVENING).total_seconds() <= 60
@@ -294,7 +348,11 @@ def test_rollover_never_goes_back_a_day():
 
 
 def test_budget_reserved_before_send():
-    """The count includes a request before it leaves; a timeout or an unknown result is never given back."""
+    """The count includes a request before it leaves; a timeout or an unknown result is never given back.
+
+    The order (reserve, then send) is asserted here on the reference driver only; the executor's own wiring is pinned
+    by TR-13 test_budget_not_refunded and TR-14's transport-level counts. What this module can promise, and
+    test_no_budget_call_lowers_reserved checks by behaviour, is that none of its calls ever gives a reservation back."""
     seen = []
 
     def responder(ordinal, sent_at, day):
@@ -310,7 +368,37 @@ def test_budget_reserved_before_send():
     reserved = budget.reserve(result.budget, limits)
     restored = budget.BudgetDay.from_dict(json.loads(json.dumps(reserved.to_dict())))
     assert restored.reserved == result.budget.reserved + 1
-    assert not [name for name in dir(budget) if "refund" in name or "release" in name]
+
+
+_BUDGET_SAMPLES = (
+    budget.BudgetDay(TARGET),
+    budget.BudgetDay(TARGET, reserved=41),
+    budget.note_limit(budget.BudgetDay(TARGET, reserved=41), ordinal=7, at=EVENING),
+)
+# Every public call that hands back a BudgetDay, with sample calls. A new one (say an "unreserve" or a "settle") fails
+# the coverage check below until it is listed here, where the monotonic check then catches a refund by what it does,
+# whatever it is called.
+_BUDGET_CALLS = {
+    "for_target_date": lambda day: [budget.for_target_date(day, day.target_date + timedelta(days=n)) for n in (-1, 0, 1)],
+    "reserve": lambda day: [budget.reserve(day, limits) for limits in budget.MODES.values()],
+    "note_limit": lambda day: [budget.note_limit(day, ordinal=day.reserved, at=EVENING)] if day.reserved else [],
+}
+_BUDGET_DECODERS = {"from_dict"}  # builds a day from a stored row; there is no earlier day to compare with
+
+
+def _returns_budget_day(function):
+    return typing.get_type_hints(function).get("return") is budget.BudgetDay
+
+
+def test_no_budget_call_lowers_reserved():
+    public = {name: fn for name, fn in inspect.getmembers(budget, inspect.isfunction) if fn.__module__ == budget.__name__ and not name.startswith("_")}
+    assert all("return" in typing.get_type_hints(fn) for fn in public.values()), "every public budget call declares what it returns"
+    methods = {name for name, fn in inspect.getmembers(budget.BudgetDay, callable) if not name.startswith("_") and _returns_budget_day(fn)}
+    assert {name for name, fn in public.items() if _returns_budget_day(fn)} | methods == set(_BUDGET_CALLS) | _BUDGET_DECODERS
+    for name, call in _BUDGET_CALLS.items():
+        for day in _BUDGET_SAMPLES:
+            for out in call(day):
+                assert out.target_date != day.target_date or out.reserved >= day.reserved, f"{name} gave a reservation back"
 
 
 def test_reserve_stops_at_the_cap():
@@ -321,6 +409,50 @@ def test_reserve_stops_at_the_cap():
     with pytest.raises(budget.BudgetExhausted):
         budget.reserve(last, limits)
     assert day.reserved == 219  # nothing is changed in place
+
+
+AFTER_MIDNIGHT = datetime(2026, 9, 26, 1, 0, tzinfo=UTC)
+
+
+def _stop(reserved, limits, need=2):
+    day = budget.BudgetDay(TARGET, reserved=reserved)
+    return budget.stop_reason(breaker_state=breaker.initial_state(TARGET), day=day, limits=limits, now=AFTER_MIDNIGHT, need=need)
+
+
+def test_canary2_cap_is_the_ceiling_not_the_plan():
+    """Section 9: the cap is the hard ceiling after breaker pauses and retries, not the plan. canary2 plans about 430 and
+    stops at 600; stopping at the plan would cut the units a pause or a retry pushed past 430, against its 95 % freshness
+    with one trip allowed."""
+    limits = budget.mode_limits("canary2")
+    at_plan = budget.BudgetDay(TARGET, reserved=limits.plan)
+    assert budget.reserve(at_plan, limits).reserved == 431
+    assert budget.remaining(at_plan, limits) == 170
+    assert _stop(430, limits) is None and _stop(598, limits) is None
+    assert _stop(599, limits) == budget.TRUNCATED
+    with pytest.raises(budget.BudgetExhausted):
+        budget.reserve(budget.BudgetDay(TARGET, reserved=600), limits)
+    # Halved after two extinguished days in a row: 300 and 300.
+    halved = limits.halved()
+    assert (halved.plan, halved.cap) == (300, 300)
+    assert budget.reserve(budget.BudgetDay(TARGET, reserved=299), halved).reserved == 300
+    assert budget.remaining(budget.BudgetDay(TARGET), halved) == 300 and _stop(299, halved) == budget.TRUNCATED
+    with pytest.raises(budget.BudgetExhausted):
+        budget.reserve(budget.BudgetDay(TARGET, reserved=300), halved)
+
+
+def test_canary2_plan_survives_a_trip_and_a_retry():
+    """The whole canary2 plan, 215 units of 2, with two 5xx retries and one late 429 (a 30-minute pause, its probe, the
+    rest at half speed): more than 430 requests go out, every unit but the tripped one is covered, nothing is truncated.
+    (The 429 comes late on purpose: half speed for the rest of the night after an early one runs into the deadline,
+    which is the window's question, not the budget's.)"""
+    limits = budget.mode_limits("canary2")
+    signals = {20: S.TRANSIENT, 60: S.TRANSIENT, 401: S.RATE_LIMITED}
+    result = sim.run(clock=ManualClock(EVENING), rng=random_source(12), responder=sim.script(signals), units=[2] * 215, limits=limits)
+    tripped = result.sent[400].unit  # ordinal 401
+    assert result.uncovered == ((tripped, budget.SKIPPED_BREAKER),)
+    assert len(result.covered) == 214
+    assert result.budget.reserved == len(result.sent) > limits.plan
+    assert result.sent[-1].done_at < limits.window(TARGET)[1]
 
 
 def test_first_limit_is_kept():
@@ -339,6 +471,24 @@ def test_remaining_marked_skipped_breaker():
     assert result.uncovered == tuple((unit, budget.SKIPPED_BREAKER) for unit in range(3, 10))
     assert result.budget.reserved == 7 and len(result.sent) == 7
     assert result.budget.before_first_limit == 6
+
+
+def test_budget_running_out_mid_unit_truncates():
+    """A retry (or a probe) can spend the budget's last request half-way through a unit that fitted when it started:
+    that unit and every one after it are truncated, and nothing is sent past the cap."""
+    limits = budget.mode_limits("canary1")
+    result = sim.run(
+        clock=ManualClock(EVENING),
+        rng=random_source(2),
+        responder=sim.script({1: S.TRANSIENT}),
+        units=[2, 2, 2],
+        budget_day=budget.BudgetDay(TARGET, reserved=218),
+        limits=limits,
+    )
+    assert [s.signal for s in result.sent] == [S.TRANSIENT, S.SUCCESS]  # the first request and its retry
+    assert result.budget.reserved == limits.cap
+    assert result.covered == ()
+    assert result.uncovered == tuple((unit, budget.TRUNCATED) for unit in range(3))
 
 
 def test_trip_skips_only_its_own_unit():
@@ -481,6 +631,9 @@ def test_budget_day_roundtrips_through_json():
         lambda d: {**d, "day": {**d["day"], "retry_at": "yesterday"}},
         lambda d: {**d, "day": {**d["day"], "retry_at": 1758837600}},
         lambda d: {**d, "day": ["not", "a", "mapping"]},
+        lambda d: {**d, "disabled_on": "2026-W39-5"},  # an ISO week date is ten characters too
+        lambda d: {**d, "disabled_on": "2026-02-30"},  # the right shape, not a day
+        lambda d: {**d, "day": {**d["day"], "target_date": "2026-W39-6"}},
     ],
 )
 def test_breaker_from_dict_refuses_bad_input(mutate):
@@ -496,11 +649,40 @@ def test_breaker_from_dict_refuses_bad_input(mutate):
         lambda d: {**d, "target_date": "2026-9-26"},
         lambda d: {**d, "first_limit_at": "2026-09-25T22:00:00.000000+00:00"},  # a time without its count
         lambda d: {k: v for k, v in d.items() if k != "reserved"},
+        lambda d: {**d, "target_date": "2026-W39-6"},
     ],
 )
 def test_budget_from_dict_refuses_bad_input(mutate):
     with pytest.raises(ValueError):
         budget.BudgetDay.from_dict(mutate(budget.BudgetDay(TARGET, reserved=3).to_dict()))
+
+
+NAIVE = datetime(2026, 9, 25, 22, 0)
+SHANGHAI = timezone(timedelta(hours=8))
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: breaker.BreakerDay(TARGET, paused_until=NAIVE),
+        lambda: breaker.BreakerDay(TARGET, retry_at=NAIVE),
+        lambda: replace(breaker.initial_state(TARGET).day, paused_until=NAIVE),
+        lambda: budget.BudgetDay(TARGET, reserved=1, first_limit_at=NAIVE, before_first_limit=0),
+        lambda: codec.encode_instant(NAIVE),
+    ],
+)
+def test_naive_times_are_refused_when_state_is_built(build):
+    """A naive datetime means whatever the host's zone says: written from a Shanghai laptop, 22:00 would be stored as
+    14:00Z. States refuse one when they are built, and the encoder refuses one too (TR-13 and TR-14 build states)."""
+    with pytest.raises(ValueError):
+        build()
+
+
+def test_aware_times_in_any_zone_are_stored_as_utc():
+    day = breaker.BreakerDay(TARGET, paused_until=datetime(2026, 9, 26, 6, 0, tzinfo=SHANGHAI))
+    assert day.to_dict()["paused_until"] == "2026-09-25T22:00:00.000000+00:00"
+    assert breaker.BreakerDay.from_dict(json.loads(json.dumps(day.to_dict()))) == day
+    assert codec.decode_day("2026-09-26", "d") == TARGET
 
 
 def test_driver_counts_match():

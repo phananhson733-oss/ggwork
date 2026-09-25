@@ -3,8 +3,15 @@
 The driver runs query units through pacing, the breaker and the budget on a ManualClock, in the order TR-14's executor
 must follow for every HTTP request (warm-up, probe and retry included): roll the day over, ask stop_reason before a unit
 starts, wait for both the pacer and the breaker, reserve the budget, send, record the pacing, observe the outcome. A
-fake responder stands in for Google. This is test code; the executor-level wiring test is TR-14's
-(test_transport_level_envelope), which asserts the same envelope on the transport log.
+unit can fit when it starts and still run the budget out half-way (a retry or a probe is one request more): that unit
+and every one after it are truncated. A fake responder stands in for Google. This is test code; the executor-level
+wiring test is TR-14's (test_transport_level_envelope).
+
+Two envelopes (design 4.2), for two kinds of run:
+- assert_envelope_bounds: the upper bounds only, which hold for any run: 429s and pauses, probes, 5xx retries, half
+  speed, units of two or three requests. This is the one TR-14's transport-level test reuses on its transport log.
+- assert_envelope: the bounds plus the exact figures (average rate, the upper ends of the gaps, the rest count), which
+  hold only for full-speed, all-success units (test_pacing_envelope_3h).
 """
 
 import bisect
@@ -90,12 +97,15 @@ def run(
             uncovered = (*uncovered, *_rest(unit, units, reason)) if reason else uncovered
             break
         state, outcome = _unit(state, unit, size, clock=clock, rng=rng, pacer=pacer, responder=responder, limits=limits, until=until, latency=latency)
-        if outcome == "covered":
-            covered = (*covered, unit)
-        elif outcome != "not_started":
-            uncovered = (*uncovered, (unit, outcome))
         if outcome == "not_started":
             break
+        if outcome == budget.TRUNCATED:  # the budget ran out half-way: nothing after this unit can start either
+            uncovered = (*uncovered, *_rest(unit, units, outcome))
+            break
+        if outcome == "covered":
+            covered = (*covered, unit)
+        else:
+            uncovered = (*uncovered, (unit, outcome))
     return SimResult(state.sent, covered, uncovered, state.decisions, state.pacing, state.breaker, state.budget)
 
 
@@ -123,7 +133,10 @@ def _unit(state: _Run, unit: int, size: int, *, clock, rng, pacer, responder, li
             return state, "not_started"
         if limits is not None and clock.now() >= limits.window(state.budget.target_date)[1]:
             return state, budget.DEADLINE_REASON
-        state, decision = _request(state, unit, index, clock=clock, rng=rng, pacer=pacer, responder=responder, limits=limits, latency=latency)
+        try:
+            state, decision = _request(state, unit, index, clock=clock, rng=rng, pacer=pacer, responder=responder, limits=limits, latency=latency)
+        except budget.BudgetExhausted:  # nothing was sent: the reservation comes first
+            return state, budget.TRUNCATED
         if decision.action is breaker.Action.RETRY:
             continue
         if decision.abandon_unit:
@@ -152,6 +165,8 @@ def _request(state: _Run, unit: int, index: int, *, clock, rng, pacer, responder
 MINUTE, HOUR = 60.0, 3600.0
 SEGMENT, REST = 40 * MINUTE, 10 * MINUTE
 UNIT_TAIL = 10.0  # a unit that started inside its segment finishes within this at full speed (3 s gap + 1 s latency)
+# ... and within this in any run: three requests at half speed (6 s gaps), each retried once 30-60 s later, latency.
+MAX_UNIT_TAIL = 240.0
 
 
 def _seconds(later: datetime, earlier: datetime) -> float:
@@ -175,16 +190,31 @@ def _segments(sent: tuple[Sent, ...]) -> list[list[Sent]]:
     return segments
 
 
-def assert_envelope(sent: tuple[Sent, ...], *, span: timedelta, rate: tuple[float, float] = (2.6, 3.2)) -> None:
-    """Design 4.2 on a run of full-speed, all-success units: raises AssertionError when any limit is broken."""
+def assert_envelope_bounds(sent: tuple[Sent, ...], *, tail: float = MAX_UNIT_TAIL) -> None:
+    """Design 4.2's upper bounds, for any run (retries, pauses, probes, half speed, units of any size): at most 12
+    requests in any minute and 200 in any 60 minutes; at least 1.5 s between two requests of one unit and 25 s between
+    units; every unit starts inside its segment's first 40 minutes and a segment ends within `tail` of them, so a rest
+    of 10 minutes or more follows every 40 active minutes. Raises AssertionError when one is broken."""
     times = [s.sent_at for s in sent]
     assert _max_in_window(times, MINUTE) <= 12, f"a minute held {_max_in_window(times, MINUTE)} requests"
     assert _max_in_window(times, HOUR) <= 200, f"an hour held {_max_in_window(times, HOUR)} requests"
-    segments = _segments(sent)
-    for segment in segments:
-        starts = [s for s in segment if s.index == 0]
+    first_of_unit = {s.unit: s for s in reversed(sent)}  # a retry of a unit's first request does not start it again
+    for segment in _segments(sent):
+        starts = [s for s in segment if first_of_unit[s.unit] is s]
         assert all(_seconds(s.sent_at, segment[0].sent_at) < SEGMENT for s in starts), "a unit started after 40 active minutes"
-        assert _seconds(segment[-1].done_at, segment[0].sent_at) <= SEGMENT + UNIT_TAIL, "a segment ran past 40 minutes"
+        assert _seconds(segment[-1].done_at, segment[0].sent_at) <= SEGMENT + tail, "a segment ran past 40 minutes"
+    for previous, current in itertools.pairwise(sent):
+        gap = _seconds(current.sent_at, previous.done_at)
+        least = 1.5 if current.unit == previous.unit else 25.0
+        assert gap >= least, f"{gap:.2f} s between two requests" + (" of one unit" if least == 1.5 else " of two units")
+
+
+def assert_envelope(sent: tuple[Sent, ...], *, span: timedelta, rate: tuple[float, float] = (2.6, 3.2)) -> None:
+    """Design 4.2 exactly, on a run of full-speed, all-success units: the bounds, plus an average of `rate` requests a
+    minute, gaps of at most 3 s inside a unit and 35 s between units (or a rest), and a rest every 50 minutes of `span`.
+    Retries, pauses and half speed break these figures by design; such a run takes assert_envelope_bounds."""
+    assert_envelope_bounds(sent, tail=UNIT_TAIL)
+    segments = _segments(sent)
     assert len(segments) >= int(span.total_seconds() // (SEGMENT + REST)) + 1, "no 10-minute rest after 40 active minutes"
     per_minute = len(sent) / (span.total_seconds() / MINUTE)
     assert rate[0] <= per_minute <= rate[1], f"{per_minute:.2f} requests a minute"

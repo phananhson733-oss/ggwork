@@ -1,7 +1,7 @@
 """The Trends breaker and retry policy (design 4.2 "重试", 4.3; plan TR-03, D23).
 
-A pure state machine. The executor turns each HTTP outcome into a Signal (signal_of maps TR-02's ten fetch statuses)
-and calls observe(), which returns the next state and a Decision:
+A pure state machine. The executor turns each HTTP outcome into a Signal (signal_of maps TR-02's ten fetch statuses
+and its captcha_or_consent flag) and calls observe(), which returns the next state and a Decision:
 
 - CONTINUE: go on with the unit.
 - RETRY: a first 5xx or timeout; send the same request again at resume_at (30-60 s later). Two in a row, with nothing
@@ -13,10 +13,13 @@ and calls observe(), which returns the next state and a Decision:
 - EXTINGUISH: the target date is over; every unit left is skipped_breaker.
 
 Pauses within a target date climb one rung each, never back down: 30, 60, 120, 240, 240... minutes (the persisted
-"熔断级别" is the count of pauses taken). A day is put out by any one of: three failed probes in a row, a third trip,
-a fifth 429, or a single captcha, consent or sorry wall (a redirect to those hosts; one is enough). Everything counts per
-target date, the day of the 02:00 UTC publication the session feeds (D23), so crossing midnight changes nothing; a new
-target date starts every counter afresh and keeps only the history.
+"熔断级别" is the count of pauses taken). Failed probes alone never reach 240, since the third ends the day; a new trip
+after a good probe carries on up the ladder (design 4.3 leaves this open; see test_probe_ladder).
+
+A day is put out by any one of: three failed probes in a row, a third trip, a fifth 429, or a single captcha, consent or
+sorry wall (a redirect to those pages; one is enough). Any other redirect is a limit signal like a 403: a pause, never
+the day. Everything counts per target date, the day of the 02:00 UTC publication the session feeds (D23), so crossing
+midnight changes nothing; a new target date starts every counter afresh and keeps only the history.
 
 Across days: two extinguished target dates in a row halve the next day's cap (budget.day_limits); a third extinguished
 day within seven target dates disables direct access (status code disabled_7d) until an operator clears it
@@ -43,7 +46,9 @@ class Signal(StrEnum):
     NEUTRAL = "neutral"  # 200 but unparsable: no retry and no trip, and never a good probe
 
 
-# TR-02's fetch statuses (design 4.10). A status missing here is refused rather than guessed.
+# TR-02's fetch statuses (design 4.10). A status missing here is refused rather than guessed. A wall is not a status:
+# TR-02 files every redirect on an API path as blocked_redirect and reports beside it whether the redirect went to the
+# sorry or consent page (captcha_or_consent), which is what signal_of turns into WALL.
 FETCH_STATUS_SIGNALS = MappingProxyType(
     {
         "ok": Signal.SUCCESS,
@@ -52,7 +57,7 @@ FETCH_STATUS_SIGNALS = MappingProxyType(
         "rate_limited": Signal.RATE_LIMITED,
         "forbidden": Signal.LIMITED,
         "html_body": Signal.LIMITED,
-        "blocked_redirect": Signal.WALL,  # Location on a sorry or consent host
+        "blocked_redirect": Signal.LIMITED,  # any other redirect: same host, accounts.google.com, ...
         "server_error": Signal.TRANSIENT,
         "timeout": Signal.TRANSIENT,
         "parse_error": Signal.NEUTRAL,
@@ -76,11 +81,17 @@ DISABLED_7D = "disabled_7d"
 STATUS_CODES = (EXTINGUISHED_TODAY, DISABLED_7D)  # contract.STATUS_CODES members, in its order
 
 
-def signal_of(fetch_status: str) -> Signal:
+def signal_of(fetch_status: str, *, captcha_or_consent: bool) -> Signal:
+    """The signal of one HTTP request: TR-02's RequestRecord gives its fetch_status, and captcha_or_consent is whether
+    its redirect_kind is the sorry or consent page. The flag has no default, so no call site can leave it out (as D42
+    does for check_answer). A captcha seen ends the day whatever status came with it."""
+    if type(captcha_or_consent) is not bool:
+        raise ValueError("captcha_or_consent must be a bool")
     try:
-        return FETCH_STATUS_SIGNALS[fetch_status]
+        signal = FETCH_STATUS_SIGNALS[fetch_status]
     except KeyError:
         raise ValueError(f"unknown fetch status; expected one of {sorted(FETCH_STATUS_SIGNALS)}") from None
+    return Signal.WALL if captcha_or_consent else signal
 
 
 class Action(StrEnum):
@@ -121,6 +132,9 @@ class BreakerDay:
     retry_at: datetime | None = None
     half_speed: bool = False
     extinguished: ExtinguishReason | None = None
+
+    def __post_init__(self):
+        codec.aware_or_none((self.paused_until, self.retry_at), "breaker day times")
 
     def to_dict(self) -> dict[str, Any]:
         return {

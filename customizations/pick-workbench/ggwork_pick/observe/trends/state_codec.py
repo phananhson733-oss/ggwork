@@ -4,12 +4,18 @@ pacing, breaker and budget keep immutable dataclasses; the persisted form (TR-04
 budget rows) is a dict of JSON scalars. Reading one back is strict: exact keys, exact types (a bool is not a count, a
 float is not an int), aware instants only. Anything else raises ValueError, which the state stores turn into
 StateUnavailable: a state that cannot be read never starts the day afresh (design 4.3).
+
+Writing is as strict: the states refuse a naive datetime when they are built (aware_or_none in __post_init__), and
+encode_instant refuses one too, because its meaning depends on the host's zone.
 """
 
 import math
-from collections.abc import Mapping
+import re
+from collections.abc import Iterable, Mapping
 from datetime import UTC, date, datetime
 from typing import Any
+
+_ISO_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")  # fromisoformat alone also takes an ISO week date, 2026-W39-5
 
 
 def require_aware(value: datetime, name: str) -> datetime:
@@ -19,9 +25,16 @@ def require_aware(value: datetime, name: str) -> datetime:
     return value.astimezone(UTC)
 
 
+def aware_or_none(values: Iterable[datetime | None], name: str) -> None:
+    """For a state's __post_init__: every one of `values` is None or timezone-aware."""
+    for value in values:
+        if value is not None:
+            require_aware(value, name)
+
+
 def encode_instant(value: datetime | None) -> str | None:
     """repository.stamp()'s shape (UTC, always six fractional digits), without importing the database layer."""
-    return None if value is None else value.astimezone(UTC).isoformat(timespec="microseconds")
+    return None if value is None else require_aware(value, "instant").isoformat(timespec="microseconds")
 
 
 def decode_instant(value: Any, name: str) -> datetime | None:
@@ -43,7 +56,7 @@ def encode_day(value: date | None) -> str | None:
 def decode_day(value: Any, name: str) -> date | None:
     if value is None:
         return None
-    if not isinstance(value, str) or len(value) != 10:
+    if not isinstance(value, str) or not _ISO_DAY.fullmatch(value):
         raise ValueError(f"{name} must be a YYYY-MM-DD date or null")
     try:
         return date.fromisoformat(value)

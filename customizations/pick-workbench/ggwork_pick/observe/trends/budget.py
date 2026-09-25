@@ -119,6 +119,9 @@ class BudgetDay:
     first_limit_at: datetime | None = None  # when the day's first limit signal was sent
     before_first_limit: int | None = None  # requests the day sent before it (design 4.2: which quota mechanism)
 
+    def __post_init__(self):
+        codec.aware_or_none((self.first_limit_at,), "first_limit_at")
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "target_date": codec.encode_day(self.target_date),
