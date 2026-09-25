@@ -1,0 +1,109 @@
+"""`python -m ggwork_pick.observe.trends [run|status] [--selfcheck-only]`: the pick-obs-trends cron (plan TR-14, TR-15).
+
+The command line, `status`, `--selfcheck-only` and the exit statuses are observe.cron's, shared with the gsc cron. What
+is the trends channel's own:
+
+- `run` (the default): one trigger of the nightly session (run.py). The cron fires every 30 minutes from 20:00 to 01:30
+  UTC; a trigger before the mode's start or after the 01:45 deadline does nothing and exits 0.
+- the configuration, checked before anything is read or sent by a run and by `--selfcheck-only` alike, a bad one
+  exiting 2: the mode and the other settings (settings.py), the canary's control list (canary.py; the default is the
+  package's trends/canary_controls.json, with a market series for every geo the canary queries), the state key
+  (crypto.load_cipher) and the egress echo URL (egress.py, off unless set). The stable mode's task source is TR-18's
+  WatchTaskSource: until it is registered here, stable is refused.
+"""
+
+import asyncio
+import logging
+import random
+import sys
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TextIO
+
+import httpx
+
+from ggwork_pick.observe.clock import Clock, SystemClock, random_source
+from ggwork_pick.observe.cron import SELFCHECK_VARIABLES, CronEntry, cron_main
+from ggwork_pick.observe.crypto import KEY_FILE_VARIABLE, KEY_VARIABLE, StateCipher, load_cipher
+from ggwork_pick.observe.errors import Refused
+from ggwork_pick.observe.trends import pacing
+from ggwork_pick.observe.trends.canary import CanaryTaskSource, load_controls
+from ggwork_pick.observe.trends.egress import ECHO_ENV, egress_from_env
+from ggwork_pick.observe.trends.run import TRENDS, TaskSource, Wiring, run_trends
+from ggwork_pick.observe.trends.settings import VARIABLES, Settings, settings_from
+
+PROG = "python -m ggwork_pick.observe.trends"
+DESCRIPTION = "选剧观测雷达的 Trends 采集（pick-obs-trends cron）"
+TRENDS_VARIABLES = frozenset({*SELFCHECK_VARIABLES, *VARIABLES, KEY_VARIABLE, KEY_FILE_VARIABLE, ECHO_ENV})
+
+
+def source_for(settings: Settings, controls_path: Path | None) -> TaskSource:
+    """The mode's task source: the canary's control list and fresh titles; stable waits for TR-18."""
+    if settings.canary:
+        return CanaryTaskSource(load_controls(controls_path), granularities=settings.granularities, related=settings.related)
+    raise Refused("stable 模式的任务来源是 TR-18 的 WatchTaskSource，尚未接入：金丝雀结束、TR-18 部署之后再切 stable（计划第 9 节）")
+
+
+@dataclass(frozen=True)
+class Configured:
+    settings: Settings
+    source: TaskSource
+    cipher: StateCipher
+
+
+def configured(environ: Mapping[str, str], controls_path: Path | None) -> Configured:
+    """The session's configuration, each part checked; Refused (exit 2) without echoing a value."""
+    settings = settings_from(environ)
+    return Configured(settings, source_for(settings, controls_path), load_cipher(environ))
+
+
+@dataclass(frozen=True)
+class TrendsCron:
+    """The trends entry's parts, injectable (tests pass a ManualClock, a MockTransport, a no-op pacer)."""
+
+    clock: Clock
+    rng: random.Random
+    transport: httpx.AsyncBaseTransport | None
+    pacer: pacing.Pacer | None
+    controls_path: Path | None
+
+    async def check(self, environ: Mapping[str, str]) -> None:
+        configured(environ, self.controls_path)
+        async with egress_from_env(environ, clock=self.clock):  # the URL is checked; nothing is sent
+            pass
+
+    async def run(self, environ: Mapping[str, str]) -> int:
+        config = configured(environ, self.controls_path)
+        async with egress_from_env(environ, clock=self.clock) as egress:
+            wiring = Wiring(clock=self.clock, rng=self.rng, transport=self.transport, pacer=self.pacer, egress=egress if egress.enabled else None)
+            return int(await run_trends(config.settings, config.source, cipher=config.cipher, environ=environ, wiring=wiring))
+
+    def entry(self) -> CronEntry:
+        return CronEntry(TRENDS, PROG, DESCRIPTION, TRENDS_VARIABLES, self.check, self.run)
+
+
+async def amain(
+    argv: Sequence[str],
+    *,
+    environ: Mapping[str, str] | None = None,
+    clock: Clock | None = None,
+    rng: random.Random | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
+    pacer: pacing.Pacer | None = None,
+    controls_path: Path | None = None,
+    out: TextIO | None = None,
+    err: TextIO | None = None,
+) -> int:
+    """The entry point with its parts injectable."""
+    cron = TrendsCron(clock or SystemClock(), rng or random_source(), transport, pacer, controls_path)
+    return await cron_main(cron.entry(), argv, environ=environ, out=out, err=err)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s", stream=sys.stderr)
+    return asyncio.run(amain(sys.argv[1:] if argv is None else argv))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
