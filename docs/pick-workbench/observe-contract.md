@@ -234,6 +234,7 @@ TR-27 用 `PickConditionsObs(PickConditions, ObsConditionFields)` 把七个字�
 | `granularity` | `GRANULARITIES` 之一 | 阶段 0 选定的颗粒度 |
 | `target_date` | 日期 | 目标发布日（D23） |
 | `window_end` | 时间戳 | 批次创建时算好的窗口终点 |
+| `lapsed_confirmations` | 行 id 列表 | 已失效的对应确认（D24）：决定 id 升序、不重复、都不大于 `decisions_version`。上一个 Trends 集合冻结的这一列，加上自那次读冻结输入以来各共享剧库批次里平台或规范化标题变了、身份不在批次里、批次行已清理无从核对的确认；只留仍是该身份最近一次确认的 id。进了这一列的确认永久失效，改回原值也不恢复，只有新的确认能恢复（第 12 节） |
 
 #### `FrozenInputsGsc`
 
@@ -329,7 +330,7 @@ TR-27 用 `PickConditionsObs(PickConditions, ObsConditionFields)` 把七个字�
 | `admission` | `ADMISSIONS` 之一或 null | GSC 两层准入的结果，GSC 必填 |
 | `labels` | `LabelHit` 列表 | GSC 命中的标签；Trends 为空列表 |
 | `tier` | `TIERS` 之一或 null | Trends 必填 |
-| `correspondence` | `CORRESPONDENCES` 之一或 null | Trends 必填，冻结时按 decisions_version 的有效状态写；GSC 为 null（页面归属由 URL 决定） |
+| `correspondence` | `CORRESPONDENCES` 之一或 null | Trends 必填，冻结时按 decisions_version 的有效状态与 `lapsed_confirmations` 写；GSC 为 null（页面归属由 URL 决定） |
 | `id_evidence` | `ID_EVIDENCE_LEVELS` 之一或 null | Trends 必填 |
 | `ambiguity` | `AMBIGUITIES` 之一或 null | Trends 必填 |
 | `flags` | 标记列表 | Trends 取 `TRENDS_FLAGS`，GSC 取 `GSC_FLAGS` |
@@ -872,7 +873,7 @@ withheld 指跑完但没有发布（例如 A 档覆盖率不足 80%，上一个�
 
 ## 12. 人工决定（D12、D24）
 
-`POST /api/pick/obs/decisions` 的请求体，按 `kind` 区分九种，写进追加式表 `ggwp_obs_decisions`（TR-25）。操作人来自认证，不在请求体里；缺失或为 default 就拒绝。TR-35 的 `effective(decisions, upto_id)` 按 id 顺序应用，后者覆盖前者。每种都带 `kind`、`request_id`（1 到 128 字）与可选的 `note`（最多 500 字）。
+`POST /api/pick/obs/decisions` 的请求体，按 `kind` 区分九种，写进追加式表 `ggwp_obs_decisions`（TR-25）。操作人来自认证，不在请求体里；缺失或为 default 就拒绝。TR-35 的 `effective(decisions, upto_id)` 按 id 顺序应用，后者覆盖前者。对应确认是否失效另由 Trends 集合冻结的 `lapsed_confirmations` 决定（第 5 节）；手动配对把旧身份的确认直接清掉，之后配回也不恢复。每种都带 `kind`、`request_id`（1 到 128 字）与可选的 `note`（最多 500 字）。
 
 #### `AliasConfirm`
 
@@ -910,8 +911,8 @@ withheld 指跑完但没有发布（例如 A 档覆盖率不足 80%，上一个�
 | `request_id` | 字符串 | 请求编号 |
 | `note` | 字符串 | 备注 |
 | `identity` | 身份 | 确认的身份 |
-| `platform` | 字符串 | 确认时的平台 |
-| `normalized_title` | 字符串 | 确认时的规范化标题；平台或标题变了、经别名换了身份，确认失效 |
+| `platform` | 字符串 | 确认时的平台，至少 1 个字：平台为空的行不可确认 |
+| `normalized_title` | 字符串 | 确认时的规范化标题；此后平台或标题变过、经别名换过身份，确认永久失效，改回也不恢复，只有新的确认能恢复 |
 
 #### `CorrespondenceRevoke`
 
@@ -1085,3 +1086,7 @@ withheld 指跑完但没有发布（例如 A 档覆盖率不足 80%，上一个�
 22. **视图行的整行校验**：`VIEW_ROW_MODELS` 用存储行模型、`FrozenInputs`、`SetSummary` 与枚举校验整行，sets 行与冻结输入一致（第 11 节）。
 
 第 11 至 22 条随本次修复提交 G1 确认。
+
+23. **对应确认的失效要冻结**（G3 评审 P2-2）：D24 写的是改标题、改平台、经别名换身份后确认失效；只比较当前批次与确认时的键，会让标题 A→B→A 自动恢复确认。共享剧库批次两三天就清理明细，内容相同的批次还会以新的 published_at 重新发布，从批次表回看不出确认之后发生过什么。所以失效是 Trends 集合之间传递的一份累积：`FrozenInputsTrends.lapsed_confirmations`（第 5 节），GSC 不判对应，不带这一列。
+
+第 23 条随 G3 修复提交。

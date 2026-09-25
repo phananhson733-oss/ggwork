@@ -155,8 +155,14 @@
 - **TR-18（观察清单、歧义、别名）**
   - 人工加入、暂停、歧义改判都记在写入时的身份上，不跟别名走。要不要沿集合冻结的别名版本映射，由 TR-18 定；如果映射，清单按映射后的结果去重。网关按原始条目计数，只会比映射后的多，所以不会让生效条目超过 50。
   - 歧义改判不随标题失效：改名以后，原来的 clear 仍然有效。如果改名后要重新判定，由 TR-18 在拿得到批次历史的地方处理。
-  - 对应确认只比较当前批次的（平台、规范化标题）与最近一次确认的键，不看中间的批次，所以标题改回旧值、别名换回旧身份，确认都会恢复。如果要更严格（改过一次就永久失效），需要把批次历史作为输入，要在 G 节点提出。
+  - 对应确认的键函数：提供一个 `key_of(payload) -> CorrespondenceKey | None`，把共享剧库里一行剧目变成（平台、规范化标题）。判定行的 theater、normalized_title 与下面 TR-20 的 `read_sightings` 必须用同一个函数，否则同一部剧在两边的键对不上，会被当成改了标题而失效。
+- **G3 修订（评审 P2-2，D24）：对应确认的失效是冻结的累积，改回不恢复**
+  - 原来只比较当前批次的键与最近一次确认，标题 A→B→A、别名换走再换回，确认都会自动恢复，违反 D24。共享剧库批次两三天就清理明细（`KEEP_BATCHES=3`，一天两次拉取），内容相同的批次还会以新的 `published_at` 重新发布，所以不能在需要时再回看批次表；失效要在看到的当时记下来，逐个集合往下传。
+  - 纯函数：`EffectiveDecisions.correspondence(identity, platform, normalized_title, *, lapsed)` 多了必填的 `lapsed`；`lapse(state, lapsed, sightings)` 返回新的失效集合（只留仍是该身份最近一次确认的决定 id）；手动配对 `alias_pair` 直接清掉旧身份的确认。读取：`catalog_history.read_sightings(conn, identities, *, upto, after, key_of)`，只读，两种库。合同：`FrozenInputsTrends.lapsed_confirmations`（必填，升序，不大于 `decisions_version`；GSC 没有这一列）。
+  - **TR-20 接线**（会话开头，与读冻结输入同一步）：`state = effective(await read_decisions(step, k), k)`；取最新一个已发布的 Trends 集合（不分 mode），它的 `frozen_inputs.lapsed_confirmations` 作 `lapsed`，它所在会话批次的 `ggwp_obs_batches.started_at` 作 `after`（发布事务先盖 `published_at` 再提交，可往前留几分钟余量，多读一个旧批次只会更保守）；没有上一个集合时 `lapsed=[]`、`after=None`。`sightings = await read_sightings(step, state.correspondences, upto=source_catalog_batch_id, after=after, key_of=TR-18 的函数)`，`frozen = sorted(lapse(state, lapsed, sightings))` 冻结进 `lapsed_confirmations`；判定行写 `state.correspondence(identity, theater, normalized_title, lapsed=frozen)`。午夜后续跑沿用已冻结的值，不重算。
+  - TR-20 的测试：连续三个模拟日标题 A→B→A，第三天仍是 unconfirmed，新确认后恢复；复用批次（A 重新发布）与清理批次各一例；一个会话没发布集合时，下一个会话从上一个已发布集合接着累加。
+  - 取舍：清理掉的批次一律按「核对不了」处理，让它能反驳的确认全部失效。Trends 连续多天不发布集合、窗口里出现已清理的批次时，所有确认都要重新点一次；换来的是不会有确认在看不到的变化之后被当成仍然有效。
 - **D43 的别名刷新**（TR-18 的 `alias.refresh()`，TR-23b 接线）：`alias_verdicts` 是 `{alias_id: AliasMark(decision_id, verdict)}`，`alias_pairs` 是 `{old_identity: PairMark(decision_id, new_identity)}`。跨种类按 `decision_id` 重放，后者覆盖前者。例如先手动配对 SLUG→X、后确认建议 SLUG→Y，应以后者为准，而不是当成多对多一起拒掉。
 - **TR-33 或 G 节点（合同）**
-  - `CorrespondenceConfirm.platform` 至少 1 个字，而 `DramaInput.theater` 默认是空串、`StateRow.theater` 允许空串，所以平台为空的 Trends 行永远确认不了，只能停在 unconfirmed，进不了正式推荐。要么合同放宽，要么在合同文档里写明「平台为空不可确认」。
+  - （G3 已定）`CorrespondenceConfirm.platform` 至少 1 个字，不放宽：平台为空的 Trends 行确认不了，只能停在 unconfirmed。合同文档已写明；页面怎么提示见 decisions.md（TR-24、TR-25 不要给这种行确认按钮）。
   - 合同的 `MAX_ROW_ID` 是 2^63−1，0007 的 id 列却是 Integer（PG 上是 int4）。`read_decisions` 已改为按 bigint 绑定 `upto_id`；其他拿决定里的 `alias_id`、`alert_id` 去比 int4 列的查询，也要按 bigint 绑定或先限幅，否则超过 2^31−1 的值会让 asyncpg 抛 DataError，报错里还带着这个值。

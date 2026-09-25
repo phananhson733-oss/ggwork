@@ -469,6 +469,19 @@ class FrozenInputsTrends(_FrozenInputsBase):
     granularity: Granularity
     target_date: Day
     window_end: Stamp
+    # D24 (G3): the correspondence confirmations lapsed by what the shared batches showed since they were made, carried
+    # from set to set (decisions_state.lapse); decision ids, increasing, none above decisions_version.
+    lapsed_confirmations: list[RowId]
+
+    @model_validator(mode="after")
+    def _lapses(self):
+        ids = self.lapsed_confirmations
+        checks = (
+            (all(a < b for a, b in zip(ids, ids[1:], strict=False)), "lapsed_confirmations 按决定 id 升序、不重复"),
+            (all(value <= self.decisions_version for value in ids), "lapsed_confirmations 的决定 id 不大于 decisions_version"),
+        )
+        refuse("obs_frozen_inputs", first_problem(checks))
+        return self
 
 
 class FrozenInputsGsc(_FrozenInputsBase):
