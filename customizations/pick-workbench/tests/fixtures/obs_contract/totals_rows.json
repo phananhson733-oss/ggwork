@@ -1,0 +1,268 @@
+{
+  "about": [
+    "One site total (ggwp_gsc_totals, D27): A and A' per hour (hourly_all), A''a and A''f per PT date (all, final).",
+    "A PT date final has no row for yet is null counts with request_status fetched: 无行, never 0.",
+    "A failed or unsupported request has null counts: a failure never yields numbers."
+  ],
+  "model": "TotalsRow",
+  "valid": [
+    {
+      "name": "a_hour",
+      "value": {
+        "id": 9001,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a",
+        "data_state": "hourly_all",
+        "hour": "2026-09-24T17:00:00.000000+00:00",
+        "pt_date": null,
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "fetched",
+        "watermark": "2026-09-24T11:00:00-07:00",
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a_prime_hour",
+      "value": {
+        "id": 9003,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a_prime",
+        "data_state": "hourly_all",
+        "hour": "2026-09-24T17:00:00.000000+00:00",
+        "pt_date": null,
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "fetched",
+        "watermark": "2026-09-24T11:00:00-07:00",
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a_prime_unsupported",
+      "value": {
+        "id": 9006,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a_prime",
+        "data_state": "hourly_all",
+        "hour": "2026-09-24T17:00:00.000000+00:00",
+        "pt_date": null,
+        "impressions": null,
+        "clicks": null,
+        "request_status": "unsupported",
+        "watermark": null,
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a2_all_day",
+      "value": {
+        "id": 9004,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a2_all",
+        "data_state": "all",
+        "hour": null,
+        "pt_date": "2026-09-19",
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "fetched",
+        "watermark": null,
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a2_final_day",
+      "value": {
+        "id": 9005,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a2_final",
+        "data_state": "final",
+        "hour": null,
+        "pt_date": "2026-09-19",
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "fetched",
+        "watermark": null,
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a2_final_no_row_yet",
+      "value": {
+        "id": 9005,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a2_final",
+        "data_state": "final",
+        "hour": null,
+        "pt_date": "2026-09-23",
+        "impressions": null,
+        "clicks": null,
+        "request_status": "fetched",
+        "watermark": null,
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a_failed",
+      "value": {
+        "id": 9002,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a",
+        "data_state": "hourly_all",
+        "hour": "2026-09-24T17:00:00.000000+00:00",
+        "pt_date": null,
+        "impressions": null,
+        "clicks": null,
+        "request_status": "failed",
+        "watermark": null,
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "a_with_date",
+      "why": "A is per hour",
+      "error": {"type": "obs_totals_row", "msg": "a 按 hour 记"},
+      "value": {
+        "id": 9001,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a",
+        "data_state": "hourly_all",
+        "hour": null,
+        "pt_date": "2026-09-24",
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "fetched",
+        "watermark": "2026-09-24T11:00:00-07:00",
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a2_with_hour",
+      "why": "A'' is per PT date",
+      "error": {"type": "obs_totals_row", "msg": "a2_final 按 pt_date 记"},
+      "value": {
+        "id": 9005,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a2_final",
+        "data_state": "final",
+        "hour": "2026-09-24T17:00:00.000000+00:00",
+        "pt_date": "2026-09-19",
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "fetched",
+        "watermark": null,
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a2_final_all_state",
+      "why": "A''f is final",
+      "error": {"type": "obs_totals_row", "msg": "a2_final 的 dataState 是 final"},
+      "value": {
+        "id": 9005,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a2_final",
+        "data_state": "all",
+        "hour": null,
+        "pt_date": "2026-09-19",
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "fetched",
+        "watermark": null,
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a_daily_state",
+      "why": "A is hourly_all",
+      "error": {"type": "obs_totals_row", "msg": "a 的 dataState 是 hourly_all"},
+      "value": {
+        "id": 9001,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a",
+        "data_state": "all",
+        "hour": "2026-09-24T17:00:00.000000+00:00",
+        "pt_date": null,
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "fetched",
+        "watermark": "2026-09-24T11:00:00-07:00",
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "half_null",
+      "why": "impressions and clicks are null together",
+      "error": {"type": "obs_totals_row", "msg": "曝光与点击同时为空"},
+      "value": {
+        "id": 9001,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a",
+        "data_state": "hourly_all",
+        "hour": "2026-09-24T17:00:00.000000+00:00",
+        "pt_date": null,
+        "impressions": 5120,
+        "clicks": null,
+        "request_status": "fetched",
+        "watermark": "2026-09-24T11:00:00-07:00",
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "unknown_kind",
+      "why": "a, a_prime, a2_all or a2_final",
+      "error": {"type": "literal_error", "loc": "kind"},
+      "value": {
+        "id": 9001,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "c",
+        "data_state": "hourly_all",
+        "hour": "2026-09-24T17:00:00.000000+00:00",
+        "pt_date": null,
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "fetched",
+        "watermark": "2026-09-24T11:00:00-07:00",
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a_failed_with_counts",
+      "why": "a failed request yields no numbers (premise 1)",
+      "error": {"type": "obs_totals_row", "msg": "失败或不支持的请求没有数值，计数为空"},
+      "value": {
+        "id": 9001,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a",
+        "data_state": "hourly_all",
+        "hour": "2026-09-24T17:00:00.000000+00:00",
+        "pt_date": null,
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "failed",
+        "watermark": "2026-09-24T11:00:00-07:00",
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "name": "a_prime_unsupported_with_counts",
+      "why": "an unsupported request yields no numbers",
+      "error": {"type": "obs_totals_row", "msg": "失败或不支持的请求没有数值，计数为空"},
+      "value": {
+        "id": 9003,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "kind": "a_prime",
+        "data_state": "hourly_all",
+        "hour": "2026-09-24T17:00:00.000000+00:00",
+        "pt_date": null,
+        "impressions": 5120,
+        "clicks": 188,
+        "request_status": "unsupported",
+        "watermark": "2026-09-24T11:00:00-07:00",
+        "fetched_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    }
+  ]
+}

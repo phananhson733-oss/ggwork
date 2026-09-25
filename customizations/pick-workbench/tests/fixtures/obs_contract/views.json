@@ -1,0 +1,1912 @@
+{
+  "about": [
+    "The eight pick_obs views (design 3.4, 3.6; TR-11 creates them, TR-24 reads them). Column types are contract types;",
+    "TR-11 checks them against information_schema through VIEW_PG_TYPES. Runtime tables (cookie jar, request log, lease) never appear.",
+    "Each valid row is what the reader role sees; invalid rows break one column's contract.",
+    "Text columns naming an enum take its values; states, links and alerts rows are StateRow, LinkRow and AlertRow; a sets row's",
+    "frozen_inputs and summary are FrozenInputs and SetSummary and agree with its columns. unknown_view is a view that does not exist."
+  ],
+  "valid": [
+    {
+      "view": "sets",
+      "name": "sets_trends",
+      "row": {
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T17:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "trend-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "round_id": null,
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "trends",
+          "rules": [
+            {
+              "version": "trend-rules-v1",
+              "params": {
+                "window_hours": 144,
+                "lag_hours": 3,
+                "rise_ratio": 1.5,
+                "control_ratio": 1.2,
+                "base_nonzero_min": 3,
+                "recent_nonzero_min": 12
+              }
+            },
+            {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+          ],
+          "granularity": "H",
+          "target_date": "2026-09-25",
+          "window_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "summary": {
+          "channel": "trends",
+          "planned_units": 427,
+          "fetched_units": 404,
+          "uncovered_units": [
+            {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+          ],
+          "a_tier_coverage": 0.96,
+          "breaker_events": 1,
+          "all_zero_rate": 0.41,
+          "user_types": ["USER_TYPE_LEGIT_USER"],
+          "ambiguous_undecided": 9,
+          "carried_over": 4,
+          "stale": 0,
+          "rule4_no_data": false,
+          "status_codes": ["shadow_mode"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_gsc",
+      "row": {
+        "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "channel": "gsc",
+        "mode": "shadow",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T18:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "gsc-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": null,
+        "window_end": null,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "gsc",
+          "rules": [
+            {
+              "version": "gsc-rules-v1",
+              "params": {
+                "tau": 0.05,
+                "surge_abs": 2000,
+                "surge_rel": 0.5,
+                "formal_base_min": 20,
+                "rising_7d_min": 100,
+                "rising_7d_ratio": 1.5,
+                "rising_7d_delta": 30,
+                "consistency_rel": 0.1,
+                "consistency_abs": 3,
+                "bh_q": 0.1
+              }
+            }
+          ],
+          "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+          "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+          "mirror_version": 12,
+          "slices": [
+            {
+              "dataset": "C",
+              "pt_date": "2026-09-24",
+              "version_id": 3301,
+              "shape": "whole",
+              "status": "fetched",
+              "stale": false,
+              "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+              "first_incomplete_date": null,
+              "usable_until": "2026-09-24T18:00:00.000000+00:00",
+              "watermark_absent": false
+            },
+            {
+              "dataset": "E",
+              "pt_date": "2026-09-20",
+              "version_id": 3120,
+              "shape": "whole",
+              "status": "fetched",
+              "stale": false,
+              "first_incomplete_hour": null,
+              "first_incomplete_date": null,
+              "usable_until": "2026-09-21T07:00:00.000000+00:00",
+              "watermark_absent": false
+            }
+          ],
+          "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+        },
+        "summary": {
+          "channel": "gsc",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00",
+          "cutoff_carried": false,
+          "formal_24h_window": true,
+          "layers": [
+            {
+              "metric": "impressions",
+              "received": 88000,
+              "attributed": 61000,
+              "unattributed": {
+                "legacy_unmapped": 900,
+                "delisted": 3100,
+                "noncanonical": 120,
+                "locale_mismatch": 40,
+                "site_level": 17000,
+                "editorial": 800,
+                "offsite": 0,
+                "blog": 5040
+              },
+              "site_total": 91500,
+              "detail_gap": 3500
+            },
+            {
+              "metric": "clicks",
+              "received": 3400,
+              "attributed": 2100,
+              "unattributed": {
+                "legacy_unmapped": 30,
+                "delisted": 110,
+                "noncanonical": 4,
+                "locale_mismatch": 1,
+                "site_level": 1000,
+                "editorial": 20,
+                "offsite": 0,
+                "blog": 135
+              },
+              "site_total": 3550,
+              "detail_gap": 150
+            }
+          ],
+          "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+          "site_admission_24h": "usable",
+          "site_admission_7d": "unverifiable",
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+          "requests": 57,
+          "quota_errors": 0,
+          "status_codes": ["gsc_unverifiable"]
+        }
+      }
+    },
+    {
+      "view": "states",
+      "name": "states_trends",
+      "row": {
+        "row_id": 41,
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "title": "The Alpha's Bride",
+        "language": "en",
+        "theater": "ReelShort",
+        "scope": "US",
+        "window_kind": "H",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "labels": [],
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false,
+        "window_end": "2026-09-24T20:00:00.000000+00:00",
+        "latest_block_end": "2026-09-24T17:00:00.000000+00:00",
+        "metrics": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9, "r_control": 1.1},
+        "quality_note": null,
+        "paste_row": null,
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "states",
+      "name": "states_gsc",
+      "row": {
+        "row_id": 907,
+        "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "channel": "gsc",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "title": "The Alpha's Bride",
+        "language": "en",
+        "theater": "ReelShort",
+        "scope": "USA",
+        "window_kind": "24h",
+        "state": "surge",
+        "confirmation": null,
+        "admission": "formal",
+        "labels": [{"label": "surge", "formal": true, "condition": "W0 对 W−1 ≥ +50%，W−1 ≥ 20", "counts": {"w0": 325, "w_minus_1": 82}}],
+        "tier": null,
+        "correspondence": null,
+        "id_evidence": null,
+        "ambiguity": null,
+        "flags": [],
+        "carried_over": false,
+        "stale": false,
+        "window_end": "2026-09-24T18:00:00.000000+00:00",
+        "latest_block_end": null,
+        "metrics": {"x_det": 318, "x_flt": 325, "w_minus_1": 82},
+        "quality_note": null,
+        "paste_row": {
+          "title": "The Alpha's Bride",
+          "url": "https://dramashortstv.com/en/drama/the-alphas-bride-650a1b2c3d4e5f6a7b8c9d0e",
+          "impressions": 325,
+          "clicks": 19,
+          "window_kind": "24h",
+          "top_query": "the alpha's bride full movie",
+          "verified_on": "2026-09-25",
+          "note": "gsc-rules-v1；Trends US 上升（已确认）"
+        },
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "view": "links",
+      "name": "links",
+      "row": {
+        "country": "USA",
+        "trends_geo": "US",
+        "label": "both_rising",
+        "trends_row_id": 41,
+        "gsc_row_id": 907,
+        "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+        "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+        "pair_gap_minutes": 60,
+        "timely": true,
+        "published_gap_minutes": 99,
+        "stale": false,
+        "id": 71,
+        "link_rules_version": "link-rules-v1",
+        "trends_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "gsc_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "view": "discoveries",
+      "name": "discoveries_unique",
+      "row": {
+        "discovery_id": 12,
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "mode": "live",
+        "geo": "WW",
+        "seed": "reelshort",
+        "property": "web",
+        "term": "reelshort the alpha's bride",
+        "normalized_term": "the alpha's bride",
+        "language": "en",
+        "match_status": "unique",
+        "route": "a_tier",
+        "matched_identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "breakout": false,
+        "first_seen_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "discoveries",
+      "name": "discoveries_out_of_pool",
+      "row": {
+        "discovery_id": 12,
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "mode": "live",
+        "geo": "WW",
+        "seed": "reelshort",
+        "property": "web",
+        "term": "reelshort the alpha's bride",
+        "normalized_term": "the alpha's bride",
+        "language": null,
+        "match_status": "out_of_pool",
+        "route": "display_only",
+        "matched_identity": null,
+        "breakout": false,
+        "first_seen_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "alias_queue",
+      "name": "alias_queue",
+      "row": {
+        "alias_id": 5,
+        "alias_version": 4,
+        "old_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "new_identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "status": "suggested",
+        "platform": "KalosTV",
+        "language": "en",
+        "old_title": "The Alpha's Bride",
+        "new_title": "The Alpha's Bride (Dubbed)",
+        "evidence": {"rule": "same platform, title, language"},
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "view": "confirm_queue",
+      "name": "confirm_queue",
+      "row": {
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "title": "The Alpha's Bride",
+        "platform": "ReelShort",
+        "normalized_title": "the alpha's bride",
+        "language": "en",
+        "geo": "US",
+        "state": "rising",
+        "confirmation": "first",
+        "id_evidence": "medium",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "mode": "live",
+        "since": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "alerts",
+      "name": "alerts",
+      "row": {
+        "id": 88,
+        "mode": "live",
+        "channel": "trends",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "state_row_id": 41,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "rising_first",
+        "scope": "US",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"trends\",\"rising_first\",\"US\",\"live\"]",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "run_status",
+      "name": "run_status_gsc",
+      "row": {
+        "channel": "gsc",
+        "batch_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "mode": "shadow",
+        "target_date": null,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "started_at": "2026-09-25T03:25:04.000000+00:00",
+        "finished_at": "2026-09-25T03:31:40.000000+00:00",
+        "outcome": "published",
+        "requests": 57,
+        "published_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "status_codes": ["shadow_mode"]
+      }
+    },
+    {
+      "view": "run_status",
+      "name": "run_status_trends",
+      "row": {
+        "channel": "trends",
+        "batch_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "mode": "shadow",
+        "target_date": "2026-09-25",
+        "round_id": null,
+        "started_at": "2026-09-25T03:25:04.000000+00:00",
+        "finished_at": null,
+        "outcome": "running",
+        "requests": 57,
+        "published_set_id": null,
+        "status_codes": []
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "view": "sets",
+      "name": "sets_missing_column",
+      "why": "every column is present",
+      "error": {"type": "missing", "loc": "summary"},
+      "row": {
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T17:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "trend-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "round_id": null,
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "trends",
+          "rules": [
+            {
+              "version": "trend-rules-v1",
+              "params": {
+                "window_hours": 144,
+                "lag_hours": 3,
+                "rise_ratio": 1.5,
+                "control_ratio": 1.2,
+                "base_nonzero_min": 3,
+                "recent_nonzero_min": 12
+              }
+            },
+            {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+          ],
+          "granularity": "H",
+          "target_date": "2026-09-25",
+          "window_end": "2026-09-24T17:00:00.000000+00:00"
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_string_int",
+      "why": "decisions_version is an int",
+      "error": {"type": "int_type", "loc": "decisions_version"},
+      "row": {
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T17:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "trend-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": "17",
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "round_id": null,
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "trends",
+          "rules": [
+            {
+              "version": "trend-rules-v1",
+              "params": {
+                "window_hours": 144,
+                "lag_hours": 3,
+                "rise_ratio": 1.5,
+                "control_ratio": 1.2,
+                "base_nonzero_min": 3,
+                "recent_nonzero_min": 12
+              }
+            },
+            {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+          ],
+          "granularity": "H",
+          "target_date": "2026-09-25",
+          "window_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "summary": {
+          "channel": "trends",
+          "planned_units": 427,
+          "fetched_units": 404,
+          "uncovered_units": [
+            {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+          ],
+          "a_tier_coverage": 0.96,
+          "breaker_events": 1,
+          "all_zero_rate": 0.41,
+          "user_types": ["USER_TYPE_LEGIT_USER"],
+          "ambiguous_undecided": 9,
+          "carried_over": 4,
+          "stale": 0,
+          "rule4_no_data": false,
+          "status_codes": ["shadow_mode"]
+        }
+      }
+    },
+    {
+      "view": "states",
+      "name": "states_string_bool",
+      "why": "carried_over is a bool",
+      "error": {"type": "bool_type", "loc": "carried_over"},
+      "row": {
+        "row_id": 41,
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "title": "The Alpha's Bride",
+        "language": "en",
+        "theater": "ReelShort",
+        "scope": "US",
+        "window_kind": "H",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "labels": [],
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": 0,
+        "stale": false,
+        "window_end": "2026-09-24T20:00:00.000000+00:00",
+        "latest_block_end": "2026-09-24T17:00:00.000000+00:00",
+        "metrics": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9, "r_control": 1.1},
+        "quality_note": null,
+        "paste_row": null,
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "states",
+      "name": "states_null_title",
+      "why": "title is never null",
+      "error": {"type": "string_type", "loc": "title"},
+      "row": {
+        "row_id": 41,
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "title": null,
+        "language": "en",
+        "theater": "ReelShort",
+        "scope": "US",
+        "window_kind": "H",
+        "state": "rising",
+        "confirmation": "confirmed",
+        "admission": null,
+        "labels": [],
+        "tier": "A",
+        "correspondence": "confirmed",
+        "id_evidence": "strong",
+        "ambiguity": "clear",
+        "flags": [],
+        "carried_over": false,
+        "stale": false,
+        "window_end": "2026-09-24T20:00:00.000000+00:00",
+        "latest_block_end": "2026-09-24T17:00:00.000000+00:00",
+        "metrics": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9, "r_control": 1.1},
+        "quality_note": null,
+        "paste_row": null,
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "links",
+      "name": "links_string_bool",
+      "why": "timely is a bool",
+      "error": {"type": "bool_type", "loc": "timely"},
+      "row": {
+        "country": "USA",
+        "trends_geo": "US",
+        "label": "both_rising",
+        "trends_row_id": 41,
+        "gsc_row_id": 907,
+        "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+        "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+        "pair_gap_minutes": 60,
+        "timely": "yes",
+        "published_gap_minutes": 99,
+        "stale": false,
+        "id": 71,
+        "link_rules_version": "link-rules-v1",
+        "trends_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "gsc_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "view": "discoveries",
+      "name": "discoveries_extra_column",
+      "why": "no extra column",
+      "error": {"type": "extra_forbidden", "loc": "cookie"},
+      "row": {
+        "discovery_id": 12,
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "mode": "live",
+        "geo": "WW",
+        "seed": "reelshort",
+        "property": "web",
+        "term": "reelshort the alpha's bride",
+        "normalized_term": "the alpha's bride",
+        "language": "en",
+        "match_status": "unique",
+        "route": "a_tier",
+        "matched_identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "breakout": false,
+        "first_seen_at": "2026-09-25T01:52:10.000000+00:00",
+        "cookie": "x"
+      }
+    },
+    {
+      "view": "run_status",
+      "name": "run_status_lease_column",
+      "why": "runtime lease columns stay out of the views",
+      "error": {"type": "extra_forbidden", "loc": "lease_owner"},
+      "row": {
+        "channel": "gsc",
+        "batch_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "mode": "shadow",
+        "target_date": null,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "started_at": "2026-09-25T03:25:04.000000+00:00",
+        "finished_at": "2026-09-25T03:31:40.000000+00:00",
+        "outcome": "published",
+        "requests": 57,
+        "published_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "status_codes": ["shadow_mode"],
+        "lease_owner": "pid-1"
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_unknown_mode",
+      "why": "mode is one of MODES",
+      "error": {"type": "literal_error", "loc": "mode"},
+      "row": {
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "canary",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T17:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "trend-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "round_id": null,
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "trends",
+          "rules": [
+            {
+              "version": "trend-rules-v1",
+              "params": {
+                "window_hours": 144,
+                "lag_hours": 3,
+                "rise_ratio": 1.5,
+                "control_ratio": 1.2,
+                "base_nonzero_min": 3,
+                "recent_nonzero_min": 12
+              }
+            },
+            {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+          ],
+          "granularity": "H",
+          "target_date": "2026-09-25",
+          "window_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "summary": {
+          "channel": "trends",
+          "planned_units": 427,
+          "fetched_units": 404,
+          "uncovered_units": [
+            {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+          ],
+          "a_tier_coverage": 0.96,
+          "breaker_events": 1,
+          "all_zero_rate": 0.41,
+          "user_types": ["USER_TYPE_LEGIT_USER"],
+          "ambiguous_undecided": 9,
+          "carried_over": 4,
+          "stale": 0,
+          "rule4_no_data": false,
+          "status_codes": ["shadow_mode"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_unknown_status",
+      "why": "status is one of SET_STATUSES",
+      "error": {"type": "literal_error", "loc": "status"},
+      "row": {
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "status": "deleted",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T17:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "trend-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "round_id": null,
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "trends",
+          "rules": [
+            {
+              "version": "trend-rules-v1",
+              "params": {
+                "window_hours": 144,
+                "lag_hours": 3,
+                "rise_ratio": 1.5,
+                "control_ratio": 1.2,
+                "base_nonzero_min": 3,
+                "recent_nonzero_min": 12
+              }
+            },
+            {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+          ],
+          "granularity": "H",
+          "target_date": "2026-09-25",
+          "window_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "summary": {
+          "channel": "trends",
+          "planned_units": 427,
+          "fetched_units": 404,
+          "uncovered_units": [
+            {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+          ],
+          "a_tier_coverage": 0.96,
+          "breaker_events": 1,
+          "all_zero_rate": 0.41,
+          "user_types": ["USER_TYPE_LEGIT_USER"],
+          "ambiguous_undecided": 9,
+          "carried_over": 4,
+          "stale": 0,
+          "rule4_no_data": false,
+          "status_codes": ["shadow_mode"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_summary_shape",
+      "why": "summary is a SetSummary",
+      "error": {"type": "string_type", "loc": "summary.gsc.cutoff"},
+      "row": {
+        "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "channel": "gsc",
+        "mode": "shadow",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T18:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "gsc-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": null,
+        "window_end": null,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "gsc",
+          "rules": [
+            {
+              "version": "gsc-rules-v1",
+              "params": {
+                "tau": 0.05,
+                "surge_abs": 2000,
+                "surge_rel": 0.5,
+                "formal_base_min": 20,
+                "rising_7d_min": 100,
+                "rising_7d_ratio": 1.5,
+                "rising_7d_delta": 30,
+                "consistency_rel": 0.1,
+                "consistency_abs": 3,
+                "bh_q": 0.1
+              }
+            }
+          ],
+          "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+          "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+          "mirror_version": 12,
+          "slices": [
+            {
+              "dataset": "C",
+              "pt_date": "2026-09-24",
+              "version_id": 3301,
+              "shape": "whole",
+              "status": "fetched",
+              "stale": false,
+              "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+              "first_incomplete_date": null,
+              "usable_until": "2026-09-24T18:00:00.000000+00:00",
+              "watermark_absent": false
+            },
+            {
+              "dataset": "E",
+              "pt_date": "2026-09-20",
+              "version_id": 3120,
+              "shape": "whole",
+              "status": "fetched",
+              "stale": false,
+              "first_incomplete_hour": null,
+              "first_incomplete_date": null,
+              "usable_until": "2026-09-21T07:00:00.000000+00:00",
+              "watermark_absent": false
+            }
+          ],
+          "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+        },
+        "summary": {
+          "channel": "gsc",
+          "cutoff": null,
+          "cutoff_carried": false,
+          "formal_24h_window": true,
+          "layers": [
+            {
+              "metric": "impressions",
+              "received": 88000,
+              "attributed": 61000,
+              "unattributed": {
+                "legacy_unmapped": 900,
+                "delisted": 3100,
+                "noncanonical": 120,
+                "locale_mismatch": 40,
+                "site_level": 17000,
+                "editorial": 800,
+                "offsite": 0,
+                "blog": 5040
+              },
+              "site_total": 91500,
+              "detail_gap": 3500
+            },
+            {
+              "metric": "clicks",
+              "received": 3400,
+              "attributed": 2100,
+              "unattributed": {
+                "legacy_unmapped": 30,
+                "delisted": 110,
+                "noncanonical": 4,
+                "locale_mismatch": 1,
+                "site_level": 1000,
+                "editorial": 20,
+                "offsite": 0,
+                "blog": 135
+              },
+              "site_total": 3550,
+              "detail_gap": 150
+            }
+          ],
+          "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+          "site_admission_24h": "usable",
+          "site_admission_7d": "unverifiable",
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+          "requests": 57,
+          "quota_errors": 0,
+          "status_codes": ["gsc_unverifiable"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_frozen_inputs_shape",
+      "why": "frozen_inputs is a FrozenInputs",
+      "error": {"type": "literal_error", "loc": "frozen_inputs.trends.granularity"},
+      "row": {
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T17:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "trend-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "round_id": null,
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "trends",
+          "rules": [
+            {
+              "version": "trend-rules-v1",
+              "params": {
+                "window_hours": 144,
+                "lag_hours": 3,
+                "rise_ratio": 1.5,
+                "control_ratio": 1.2,
+                "base_nonzero_min": 3,
+                "recent_nonzero_min": 12
+              }
+            },
+            {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+          ],
+          "granularity": "W",
+          "target_date": "2026-09-25",
+          "window_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "summary": {
+          "channel": "trends",
+          "planned_units": 427,
+          "fetched_units": 404,
+          "uncovered_units": [
+            {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+          ],
+          "a_tier_coverage": 0.96,
+          "breaker_events": 1,
+          "all_zero_rate": 0.41,
+          "user_types": ["USER_TYPE_LEGIT_USER"],
+          "ambiguous_undecided": 9,
+          "carried_over": 4,
+          "stale": 0,
+          "rule4_no_data": false,
+          "status_codes": ["shadow_mode"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_channel_mismatch",
+      "why": "channel, frozen_inputs.channel and summary.channel agree",
+      "error": {"type": "obs_sets_view", "msg": "channel、frozen_inputs 与 summary 的通道一致"},
+      "row": {
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T17:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "trend-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "round_id": null,
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "trends",
+          "rules": [
+            {
+              "version": "trend-rules-v1",
+              "params": {
+                "window_hours": 144,
+                "lag_hours": 3,
+                "rise_ratio": 1.5,
+                "control_ratio": 1.2,
+                "base_nonzero_min": 3,
+                "recent_nonzero_min": 12
+              }
+            },
+            {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+          ],
+          "granularity": "H",
+          "target_date": "2026-09-25",
+          "window_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "summary": {
+          "channel": "gsc",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00",
+          "cutoff_carried": false,
+          "formal_24h_window": true,
+          "layers": [
+            {
+              "metric": "impressions",
+              "received": 88000,
+              "attributed": 61000,
+              "unattributed": {
+                "legacy_unmapped": 900,
+                "delisted": 3100,
+                "noncanonical": 120,
+                "locale_mismatch": 40,
+                "site_level": 17000,
+                "editorial": 800,
+                "offsite": 0,
+                "blog": 5040
+              },
+              "site_total": 91500,
+              "detail_gap": 3500
+            },
+            {
+              "metric": "clicks",
+              "received": 3400,
+              "attributed": 2100,
+              "unattributed": {
+                "legacy_unmapped": 30,
+                "delisted": 110,
+                "noncanonical": 4,
+                "locale_mismatch": 1,
+                "site_level": 1000,
+                "editorial": 20,
+                "offsite": 0,
+                "blog": 135
+              },
+              "site_total": 3550,
+              "detail_gap": 150
+            }
+          ],
+          "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+          "site_admission_24h": "usable",
+          "site_admission_7d": "unverifiable",
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+          "requests": 57,
+          "quota_errors": 0,
+          "status_codes": ["gsc_unverifiable"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_target_date_not_frozen",
+      "why": "target_date and window_end are the frozen inputs' (Trends)",
+      "error": {"type": "obs_sets_view", "msg": "target_date、window_end、round_id 取自冻结输入"},
+      "row": {
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T17:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "trend-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": "2026-09-24",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "round_id": null,
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "trends",
+          "rules": [
+            {
+              "version": "trend-rules-v1",
+              "params": {
+                "window_hours": 144,
+                "lag_hours": 3,
+                "rise_ratio": 1.5,
+                "control_ratio": 1.2,
+                "base_nonzero_min": 3,
+                "recent_nonzero_min": 12
+              }
+            },
+            {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+          ],
+          "granularity": "H",
+          "target_date": "2026-09-25",
+          "window_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "summary": {
+          "channel": "trends",
+          "planned_units": 427,
+          "fetched_units": 404,
+          "uncovered_units": [
+            {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+          ],
+          "a_tier_coverage": 0.96,
+          "breaker_events": 1,
+          "all_zero_rate": 0.41,
+          "user_types": ["USER_TYPE_LEGIT_USER"],
+          "ambiguous_undecided": 9,
+          "carried_over": 4,
+          "stale": 0,
+          "rule4_no_data": false,
+          "status_codes": ["shadow_mode"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_gsc_with_target_date",
+      "why": "GSC sets have no target_date or window_end",
+      "error": {"type": "obs_sets_view", "msg": "target_date、window_end、round_id 取自冻结输入"},
+      "row": {
+        "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "channel": "gsc",
+        "mode": "shadow",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T18:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "gsc-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": "2026-09-25",
+        "window_end": null,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "gsc",
+          "rules": [
+            {
+              "version": "gsc-rules-v1",
+              "params": {
+                "tau": 0.05,
+                "surge_abs": 2000,
+                "surge_rel": 0.5,
+                "formal_base_min": 20,
+                "rising_7d_min": 100,
+                "rising_7d_ratio": 1.5,
+                "rising_7d_delta": 30,
+                "consistency_rel": 0.1,
+                "consistency_abs": 3,
+                "bh_q": 0.1
+              }
+            }
+          ],
+          "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+          "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+          "mirror_version": 12,
+          "slices": [
+            {
+              "dataset": "C",
+              "pt_date": "2026-09-24",
+              "version_id": 3301,
+              "shape": "whole",
+              "status": "fetched",
+              "stale": false,
+              "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+              "first_incomplete_date": null,
+              "usable_until": "2026-09-24T18:00:00.000000+00:00",
+              "watermark_absent": false
+            },
+            {
+              "dataset": "E",
+              "pt_date": "2026-09-20",
+              "version_id": 3120,
+              "shape": "whole",
+              "status": "fetched",
+              "stale": false,
+              "first_incomplete_hour": null,
+              "first_incomplete_date": null,
+              "usable_until": "2026-09-21T07:00:00.000000+00:00",
+              "watermark_absent": false
+            }
+          ],
+          "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+        },
+        "summary": {
+          "channel": "gsc",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00",
+          "cutoff_carried": false,
+          "formal_24h_window": true,
+          "layers": [
+            {
+              "metric": "impressions",
+              "received": 88000,
+              "attributed": 61000,
+              "unattributed": {
+                "legacy_unmapped": 900,
+                "delisted": 3100,
+                "noncanonical": 120,
+                "locale_mismatch": 40,
+                "site_level": 17000,
+                "editorial": 800,
+                "offsite": 0,
+                "blog": 5040
+              },
+              "site_total": 91500,
+              "detail_gap": 3500
+            },
+            {
+              "metric": "clicks",
+              "received": 3400,
+              "attributed": 2100,
+              "unattributed": {
+                "legacy_unmapped": 30,
+                "delisted": 110,
+                "noncanonical": 4,
+                "locale_mismatch": 1,
+                "site_level": 1000,
+                "editorial": 20,
+                "offsite": 0,
+                "blog": 135
+              },
+              "site_total": 3550,
+              "detail_gap": 150
+            }
+          ],
+          "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+          "site_admission_24h": "usable",
+          "site_admission_7d": "unverifiable",
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+          "requests": 57,
+          "quota_errors": 0,
+          "status_codes": ["gsc_unverifiable"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_round_id_not_frozen",
+      "why": "round_id is the frozen inputs' (GSC)",
+      "error": {"type": "obs_sets_view", "msg": "target_date、window_end、round_id 取自冻结输入"},
+      "row": {
+        "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "channel": "gsc",
+        "mode": "shadow",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T18:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "gsc-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": null,
+        "window_end": null,
+        "round_id": "ffffffffffffffffffffffffffffffff",
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "gsc",
+          "rules": [
+            {
+              "version": "gsc-rules-v1",
+              "params": {
+                "tau": 0.05,
+                "surge_abs": 2000,
+                "surge_rel": 0.5,
+                "formal_base_min": 20,
+                "rising_7d_min": 100,
+                "rising_7d_ratio": 1.5,
+                "rising_7d_delta": 30,
+                "consistency_rel": 0.1,
+                "consistency_abs": 3,
+                "bh_q": 0.1
+              }
+            }
+          ],
+          "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+          "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+          "mirror_version": 12,
+          "slices": [
+            {
+              "dataset": "C",
+              "pt_date": "2026-09-24",
+              "version_id": 3301,
+              "shape": "whole",
+              "status": "fetched",
+              "stale": false,
+              "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+              "first_incomplete_date": null,
+              "usable_until": "2026-09-24T18:00:00.000000+00:00",
+              "watermark_absent": false
+            },
+            {
+              "dataset": "E",
+              "pt_date": "2026-09-20",
+              "version_id": 3120,
+              "shape": "whole",
+              "status": "fetched",
+              "stale": false,
+              "first_incomplete_hour": null,
+              "first_incomplete_date": null,
+              "usable_until": "2026-09-21T07:00:00.000000+00:00",
+              "watermark_absent": false
+            }
+          ],
+          "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+        },
+        "summary": {
+          "channel": "gsc",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00",
+          "cutoff_carried": false,
+          "formal_24h_window": true,
+          "layers": [
+            {
+              "metric": "impressions",
+              "received": 88000,
+              "attributed": 61000,
+              "unattributed": {
+                "legacy_unmapped": 900,
+                "delisted": 3100,
+                "noncanonical": 120,
+                "locale_mismatch": 40,
+                "site_level": 17000,
+                "editorial": 800,
+                "offsite": 0,
+                "blog": 5040
+              },
+              "site_total": 91500,
+              "detail_gap": 3500
+            },
+            {
+              "metric": "clicks",
+              "received": 3400,
+              "attributed": 2100,
+              "unattributed": {
+                "legacy_unmapped": 30,
+                "delisted": 110,
+                "noncanonical": 4,
+                "locale_mismatch": 1,
+                "site_level": 1000,
+                "editorial": 20,
+                "offsite": 0,
+                "blog": 135
+              },
+              "site_total": 3550,
+              "detail_gap": 150
+            }
+          ],
+          "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+          "site_admission_24h": "usable",
+          "site_admission_7d": "unverifiable",
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+          "requests": 57,
+          "quota_errors": 0,
+          "status_codes": ["gsc_unverifiable"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_copy_not_frozen",
+      "why": "the copied columns equal frozen_inputs",
+      "error": {"type": "obs_sets_view", "msg": "批次、采集版本、link-rules、别名与决定版本取自冻结输入"},
+      "row": {
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T17:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "trend-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 5,
+        "decisions_version": 17,
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "round_id": null,
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "trends",
+          "rules": [
+            {
+              "version": "trend-rules-v1",
+              "params": {
+                "window_hours": 144,
+                "lag_hours": 3,
+                "rise_ratio": 1.5,
+                "control_ratio": 1.2,
+                "base_nonzero_min": 3,
+                "recent_nonzero_min": 12
+              }
+            },
+            {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+          ],
+          "granularity": "H",
+          "target_date": "2026-09-25",
+          "window_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "summary": {
+          "channel": "trends",
+          "planned_units": 427,
+          "fetched_units": 404,
+          "uncovered_units": [
+            {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+          ],
+          "a_tier_coverage": 0.96,
+          "breaker_events": 1,
+          "all_zero_rate": 0.41,
+          "user_types": ["USER_TYPE_LEGIT_USER"],
+          "ambiguous_undecided": 9,
+          "carried_over": 4,
+          "stale": 0,
+          "rule4_no_data": false,
+          "status_codes": ["shadow_mode"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_rules_version_not_frozen",
+      "why": "rules_version is the channel's rules in frozen_inputs",
+      "error": {"type": "obs_sets_view", "msg": "rules_version 是冻结输入里本通道的判定规则"},
+      "row": {
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "channel": "trends",
+        "mode": "live",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T17:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "watch-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": "2026-09-25",
+        "window_end": "2026-09-24T17:00:00.000000+00:00",
+        "round_id": null,
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "trends",
+          "rules": [
+            {
+              "version": "trend-rules-v1",
+              "params": {
+                "window_hours": 144,
+                "lag_hours": 3,
+                "rise_ratio": 1.5,
+                "control_ratio": 1.2,
+                "base_nonzero_min": 3,
+                "recent_nonzero_min": 12
+              }
+            },
+            {"version": "watch-rules-v1", "params": {"a_tier_days": 7}}
+          ],
+          "granularity": "H",
+          "target_date": "2026-09-25",
+          "window_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "summary": {
+          "channel": "trends",
+          "planned_units": 427,
+          "fetched_units": 404,
+          "uncovered_units": [
+            {"identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]", "geo": "GB", "reason": "deadline"}
+          ],
+          "a_tier_coverage": 0.96,
+          "breaker_events": 1,
+          "all_zero_rate": 0.41,
+          "user_types": ["USER_TYPE_LEGIT_USER"],
+          "ambiguous_undecided": 9,
+          "carried_over": 4,
+          "stale": 0,
+          "rule4_no_data": false,
+          "status_codes": ["shadow_mode"]
+        }
+      }
+    },
+    {
+      "view": "sets",
+      "name": "sets_gsc_as_of_not_cutoff",
+      "why": "a GSC set's as_of is its summary's cutoff",
+      "error": {"type": "obs_sets_view", "msg": "GSC 集合的 as_of 是 summary 的 cutoff"},
+      "row": {
+        "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "channel": "gsc",
+        "mode": "shadow",
+        "status": "published",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "as_of": "2026-09-24T21:00:00.000000+00:00",
+        "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "collector_version": "obs-0.3.0",
+        "rules_version": "gsc-rules-v1",
+        "link_rules_version": "link-rules-v1",
+        "alias_version": 4,
+        "decisions_version": 17,
+        "target_date": null,
+        "window_end": null,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "frozen_inputs": {
+          "collector_version": "obs-0.3.0",
+          "source_catalog_batch_id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "alias_version": 4,
+          "decisions_version": 17,
+          "market_map_version": "market-map-v1",
+          "link_rules_version": "link-rules-v1",
+          "channel": "gsc",
+          "rules": [
+            {
+              "version": "gsc-rules-v1",
+              "params": {
+                "tau": 0.05,
+                "surge_abs": 2000,
+                "surge_rel": 0.5,
+                "formal_base_min": 20,
+                "rising_7d_min": 100,
+                "rising_7d_ratio": 1.5,
+                "rising_7d_delta": 30,
+                "consistency_rel": 0.1,
+                "consistency_abs": 3,
+                "bh_q": 0.1
+              }
+            }
+          ],
+          "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+          "legacy_snapshot_id": "rs-legacy-2026-09-26-816ca2e",
+          "mirror_version": 12,
+          "slices": [
+            {
+              "dataset": "C",
+              "pt_date": "2026-09-24",
+              "version_id": 3301,
+              "shape": "whole",
+              "status": "fetched",
+              "stale": false,
+              "first_incomplete_hour": "2026-09-24T11:00:00-07:00",
+              "first_incomplete_date": null,
+              "usable_until": "2026-09-24T18:00:00.000000+00:00",
+              "watermark_absent": false
+            },
+            {
+              "dataset": "E",
+              "pt_date": "2026-09-20",
+              "version_id": 3120,
+              "shape": "whole",
+              "status": "fetched",
+              "stale": false,
+              "first_incomplete_hour": null,
+              "first_incomplete_date": null,
+              "usable_until": "2026-09-21T07:00:00.000000+00:00",
+              "watermark_absent": false
+            }
+          ],
+          "totals": {"a": [9001, 9002], "a_prime": [9003], "a2_all": [9004], "a2_final": [9005]},
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2}
+        },
+        "summary": {
+          "channel": "gsc",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00",
+          "cutoff_carried": false,
+          "formal_24h_window": true,
+          "layers": [
+            {
+              "metric": "impressions",
+              "received": 88000,
+              "attributed": 61000,
+              "unattributed": {
+                "legacy_unmapped": 900,
+                "delisted": 3100,
+                "noncanonical": 120,
+                "locale_mismatch": 40,
+                "site_level": 17000,
+                "editorial": 800,
+                "offsite": 0,
+                "blog": 5040
+              },
+              "site_total": 91500,
+              "detail_gap": 3500
+            },
+            {
+              "metric": "clicks",
+              "received": 3400,
+              "attributed": 2100,
+              "unattributed": {
+                "legacy_unmapped": 30,
+                "delisted": 110,
+                "noncanonical": 4,
+                "locale_mismatch": 1,
+                "site_level": 1000,
+                "editorial": 20,
+                "offsite": 0,
+                "blog": 135
+              },
+              "site_total": 3550,
+              "detail_gap": 150
+            }
+          ],
+          "unknowable": {"truncated_slices": 0, "failed_slices": 1, "stale_slices": 1, "hours": 24},
+          "site_admission_24h": "usable",
+          "site_admission_7d": "unverifiable",
+          "vcheck_summary": {"requests": 42, "succeeded": 39, "failed": 1, "truncated": 0, "stale": 0, "reused": 12, "regex_overflow": 2},
+          "requests": 57,
+          "quota_errors": 0,
+          "status_codes": ["gsc_unverifiable"]
+        }
+      }
+    },
+    {
+      "view": "states",
+      "name": "states_informal_state",
+      "why": "states rows are StateRow: a small-base surge is state present",
+      "error": {"type": "obs_state_row", "msg": "state 取正式命中的标签之一，没有正式标签时为 present（设计 5.8）"},
+      "row": {
+        "row_id": 907,
+        "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "channel": "gsc",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "title": "The Alpha's Bride",
+        "language": "en",
+        "theater": "ReelShort",
+        "scope": "USA",
+        "window_kind": "24h",
+        "state": "surge",
+        "confirmation": null,
+        "admission": "formal",
+        "labels": [{"label": "surge", "formal": false, "condition": "W0 对 W−1 ≥ +50%，W−1 ≥ 20", "counts": {"w0": 325, "w_minus_1": 82}}],
+        "tier": null,
+        "correspondence": null,
+        "id_evidence": null,
+        "ambiguity": null,
+        "flags": [],
+        "carried_over": false,
+        "stale": false,
+        "window_end": "2026-09-24T18:00:00.000000+00:00",
+        "latest_block_end": null,
+        "metrics": {"x_det": 318, "x_flt": 325, "w_minus_1": 82},
+        "quality_note": null,
+        "paste_row": {
+          "title": "The Alpha's Bride",
+          "url": "https://dramashortstv.com/en/drama/the-alphas-bride-650a1b2c3d4e5f6a7b8c9d0e",
+          "impressions": 325,
+          "clicks": 19,
+          "window_kind": "24h",
+          "top_query": "the alpha's bride full movie",
+          "verified_on": "2026-09-25",
+          "note": "gsc-rules-v1；Trends US 上升（已确认）"
+        },
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "view": "links",
+      "name": "links_all_with_us_geo",
+      "why": "links rows are LinkRow: ALL pairs with WW",
+      "error": {"type": "obs_link_fact", "msg": "ALL 配 WW"},
+      "row": {
+        "country": "ALL",
+        "trends_geo": "US",
+        "label": "global_parallel",
+        "trends_row_id": 41,
+        "gsc_row_id": 907,
+        "trends_anchor": "2026-09-24T17:00:00.000000+00:00",
+        "gsc_anchor": "2026-09-24T18:00:00.000000+00:00",
+        "pair_gap_minutes": 60,
+        "timely": true,
+        "published_gap_minutes": 99,
+        "stale": false,
+        "id": 71,
+        "link_rules_version": "link-rules-v1",
+        "trends_set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "gsc_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "mode": "live",
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "view": "alerts",
+      "name": "alerts_key_mismatch",
+      "why": "alerts rows are AlertRow: the dedupe key follows the row",
+      "error": {"type": "obs_alert_row", "msg": "去重键与各字段不一致"},
+      "row": {
+        "id": 88,
+        "mode": "live",
+        "channel": "trends",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "state_row_id": 41,
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "root_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "state": "rising_first",
+        "scope": "GB",
+        "dedupe_key": "[\"[\\\"kalostv\\\",\\\"kalostv-the-alpha-s-bride-en\\\",\\\"en\\\"]\",\"trends\",\"rising_first\",\"US\",\"live\"]",
+        "published_at": "2026-09-25T01:52:10.000000+00:00",
+        "eval_rules_version": "eval-rules-v1",
+        "alias_version": 4,
+        "evidence": {"nonzero_hours": [5, 4, 6, 3, 14, 16], "r": 1.9},
+        "created_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "discoveries",
+      "name": "discoveries_unknown_property",
+      "why": "property is one of DISCOVERY_PROPERTIES",
+      "error": {"type": "literal_error", "loc": "property"},
+      "row": {
+        "discovery_id": 12,
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "mode": "live",
+        "geo": "WW",
+        "seed": "reelshort",
+        "property": "news",
+        "term": "reelshort the alpha's bride",
+        "normalized_term": "the alpha's bride",
+        "language": "en",
+        "match_status": "unique",
+        "route": "a_tier",
+        "matched_identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "breakout": false,
+        "first_seen_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "discoveries",
+      "name": "discoveries_unknown_route",
+      "why": "route is one of DISCOVERY_ROUTES",
+      "error": {"type": "literal_error", "loc": "route"},
+      "row": {
+        "discovery_id": 12,
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "mode": "live",
+        "geo": "WW",
+        "seed": "reelshort",
+        "property": "web",
+        "term": "reelshort the alpha's bride",
+        "normalized_term": "the alpha's bride",
+        "language": "en",
+        "match_status": "unique",
+        "route": "agent",
+        "matched_identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "breakout": false,
+        "first_seen_at": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "alias_queue",
+      "name": "alias_queue_unknown_status",
+      "why": "status is one of ALIAS_STATUSES",
+      "error": {"type": "literal_error", "loc": "status"},
+      "row": {
+        "alias_id": 5,
+        "alias_version": 4,
+        "old_identity": "[\"kalostv\",\"kalostv-the-alpha-s-bride-en\",\"en\"]",
+        "new_identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "status": "merged",
+        "platform": "KalosTV",
+        "language": "en",
+        "old_title": "The Alpha's Bride",
+        "new_title": "The Alpha's Bride (Dubbed)",
+        "evidence": {"rule": "same platform, title, language"},
+        "created_at": "2026-09-25T03:31:40.000000+00:00"
+      }
+    },
+    {
+      "view": "confirm_queue",
+      "name": "confirm_queue_cooling",
+      "why": "state is one of TREND_STATES",
+      "error": {"type": "literal_error", "loc": "state"},
+      "row": {
+        "identity": "[\"realshort\",\"UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ\",\"en\"]",
+        "title": "The Alpha's Bride",
+        "platform": "ReelShort",
+        "normalized_title": "the alpha's bride",
+        "language": "en",
+        "geo": "US",
+        "state": "cooling",
+        "confirmation": "first",
+        "id_evidence": "medium",
+        "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+        "mode": "live",
+        "since": "2026-09-25T01:52:10.000000+00:00"
+      }
+    },
+    {
+      "view": "run_status",
+      "name": "run_status_unknown_outcome",
+      "why": "outcome is one of RUN_OUTCOMES",
+      "error": {"type": "literal_error", "loc": "outcome"},
+      "row": {
+        "channel": "gsc",
+        "batch_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "mode": "shadow",
+        "target_date": null,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "started_at": "2026-09-25T03:25:04.000000+00:00",
+        "finished_at": "2026-09-25T03:31:40.000000+00:00",
+        "outcome": "done",
+        "requests": 57,
+        "published_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "status_codes": ["shadow_mode"]
+      }
+    },
+    {
+      "view": "run_status",
+      "name": "run_status_unknown_code",
+      "why": "status_codes are STATUS_CODES",
+      "error": {"type": "literal_error", "loc": "status_codes.0"},
+      "row": {
+        "channel": "gsc",
+        "batch_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "mode": "shadow",
+        "target_date": null,
+        "round_id": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+        "started_at": "2026-09-25T03:25:04.000000+00:00",
+        "finished_at": "2026-09-25T03:31:40.000000+00:00",
+        "outcome": "published",
+        "requests": 57,
+        "published_set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+        "status_codes": ["cookie_expired"]
+      }
+    },
+    {"view": "cookies", "name": "unknown_view", "why": "only the eight views exist", "row": {}}
+  ]
+}

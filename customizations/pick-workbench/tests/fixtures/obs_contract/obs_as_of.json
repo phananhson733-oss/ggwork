@@ -1,0 +1,201 @@
+{
+  "about": [
+    "ggwp_candidate_sets.obs_as_of_json (D28). result_view adds observations only when it is present: the four",
+    "reference keys (trends, gsc, link_rules_version, judged_at) followed by the keys of the inner observations object.",
+    "Each valid case carries that projection as wire; it must equal observations.json's shape. Never goes into data_as_of_json."
+  ],
+  "model": "ObsAsOf",
+  "valid": [
+    {
+      "name": "both_sets",
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "observations": {
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+        }
+      },
+      "wire": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "gsc_only",
+      "value": {
+        "trends": null,
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": null,
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "observations": {"coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988}, "excluded": {}}
+      },
+      "wire": {
+        "trends": null,
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": null,
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {}
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "no_set",
+      "why": "a result with observation conditions stands on at least one set",
+      "error": {"type": "obs_as_of", "msg": "带观测条件的结果至少钉住一个集合"},
+      "value": {
+        "trends": null,
+        "gsc": null,
+        "link_rules_version": null,
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "observations": {
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+        }
+      }
+    },
+    {
+      "name": "link_version_without_pair",
+      "why": "link rules apply to a pair only",
+      "error": {"type": "obs_as_of", "msg": "两个集合都在时才冻结 link-rules 版本"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": null,
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "observations": {
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+        }
+      }
+    },
+    {
+      "name": "pair_without_link_version",
+      "why": "a pair freezes its link-rules version",
+      "error": {"type": "obs_as_of", "msg": "两个集合都在时才冻结 link-rules 版本"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": null,
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "observations": {
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+        }
+      }
+    },
+    {
+      "name": "flattened",
+      "why": "coverage and excluded live under observations",
+      "error": {"type": "missing", "loc": "observations"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+        "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+      }
+    },
+    {
+      "name": "inner_refs_duplicated",
+      "why": "the inner object holds coverage and excluded only",
+      "error": {"type": "extra_forbidden", "loc": "observations.judged_at"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "observations": {
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7},
+          "judged_at": "2026-09-25T04:10:00.000000+00:00"
+        }
+      }
+    },
+    {
+      "name": "mirror_version_here",
+      "why": "data_as_of keys stay out",
+      "error": {"type": "extra_forbidden", "loc": "mirror_version"},
+      "value": {
+        "trends": {
+          "set_id": "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c",
+          "published_at": "2026-09-25T01:52:10.000000+00:00",
+          "latest_block_end": "2026-09-24T17:00:00.000000+00:00"
+        },
+        "gsc": {
+          "set_id": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c",
+          "published_at": "2026-09-25T03:31:40.000000+00:00",
+          "cutoff": "2026-09-24T18:00:00.000000+00:00"
+        },
+        "link_rules_version": "link-rules-v1",
+        "judged_at": "2026-09-25T04:10:00.000000+00:00",
+        "observations": {
+          "coverage": {"pool_identities": 4416, "trends_observed": 131, "gsc_observed": 988},
+          "excluded": {"trend_first_only": 3, "shared_title": 2, "gsc_descriptive_only": 7}
+        },
+        "mirror_version": 3
+      }
+    }
+  ]
+}

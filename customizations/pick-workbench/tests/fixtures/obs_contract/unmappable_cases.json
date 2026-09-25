@@ -1,0 +1,66 @@
+{
+  "about": [
+    "selection.unmappable_conditions with the observation fields (plan TR-33, TR-27; frontend agentOnlyConditions, TR-16).",
+    "The seven existing names keep their order; the observation fields follow in OBS_CONDITION_FIELDS order, each present when truthy.",
+    "labels are the data page's texts for the new names (AGENT_ONLY_LABELS); no text says zero (premise 1)."
+  ],
+  "labels": {
+    "trend_state": "Google Trends 状态（上升或从零起量观察）",
+    "trend_geos": "Google Trends 地区",
+    "trend_include_first": "接受只观察到一天的上升（首次）",
+    "trend_include_presumed": "接受推定对应（强证据、未人工确认）",
+    "gsc_state": "站内搜索（GSC）标签",
+    "gsc_countries": "站内搜索（GSC）国家",
+    "link_state": "两个通道的同国家联动"
+  },
+  "cases": [
+    {"name": "defaults_only", "conditions": {"limit": 5, "exclude_selected": true}, "expected": ["exclude_selected"]},
+    {
+      "name": "trend_state_only",
+      "conditions": {"limit": 5, "exclude_selected": false, "trend_state": "rising"},
+      "expected": ["trend_state"]
+    },
+    {
+      "name": "all_seven_after_existing",
+      "conditions": {
+        "limit": 5,
+        "exclude_selected": true,
+        "exclude_previous": true,
+        "tags": ["霸总"],
+        "channel": "youtube",
+        "trend_state": "emerging",
+        "trend_geos": ["US"],
+        "trend_include_first": true,
+        "trend_include_presumed": true,
+        "gsc_state": "surge",
+        "gsc_countries": ["USA"],
+        "link_state": "both_rising"
+      },
+      "expected": [
+        "tags",
+        "channel",
+        "confirmed_eligible_only",
+        "exclude_selected",
+        "exclude_previous",
+        "trend_state",
+        "trend_geos",
+        "trend_include_first",
+        "trend_include_presumed",
+        "gsc_state",
+        "gsc_countries",
+        "link_state"
+      ]
+    },
+    {
+      "name": "falsy_obs_fields_absent",
+      "conditions": {"limit": 5, "exclude_selected": false, "trend_include_first": false, "trend_geos": [], "gsc_state": null},
+      "expected": []
+    },
+    {
+      "name": "gsc_and_link_only",
+      "conditions": {"limit": 3, "exclude_selected": false, "query": "ceo", "gsc_countries": ["GBR"], "link_state": "site_only"},
+      "expected": ["query", "gsc_countries", "link_state"]
+    }
+  ],
+  "base_order": ["tags", "posted_account", "channel", "confirmed_eligible_only", "query", "exclude_selected", "exclude_previous"]
+}
