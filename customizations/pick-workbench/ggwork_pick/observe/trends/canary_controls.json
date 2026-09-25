@@ -183,6 +183,34 @@
   {
    "geo": "IT",
    "term": "drama breve"
+  },
+  {
+   "geo": "WW",
+   "term": "short drama"
+  },
+  {
+   "geo": "ES",
+   "term": "drama corto"
+  },
+  {
+   "geo": "MX",
+   "term": "drama corto"
+  },
+  {
+   "geo": "BR",
+   "term": "drama curto"
+  },
+  {
+   "geo": "PL",
+   "term": "krótki dramat"
+  },
+  {
+   "geo": "RO",
+   "term": "dramă scurtă"
+  },
+  {
+   "geo": "TW",
+   "term": "短劇"
   }
  ]
 }
