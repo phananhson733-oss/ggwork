@@ -8,9 +8,9 @@ name: Pick Workbench Tests
 # frontend/package.json, pnpm-lock.yaml and rstest.config.ts decide that reader's driver and test runner; the
 # backend-*.json under frontend/tests/unit/core/pick/fixtures are what test_frontend_contract and test_mirror_sync_status
 # compare the backend's answers with.
-# The pick-obs crons' Railway configs (deploy/pick-obs/**), the gateway's railway.toml, .dockerignore and the observe
-# runbook are read by tests/observe/test_railway_config.py; scripts/pick-deploy-guard.py and its readers module by
-# tests/test_deploy_guard.py.
+# The pick-obs crons' Railway configs (deploy/pick-obs/**), the gateway's railway.toml, .dockerignore, the ignore files
+# at every level (hatchling in the image and `railway up` apply them) and the observe runbook are read by
+# tests/observe/test_railway_config.py; scripts/pick-deploy-guard.py and its readers module by tests/test_deploy_guard.py.
 on:
   push:
     branches: [ 'main' ]
@@ -42,6 +42,8 @@ on:
       - 'deploy/pick-obs/**'
       - 'railway.toml'
       - '.dockerignore'
+      - '**/.gitignore'
+      - '**/.railwayignore'
       - 'docs/pick-workbench/observe-runbook/**'
       - 'scripts/pick-deploy-guard.py'
       - 'scripts/_pick_deploy_guard_readers.py'
@@ -75,6 +77,8 @@ on:
       - 'deploy/pick-obs/**'
       - 'railway.toml'
       - '.dockerignore'
+      - '**/.gitignore'
+      - '**/.railwayignore'
       - 'docs/pick-workbench/observe-runbook/**'
       - 'scripts/pick-deploy-guard.py'
       - 'scripts/_pick_deploy_guard_readers.py'
@@ -132,21 +136,11 @@ jobs:
           backend/.venv/bin/ruff format --check customizations/pick-workbench
 
       - name: Lint pick deploy guard
-        # The guard's two scripts, with ruff's defaults (no ruff config above scripts/). A branch that does not have
-        # them yet (TR-34 lands separately) gets a warning for each missing file instead of a failure.
+        # The guard's two scripts (TR-34), with ruff's defaults (no ruff config above scripts/). A script renamed or
+        # gone fails this step.
         run: |
-          present=()
-          for file in scripts/pick-deploy-guard.py scripts/_pick_deploy_guard_readers.py; do
-            if [ -f "$file" ]; then
-              present+=("$file")
-            else
-              echo "::warning::$file is not in this tree; skipping its lint"
-            fi
-          done
-          if [ "${#present[@]}" -gt 0 ]; then
-            backend/.venv/bin/ruff check "${present[@]}"
-            backend/.venv/bin/ruff format --check "${present[@]}"
-          fi
+          backend/.venv/bin/ruff check scripts/pick-deploy-guard.py scripts/_pick_deploy_guard_readers.py
+          backend/.venv/bin/ruff format --check scripts/pick-deploy-guard.py scripts/_pick_deploy_guard_readers.py
 
       - name: Run pick workbench tests (SQLite and PostgreSQL)
         env:
