@@ -220,18 +220,24 @@ class TrendsClient:
             self._jar = self._jar.warmed(outcome.cookies, day=day, now=self._clock.now())
         return WarmResult(status=outcome.record.fetch_status, jar=self._jar, request=outcome.record)
 
-    async def fetch(self, query: TrendsQuery, *, timeline: bool = True, related: bool = False, label: str | None = None) -> FetchResult:
+    async def fetch(
+        self, query: TrendsQuery, *, timeline: bool = True, related: bool = False, label: str | None = None, explore_method: str | None = None
+    ) -> FetchResult:
         """One query unit: explore, then multiline (timeline) and relatedsearches (related). The first failed request
-        ends the unit; every part asked for and not yet fetched carries that failure and no values."""
+        ends the unit; every part asked for and not yet fetched carries that failure and no values. `explore_method`
+        overrides the client's own for this unit (stage 0 asks its repeat by POST on the session's one client)."""
         if not (timeline or related):
             raise ValueError("a unit asks for a timeline, related queries or both")
+        if explore_method is not None and explore_method not in EXPLORE_METHODS:
+            raise ValueError(f"explore_method is one of {EXPLORE_METHODS}")
+        method = explore_method or self._explore_method
 
         def read_explore(payload: object) -> tuple[FetchStatus, object, str | None]:
             explore = parse_explore(payload, query, timeline=timeline, related=related)
             return FetchStatus.OK, explore, explore.user_type
 
         step = RequestStep(Phase.EXPLORE, query, label)
-        record, explore = await self._fetch_step(step, EXPLORE_PATH, _explore_params(query), read_explore, self._explore_method)
+        record, explore = await self._fetch_step(step, EXPLORE_PATH, _explore_params(query), read_explore, method)
         records = (record,)
         if explore is None:
             return self._stopped(query, records, None, timeline=timeline, related=related)

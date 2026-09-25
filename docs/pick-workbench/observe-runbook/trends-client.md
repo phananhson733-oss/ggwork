@@ -14,7 +14,7 @@
 | relatedsearches（相关查询） | `/trends/api/widgetdata/relatedsearches` | `hl`、`tz`、`req`（该词的 RELATED_QUERIES widget）、`token` |
 
 - geo、颗粒度、搜索属性都用合同写法：geo 是 `WW` 或两位国家码，发给 Google 时 `WW` 写成空串；颗粒度 H 对应 `now 7-d`，D 对应 `today 1-m`，其他时间范围直接拒绝（测试钉住它与合同 `TRENDS_WINDOW_KINDS` 相同）；搜索属性 `search_property` 是 `web` 或 `youtube`（合同 `DISCOVERY_PROPERTIES`），发给 Google 时 web 写成空串。
-- explore 的方法由构造参数 `explore_method` 决定，默认 GET（网页客户端的做法）；pytrends 用 POST，阶段 0 两种都试，不用改代码。只换方法，参数照样在查询串里，正文为空；multiline 与 relatedsearches 固定 GET。
+- explore 的方法由构造参数 `explore_method` 决定，默认 GET（网页客户端的做法）；pytrends 用 POST，阶段 0 两种都试，不用改代码。`fetch(..., explore_method=...)` 可以按单元覆盖，阶段 0 的 POST 重复单元就这样和其余单元共用一个客户端。只换方法，参数照样在查询串里，正文为空；multiline 与 relatedsearches 固定 GET。
 - 一个请求最多 5 个词，各线按请求顺序返回，同一刻度。裸剧名那条线用 `bare` 标出，泛词剧 `bare` 为空，只请求意图变体（设计 4.7）。
 - 不跟随任何跳转，不接受同意墙，不登录，不解验证码。
 

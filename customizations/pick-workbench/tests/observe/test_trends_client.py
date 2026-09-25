@@ -178,6 +178,19 @@ async def test_explore_method_is_a_setting(method):
 
 
 @pytest.mark.asyncio
+async def test_explore_method_per_fetch():
+    """Stage 0 asks its repeat by POST on the session's one client (TR-05): a fetch may name its explore method, and
+    without one the client's own setting holds."""
+    fake = FakeTrends(explore="explore_4lines_us_h", multiline="multiline_hourly_ok")
+    async with make_client(fake, Recorder(fake)) as client:
+        await client.fetch(query_of("explore_4lines_us_h"), explore_method="POST")
+        await client.fetch(query_of("explore_4lines_us_h"))
+        with pytest.raises(ValueError):
+            await client.fetch(query_of("explore_4lines_us_h"), explore_method="PUT")
+    assert [request.method for request in fake.requests] == ["POST", "GET", "GET", "GET"]
+
+
+@pytest.mark.asyncio
 async def test_worldwide_daily_query_params():
     fake = FakeTrends(explore="explore_1line_ww_d", multiline="multiline_daily_zero")
     async with make_client(fake, Recorder(fake)) as client:
