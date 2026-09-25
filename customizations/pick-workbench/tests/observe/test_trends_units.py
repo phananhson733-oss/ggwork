@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime, time, timedelta
 import pytest
 
 from ggwork_pick.observe.errors import ExitCode, Refused
-from ggwork_pick.observe.trends import budget
+from ggwork_pick.observe.trends import breaker, budget
 from ggwork_pick.observe.trends import session_summary as summary
 from ggwork_pick.observe.trends.canary import (
     CONTROLS_FORMAT,
@@ -18,8 +18,10 @@ from ggwork_pick.observe.trends.canary import (
     PRIORITY_FIRST_ROUND_A,
     PRIORITY_FIRST_ROUND_B,
     PRIORITY_MARKET,
+    CanaryTaskSource,
     euro_american_geos,
     load_controls,
+    missing_market_geos,
     parse_controls,
     with_related,
 )
@@ -212,11 +214,45 @@ def test_missing_controls_file_refuses_the_canary(tmp_path):
 
 
 def test_packaged_controls_file_when_present():
-    """TR-05 owns the file; once it is merged, the canary's default reads it as it is."""
+    """TR-05 owns the file; once it is merged, the canary's default reads it as it is, and it has a market series for
+    every geo the canary queries (else the canary refuses to run: test_market_series_for_every_queried_geo)."""
     if not DEFAULT_CONTROLS_PATH.is_file():
         pytest.skip("canary_controls.json arrives with TR-05")
     controls = load_controls()
     assert controls.controls and controls.market
+    assert missing_market_geos(controls) == (), "canary_controls.json lacks market series: TR-05 adds the phrases"
+    CanaryTaskSource(controls, granularities=("H",), related=True)
+
+
+# TR-05's canary_controls.json as it stands (b933d5a, 3a78e2f): 32 controls, market series for five geos.
+TR05_CONTROL_GEOS = ("US",) * 10 + ("BG", "FR", "DE") * 4 + ("MX", "IT") * 3 + ("PL", "RO", "TW", "BR")
+TR05_GROUPS = ("positive",) * 16 + ("regional",) * 12 + ("negative",) * 4
+TR05_MARKET_GEOS = ("US", "BG", "DE", "FR", "IT")
+CANARY_TITLE_GEOS = ("WW", "US", "ES", "MX", "DE", "FR", "IT", "BR")  # market-map-v1's first round, six languages
+
+
+def _tr05_shaped(market_geos) -> dict:
+    controls = [
+        {"identity": json.dumps(["realshort-pick", f"sid{index}", "en"]), "geo": geo, "group": group}
+        for index, (geo, group) in enumerate(zip(TR05_CONTROL_GEOS, TR05_GROUPS, strict=True))
+    ]
+    market = [{"geo": geo, "term": f"short drama {geo}"} for geo in market_geos]
+    return {"format": CONTROLS_FORMAT, "note": "test copy of TR-05's shape", "controls": controls, "market": market}
+
+
+def test_market_series_for_every_queried_geo():
+    """[design 4.7, 4.5; plan TR-14] One market series per geo the canary queries: every control's geo and every geo
+    the recent titles go to. TR-05's list as it stands has US, BG, DE, FR, IT: the canary refuses (exit 2) and names
+    what is missing, rather than running a load the design did not plan and TR-17 and TR-30 cannot read per geo."""
+    controls = parse_controls(_tr05_shaped(TR05_MARKET_GEOS))
+    assert missing_market_geos(controls) == ("BR", "ES", "MX", "PL", "RO", "TW", "WW")
+    with pytest.raises(Refused) as refused:
+        CanaryTaskSource(controls, granularities=("H",), related=True)
+    assert refused.value.exit_code == ExitCode.REFUSED
+    assert "BR、ES、MX、PL、RO、TW、WW" in str(refused.value) and "拒绝跑金丝雀" in str(refused.value)
+    complete = parse_controls(_tr05_shaped(dict.fromkeys((*TR05_MARKET_GEOS, *CANARY_TITLE_GEOS, "PL", "RO", "TW"))))
+    assert missing_market_geos(complete) == ()
+    CanaryTaskSource(complete, granularities=("H",), related=True)
 
 
 def test_euro_american_geos_follow_market_map():
@@ -249,7 +285,28 @@ def test_contract_check_is_monday_and_off_by_default():
     assert len(units) == 2 and {unit.granularity for unit in units} == {"H", "D"} and all(unit.priority == 0 for unit in units)
     assert contract_check_verdict(units, {}) is None
     assert contract_check_verdict(units, {units[0].key: "ok", units[1].key: "parse_error"}) == "parse_error"
-    assert contract_check_verdict(units, {units[0].key: "ok_zero"}) == "ok"
+
+
+@pytest.mark.parametrize(
+    "first, second, verdict",
+    [
+        ("ok", "ok_zero", "ok"),
+        ("no_data", "ok", "ok"),  # parsed: an empty answer still has the shape
+        ("rate_limited", "parse_error", "parse_error"),
+        ("rate_limited", "server_error", None),  # no usable answer is no pass
+        ("ok", "forbidden", None),
+        ("html_body", "timeout", None),
+        ("ok_zero", None, None),  # the other check never ran: the shape it reads is unconfirmed
+    ],
+)
+def test_contract_check_passes_only_on_usable_answers(first, second, verdict):
+    """ok only when every check unit got a usable answer; parse_error when any failed to parse; otherwise no verdict,
+    so a parse_error carried from before stays (session_codes)."""
+    units = contract_check_units()
+    answered = {unit.key: status for unit, status in zip(units, (first, second), strict=True) if status is not None}
+    assert contract_check_verdict(units, answered) == verdict
+    judged = summary.Judged(False, 0, frozenset({"parse_error"}), verdict, False, False)
+    assert ("parse_error" in summary.session_codes(breaker.initial_state(TARGET), judged)) == (verdict != "ok")
 
 
 # ---- the summary's codes ------------------------------------------------------------------------------------------

@@ -6,7 +6,8 @@ per term, relatedsearches a top and a rising list. Every answer takes `latency` 
 log holds when each request left and came back: the envelope is asserted on that log, below the executor.
 
 `script` answers chosen requests (by ordinal, 1-based over the whole fake's life) with a failure: 429, 503, 403,
-html, sorry, consent, timeout, or bad (a 200 the parser refuses). `zero` names terms whose series are all zero;
+html, sorry, consent, timeout, or bad (a 200 the parser refuses); `fail_phases` answers every request of a phase
+(warmup, explore, multiline, related) with one, unless `script` names that ordinal. `zero` names terms whose series are all zero;
 `user_type` is what explore's widgets carry (a callable of the ordinal, to change it half-way). No request ever leaves
 the process: anything but trends.google.com fails the test.
 """
@@ -122,8 +123,10 @@ class FakeGoogle:
         zero: Iterable[str] = (),
         user_type: str | Callable[[int], str] = LEGIT,
         on_request: Callable[[int, str], None] | None = None,
+        fail_phases: dict[str, str] | None = None,
     ):
         self.clock, self.latency, self.script = clock, latency, dict(script or {})
+        self.fail_phases = dict(fail_phases or {})
         self.zero = frozenset(zero)
         self.user_type = user_type if callable(user_type) else (lambda ordinal, fixed=user_type: fixed)
         self.on_request = on_request
@@ -143,7 +146,7 @@ class FakeGoogle:
         if self.on_request is not None:
             self.on_request(ordinal, phase)
         self.clock.advance(self.latency)
-        answer = self.script.get(ordinal, "ok")
+        answer = self.script.get(ordinal, self.fail_phases.get(phase, "ok"))
         self.seen.append(Seen(ordinal, phase, sent_at, self.clock.now(), _terms_of(request, phase), _geo_of(request), answer))
         if answer == "timeout":
             raise httpx.ReadTimeout("synthetic timeout", request=request)

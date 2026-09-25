@@ -6,7 +6,11 @@ catalog batch at run time, read through the collector's step (ggwp_import_batche
 observer may only read). Without the file the canary does not run: exit 2, before any request.
 
 The canary's units, each one term (the bare title, design 4.7's judgement line) in a request of its own:
-- the market series: one per geo in the list (design 4.7's control series), priority 1;
+- the market series: one per geo in the list (design 4.7's control series), priority 1. The list must have one for
+  every geo the canary queries (every control's geo, and every first-round geo of the six languages), or the canary
+  refuses to run (exit 2, naming the missing geos): design 4.5 counts one market unit per geo, and TR-17 and TR-30
+  read each geo against its own. Checked when the source is built, before the database, so the load never changes
+  in the middle of the canary when a title in a new language turns up;
 - the control dramas at their geo, priority 2;
 - the current batch's dramas in the six Euro-American languages listed within 14 days of the target date, at the geos
   market-map-v1 plans for their language: first-round A geos at priority 3, B geos at priority 4;
@@ -234,12 +238,22 @@ class SourceUnits:
     notes: Mapping[str, Any]
 
 
+def missing_market_geos(controls: CanaryControls, market_map: MarketMap = MARKET_MAP_V1) -> tuple[str, ...]:
+    """The geos the canary queries (its controls' and the six languages' first-round geos) that have no market series
+    in the list, sorted."""
+    queried = {control.geo for control in controls.controls} | {geo for pairs in euro_american_geos(market_map).values() for geo, _ in pairs}
+    return tuple(sorted(queried - {series.geo for series in controls.market}))
+
+
 class CanaryTaskSource:
     """The canary's units for a target date (section 9: fixed parameters, fresh titles)."""
 
     name = SOURCE_NAME
 
     def __init__(self, controls: CanaryControls, *, granularities: Sequence[str], related: bool, market_map: MarketMap = MARKET_MAP_V1):
+        missing = missing_market_geos(controls, market_map)
+        if missing:
+            raise Refused(f"金丝雀对照清单缺这些 geo 的市场对照序列：{'、'.join(missing)}（设计 4.7：每个查询的 geo 一条，由 TR-05 补短语）：拒绝跑金丝雀")
         self._controls, self._granularities, self._related, self._market_map = controls, tuple(granularities), related, market_map
 
     async def units(self, step: ReadStep, *, target_date: date) -> SourceUnits:

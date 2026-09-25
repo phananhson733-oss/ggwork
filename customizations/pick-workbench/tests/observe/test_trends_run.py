@@ -93,6 +93,21 @@ async def test_missing_controls_refuses_the_canary(obs_url, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_market_series_missing_refuses_the_canary(obs_url, tmp_path):
+    """A control list without a market series for a geo the canary queries (here only US and DE, while the titles go
+    to WW, ES, MX, FR, IT and BR too): exit 2 before the database or any request, naming the geos."""
+    catalog = recent_catalog(12)
+    await seed_catalog(obs_url, catalog)
+    controls = write_controls(tmp_path, catalog[:2], market=[{"geo": "US", "term": "short drama"}, {"geo": "DE", "term": "Kurzdrama"}])
+    clock = ManualClock(at(EVE, 22, 10))
+    google = FakeGoogle(clock)
+    err = io.StringIO()
+    assert await trigger(trends_env(obs_url), clock, google, controls=controls, err=err) == ExitCode.REFUSED
+    assert google.seen == [] and "BR、ES、FR、IT、MX、WW" in err.getvalue()
+    assert (await runtime_row(obs_url))["lease_generation"] == 0
+
+
+@pytest.mark.asyncio
 async def test_stable_waits_for_its_task_source(obs_url, tmp_path):
     _, controls = await _night(obs_url, tmp_path)
     clock = ManualClock(at(EVE, 21, 0))
@@ -128,20 +143,31 @@ async def test_canary_night_writes_batch_requests_and_raw(obs_url, tmp_path):
     assert batch["summary_json"]["uncovered_units"] == [] and batch["status_codes_json"] == []
 
 
+DONE_ROWS = {
+    "withheld": "update ggwp_obs_batches set outcome = 'withheld'",
+    "published": "update ggwp_obs_batches set outcome = 'published', published_set_id = 'set-x'",
+    # TR-20 publishes in the finishing step, but a published row is done even without its finish time
+    "published_unfinished": "update ggwp_obs_batches set outcome = 'published', published_set_id = 'set-x', finished_at = null",
+}
+
+
+@pytest.mark.parametrize("done", sorted(DONE_ROWS))
 @pytest.mark.asyncio
-async def test_idempotent_after_publish(obs_url, tmp_path):
-    """A date that is done (finished, or published by TR-20) does nothing when triggered again."""
+async def test_idempotent_after_publish(obs_url, tmp_path, done):
+    """A target date that is done (finished, or published by TR-20) does nothing when triggered again: exit 0, no HTTP,
+    and its row exactly as it was (outcome, set id, finish time, generation, summary, codes), never rewritten."""
     _, controls = await _night(obs_url, tmp_path, dramas=4)
     clock = ManualClock(at(EVE, 22, 0))
     env = trends_env(obs_url)
     assert await trigger(env, clock, FakeGoogle(clock), controls=controls) == ExitCode.OK
-    for outcome in ("withheld", "published"):
-        await execute(obs_url, "update ggwp_obs_batches set outcome = :o", o=outcome)
+    await execute(obs_url, DONE_ROWS[done])
+    (before,) = await batches(obs_url)
+    for _ in range(2):
         clock.advance(1800)
         again = FakeGoogle(clock)
         assert await trigger(env, clock, again, controls=controls) == ExitCode.OK
         assert again.seen == []
-    assert len(await batches(obs_url)) == 1
+    assert await batches(obs_url) == [before]
 
 
 # ---- the window and resuming (counterexample 1) -----------------------------------------------------------------------
@@ -334,6 +360,26 @@ async def test_contract_check_off_by_default_and_parse_error_on(obs_url, tmp_pat
     clock.advance((at(monday, 22, 0) - clock.now()).total_seconds())
     assert await trigger(on, clock, FakeGoogle(clock), controls=controls) == ExitCode.OK
     assert (await batches(obs_url))[-1]["status_codes_json"] == ["parse_error"]  # carried: no check on Tuesday
+
+
+@pytest.mark.asyncio
+async def test_contract_check_without_an_answer_keeps_parse_error(obs_url, tmp_path):
+    """A Monday check that gets no usable answer (its first unit a 429) is no verdict: the parse_error carried from the
+    batch before stays on the row, rather than being cleared for a week by a check that never read a thing."""
+    await seed_catalog(obs_url, [drama(1, listed_at=EVE)])
+    controls = write_controls(tmp_path, [])
+    monday = TARGET + timedelta(days=2)
+    env = trends_env(obs_url, PICK_OBS_CONTRACT_CHECK="1")
+    clock = ManualClock(at(monday - timedelta(days=1), 22, 0))
+    assert await trigger(env, clock, FakeGoogle(clock, script={3: "bad"}), controls=controls) == ExitCode.OK
+    assert (await batches(obs_url))[-1]["status_codes_json"] == ["parse_error"]
+    next_monday = monday + timedelta(days=7)
+    clock.advance((at(next_monday - timedelta(days=1), 22, 0) - clock.now()).total_seconds())
+    limited = FakeGoogle(clock, script={2: "429"})  # warm-up, then the first check's explore
+    assert await trigger(env, clock, limited, controls=controls) == ExitCode.OK
+    last = (await batches(obs_url))[-1]
+    assert last["target_date"] == f"{next_monday:%Y-%m-%d}" and last["summary_json"]["contract_check"] is None
+    assert "parse_error" in last["status_codes_json"]
 
 
 # ---- the read-only commands -------------------------------------------------------------------------------------------

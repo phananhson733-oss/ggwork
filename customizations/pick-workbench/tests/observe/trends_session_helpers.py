@@ -78,6 +78,20 @@ def recent_catalog(count: int, *, target: date = TARGET, languages: tuple[str, .
     return [drama(index, language=languages[index % len(languages)], listed_at=target - timedelta(days=index % 14)) for index in range(count)]
 
 
+# One market phrase for every geo the canary queries: the controls' US and DE, and market-map-v1's first-round geos of
+# the six languages (canary.missing_market_geos); a list without one of them is refused.
+MARKET = (
+    ("WW", "short drama"),
+    ("US", "short drama"),
+    ("ES", "drama corto"),
+    ("MX", "drama corto"),
+    ("DE", "Kurzdrama"),
+    ("FR", "drama court"),
+    ("IT", "drama breve"),
+    ("BR", "drama curto"),
+)
+
+
 def write_controls(tmp_path: Path, payloads: list[dict], *, market: list[dict] | None = None, name: str = "controls.json") -> Path:
     """Our own copy of TR-05's format: identity keys, geo and group; market phrases per geo."""
     controls = [{"identity": identity_of(payload), "geo": "US" if payload["language"] == "en" else "DE", "group": "positive"} for payload in payloads]
@@ -85,7 +99,7 @@ def write_controls(tmp_path: Path, payloads: list[dict], *, market: list[dict] |
         "format": "trends-canary-controls-v1",
         "note": "test copy",
         "controls": controls,
-        "market": market if market is not None else [{"geo": "US", "term": "short drama"}, {"geo": "DE", "term": "Kurzdrama"}],
+        "market": market if market is not None else [{"geo": geo, "term": term} for geo, term in MARKET],
     }
     path = tmp_path / name
     path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")

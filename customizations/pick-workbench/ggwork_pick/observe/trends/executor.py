@@ -19,6 +19,13 @@ once, 30-60 seconds later (TR-03's RETRY); a pause abandons the rest of it; once
 is left with the same reason (truncated, skipped_breaker or deadline). When a unit ends, on_unit writes its raw rows
 and progress with the state in one leased step. The pacer is injectable: the wiring test swaps in a no-op and expects
 the transport-level envelope to fail (test_transport_level_noop_pacer_red).
+
+The rerun starts from explore, since a widget request needs a fresh token, so the request that failed is not the
+next one sent. The requests before it (explore, and the multiline when the related queries failed) only lead back
+to it: a success there is not an answer to the retried request, and does not reach the breaker, which would take it
+for "something in between" and clear the transient streak. So the retried request failing again is the second
+transient in a row, a limit signal (design 4.2 "连续两次按限流处理"; test_widget_5xx_twice_pauses). Any other
+outcome of a lead-in request (a 429, a 5xx, a wall, an unreadable body) goes to the breaker as it is.
 """
 
 import logging
@@ -45,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 WARMUP_ITEM = "warmup"
 LIMIT_ACTIONS = (breaker.Action.PAUSE, breaker.Action.EXTINGUISH)
+UNIT_PHASES = (Phase.EXPLORE, Phase.MULTILINE, Phase.RELATED)  # the order a unit sends them in
 
 
 @dataclass(frozen=True)
@@ -101,11 +109,17 @@ OnUnit = Callable[[LeasedStep, UnitOutcome], Awaitable[None]]
 
 @dataclass(frozen=True)
 class _Current:
-    """What the next request belongs to: its unit (None for the warm-up), its attempt and its size."""
+    """What the next request belongs to: its unit (None for the warm-up), its attempt and its size; on a rerun, the
+    phase whose failure caused it (the requests before that phase only lead back to it)."""
 
     unit: QueryUnit | None
     attempt: int
     http: int
+    rerun_of: Phase | None = None
+
+    def leads_in(self, phase: Phase) -> bool:
+        """Is a request of `phase` one the rerun sends only to reach the request that failed?"""
+        return self.rerun_of in UNIT_PHASES and phase in UNIT_PHASES and UNIT_PHASES.index(phase) < UNIT_PHASES.index(self.rerun_of)
 
 
 class Executor:
@@ -182,22 +196,23 @@ class Executor:
                 return
 
     async def _run_unit(self, client: TrendsClient, unit: QueryUnit) -> UnitOutcome:
-        self._sent = ()
+        self._sent, failed = (), None
         for attempt in (1, 2):
             reason = self._stop_reason(need=unit.http)
             if reason is not None:
                 return UnitOutcome(unit, None, reason, attempt - 1, self._sent)
-            self._begin(unit, attempt, unit.http)
+            self._begin(unit, attempt, unit.http, rerun_of=failed)
             try:
                 result = await client.fetch(unit.query(), timeline=unit.timeline, related=unit.related, label=unit.key)
             except Stop as stop:
                 return UnitOutcome(unit, None, stop.reason, attempt, self._sent)
             if not (attempt == 1 and self._retry_due()):
                 return UnitOutcome(unit, result, None, attempt, self._sent)
+            failed = self._sent[-1].record.phase  # the request TR-03 retries: the one that just failed
         raise AssertionError("unreachable: the second attempt always returns")
 
-    def _begin(self, unit: QueryUnit | None, attempt: int, http: int) -> None:
-        self._current, self._decision = _Current(unit, attempt, http), None
+    def _begin(self, unit: QueryUnit | None, attempt: int, http: int, *, rerun_of: Phase | None = None) -> None:
+        self._current, self._decision = _Current(unit, attempt, http, rerun_of), None
 
     def _retry_due(self) -> bool:
         return self._decision is not None and self._decision.action is breaker.Action.RETRY
@@ -268,7 +283,7 @@ class Executor:
         now, machines = self._clock.now(), self._machines
         paced = self._pacer.record(machines.pacing, sent_at=record.started_at, done_at=now, rng=self._rng, half_speed=self._half)
         signal = breaker.signal_of(record.fetch_status.value, captcha_or_consent=record.redirect_kind in WALLS)
-        broken, decision = breaker.observe(machines.breaker, signal, now=now, rng=self._rng)
+        broken, decision = self._observe(machines.breaker, record.phase, signal, now)
         spent = machines.budget
         if decision.action in LIMIT_ACTIONS:
             spent = budget.note_limit(spent, ordinal=spent.reserved, at=record.started_at)
@@ -285,6 +300,12 @@ class Executor:
             self._egress.invalidate()  # design 4.4, D20: measure the egress again after a trip
         if decision.action is not breaker.Action.CONTINUE:
             logger.info("[pick-obs] trends %s after %s: %s", decision.action.value, record.phase.value, record.fetch_status.value)
+
+    def _observe(self, state: breaker.BreakerState, phase: Phase, signal: breaker.Signal, now: datetime) -> tuple[breaker.BreakerState, breaker.Decision]:
+        """TR-03's breaker, except that a rerun's lead-in request coming back fine leaves it as it is (module notes)."""
+        if signal is breaker.Signal.SUCCESS and self._current.leads_in(phase):
+            return state, breaker.Decision(breaker.Action.CONTINUE)
+        return breaker.observe(state, signal, now=now, rng=self._rng)
 
     # ---- state -----------------------------------------------------------------------------------------------------
 

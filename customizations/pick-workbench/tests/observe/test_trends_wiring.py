@@ -136,6 +136,45 @@ async def test_transport_level_noop_pacer_red(obs_url, tmp_path):
         assert_envelope_bounds(transport_log(google))
 
 
+# ---- a rerun unit's second 5xx (design 4.2 "连续两次按限流处理"; TR-03's RETRY) ------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_widget_5xx_twice_pauses(obs_url, tmp_path):
+    """The multiline answers 503, the unit is rerun from explore 30-60 s later, and the multiline answers 503 again:
+    two transients in a row on the same request are a limit signal, although the rerun's explore came back fine in
+    between (it only leads back to the request that failed). A pause, then the probe 30 minutes on; one breaker event."""
+    controls = await _night(obs_url, tmp_path, dramas=12)
+    clock = ManualClock(at(EVE, 22, 0))
+    google = FakeGoogle(clock, script={3: "503", 5: "503"})
+    assert await trigger(trends_env(obs_url), clock, google, controls=controls) == ExitCode.OK
+    assert google.phases()[:6] == ["warmup", "explore", "multiline", "explore", "multiline", "explore"]
+    first, second, probe = google.seen[2], google.seen[4], google.seen[5]
+    assert timedelta(seconds=30) <= google.seen[3].sent_at - first.done_at <= timedelta(seconds=60)
+    assert probe.sent_at - second.done_at >= timedelta(minutes=30)
+    sent = await _assert_one_for_one(obs_url, google)
+    assert [row["budget_item"] for row in sent[:6]] == ["warmup", "market", "market", "retry", "retry", "probe"]
+    (batch,) = await batches(obs_url)
+    assert batch["breaker_events"] == 1 and batch["status_codes_json"] == []
+
+
+@pytest.mark.asyncio
+async def test_every_widget_5xx_trips_the_breaker(obs_url, tmp_path):
+    """Every multiline answers 503 (canary2, cap 600): each unit's rerun trips the breaker, and the third trip puts the
+    day out. Thirteen requests, never a night of them; the day's red code is on the row."""
+    controls = await _night(obs_url, tmp_path, dramas=60)
+    clock = ManualClock(at(EVE, 22, 0))
+    google = FakeGoogle(clock, fail_phases={"multiline": "503"})
+    assert await trigger(trends_env(obs_url, mode="canary2"), clock, google, controls=controls) == ExitCode.OK
+    sent = await _assert_one_for_one(obs_url, google)
+    assert len(sent) == 13 and [row["budget_item"] for row in sent].count("probe") == 2
+    (batch,) = await batches(obs_url)
+    assert (batch["breaker_events"], batch["summary_json"]["extinguished"], batch["coverage"]) == (3, "trips", 0.0)
+    assert batch["status_codes_json"] == ["extinguished_today"]
+    assert [unit["status"] for unit in batch["summary_json"]["failed_units"]] == ["server_error"] * 3
+    assert {unit["reason"] for unit in batch["summary_json"]["uncovered_units"]} == {"skipped_breaker"}
+
+
 # ---- a takeover while a request is out (counterexample 10) --------------------------------------------------------
 
 

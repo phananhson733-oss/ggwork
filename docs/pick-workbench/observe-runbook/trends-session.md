@@ -81,7 +81,9 @@ cron 每 30 分钟触发一次（20:00 到 01:30，TR-15 配置）。早于起�
 
 一个单元要么整个跑，要么不开始：开始前按单元的请求数（explore、multiline，另加 relatedsearches 时是 3）判断当天还放得下；首个 5xx 或超时整单元隔 30–60 秒重跑一次；429 等限流信号暂停（首次 30 分钟），暂停后第一个请求是探针，之后当天半速；验证码或同意页当场熄火。一个单元开始不了（`truncated`、`skipped_breaker`、`deadline`），它之后的单元都记同一个原因。单元结束时，原始行（每条序列一行：`market`、`bare`，另有 `related`）与进度在同一个租约步骤里写入。
 
-测试：`test_trends_wiring.py` 在 MockTransport 的时刻日志上断言包络，请求数 = 预算扣减数 = 请求行数；把限速器换成空操作，同一断言失败。
+**重跑与「连续两次按限流处理」**（设计 4.2）。widget 请求要用 explore 新给的 token，所以重跑从 explore 开始，失败的那个请求不是紧接着重发的。重跑里排在失败请求之前的请求（explore；相关查询失败时还有 multiline）只是为了回到它：它们成功时不喂给熔断器，连续计数不清零。于是同一个 multiline 或 relatedsearches 重跑后再 5xx 或超时，就是连续第二次，按限流暂停 30 分钟、记一次熔断。这些引导请求如果失败（429、5xx、验证码、解析不了），照常交给熔断器。每条 widget 请求都 5xx 的极端情况下，每个单元第二次失败就熔断一次，第三次熔断当天熄火，一晚只发十几个请求（`test_every_widget_5xx_trips_the_breaker`）。代价：每次重跑多发一个 explore（相关查询失败时再多一个 multiline），都记在预算项 `retry` 下，从设计 4.5 的「预热、探针、重试」预留里出。
+
+测试：`test_trends_wiring.py` 在 MockTransport 的时刻日志上断言包络，请求数 = 预算扣减数 = 请求行数；把限速器换成空操作，同一断言失败。`test_widget_5xx_twice_pauses` 断言重跑间隔 30–60 秒、第二次 5xx 之后 30 分钟才发探针。
 
 ## 任务清单与截断（设计 4.5）
 
@@ -92,6 +94,8 @@ cron 每 30 分钟触发一次（20:00 到 01:30，TR-15 配置）。早于起�
 ## 金丝雀的任务来源
 
 `CanaryTaskSource` 读 TR-05 的 `trends/canary_controls.json`（格式 `trends-canary-controls-v1`：对照剧的 identity、geo、组别，每个 geo 一条市场短语，不写剧名）。文件缺失或不合格式，金丝雀以 2 拒跑，报错写明文件名，不回显内容。
+
+**每个要查的 geo 都要有市场序列**（设计 4.7「每个 geo 单独请求一条对照序列」，4.5 按每个 geo 一个大盘单元计量）。要查的 geo 是对照剧的 geo，加上六个语种在市场映射 v1 首轮的 geo：WW、US、ES、MX、DE、FR、IT、BR。清单少了任何一个，金丝雀以 2 拒跑，报错列出缺的 geo，在连库之前就判定。这样选而不是「丢掉那些 geo 的剧目单元」：丢掉会让 WW 这类主力 geo 整片消失，负载结构偏离设计，而且等 TR-05 补上短语时参数会在金丝雀中途变化（第 9 节要求期间不换参数）。TR-05 当前的文件（3a78e2f）只有 US、BG、DE、FR、IT 五条，缺 BR、ES、MX、PL、RO、TW、WW，需要 TR-05 补上本地化短语，否则金丝雀不会跑，`test_packaged_controls_file_when_present` 也会在集成分支上变红。
 
 - 市场序列：清单里每个 geo 一条；
 - 对照剧：在各自的 geo 上取；
@@ -128,7 +132,11 @@ TR-30 修复原因后要重跑金丝雀：设 `PICK_OBS_CANARY_SINCE=YYYY-MM-DD`
 
 ## 每周线上合同检查（设计第 10 节，U12）
 
-默认关。`PICK_OBS_CONTRACT_CHECK=1` 之后，每个周一的 target_date 最先跑两个固定单元（US 的 `short drama`，H 与 D 两种时间范围），计入当天预算。任一个解析失败（`parse_error`），批次写 `parse_error` 告警码，失败的请求不写值。
+默认关。`PICK_OBS_CONTRACT_CHECK=1` 之后，每个周一的 target_date 最先跑两个固定单元（US 的 `short drama`，H 与 D 两种时间范围），计入当天预算。判定：
+
+- 任一个解析失败（`parse_error`）：批次写 `parse_error` 告警码，失败的请求不写值；
+- 两个都拿到解析得了的答复（`ok`、`ok_zero`、`no_data`）：通过，清掉上一批次带来的 `parse_error`；
+- 其余情况（限流、5xx、超时、HTML、验证码，或有一个没跑到）：没有结论，`parse_error` 照旧沿用，不会因为周一被限流就把改版告警清掉一周。
 
 ## 发布接缝（TR-20）
 
