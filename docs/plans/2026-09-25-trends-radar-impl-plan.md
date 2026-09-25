@@ -545,7 +545,7 @@
 - **目标**：实现设计 3.2、4.5、4.10、6.3 的会话部分，能直接跑金丝雀；限速与预算在执行器层接线（批判 C-17）。
 - **文件**：`trends/{units,canary,run,__main__}.py`；`t/observe/test_trends_run.py`、`test_trends_wiring.py`。
 - **规格**
-  - 流程：① 自检，读状态，取租约；② 按 target_date 取或建批次，`window_end` 在建批次时写入；③ 展开任务清单，被截断的单元按截断顺序落表；④ 逐单元执行：等 pacer，扣预算，发 HTTP，写请求行与原始行（预热、探针、重试同样走这一步）；⑤ 更新熔断状态，检查截止时间；⑥ 收尾写汇总：覆盖率、熔断事件、全零率、userType 变化、状态码（D10）。金丝雀会话不发布集合；发布接线由 TR-20 加。
+  - 流程：① 自检，取租约，在租约之下读状态（TR-13 的 `collector_session`，读到的就是接着要写的状态）；② 按 target_date 取或建批次，`window_end` 在建批次时写入；③ 展开任务清单，被截断的单元按截断顺序落表；④ 逐单元执行：等 pacer，扣预算，发 HTTP，写请求行与原始行（预热、探针、重试同样走这一步）；⑤ 更新熔断状态，检查截止时间；⑥ 收尾写汇总：覆盖率、熔断事件、全零率、userType 变化、状态码（D10）。金丝雀会话不发布集合；发布接线由 TR-20 加。
   - 模式（第 9 节）：stable 20:30 起跑；canary1 22:00 起跑、计划 220；canary2 22:00 起跑、计划约 430、上限 600；都在 01:45 硬截止。早于起跑时刻被触发，退出码 0，什么都不做。
   - 金丝雀期出现验证码或熄火 2 次，写入 `canary_terminated`，之后拒绝再跑。
   - `CanaryTaskSource`：`canary_controls.json` 里的对照；当前共享批次里 `listed_at` 在 14 天内的欧美六语剧名（只用裸剧名形态）；每个 geo 一条对照序列；按比例混入 relatedsearches（去向为「只过 A」时不混）。
@@ -554,6 +554,7 @@
   - `test_window_end_shared_2210_0130`：22:10 与 01:30 抓到的序列共用同一个 `window_end`。`test_resume_after_midnight_same_window`：午夜后崩溃续跑，target_date 与 `window_end` 都不重算。
   - `test_transport_level_envelope`：MockTransport 按假时钟记下每个请求的时刻，跑一个完整会话（注入 429、探针、5xx 重试），在传输层日志上断言 TR-03 的包络；断言请求数 = 预算扣减数 = 请求行数。`test_transport_level_noop_pacer_red`：执行器里的 pacer 换成空操作，同一断言失败。`[反例 2]`
   - `test_takeover_mid_http_trends`：HTTP 返回前租约被接管，请求行、预算、原始行都不由旧 owner 提交。`[反例 10]`
+  - `test_startup_error_matrix`：用真实的 `__main__` 复跑 TR-13 在替身入口上测过的错误矩阵（自检各项不符为 2；状态读不回来的各种情形、运行时行缺失为 3；租约被占、启动时等锁或语句超时为 1），每种都零 HTTP。
   - `test_deadline_truncates`、`test_truncation_order`（规则优先级、`listed_at` 降序、最新依据日期、identity 哈希轮换）、`test_uncovered_units_listed`。
   - `test_canary_terminate_rule`、`test_all_zero_rate_and_usertype_alert`、`test_idempotent_after_publish`（已发布的 target_date 再被触发，退出码 0）。
 - **验收**：用 MockTransport 加本机 PG 端到端跑一个模拟日（时钟加速）。
@@ -661,7 +662,7 @@
 - **目标**：拥有 `store.py` 的全部通用部分；实现设计 3.5 的保留、4.10、6.2 的提示记录、7.1 的集合冻结（Trends 一侧），把发布接进 `trends/run.py`。
 - **文件**：`gp/observe/store.py`、`trends/publish.py`、`trends/run.py`（加发布接线）；`t/observe/test_trends_publish.py`、`test_store.py`、`test_store_prune.py`。
 - **规格**
-  - `store.py` 提供：发布集合（channel、mode、`frozen_inputs_json`、`decisions_version`）；写判定行；联动物化（新集合 × 对方通道最新的同模式集合，D13）；写提示（D37）；写里程碑；写发现；清理（D30）；发布前检查 `PICK_DB_SIZE_CAP_BYTES`。全部经 `LeasedWriter`，集合、判定行、联动行在同一事务里提交。
+  - `store.py` 提供：发布集合（channel、mode、`frozen_inputs_json`、`decisions_version`）；写判定行；联动物化（新集合 × 对方通道最新的同模式集合，D13）；写提示（D37）；写里程碑；写发现；清理（D30）；发布前检查 `PICK_DB_SIZE_CAP_BYTES`。全部经 `LeasedWriter`，集合、判定行、联动行在同一事务里提交。每个公开函数的第一个参数是 `LeasedStep`（只读的是 `ReadStep`），导出给采集代码的名字登记进 `test_write_paths.py` 的 `DOORS`（`test_store_takes_a_step` 检查签名）。超过 30 秒的步骤（大批清理、联动物化）用 `writer.step(limits=StepLimits(...))` 只放宽这一步。
   - Trends 批次收尾：会话开头读 `FrozenInputs`；先按规则判定，再对 first 命中做一致性复取（预算 ≤50），标出 unstable；用 TR-35 的有效状态写对应确认状态进判定行；然后发布。`PICK_OBS_PUBLISH=1` 时集合为 live，否则为 shadow。
   - 判定行存全部中间量与原始计数。没刷新到的行沿用上次状态和自己的 `window_end`，标 `carried_over`；超过 3 天记 `stale`。A 档覆盖率低于 80% 不发布，上一个集合继续生效，批次写红色状态码。
   - 清理：见 D30；请求与原始表 35 天；提示与里程碑 180 天。
