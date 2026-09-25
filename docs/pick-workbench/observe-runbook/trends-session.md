@@ -12,12 +12,12 @@
 |---|---|
 | `python -m ggwork_pick.observe.trends` 或 `… trends run` | 一次触发：到点就跑（或接着跑）当晚的会话，不到点或已过截止就什么都不做 |
 | `python -m ggwork_pick.observe.trends status` | 只读查看：运行时行（不含 cookie 罐与 UA）、最近 7 个预算日、最近 7 个批次，以及这些批次的任务清单概览（`plan` 行：计划请求与门槛、各组对照的列出数与匹配数、缺的对照个数与前 5 个 identity、拒跑原因），每行一个 JSON；不取租约，不写任何东西 |
-| `python -m ggwork_pick.observe.trends preflight` | 只读预演今晚：按下一次起跑会读的共享剧库批次、熔断状态与预算行展开任务清单，打印一行 JSON（见「金丝雀的负载闸门」）；不取租约、不写任何东西、不发 HTTP。今晚会被拒跑时退出 2，否则 0 |
+| `python -m ggwork_pick.observe.trends preflight` | 只读预演今晚：按下一次起跑会读的共享剧库批次、熔断状态与预算行展开任务清单，打印一行 JSON（见「金丝雀的负载闸门」）；不取租约、不写任何东西、不发 HTTP。今晚会被拒跑时退出 2，否则 0。在 Railway 上不单独跑：它是自检配置启动命令的第二步，自检通过才跑（`packaging.md` 第 3.2 节、第 6 节） |
 | `python -m ggwork_pick.observe.trends --selfcheck-only` | 先校验会话配置（模式等变量、金丝雀对照清单与市场序列、状态密钥、出口测量地址，与 `run` 发请求前的校验相同），再做启动自检，打印自检行（S6 核对这一行）；不取租约、不发请求。配置不对以 2 退出，所以 S6 当场就能发现，不用等第一晚 |
 
 参数写错只打印 usage 和一行固定提示，退出码 2，不回显输入。命令行、`status`、`--selfcheck-only` 与出错处理在 `observe/cron.py`，gsc 的入口（TR-21）用同一套；`preflight` 是 trends 自己的命令（`CronEntry.commands`）。
 
-**环境变量名写错**：每条命令开始前，这个服务不读的 `PICK_OBS_*` 变量逐个在 stderr 上点名，并给出最接近的正确名字（只列名字，不回显值），命令照常继续。已知的一处：计划第 10 节 S5 写的是 `PICK_OBS_EGRESS_URL`，代码（TR-02）读的是 `PICK_OBS_EGRESS_ECHO_URL`。U13 批准后按代码的名字设，设错了出口测量会静默不开，这条警告就是为它加的。
+**环境变量名写错**：每条命令开始前，这个服务不读的 `PICK_OBS_*` 变量逐个在 stderr 上点名，并给出最接近的正确名字（只列名字，不回显值），命令照常继续。已知的一处：旧稿计划第 10 节 S5 写的是 `PICK_OBS_EGRESS_URL`，代码（TR-02）读的是 `PICK_OBS_EGRESS_ECHO_URL`。U13 批准后按代码的名字设，设错了出口测量会静默不开，这条警告就是为它加的。
 
 **连接账**：`status` 与 `preflight` 运行的那几秒里以 `ggwp-obs-admin` 多占 1 条连接（设计 3.4 的「实际最多 2 条」只数两个采集进程，不含这条），读完就释放。采集进程在请求在外、两次写库之间不占连接，所以采集进行中跑 `status` 也不会挤掉它（`test_status_connections`）。
 
@@ -75,7 +75,9 @@ cron 每 30 分钟触发一次（17:00 到 01:30，TR-15 配置）。早于起�
 - 第 56 个请求（阶段 0 第一天吃到第一个 429 的位置）是 429：那个单元作废，暂停 30 分钟，探针正常，当天余下半速；
 - 同上，而且进程在午夜后发出第一个请求时崩溃，租约失效后的下一次半小时触发续跑，那个单元从头重做。
 
-配置校验时（每次触发、`--selfcheck-only`），模式的最大计划在所设节奏下要满足：无熔断覆盖 100%，一次 429 覆盖至少 95%；不满足以 2 拒跑，报错写明两种覆盖率。第三种夜晚只报告，不设门槛。`test_trends_capacity.py` 用真实的入口与执行器（ManualClock、MockTransport）跑同样的三种夜晚，钉住估算覆盖的单元不比真跑的多、完成不比真跑的早。
+配置校验时（每次触发、`--selfcheck-only`），模式的最大计划在所设节奏下要满足：无熔断覆盖 100%，一次 429 覆盖至少 95%；不满足以 2 拒跑，报错写明两种覆盖率。第三种夜晚只报告，不设门槛。`test_trends_capacity.py` 用真实的入口与执行器（ManualClock、MockTransport）跑同样的三种夜晚，每种夜晚都钉住真跑覆盖了能覆盖的全部单元、估算覆盖的单元不比真跑的多、完成不比真跑的早。
+
+估算偏保守只靠那 10 分钟余量，其余几项是照实估的：`user` 节奏下快慢由补桶速度决定，回答耗时与间隔取上限几乎不起作用（两者都换到另一头，估算变化不到 1 分钟）；一晚自己的任务清单不加余量重放，与真跑相差不到 1 分钟；模式校验用的标准计划不是真实的任务清单，不加余量时它的限速夜晚比真跑早 1–2 分钟完成（canary1 一次 429：219.8 对 220.5 分钟，加崩溃：240.2 对 242.1 分钟）。重放把 429 打中的单元算作丢失、不模拟执行器之后怎么处理它；执行器保留它在 429 之前拿到的序列（相关查询被 429 拒掉而序列已经回来，这个单元仍算拿到），所以估算的覆盖率偏低。
 
 生产节奏 `user` 下的估算（分钟为起跑到最后一个单元完成，含余量）：
 
@@ -143,13 +145,16 @@ stable 模式的任务来源是 TR-18 的 `WatchTaskSource`，本任务里还没
 - 计划请求（各单元自己的请求，不含预热、探针、重试）不少于当天计划量的 80%（canary1 是 176 次，canary2 是 240 次）；
 - 匹配到的正对照（对照清单里组别为 `positive`、identity 在批次里找得到的）不少于清单里正对照的一半（向上取整）。
 
-不满足任何一条，`run` 在任何请求之前以 2 拒跑：当天的拒跑行（没有就新建，有就改写）写 `not_published_low_coverage`（复用合同里已有的码，金丝雀从不发布，所以金丝雀行上的这个码只可能来自这里），`summary_json.admission` 记概览与原因，outcome failed。这样的一天**不算金丝雀日**，不计入三天或七天的验收；数据页的红色横幅照常亮。补齐剧库或对照之后，下一次触发重新判，过了就接管这一行开跑（`window_end` 按接管那次触发的整点算，窗口也相应变短）。门槛不因「今晚先跑着」而放宽。
+不满足任何一条，`run` 在任何请求之前以 2 拒跑：当天的拒跑行（没有就新建，有就改写）写 `not_published_low_coverage`（复用合同里已有的码，金丝雀从不发布，所以金丝雀行上的这个码只可能来自这里），`summary_json.admission` 记概览与原因，outcome failed。这样的一天**不算金丝雀日**，不计入三天或七天的验收；数据页的红色横幅照常亮。门槛不因「今晚先跑着」而放宽。
 
-`python -m ggwork_pick.observe.trends preflight` 在开跑之前给出同一份概览（S6 → S7，以及每个金丝雀晚上之前想看一眼时）。输出一行 `{"preflight": …}`：
+**被拒之后同一晚接管**：补齐剧库或对照之后，下一次触发重新判，过了就接管这一行开跑。这一晚的起跑已经变了：`window_end` 按接管那次触发的整点算（例如 canary1 22:30 接管是 19:00，按时是 18:00），窗口也相应变短，可能跑不完。所以接管开跑的批次在 `plan_json.notes.late_admission` 记 `true`（按时建的批次记 `false`），日志打一行 `admitted late, after a refusal`，`status` 的 plan 行显示；TR-30 同样不把这一天计入三天或七天。停用解除、终止重置之后同一晚接管的，也照此记。
+
+`python -m ggwork_pick.observe.trends preflight` 在开跑之前给出同一份概览（S6a，S6 与 S7 之间）。**在 Railway 上怎么跑**：它是自检配置启动命令的第二步，与 S6 的自检同一次部署、同一个镜像、同一套服务变量，自检以 0 退出才跑，部署的退出码就是它的；读这次部署日志里 `selfcheck ok` 之后的那一行（`packaging.md` 第 3.2 节、第 6 节第 3 步）。不在别处跑：cron 服务平时没有在跑的容器，`railway ssh` 进不去；在本机 `railway run` 要把 `PICK_OBS_STATE_KEY` 带到本机。金丝雀期间想在某一晚之前再看一次，就在部署时段里重做那一套自检部署（`packaging.md` 第 7 节）。退出 2 时不切回 cron 配置，按 `reasons` 补齐后对那次部署点 Redeploy 再读；`refused_by` 非空按「状态码与拒跑行」「金丝雀终止」处理。输出一行 `{"preflight": …}`：
 
 | 字段 | 含义 |
 |---|---|
-| `target_date`、`mode`、`pace`、`start`、`deadline` | 下一次起跑供给的 target_date、模式、节奏与窗口 |
+| `target_date`、`mode`、`start`、`deadline` | 下一次起跑供给的 target_date、模式与窗口 |
+| `pace` | 节奏：预设名、桶容量、每分钟补充数（与批次 `plan_json.notes.pace` 同一形状） |
 | `window_end_if_started_on_time` | 按时起跑时批次会得到的 `window_end` |
 | `plan`、`min_requests`、`planned_requests` | 当天计划量、门槛、截断后的计划请求 |
 | `planned_units`、`truncated_units` | 计划内与被截断的单元数 |
@@ -160,7 +165,7 @@ stable 模式的任务来源是 TR-18 的 `WatchTaskSource`，本任务里还没
 | `refused_by` | 任务清单之前就会拒跑的码（`disabled_7d`、`canary_terminated`） |
 | `estimates` | 这份任务清单在所设节奏下三种夜晚的容量估算（「容量」） |
 
-`reasons` 或 `refused_by` 非空时退出 2。`status` 的 `plan` 行对已建的批次与拒跑行给出同样的概览。
+`reasons` 或 `refused_by` 非空时退出 2。`status` 的 `plan` 行对已建的批次与拒跑行给出同样的概览；已建的批次另带 `pace` 与 `late_admission`，TR-30 按这两项逐晚核对节奏没变、起跑没挪（计划第 9 节：节奏、起跑时刻与负载中途改了，就从改后的第一天重新数验收）。
 
 ## 状态码与拒跑行
 
@@ -176,7 +181,7 @@ stable 模式的任务来源是 TR-18 的 `WatchTaskSource`，本任务里还没
 只有最新一次运行的码会成为横幅（`status_rules.py`），所以持续的状况每一行都要重写：
 
 - 拒跑时，当天已有批次行就把码并进去；没有就写一行拒跑行（outcome failed，没有 `plan_json`、没有 `window_end`，finished_at 为拒跑时刻），数据页的红色横幅因此不会被清掉。当天或更早还停在 running 的批次（会话中途崩溃留下的），拒跑时一并记成 failed：被拒的日子不会再跑，不收尾的话 run_status 视图会一直显示在跑。
-- 停用解除、终止规则重置，或金丝雀的负载补齐之后再触发，会接管这一行：写上 `window_end` 与任务清单、改回 running，拒跑时的码不再带着。负载闸门的拒跑行另在 `summary_json.admission` 记概览，接管时一并换掉。
+- 停用解除、终止规则重置，或金丝雀的负载补齐之后再触发，会接管这一行：写上 `window_end` 与任务清单、改回 running，拒跑时的码不再带着，`plan_json.notes.late_admission` 记 `true`（「金丝雀的负载闸门」）。负载闸门的拒跑行另在 `summary_json.admission` 记概览，接管时一并换掉。
 - `parse_error` 由下一个批次从上一个批次接过来，直到某次合同检查通过。
 
 ## 金丝雀终止（设计 4.11）
@@ -211,5 +216,7 @@ TR-30 修复原因后要重跑金丝雀：设 `PICK_OBS_CANARY_SINCE=YYYY-MM-DD`
 `test_trends_wiring.py::test_simulated_canary2_night`：canary2 从 18:30 起跑（`window_end` 15:00），生产节奏 `user`，生产的负载闸门，260 部剧目、6 个对照、8 个 geo 的市场序列，注入一次 503 与一次超时（都重跑成功），在本机 SQLite 与 PostgreSQL 上各跑一遍：289 个请求，模拟时间约 2 小时 47 分（18:30 到 21:17），覆盖率 1.0，withheld，包络、预算、请求行、传输日志四者一致，`plan_json.notes.admission` 带概览。G3 之前是 22:00 起跑、设计节奏、420 个请求、约 2 小时 06 分。
 
 `test_trends_capacity.py`：canary1、canary2 各三种夜晚（无熔断、一次 429、一次 429 加午夜后崩溃续跑），用真实的入口与执行器跑，估算覆盖不多于、完成不早于真跑（「容量」）。生产节奏、FakeGoogle 0.4 秒延迟下的真跑：canary1 无熔断 117 分钟、一次 429 约 221 分钟、加崩溃约 242 分钟，都覆盖全部 92 个单元；canary2 无熔断 165 分钟、一次 429 约 312 分钟，覆盖全部 127 个单元。
+
+`test_trends_run.py::test_batch_keeps_the_pace_it_ran_at`、`test_a_night_admitted_after_a_refusal_is_marked_late`：批次的 `plan_json.notes` 记下节奏（`user` 与 `design` 各一遍）与 `late_admission`（按时建的 `false`；21:00 被负载闸门拒、补齐后 22:30 接管的 `true`，`window_end` 19:00），`status` 的 plan 行显示两项。
 
 `test_night_as_the_observer`：以按 TR-12 授权的观测角色（生产里是 `pick_observer`）连库跑一整晚（含一次重跑与一次暂停）再跑 `status`，授权够用。

@@ -9,7 +9,9 @@ is the trends channel's own:
   at the preset PICK_OBS_TRENDS_PACE names (pacing.PRESETS, user unless set), and a canary's task list must pass the
   payload gate (admission.py) before its first request.
 - `preflight`: tonight's task list in figures, read-only, no request (preflight.py): 0 when the night would run as a
-  valid canary night, 2 when it would be refused. S6 -> S7 reads it.
+  valid canary night, 2 when it would be refused. S6a reads it. On Railway it is the second step of the self-check
+  config's start command (deploy/pick-obs/trends/selfcheck/railway.toml), run only when --selfcheck-only exited 0, in
+  the service's own container with its own variables.
 - the configuration, checked before anything is read or sent by a run and by `--selfcheck-only` alike, a bad one
   exiting 2: the mode, the pace (and that the mode fits its window at it, capacity.py) and the other settings
   (settings.py), the canary's control list (canary.py; the default is the package's trends/canary_controls.json, with
@@ -69,7 +71,8 @@ def configured(environ: Mapping[str, str], controls_path: Path | None) -> Config
 @dataclass(frozen=True)
 class TrendsCron:
     """The trends entry's parts, injectable (tests pass a ManualClock, a MockTransport, a no-op pacer, a looser payload
-    gate). In production the pacer is the settings' preset and the gate admission.STRICT."""
+    gate). In production there is no pacer here, so run.run_session paces at the settings' preset (the one place that
+    default is made), and the gate is admission.STRICT."""
 
     clock: Clock
     rng: random.Random
@@ -85,10 +88,9 @@ class TrendsCron:
 
     async def run(self, environ: Mapping[str, str]) -> int:
         config = configured(environ, self.controls_path)
-        pacer = self.pacer or pacing.EnvelopePacer(config.settings.pace_params)
         async with egress_from_env(environ, clock=self.clock) as egress:
             probe = egress if egress.enabled else None
-            wiring = Wiring(clock=self.clock, rng=self.rng, transport=self.transport, pacer=pacer, egress=probe, admission=self.admission)
+            wiring = Wiring(clock=self.clock, rng=self.rng, transport=self.transport, pacer=self.pacer, egress=probe, admission=self.admission)
             return int(await run_trends(config.settings, config.source, cipher=config.cipher, environ=environ, wiring=wiring))
 
     async def preflight(self, environ: Mapping[str, str], out: TextIO) -> int:

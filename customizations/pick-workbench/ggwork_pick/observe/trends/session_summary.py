@@ -33,7 +33,7 @@ DRAMA_ITEMS = frozenset({"control", "title"})
 ALL_ZERO_JUMP = 0.20  # placeholder, calibrated in the shadow run
 MIN_JUDGED = 10
 CANARY_TERMINATE_AFTER = 2  # extinguished target dates, for any reason but a wall (design 4.11; section 9)
-WALL = "wall"  # breaker.ExtinguishReason of a captcha or consent page: one ends the canary
+WALL = breaker.WALL_REASON  # the extinguish reason of a captcha or consent page: one ends the canary
 CARRIED_CODES = frozenset({"parse_error"})  # lasting conditions a new batch takes over from the one before it
 
 

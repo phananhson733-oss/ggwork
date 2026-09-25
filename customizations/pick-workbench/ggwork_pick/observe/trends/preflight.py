@@ -1,13 +1,14 @@
 """`python -m ggwork_pick.observe.trends preflight`: tonight's task list in figures, without a request (plan section 9,
-S6 -> S7; G3 review seam 1).
+S6a between S6 and S7; G3 review seam 1). On Railway it runs as the second step of the self-check deploy, after
+--selfcheck-only passed (deploy/pick-obs/trends/selfcheck/railway.toml; packaging.md section 3.2).
 
 One read-only transaction as ggwp-obs-admin (lease.status_reader, like `status`): no lease, nothing written, no HTTP.
 It reads what the night's first trigger will read (the current shared catalog batch through the canary's task
 source, the breaker on the runtime row, the canary's extinguished days on the budget rows), builds the task list the
 same way (run.build_plan) and prints one JSON line:
 
-- the target date the next session feeds, the mode, the pace, its start and deadline, and the window_end a batch
-  created at the start would get;
+- the target date the next session feeds, the mode, the pace (preset, bucket and refill, as a batch keeps it in
+  plan_json's notes), its start and deadline, and the window_end a batch created at the start would get;
 - the payload gate's overview (admission.py): planned requests against the plan and the threshold, the units and the
   truncated ones, the recent dramas, the controls matched per group, the missing ones (count and the first few
   identities), and the reasons the night would be refused;
@@ -66,7 +67,7 @@ async def tonight(settings: Settings, source: TaskSource, *, now: datetime, envi
     return {
         "target_date": f"{target:%Y-%m-%d}",
         "mode": settings.mode,
-        "pace": settings.pace,
+        "pace": settings.pace_note,
         "start": stamp(start),
         "deadline": stamp(deadline),
         "window_end_if_started_on_time": stamp(window_end_of(start)),

@@ -2,8 +2,8 @@
 4.10, 4.11, 6.3; D23, D34; counterexamples 1, 2, 10).
 
 One trigger, in this order (plan TR-14 step 1-6):
-1. the target date is D23's (the day whose 02:00 UTC publication the session feeds, so 20:30 to 01:45 is one day); a
-   trigger before the mode's start, or at or after the 01:45 deadline, does nothing at all and exits 0;
+1. the target date is D23's (the day whose 02:00 UTC publication the session feeds, so the mode's start to 01:45 is
+   one day); a trigger before the mode's start, or at or after the 01:45 deadline, does nothing at all and exits 0;
 2. the self-check, then the lease, then the state under the lease (lease.collector_session): a mismatch exits 2, a
    state that cannot be read or a missing runtime row 3, a lease another process holds 1, all before any HTTP;
 3. a channel disabled by the breaker (disabled_7d), or a canary ended (canary_terminated: one captcha or consent wall,
@@ -13,7 +13,9 @@ One trigger, in this order (plan TR-14 step 1-6):
    less 3 hours, design 4.9) and the task list cut to the plan (truncated units kept in plan_json); a later trigger of
    the same date resumes it and never recomputes either (counterexample 1); a finished or published one exits 0. A
    canary's task list must first pass the payload gate (admission.py): short of it, the date gets a refusal row with
-   not_published_low_coverage and the overview, and the run exits 2 before any request (G3 seam 1);
+   not_published_low_coverage and the overview, and the run exits 2 before any request (G3 seam 1). plan_json's notes
+   keep the pace the session runs at, and late_admission: true when a later trigger took the date's refusal row over
+   (its start and window_end moved; TR-30 does not count such a canary night);
 5. the executor runs what is left of the task list (executor.py: every request paced, reserved and logged under the
    lease);
 6. the summary and the codes; a canary session is withheld: it never publishes a set.
@@ -32,6 +34,7 @@ import random
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
+from types import MappingProxyType
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -58,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 TRENDS = "trends"
 WINDOW_LAG = timedelta(hours=3)  # design 4.9: the latest hours Trends still revises are left out
+LATE_ADMISSION = "late_admission"  # plan_json's notes: the batch took over its target date's refusal row
 
 
 def window_end_of(created_at: datetime) -> datetime:
@@ -75,9 +79,10 @@ class TaskSource(Protocol):
 
 @dataclass(frozen=True)
 class Wiring:
-    """What a session is wired to; tests pass a ManualClock, a MockTransport and, for the red test, a no-op pacer. The
-    pacer defaults to the settings' preset (PICK_OBS_TRENDS_PACE), the payload gate to the production one; tests of
-    other things pass a looser gate so a night of a dozen units still runs."""
+    """What a session is wired to; tests pass a ManualClock, a MockTransport and, for the red test, a no-op pacer.
+    Without a pacer, run_session paces at the settings' preset (PICK_OBS_TRENDS_PACE): the entry passes none, so this
+    is the production pace's one source. The payload gate defaults to the production one; tests of other things pass a
+    looser gate so a night of a dozen units still runs."""
 
     clock: Clock
     rng: random.Random
@@ -99,7 +104,7 @@ def build_plan(day: Day, source: TaskSource, found: SourceUnits) -> SessionPlan:
     to the mode's plan."""
     checks = contract_check_units() if contract_check_due(day.target_date, enabled=day.settings.contract_check) else ()
     tasks = cut_to_plan(ordered((*checks, *found.units), day.target_date), budget.plan_budget(day.limits))
-    notes = {**found.notes, "contract_check": bool(checks), "plan": day.limits.plan, "cap": day.limits.cap}
+    notes = {**found.notes, "contract_check": bool(checks), "plan": day.limits.plan, "cap": day.limits.cap, "pace": day.settings.pace_note}
     return SessionPlan(source.name, day.settings.granularity, day.settings.related, tasks, found.catalog_batch_id, notes)
 
 
@@ -165,9 +170,17 @@ async def open_batch(writer: LeasedWriter, day: Day, source: TaskSource, admissi
         plan = build_plan(day, source, await source.units(step, target_date=day.target_date))
         figures = gate.overview(plan, day.limits, admission)
         if not day.settings.canary or gate.admitted(figures):
-            return await _create(step, day, batch, gate.with_overview(plan, figures))
+            return await _create(step, day, batch, _kept(plan, figures, late=batch is not None))
         await _refuse_payload(step, day, batch, figures)
     raise Refused(gate.refusal_text(figures))
+
+
+def _kept(plan: SessionPlan, figures: Mapping[str, Any], *, late: bool) -> SessionPlan:
+    """The plan as the batch keeps it: the payload gate's overview, and whether the night was admitted late, by a
+    trigger that took over the refusal row of its own target date. Its start moved and its window_end with it, so TR-30
+    does not count such a canary night toward the three or the seven (plan section 9)."""
+    kept = gate.with_overview(plan, figures)
+    return replace(kept, notes=MappingProxyType({**kept.notes, LATE_ADMISSION: late}))
 
 
 async def _create(step: LeasedStep, day: Day, batch: rows.BatchRow | None, plan: SessionPlan) -> rows.BatchRow | None:
@@ -181,6 +194,8 @@ async def _create(step: LeasedStep, day: Day, batch: rows.BatchRow | None, plan:
     if closed:
         logger.warning("[pick-obs] trends closed %d earlier batch(es) left running", closed)
     logger.info("[pick-obs] trends %s plan: %s", day.target_date, gate.log_line(plan.notes["admission"]))
+    if plan.notes[LATE_ADMISSION]:
+        logger.warning("[pick-obs] trends %s admitted late, after a refusal: window_end %s, not a canary day", day.target_date, stamp(values["window_end"]))
     return await rows.find_batch(step, day.target_date)
 
 

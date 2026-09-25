@@ -19,9 +19,21 @@ deterministic:
 Every estimate then adds MARGIN to each unit's finish, so a unit only counts as covered when it would still be done
 MARGIN before the deadline. A mode is accepted at a pace (settings.py refuses it otherwise, exit 2, before anything
 is read or sent) only if CLEAR covers every unit of the largest plan the mode allows and ONE_LIMIT at least
-MIN_LIMITED_COVERAGE of them. The replay is not the night: tests/observe/test_trends_capacity.py runs the same three
-nights through the real executor, on a ManualClock against a MockTransport, and checks that the estimate never
-finishes sooner and never covers more.
+MIN_LIMITED_COVERAGE of them.
+
+Where the estimate stands against a night (tests/observe/test_trends_capacity.py runs the three nights through the real
+executor, on a ManualClock against a MockTransport, and checks that the estimate never finishes sooner and never
+covers more):
+- MARGIN is what makes it the later one, and the only thing. At the user pace the bucket's refill sets the speed:
+  LATENCY_SECONDS and the long-end gaps hardly count (both at their other extreme, 0 s and the short end, move the
+  canary modes' estimates by under a minute).
+- The replay of a night's own task list, without MARGIN, finishes within a minute of the executor's run. The mode
+  check's canonical plan (CANONICAL_SHAPE) is not the night's list: its 429 falls on another unit, and without MARGIN
+  its limited nights finish a minute or two before the executor's (canary1: 219.8 against 220.5 minutes with one 429,
+  240.2 against 242.1 with the crash on top).
+- The unit a 429 hits is priced as lost, and nothing the executor does with it afterwards is replayed: the executor
+  keeps what the unit fetched before the 429 (a series that came back before its related queries were refused counts
+  as fetched). The estimated coverage is the lower one.
 """
 
 from collections.abc import Sequence

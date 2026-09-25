@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime, time, timedelta
 import pytest
 
 from ggwork_pick.observe import cron, selfcheck
+from ggwork_pick.observe.clock import random_source
 from ggwork_pick.observe.errors import ExitCode, Refused
 from ggwork_pick.observe.trends import __main__ as trends_entry
 from ggwork_pick.observe.trends import breaker, budget, capacity, pacing
@@ -329,7 +330,8 @@ def test_related_mixed_every_fourth_drama_and_never_on_a_only():
 def test_canary_termination_rule(reasons, ended):
     """Section 9's "出现验证码或熄火 2 次立即终止", read off the budget rows' extinguish reasons by both the refusal at
     start and the finishing step."""
-    assert summary.WALL in breaker.EXTINGUISH_REASONS
+    walled, _ = breaker.observe(breaker.initial_state(TARGET), breaker.Signal.WALL, now=datetime.combine(TARGET, time(0, 10), UTC), rng=random_source(1))
+    assert walled.day.extinguished == summary.WALL  # what the breaker writes for a wall is what this rule reads
     assert summary.canary_terminated(reasons) is ended
     judged = summary.Judged(True, reasons, frozenset(), None, False, False)
     assert ("canary_terminated" in summary.session_codes(breaker.initial_state(TARGET), judged)) is ended

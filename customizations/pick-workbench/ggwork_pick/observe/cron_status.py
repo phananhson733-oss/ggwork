@@ -34,6 +34,7 @@ BUDGET_COLUMNS = (
     "extinguish_reason",
     "extinguished_at",
 )
+PLAN_NOTES = ("pace", "late_admission")  # what else TR-30 reads off a Trends batch's notes (trends/run.py)
 BATCH_COLUMNS = (
     *("id", "target_date", "round_id", "mode", "collect_mode", "window_end", "started_at", "finished_at", "outcome"),
     *("requests", "planned_units", "fetched_units", "coverage", "breaker_events", "status_codes_json"),
@@ -52,10 +53,13 @@ def _figures(document: object, *path: str) -> Mapping[str, Any] | None:
 
 
 def plan_line(row: Mapping[str, Any]) -> dict[str, Any] | None:
-    """A batch's task list in figures: kept in plan_json's notes when the batch was created, or in summary_json when
-    the payload gate refused the night (trends/admission.py). None for a batch without either (GSC, older rows)."""
-    figures = _figures(row["plan_json"], "notes", "admission") or _figures(row["summary_json"], "admission")
-    return None if figures is None else {"plan": {"batch": row["id"], "target_date": row["target_date"], **figures}}
+    """A batch's task list in figures: kept in plan_json's notes when the batch was created, with the pace it ran at
+    and whether it was admitted late (trends/run.py), or in summary_json when the payload gate refused the night
+    (trends/admission.py). None for a batch without either (GSC, older rows)."""
+    notes = _figures(row["plan_json"], "notes") or {}
+    figures = _figures(notes, "admission") or _figures(row["summary_json"], "admission")
+    kept = {key: notes[key] for key in PLAN_NOTES if key in notes}
+    return None if figures is None else {"plan": {"batch": row["id"], "target_date": row["target_date"], **figures, **kept}}
 
 
 async def status_lines(step: ReadStep, channel: str) -> list[dict[str, Any]]:

@@ -3,17 +3,18 @@ section 9).
 
 The estimate replays a night through the real pacer and breaker with every gap at its longest. These tests run the
 same nights through the real entry and executor, on a ManualClock against FakeGoogle (MockTransport), and check the
-estimate is never the optimistic one: it covers no more units than the night did, and when the night covered all it
-could, it finishes no sooner. Three nights (capacity.SCENARIOS): no limit signal; a 429 at the 56th request, a
-30-minute pause, a good probe and half speed for the rest of the target date; and that night dying with its first
-request after midnight out, resumed by the next cron trigger after the lease ran out, on the same target date and
-window_end.
+estimate is never the optimistic one: the night covers all it could, and the estimate covers no more units than the
+night did and finishes no sooner, on every night. Three nights (capacity.SCENARIOS): no limit signal; a 429 at the 56th
+request, a 30-minute pause, a good probe and half speed for the rest of the target date; and that night dying with its
+first request after midnight out, resumed by the next cron trigger after the lease ran out, on the same target date and
+window_end. What keeps the estimate the later one is capacity.MARGIN (its module notes): without it the replay of a
+limited night finishes a minute or two before the executor's.
 
 The nights run on SQLite only: on a ManualClock the timing does not depend on the dialect, and the PostgreSQL half of
 every other session test already runs the same executor.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta
 
 import pytest
@@ -96,10 +97,13 @@ def _estimate(night: Night, mode: str, scenario: capacity.Scenario, params=USER)
 
 
 def _assert_not_optimistic(night: Night, found: capacity.Estimate, scenario: capacity.Scenario) -> None:
-    lost = 1 if scenario.limit_at else 0  # the unit the 429 abandoned
+    """The night covered all it could, and the estimate of its own task list covers no more and finishes no sooner.
+    All it could: every unit, or every unit but the one a 429 abandoned. The executor counts that unit as fetched when
+    the 429 refused only its related queries, after its series came back; capacity.py prices it as lost either way."""
+    lost = 1 if scenario.limit_at else 0
+    assert night.fetched >= len(night.sizes) - lost, ("the night fell short of its task list", night)
     assert found.covered <= night.fetched, (found.summary(), night)
-    if night.fetched == len(night.sizes) - lost:  # the night covered all it could: compare when it was done
-        assert found.elapsed >= night.elapsed, (found.summary(), night.elapsed)
+    assert found.elapsed >= night.elapsed, (found.summary(), night.elapsed)
     print(f"{scenario.name}: night {night.fetched}/{len(night.sizes)} units in {night.elapsed}; estimate {found.summary()}")
 
 
@@ -111,9 +115,9 @@ def _assert_not_optimistic(night: Night, found: capacity.Estimate, scenario: cap
 @pytest.mark.parametrize("mode", ["canary1", "canary2"])
 @pytest.mark.asyncio
 async def test_estimate_never_beats_the_executor(obs_url, tmp_path, mode, scenario, seed):
-    """At the production pace, for the modes the canary runs: the estimate of the night's own task list covers no more
-    and, when the night covered all it could, finishes no sooner; so does the mode check's canonical plan, which is
-    never smaller. The resumed night keeps its target date's window_end (D23)."""
+    """At the production pace, for the modes the canary runs: every night covers all it could, and the estimate of its
+    own task list covers no more and finishes no sooner, limited and resumed nights included; so does the mode check's
+    canonical plan, which is never smaller. The resumed night keeps its target date's window_end (D23)."""
     night = await _night(obs_url, tmp_path, mode=mode, scenario=scenario, seed=seed)
     _assert_not_optimistic(night, _estimate(night, mode, scenario), scenario)
     fit = capacity.mode_fit(budget.mode_limits(mode), USER)
@@ -127,6 +131,23 @@ async def test_estimate_never_beats_the_executor(obs_url, tmp_path, mode, scenar
 async def test_estimate_never_beats_the_executor_at_design_pace(obs_url, tmp_path, scenario):
     night = await _night(obs_url, tmp_path, mode="canary1", scenario=scenario, seed=5, pace="design")
     _assert_not_optimistic(night, _estimate(night, "canary1", scenario, params=pacing.PRESETS["design"]), scenario)
+
+
+def test_a_limited_night_that_kept_its_limited_unit_is_compared_too():
+    """The executor keeps what the unit a 429 hit had fetched: when the 429 refuses its related queries after its
+    series came back, the unit counts as fetched (capacity.py prices it as lost). Such a night covered all it could,
+    and the estimate is held to its finish like a clear night's. (Until G3's review the comparison ran only when the
+    night was one unit short, which the executor's limited nights never were: it ran on clear nights alone.)"""
+    started = datetime(2026, 9, 25, 21, 0, tzinfo=capacity.UTC)
+    night = Night(sizes=(2, 2, 3), fetched=3, started=started, last_done=started + timedelta(minutes=200), window_end="-")
+    sooner = capacity.Estimate("one_limit", 3, started, (started + timedelta(minutes=100),) * 2, started + timedelta(minutes=190))
+    with pytest.raises(AssertionError):
+        _assert_not_optimistic(night, sooner, capacity.ONE_LIMIT)
+    later = replace(sooner, last_done=started + timedelta(minutes=210))
+    _assert_not_optimistic(night, later, capacity.ONE_LIMIT)
+    short = replace(night, fetched=1)  # a night that fell short of its task list: the mode does not fit
+    with pytest.raises(AssertionError):
+        _assert_not_optimistic(short, replace(later, completed=()), capacity.ONE_LIMIT)
 
 
 @pytest.mark.asyncio

@@ -331,6 +331,59 @@ async def test_canary_without_its_positive_controls_is_refused(obs_url, tmp_path
     assert len(admission["reasons"]) == 1 and "正对照" in admission["reasons"][0]
 
 
+USER_PACE = {"preset": "user", "bucket_capacity": 4, "refill_per_minute": 2}
+
+
+def _plan_lines(out: io.StringIO) -> list[dict]:
+    return [json.loads(line)["plan"] for line in out.getvalue().splitlines() if "plan" in json.loads(line)]
+
+
+@pytest.mark.parametrize(("pace", "bucket", "refill"), [(None, 4, 2), ("design", 8, 4)])
+@pytest.mark.asyncio
+async def test_batch_keeps_the_pace_it_ran_at(obs_url, tmp_path, pace, bucket, refill):
+    """[G3 review P3] The pace is one of the canary's parameters (plan section 9: changed mid-way, the count starts
+    again), so the batch keeps it: plan_json's notes name the preset with its bucket and refill, and status shows them
+    on the plan line, for TR-30 to check night by night from the database."""
+    _, controls = await _night(obs_url, tmp_path, dramas=6)
+    env = trends_env(obs_url, **({"PICK_OBS_TRENDS_PACE": pace} if pace else {}))
+    clock = ManualClock(at(EVE, 21, 0))
+    assert await trigger(env, clock, FakeGoogle(clock), controls=controls) == ExitCode.OK
+    (batch,) = await batches(obs_url)
+    expected = {"preset": pace or "user", "bucket_capacity": bucket, "refill_per_minute": refill}
+    assert batch["plan_json"]["notes"]["pace"] == expected and batch["plan_json"]["notes"]["late_admission"] is False
+    out = io.StringIO()
+    assert await trigger(env, clock, FakeGoogle(clock), controls=controls, argv=["status"], out=out) == ExitCode.OK
+    (shown,) = _plan_lines(out)
+    assert (shown["pace"], shown["late_admission"]) == (expected, False)
+
+
+@pytest.mark.asyncio
+async def test_a_night_admitted_after_a_refusal_is_marked_late(obs_url, tmp_path):
+    """[G3 review P3] The payload gate refuses canary1's 21:00 trigger; a fresh shared catalog batch comes out, and the
+    22:30 trigger takes the refusal row over and runs. Its window_end is 19:00, not the on-time 18:00, and its window
+    an hour and a half shorter: its start moved, so plan_json's notes mark it late_admission, status shows it, and
+    TR-30 does not count the day toward the three or the seven (trends-session.md)."""
+    await seed_catalog(obs_url, _stale_catalog(40))
+    catalog = recent_catalog(150)
+    bad = write_controls(tmp_path, [drama(900 + index) for index in range(4)], name="bad.json")
+    good = write_controls(tmp_path, catalog[:4], name="good.json")
+    env = trends_env(obs_url)
+    clock = ManualClock(at(EVE, 21, 0))
+    assert await _as_deployed(env, clock, FakeGoogle(clock), bad) == ExitCode.REFUSED
+    (refused,) = await batches(obs_url)
+    await seed_catalog(obs_url, catalog, batch_id="cat-2", published_at=at(EVE, 22, 0))
+    clock.advance((at(EVE, 22, 30) - clock.now()).total_seconds())
+    google = FakeGoogle(clock)
+    assert await _as_deployed(env, clock, google, good) == ExitCode.OK and google.seen
+    (late,) = await batches(obs_url)
+    assert (late["id"], late["outcome"], late["window_end"]) == (refused["id"], "withheld", stamp(at(EVE, 19)))
+    assert late["plan_json"]["notes"]["late_admission"] is True and late["status_codes_json"] == []
+    out = io.StringIO()
+    assert await _as_deployed(env, clock, FakeGoogle(clock), good, argv=["status"], out=out) == ExitCode.OK
+    (shown,) = _plan_lines(out)
+    assert shown["late_admission"] is True and shown["reasons"] == []
+
+
 @pytest.mark.asyncio
 async def test_preflight_reads_tonight_without_sending(obs_url, tmp_path):
     """S6 -> S7: `preflight` prints tonight's task list in figures (no lease, no request, nothing written): 0 when it
@@ -346,7 +399,7 @@ async def test_preflight_reads_tonight_without_sending(obs_url, tmp_path):
         google, out = FakeGoogle(clock), io.StringIO()
         assert await _as_deployed(env, clock, google, controls, argv=["preflight"], out=out) == expected
         (line,) = [json.loads(text)["preflight"] for text in out.getvalue().splitlines()]
-        assert (line["target_date"], line["mode"], line["pace"]) == ("2026-09-26", "canary1", "user") and google.seen == []
+        assert (line["target_date"], line["mode"], line["pace"]) == ("2026-09-26", "canary1", USER_PACE) and google.seen == []
         assert line["planned_requests"] >= 176 and bool(line["reasons"]) == (expected == ExitCode.REFUSED)
     assert await runtime_row(obs_url) == before and await batches(obs_url) == []
 

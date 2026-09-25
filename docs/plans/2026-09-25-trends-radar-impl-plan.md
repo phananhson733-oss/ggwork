@@ -151,7 +151,7 @@
 | D20 | 出口 IP 探测**默认关闭**：回显地址是对第三方的外发请求，要 U13 批准后才配置。开启后在每次会话开头、每次熔断后、每 20 次请求各测一次，请求行记下最近一次的值和测量时刻；关闭时记 NULL | 设计要求逐请求记录出口，但回显服务不能每个请求都打，而且它本身是新的外发 |
 | D21 | 任务分支不提交托管副本，跑测试时显式 `--deselect` `test_managed_copy`。批次合并后在集成分支统一执行 `deerflow extensions upgrade` 并提交；完整套件（含 `test_managed_copy`）只在集成分支跑 | 避免各分支的托管副本互相冲突；执行代理不会误以为任务分支必须全绿到托管副本 |
 | D22 | 覆盖率用 `uv run --with coverage` 临时测量，不改锁文件；`ggwork_pick.observe` 要求 ≥80% | 仓库的 dev 组里没有 pytest-cov |
-| D23 | 预算与熔断计数的「当天」：Trends 按 **target_date**（会话 02:00 UTC 截止的那天），起跑（G3 后最早 17:30）到次日 01:45 的会话同属一天；「连续 2 天」「7 天内 3 次」都按 target_date 数。GSC 的请求计数按 UTC 日，只作配额记录。`ggwp_obs_budget` 主键 (channel, budget_day) | 设计 3.5 表写的是「UTC 日」，照做会在 00:00 把预算清零、解除熄火，重演设计 4.3 要防的放大模式；这是对设计的细化，不改变它的意图 |
+| D23 | 预算与熔断计数的「当天」：Trends 按 **target_date**（会话 02:00 UTC 截止的那天），20:30 到次日 01:45 的会话同属一天；「连续 2 天」「7 天内 3 次」都按 target_date 数。GSC 的请求计数按 UTC 日，只作配额记录。`ggwp_obs_budget` 主键 (channel, budget_day) | 设计 3.5 表写的是「UTC 日」，照做会在 00:00 把预算清零、解除熄火，重演设计 4.3 要防的放大模式；这是对设计的细化，不改变它的意图 |
 | D24 | 人工决定的生效链：`decisions_state.effective(decisions, upto_id)` 纯函数算出有效状态；采集服务每次发布读 decisions 到当时最大 id，记作 `decisions_version` 冻结进集合。对应确认按 (identity, 平台, 规范化标题) 记，撤销、改标题、改平台、经别名换了身份都失效，要重新确认。别名类决定由 gsc 服务在每轮第 0 步写成新的别名版本（D43）。确认在该通道下一个集合生效：Trends 最长约一天，而 confirmed 本来就要等 D+1 的集合 | 设计 7.1「只读判定行」：智能体实时读 decisions 会让旧卡随撤销而变；冻结进集合，旧集合永远不变 |
 | D25 | 页面集合 P 只由身份与 `FrozenInputs`（正典 id、冻结镜像版本的 `rs_ids`、冻结旧页快照）产出，不读明细；明细汇总与过滤请求共用这一份 | 从明细收集 P 会让「整部剧漏在明细外」时两份下界都为 0 而判一致，反例 22 假绿 |
 | D26 | Vh 每轮重取、从不复用。Vd 结果在满足三条时跨轮沿用：它比较的 14 个 PT 日与本轮相同；这 14 天的 D/E 切片生效版本 id 都没变；每天的 dataState 都没变。V 状态行记下这三样，任一条不满足就对受影响的身份重取 | 设计 5.2 定 Vd「每天一次」，每轮全量重取既违背频率又浪费配额；只按「是不是本轮取的」判断又会让 8 个集合里只有 1 个带 7 天正式标签 |
@@ -548,7 +548,7 @@
   - 流程：① 自检，取租约，在租约之下读状态（TR-13 的 `collector_session`，读到的就是接着要写的状态）；② 按 target_date 取或建批次，`window_end` 在建批次时写入；③ 展开任务清单，被截断的单元按截断顺序落表；④ 逐单元执行：等 pacer，扣预算，发 HTTP，写请求行与原始行（预热、探针、重试同样走这一步）；⑤ 更新熔断状态，检查截止时间；⑥ 收尾写汇总：覆盖率、熔断事件、全零率、userType 变化、状态码（D10）。金丝雀会话不发布集合；发布接线由 TR-20 加。
   - 模式（第 9 节，G3 改）：stable 暂定 17:30 起跑、计划 ≤350、上限 525；canary1 21:00 起跑、计划 220；canary2 18:30 起跑、计划约 300、上限 450；都在 01:45 硬截止。早于起跑时刻被触发，退出码 0，什么都不做。节奏由 `PICK_OBS_TRENDS_PACE` 选（默认 `user`），模式在该节奏下放不进窗口以 2 拒跑。
   - 金丝雀期出现一次验证码或同意页，或其他原因熄火累计 2 天，写入 `canary_terminated`，之后拒绝再跑（G3 改：原文「验证码或熄火 2 次」有歧义）。
-  - 金丝雀的负载闸门与 `preflight` 命令（第 9 节，G3 加）。
+  - 金丝雀的负载闸门与 `preflight` 命令，批次的 `plan_json.notes` 记节奏与 `late_admission`（第 9 节，G3 加）。
   - `CanaryTaskSource`：`canary_controls.json` 里的对照；当前共享批次里 `listed_at` 在 14 天内的欧美六语剧名（只用裸剧名形态）；每个 geo 一条对照序列；按比例混入 relatedsearches（去向为「只过 A」时不混）。
   - 每周线上合同检查（设计第 10 节，U12 批准后开启）：每周一用固定参数取 2 个单元，计入当天预算；解析失败写 `parse_error` 告警码，不写值。
 - **测试**
@@ -832,7 +832,7 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 4. cron 服务能不能挂卷没有核实；挂卷的服务一服务只能一个卷，重新部署还有停机。
 5. 文件型状态（TR-04）仍然要写，只用于本机的阶段 0，以及 0007 被卡住时的后备。后备启用的条件：批次 2a 完成后 5 个工作日内 0007 仍上不了生产。启用前先实测 cron 能否挂卷。
 
-**模式参数**（G3 重排。生产节奏 `user`；01:45 截止与 D23 不变；金丝雀起跑不早于 18:00 UTC）
+**模式参数**（G3 重排。生产节奏 `user`；01:45 截止与 D23 不变：D23 那一行写的「20:30 到次日 01:45」是 G3 之前 stable 的起跑，起跑提前之后，从起跑到次日 01:45 的会话照样同属一个 target_date；金丝雀起跑不早于 18:00 UTC）
 
 | 模式 | 起跑 | 窗口 | 计划 | 上限 | 容量估算：无熔断 / 一次 429 / 一次 429 + 午夜后崩溃 |
 |---|---|---|---|---|---|
@@ -840,14 +840,14 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 | canary2 | 18:30 | 435 分钟 | 约 300 | 450 | 175 分钟 100% / 321 分钟 99.2% / 同左（午夜前跑完） |
 | stable（暂定） | 17:30 | 495 分钟 | ≤350 | 525 | 206 分钟 100% / 372 分钟 99.3% / 同左 |
 
-- **容量检查**（`trends/capacity.py`）取代原来的「计划 ÷ 2.9 + 40 分钟」。原检查只算了一次熔断暂停，没算暂停之后当天余下的半速，也只认一个节奏。现在按节奏逐个请求重放一晚：真实的限速器、熔断器与预算，随机间隔都取上限，每个回答 2 秒，每个单元的完成时刻再加 10 分钟余量。三种夜晚：(a) 无熔断；(b) 第 56 个请求 429（阶段 0 第一天的位置），暂停 30 分钟，探针正常，当天余下半速；(c) 同 (b)，而且午夜后第一个请求在外时进程崩溃，租约失效后的下一次半小时触发续跑，那个单元重做。模式的最大计划要满足 (a) 覆盖 100%、(b) 覆盖 ≥95%，否则配置校验以 2 拒跑（每次触发与 `--selfcheck-only` 都校验）；(c) 只报告。表中分钟是起跑到最后一个单元完成（含余量），百分比是覆盖的单元。`test_trends_capacity.py` 用真实的入口与执行器（假时钟、MockTransport）跑同样的三种夜晚，钉住估算覆盖不多于、完成不早于真跑。
-- **节奏**：`PICK_OBS_TRENDS_PACE`，默认 `user`（令牌桶 4、每分钟补 2，阶段 0 第二天的节奏）；`design`（桶 8、每分钟补 4）是设计 4.2 的原值。阶段 0 的 `--pace` 与生产读同一份预设（`pacing.PRESETS`）。取值不认识以 2 拒跑。
+- **容量检查**（`trends/capacity.py`）取代原来的「计划 ÷ 2.9 + 40 分钟」。原检查只算了一次熔断暂停，没算暂停之后当天余下的半速，也只认一个节奏。现在按节奏逐个请求重放一晚：真实的限速器、熔断器与预算，随机间隔都取上限，每个回答 2 秒，每个单元的完成时刻再加 10 分钟余量。三种夜晚：(a) 无熔断；(b) 第 56 个请求 429（阶段 0 第一天的位置），暂停 30 分钟，探针正常，当天余下半速；(c) 同 (b)，而且午夜后第一个请求在外时进程崩溃，租约失效后的下一次半小时触发续跑，那个单元重做。模式的最大计划要满足 (a) 覆盖 100%、(b) 覆盖 ≥95%，否则配置校验以 2 拒跑（每次触发与 `--selfcheck-only` 都校验）；(c) 只报告。表中分钟是起跑到最后一个单元完成（含余量），百分比是覆盖的单元。`test_trends_capacity.py` 用真实的入口与执行器（假时钟、MockTransport）跑同样的三种夜晚，每种夜晚都钉住估算覆盖不多于、完成不早于真跑。估算偏保守只靠这 10 分钟余量：`user` 节奏下快慢由补桶速度决定，回答耗时与间隔取上限几乎不起作用（两者都换到另一头，估算变化不到 1 分钟）；不加余量时，按模式的标准计划重放的限速夜晚比真跑早 1–2 分钟完成（canary1 一次 429：219.8 对 220.5 分钟，加崩溃：240.2 对 242.1 分钟）。重放把 429 打中的单元算作丢失，执行器则保留它在 429 之前拿到的序列，所以估算的覆盖率偏低。
+- **节奏**：`PICK_OBS_TRENDS_PACE`，默认 `user`（令牌桶 4、每分钟补 2，阶段 0 第二天的节奏）；`design`（桶 8、每分钟补 4）是设计 4.2 的原值。阶段 0 的 `--pace` 与生产读同一份预设（`pacing.PRESETS`）。取值不认识以 2 拒跑。每个批次在 `plan_json.notes.pace` 记下这一晚的节奏（预设名、桶容量、每分钟补充数），`status` 的 plan 行与 `preflight` 都显示，TR-30 按库逐晚核对节奏没变。
 - **canary1** 计划不变，只把起跑从 22:00 提前到 21:00：22:00 起 (b) 覆盖 95.6%，刚过线，(c) 只剩 85.7%。
 - **canary2** 减到约 300、18:30 起跑、上限为计划的 1.5 倍：原来 22:00 起 430，在 `user` 节奏下 (a) 只覆盖 88.6%、(b) 只有 47%。18:30 起按 (a)(b) 最多能排约 415（415 时 (b) 96.1%，420 时 94.4% 不过）；若 (c) 也要 ≥95%，约 390（390 时 (c) 96.4%，400 时 93.6%）。取 300 由模拟确认：`test_simulated_canary2_night` 289 个请求，2 小时 47 分跑完。
 - **stable** 暂定 17:30 起跑、≤350、上限 525（计划的 1.5 倍），容量检查放得进（17:30 起按 (a)(b) 最多约 480）。**TR-18 接上任务来源、G4 定稳定期参数时重定**；原来 20:30 起 650 在 `user` 节奏下 (a) 只覆盖 81%。
 - 上限是熔断与重试之后的硬顶，不是计划量；按上限排期会让一次熔断就截断剩余单元，与「新鲜率 ≥95%」「允许熔断 1 次」自相矛盾，所以计划量低于上限。
 - **cron** 改为 `*/30 17-23,0-1 * * *`，最早一次 17:00 覆盖最早的起跑（stable 17:30）；早于模式起跑的触发在程序里退出 0。部署时段相应改为 UTC 02:00–17:00（`packaging.md` 第 7 节，`test_cron_schedule_fits_the_session_modes` 钉住）。
-- **负载闸门**（`trends/admission.py`）：金丝雀每晚建批次之前，截断到计划之后的计划请求不少于当天计划量的 80%，匹配到的正对照不少于清单正对照的一半；不满足就在任何请求之前以 2 拒跑，当天的拒跑行写 `not_published_low_coverage`（复用合同已有的码）与概览，这一天**不算金丝雀日**，不计入三天或七天。`status` 显示每个批次的计划概览与缺的对照（个数与前 5 个 identity）；S6 与 S7 之间跑 `preflight`（只读、零 HTTP）看同一份概览。
+- **负载闸门**（`trends/admission.py`）：金丝雀每晚建批次之前，截断到计划之后的计划请求不少于当天计划量的 80%，匹配到的正对照不少于清单正对照的一半；不满足就在任何请求之前以 2 拒跑，当天的拒跑行写 `not_published_low_coverage`（复用合同已有的码）与概览，这一天**不算金丝雀日**，不计入三天或七天。被拒过的一晚，补齐之后由同一晚稍后的触发接管开跑的，批次的 `plan_json.notes.late_admission` 记 `true`：它的起跑与 `window_end` 都变了（`window_end` 按接管那次触发的整点算），窗口也短了，同样不计入三天或七天；按时建批次的记 `false`。`status` 显示每个批次的计划概览、缺的对照（个数与前 5 个 identity）、节奏与 `late_admission`。S6 与 S7 之间的 `preflight`（只读、零 HTTP，S6a）随 S6 的自检部署一起跑：自检配置的启动命令先 `--selfcheck-only`，通过了才 `preflight`，同一次部署的日志里先后是这两行，部署的退出码是 `preflight` 的（`packaging.md` 第 3.2 节、第 6 节）。不另开命令：cron 服务平时没有在跑的容器可以 `railway ssh`，在本机 `railway run` 又要把状态密钥带到本机。
 - 通过条件照设计 4.11：阶段 1 三天没有任何限流信号；阶段 2 七天成功率 ≥98%、熔断 ≤1 次、验证码与熄火为 0、新鲜率 ≥95%。**终止**：出现一次验证码或同意页立即终止；其他原因（限流、熔断次数、探针失败）熄火累计 2 天终止。判定只读已提交的预算行，起跑前与收尾用同一条规则，收尾前崩溃也照样成立。
 
 **时间线（日历日，以批次 0 开工为第 1 天；假设最多 4 个实现代理并行、1 个整合者，用户每个 U 步骤在 1 个工作日内响应）**
@@ -872,9 +872,9 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 | S2 | 在生产库执行 `bootstrap-observer.sql`，用 `\password pick_observer` 设口令，然后用 `pg_roles` 核对 | 是 | 用户（postgres 身份） |
 | S3 | 部署带 0007 的 gateway，对应 7.5 第 2 步。从 S0 之后的 main 干净检出，守卫通过（生产上一次记录的提交是 HEAD 的祖先）后执行 `railway up --detach`；部署前在 main 上跑完整套件，不带 `-k` | 是 | 代理，经用户批准 |
 | S4 | 核对：日志里没有 `ggwork-pick` 的 `service start() failed`；容器里能导入 `ggwork_pick.observe.read`；迁移头 0007；`has_table_privilege('pick_observer',…)`、`has_schema_privilege('pick_board_reader','pick_obs','USAGE')`；anon 与 authenticated 没有 USAGE；以 observer 连接在只读事务里读当前镜像版本的 `rs_ids` 后回滚；授权缺失就在 gateway 里经 `railway ssh` 跑 `observe.admin regrant`；以登录用户访问 `/api/pick/sync` 返回 200，并打开资料页与一次不带趋势条件的选剧对话；只读统计共享批次里 v1 `gsc` 信号的条数（设计 1.2） | 是（只读核对，加一次补授权） | 代理 |
-| S5 | 新建 Railway 服务 `pick-obs-trends`：同一仓库，配置路径 `/deploy/pick-obs/trends/railway.toml`。变量名（不写值）：`PICK_DATABASE_URL`（observer 的 Supavisor session DSN，URL 不带 ssl 参数）、`PGSSLMODE`、`PICK_OBS_STATE_KEY`、`PICK_OBS_EXPECTED_COLLECTOR`、`PICK_OBS_EXPECTED_ROLE`、`PICK_DB_SIZE_CAP_BYTES`、`PICK_OBS_TRENDS_MODE=canary1`、`PICK_OBS_TRENDS_PACE`（不设，即 `user`）、`PICK_OBS_PUBLISH`（不设）、`PICK_OBS_EGRESS_URL`（U13 批准前不设）。确认 healthcheck 关闭、重启策略 NEVER。守卫通过后从干净检出执行 `railway up --detach --service pick-obs-trends`，不开推送自动部署 | 是 | 服务由代理经批准创建，机密变量由用户填 |
-| S6 | 以 `--selfcheck-only` 手动触发一次，核对日志里的包摘要、角色与迁移头；随后以服务的变量跑 `preflight`（只读、零 HTTP），看当晚任务清单概览与缺的对照，退出 0 才进 S7（第 9 节负载闸门） | 是 | 代理 |
-| S7 | 金丝雀开始（canary1 21:00 UTC 起跑），对应 7.5 第 3 步（开关关着） | 是（访问 Google） | 已批准；代理监控，TR-30 |
+| S5 | 新建 Railway 服务 `pick-obs-trends`：同一仓库，配置路径 `/deploy/pick-obs/trends/railway.toml`。变量名（不写值）：`PICK_DATABASE_URL`（observer 的 Supavisor session DSN，URL 不带 ssl 参数）、`PGSSLMODE`、`PICK_OBS_STATE_KEY`、`PICK_OBS_EXPECTED_COLLECTOR`、`PICK_OBS_EXPECTED_ROLE`、`PICK_DB_SIZE_CAP_BYTES`、`PICK_OBS_TRENDS_MODE=canary1`、`PICK_OBS_PUBLISH`（不设）、`PICK_OBS_EGRESS_URL`（U13 批准前不设）。确认 healthcheck 关闭、重启策略 NEVER。守卫通过后从干净检出执行 `railway up --detach --service pick-obs-trends`，不开推送自动部署 | 是 | 服务由代理经批准创建，机密变量由用户填 |
+| S6 | 以 `--selfcheck-only` 手动触发一次，核对日志里的包摘要、角色与迁移头 | 是 | 代理 |
+| S7 | 金丝雀开始，对应 7.5 第 3 步（开关关着） | 是（访问 Google） | 已批准；代理监控，TR-30 |
 | S8 | 旧页快照导入：在本机用 observer 的 DSN（600 权限文件）执行 `observe.admin import-legacy`；U14 批准时同时 `import-editorial` | 是 | 代理，经批准 |
 | S9 | 新建 `pick-obs-gsc` 服务：配置 `/deploy/pick-obs/gsc/railway.toml`，变量 `PICK_DATABASE_URL`、`PGSSLMODE`、`PICK_GSC_SA_EMAIL`、`PICK_GSC_SA_PRIVATE_KEY`、`PICK_GSC_SITE_URL`、`PICK_OBS_EXPECTED_COLLECTOR`、`PICK_OBS_EXPECTED_ROLE`、`PICK_DB_SIZE_CAP_BYTES`。TR-21 到 TR-23b 完成后以影子模式运行；没有快照时它不发布（TR-23b） | 是 | 同 S5 |
 | S10 | 金丝雀通过，而且 TR-17、TR-18、TR-20 已部署到 trends 服务之后，改成 stable 模式，开始影子运行 2 周 | 是 | 代理，经批准 |

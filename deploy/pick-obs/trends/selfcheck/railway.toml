@@ -1,12 +1,16 @@
-# S6's one-off self-check of the pick-obs-trends service (trends radar plan section 10 S6, TR-15). Point the service's
-# config path at /deploy/pick-obs/trends/selfcheck/railway.toml, deploy, read the one "selfcheck ok" line in the log,
-# then point it back at /deploy/pick-obs/trends/railway.toml and deploy again. No cronSchedule: the container runs
-# once when deployed. Runbook: docs/pick-workbench/observe-runbook/packaging.md.
+# S6's one-off self-check of the pick-obs-trends service, with S6a's preflight in the same run (trends radar plan
+# section 10 S6 and S6a, TR-15). Point the service's config path at /deploy/pick-obs/trends/selfcheck/railway.toml,
+# deploy, read the two lines in the log ("selfcheck ok", then {"preflight": ...}), then point it back at
+# /deploy/pick-obs/trends/railway.toml and deploy again. No cronSchedule: the container runs once when deployed.
+# Runbook: docs/pick-workbench/observe-runbook/packaging.md.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "docker/Dockerfile.pick-gateway"
 
 [deploy]
-startCommand = '/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends --selfcheck-only"'
+# The preflight runs only when the self-check exited 0, and the container exits with its status: 0 tonight is a canary
+# night, 2 it would be refused. It runs here, with the service's own variables, because the cron has no running
+# container to `railway ssh` into and a `railway run` elsewhere would bring the state key off Railway.
+startCommand = '/bin/sh -c "cd /app/backend && python -m ggwork_pick.observe.trends --selfcheck-only && exec python -m ggwork_pick.observe.trends preflight"'
 restartPolicyType = "NEVER"

@@ -25,6 +25,7 @@ The mode must fit its window at the pace (capacity.mode_fit: a clear night cover
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 
 from ggwork_pick.observe.errors import Refused
 from ggwork_pick.observe.trends import budget, capacity, pacing
@@ -65,6 +66,13 @@ class Settings:
     def pace_params(self) -> pacing.PacingParams:
         """The preset every request of the session is paced at."""
         return pacing.PRESETS[self.pace]
+
+    @property
+    def pace_note(self) -> dict[str, Any]:
+        """The pace as a batch keeps it (plan_json's notes) and preflight prints it: the preset, its bucket and its
+        refill. A canary parameter (plan section 9), so TR-30 reads it night by night from the database."""
+        params = self.pace_params
+        return {"preset": self.pace, "bucket_capacity": params.bucket_capacity, "refill_per_minute": params.refill_per_minute}
 
     @property
     def canary(self) -> bool:
