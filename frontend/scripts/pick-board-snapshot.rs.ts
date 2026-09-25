@@ -15,6 +15,8 @@
  *   rm scripts/pick-board-snapshot.rs.ts scripts/pick-board-snapshot-core.rs.ts
  *
  * 只读 RealShort 生产 Neon（三个环境共用一条 DATABASE_URL）；用例串行，避开写库与同步时段（busyWindow），打印总耗时。
+ * 取满 50 行的选剧 / 全部剧库（缺省排序）与剧场榜列表，还要往后翻页（每个用例至多多读 3 页），补全第 50 行所在的
+ * 并列组（核心的 completeTies）。
  * 开头与结尾各核一次 fingerprint（export-v2 的 checkSource，内部读 readSourceSnapshot）：不一致就退出、不写文件。
  * 快照里没有网盘链接、提取码与任何金额：网盘与金额字段落盘前换成 STRIPPED，网盘只留 hasPan（与导出同一个判断）；
  * 其余文本值逐个过 RealShort 自己的 scrubPanText（导出清洗用的同一个，开跑前自检一次），认出的整串换成 SCRUBBED。
@@ -36,6 +38,8 @@ import {
   selectCases,
   staticCases,
   stripSensitive,
+  tieStats,
+  tieSummary,
   type BoardLoaders,
   type CaseRecord,
   type CaseRequest,
@@ -363,9 +367,11 @@ async function main(): Promise<number> {
     progress: (line) => process.stderr.write(`${line}\n`),
   });
   const scrubbed = JSON.stringify(doc).split(SCRUBBED).length - 1;
+  const ties = tieStats(doc.cases.map((c) => c.result));
   process.stdout.write(
     `快照：${doc.cases.length} 个用例，耗时 ${(doc.elapsedMs / 1000).toFixed(1)} 秒，` +
-      `开头与结尾的 fingerprint 核对都通过；网盘信息清洗 ${scrubbed} 格；写到 ${args.out}\n`,
+      `开头与结尾的 fingerprint 核对都通过；网盘信息清洗 ${scrubbed} 格；` +
+      `第 ${ROW_LIMIT} 行所在的并列组：${tieSummary(ties)}；写到 ${args.out}\n`,
   );
   return 0;
 }

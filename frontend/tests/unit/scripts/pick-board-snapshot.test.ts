@@ -7,9 +7,13 @@
  * checks, nothing written unless both pass). Nothing here talks to RealShort
  * or to a database.
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "@rstest/core";
 
 import {
+  DAILY_RANKS as CORE_DAILY_RANKS,
   GRADES as CORE_GRADES,
   PLATFORMS as CORE_PLATFORMS,
   POSTED_FILTERS as CORE_POSTED_FILTERS,
@@ -17,14 +21,15 @@ import {
   RS_BASES as CORE_RS_BASES,
   RS_RANKS as CORE_RS_RANKS,
   THEATER_BASES as CORE_THEATER_BASES,
-  isDailyRank,
   isRsRank,
   parsePickRequest,
   reelshortId,
 } from "@/core/pick-board/request";
 
 import {
+  DAILY_RANKS,
   GLOBALS_CASE_ID,
+  GRADED_RANKS,
   GRADES,
   PLATFORMS,
   POSTED_FILTERS,
@@ -127,6 +132,36 @@ describe("the constants copied into the self-contained script", () => {
     expect(GRADES).toEqual(CORE_GRADES);
     expect(POSTED_FILTERS).toEqual(CORE_POSTED_FILTERS.filter((f) => f !== ""));
     expect(POSTED_STATES).toEqual(CORE_POSTED_STATES.filter((s) => s !== ""));
+    expect(new Set(DAILY_RANKS)).toEqual(new Set(CORE_DAILY_RANKS));
+  });
+
+  it("the tie keys follow the ORDER BY of the ported loaders", () => {
+    // tiePrimary models the collation-independent prefix of these clauses;
+    // if one changes, tiePrimary (and the collation allowance) must follow.
+    const read = (file: string) =>
+      readFileSync(
+        path.resolve(__dirname, "../../../src/server/pick-board", file),
+        "utf8",
+      );
+    const queries = read("queries.ts");
+    const rank = read("queries-rank.ts");
+    const tail = "catalog_rows.title ASC, catalog_rows.row_key ASC";
+    expect(queries).toContain(
+      "default:\n      return sql`rows.latest_evidence_on DESC NULLS LAST, rows.listed_on DESC NULLS LAST, rows.title ASC, rows.platform ASC, rows.row_key ASC`",
+    );
+    expect(rank).toContain(`order: sql\`ORDER BY e.day_rank ASC, ${tail}\``);
+    expect(rank).toContain(
+      `if (kind === "kw")\n    return sql\`ORDER BY (s.payload->>'weeks')::int DESC NULLS LAST, ${tail}\``,
+    );
+    const graded = GRADED_RANKS.map((k) => `kind === "${k}"`).join(" || ");
+    expect(rank).toContain(
+      `if (${graded})\n    return sql\`ORDER BY \${gradeOrder()}, catalog_rows.listed_on DESC NULLS LAST, ${tail}\``,
+    );
+    expect(rank).toContain(
+      `return sql\`ORDER BY s.evidence_on DESC NULLS LAST, catalog_rows.listed_on DESC NULLS LAST, ${tail}\``,
+    );
+    expect(rank).toContain(")}]::text[], s.grade) NULLS LAST`");
+    expect(rank).toContain("GRADES.map((g) => sql`${g}`)");
   });
 });
 
@@ -242,6 +277,28 @@ describe("deriveCases", () => {
     expect(reelshortId(parse("row.reelshort2").rowKey)).toBe("rs0002");
     for (const id of ["row.theater1", "row.reelshort1"])
       expect(parse(id).tab).toBe("row");
+  });
+
+  it("no case, static or derived, sets page, size or sort", () => {
+    // Tie completion runs only on page 1 at the default size and sort; a
+    // case that set these would fall back to plain trimming.
+    const shapes = new Set(derived.map((c) => c.id.replace(/\d+$/, "")));
+    expect(shapes).toEqual(
+      new Set([
+        "rank.kd.day",
+        "rank.kw.week",
+        "rank.sm.grade",
+        "rank.mg.grade",
+        "posted.record",
+        "row.theater",
+        "row.reelshort",
+      ]),
+    );
+    for (const kase of [...staticCases(), ...derived]) {
+      const params = new URLSearchParams(kase.query);
+      const set = ["page", "size", "sort"].filter((key) => params.has(key));
+      expect([kase.id, set]).toEqual([kase.id, []]);
+    }
   });
 
   it("is empty when nothing it derives from is there", () => {
@@ -552,10 +609,6 @@ describe("guards", () => {
     expect(checkHead(sha, undefined)).toBeNull();
     expect(checkHead(sha, " ")).toBeNull();
   });
-});
-
-it("isDailyRank agrees with the daily ranks the script derives second days for", () => {
-  expect(["kd", "qc", "qr"].every(isDailyRank)).toBe(true);
 });
 
 /* The orchestration over a fake RealShort: the two fingerprint checks bracket

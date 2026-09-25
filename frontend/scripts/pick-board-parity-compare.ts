@@ -23,10 +23,12 @@
 import { createHash } from "node:crypto";
 
 import {
-  collationExplains,
-  inversions,
+  cappedBoundary,
+  cappedNote,
+  orderVerdict,
   type Collations,
   type OrderedItems,
+  type TieBoundary,
 } from "./pick-board-parity-collation";
 import {
   MONEY_KEYS,
@@ -133,6 +135,8 @@ type Walk = Readonly<{
   cell: string;
   /** 榜单行 dayNote 对应的信号格子（去重用），见 dayNoteCell */
   dayCell: string | null;
+  /** 一页的 rows、有一边第 50 行的并列组没补全（ties.capped）时，两边各自第 50 行的主排序键 */
+  tieBoundary: TieBoundary | null;
 }>;
 
 const EMPTY: CaseComparison = { findings: [], charges: [] };
@@ -165,6 +169,7 @@ function stepIndex(w: Walk, label: string): Walk {
     generic: `${w.generic}[*]`,
     rel: `${w.rel}[*]`,
     cell: `${w.cell}[${label}]`,
+    tieBoundary: null,
   };
 }
 
@@ -470,7 +475,8 @@ function compareKey(
   rs: JsonObject,
   mirror: JsonObject,
 ): CaseComparison {
-  const child = step(w, key);
+  const tieBoundary = key === "rows" ? cappedBoundary(rs, mirror) : null;
+  const child = { ...step(w, key), tieBoundary };
   const inRs = Object.hasOwn(rs, key);
   const inMirror = Object.hasOwn(mirror, key);
   if (inRs && inMirror)
@@ -530,18 +536,13 @@ function compareOrder(
   mirrorOrder: readonly string[],
   items: OrderedItems,
 ): CaseComparison {
-  const first = rsOrder.findIndex((key, i) => mirrorOrder[i] !== key);
-  if (first < 0) return EMPTY;
-  const pairs = inversions(rsOrder, mirrorOrder);
-  if (collationExplains(w.ctx.collations, pairs, items))
-    return allow(
-      w,
-      "collation",
-      "先后不同的每一对主排序键相同，各按自己库的 collation 排",
-    );
-  return fail(
+  const verdict = orderVerdict(w.ctx.collations, rsOrder, mirrorOrder, items);
+  if (verdict === null) return EMPTY;
+  if (!verdict.explained) return fail(w, verdict.reason);
+  return allow(
     w,
-    `顺序不同：第 ${first + 1} 项 RealShort 是 ${rsOrder[first]}，镜像是 ${mirrorOrder[first]}`,
+    "collation",
+    "先后不同的每一对主排序键相同，各按自己库的 collation 排",
   );
 }
 
@@ -554,12 +555,18 @@ function compareKeyed(
 ): CaseComparison {
   const rsBy = new Map(rsKeys.map((k, i) => [k, rs[i] ?? null]));
   const mirrorBy = new Map(mirrorKeys.map((k, i) => [k, mirror[i] ?? null]));
+  const note = (side: "rs" | "mirror", item: Json | undefined) =>
+    cappedNote(w.tieBoundary, side, item);
   const missing = rsKeys
     .filter((k) => !mirrorBy.has(k))
-    .map((k) => fail(stepIndex(w, k), "镜像少了这一项"));
+    .map((k) =>
+      fail(stepIndex(w, k), `镜像少了这一项${note("rs", rsBy.get(k))}`),
+    );
   const extra = mirrorKeys
     .filter((k) => !rsBy.has(k))
-    .map((k) => fail(stepIndex(w, k), "镜像多了这一项"));
+    .map((k) =>
+      fail(stepIndex(w, k), `镜像多了这一项${note("mirror", mirrorBy.get(k))}`),
+    );
   const common = rsKeys.filter((k) => mirrorBy.has(k));
   const order = compareOrder(
     w,
@@ -751,6 +758,7 @@ export function compareCase(
     anchor: "",
     cell: "",
     dayCell: null,
+    tieBoundary: null,
   };
   return compareValue(root, rs, mirror);
 }
