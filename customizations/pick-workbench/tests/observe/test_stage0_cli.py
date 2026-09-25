@@ -118,6 +118,25 @@ def test_run_day_one_end_to_end(paths):
     assert "hunter2" not in out and "hunter2" not in paths.run_dir(1).joinpath("meta.json").read_text()
 
 
+def _most_in_window(times, seconds: float) -> int:
+    return max(sum(1 for later in times if 0 <= (later - earlier).total_seconds() < seconds) for earlier in times)
+
+
+@pytest.mark.parametrize(("pace", "user_rhythm"), [("user", True), ("design", False)])
+def test_run_pace_user_keeps_the_users_rhythm(paths, pace, user_rhythm):
+    """--pace user is the user's own tested rhythm (a burst of at most 4, about 2 a minute sustained); the design's
+    default envelope runs about twice as fast, and on day 1 met a 429 after 14 minutes at that speed. A minute can hold
+    the burst plus what the bucket refills meanwhile; ten minutes tell the two rhythms apart."""
+    cli(paths, "plan")
+    fake, clock = FakeGoogle(), ManualClock(START)
+    fake.clock = clock
+    environ = {"PICK_OBS_STATE_KEY": Fernet.generate_key().decode()}
+    code, out, _ = cli(paths, "run", "--day", "1", "--init-state", "--pace", pace, environ=environ, transport=fake.transport(), clock=clock)
+    assert code == 0, out
+    assert _most_in_window(fake.times, 60) <= (4 + 2 if user_rhythm else 8 + 4)
+    assert (_most_in_window(fake.times, 600) <= 2 * 10 + 4) is user_rhythm
+
+
 def test_report_writes_an_interim_report(paths):
     entry = next(c for c in controls_document()["controls"] if c["id"] == "pos-01")
     append_private(paths.run_dir(1) / "results.jsonl", result_line(entry, "H", hourly_values(14)))
