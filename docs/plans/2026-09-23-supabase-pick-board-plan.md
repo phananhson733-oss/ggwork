@@ -89,6 +89,7 @@
    - 开工前另定也同步（13.3）：订单笔数与账号台账（rs_bill 订单数、对账表的订单笔数与同日出站、`catalog_accounts` 的地址与粉丝数）；`has_pan` 布尔（只说有没有网盘）；由分成 USD 推出的名次 `bill_rank`（只有序号，没有金额）。
    - 永不同步：网盘链接 `pan_url`、提取码 `pan_pw`、分成金额（`cps_bill_daily.promotion_value`、分成 USD、分成对账里的金额）。这是按字段的禁令：自由文本只按网盘模式清洗（4.6），不按金额语义清洗。
 5. 数据只从 RealShort 流向工作台，走经过鉴权的只读 HTTP 导出接口（在 feed 上扩展）。工作台从不连接 RealShort 的数据库。
+   - **适用范围（2026-09-25 用户确认）**：本条只约束 RealShort 的数据。第三方外部数据（Google Trends、Search Console 等）由工作台直接采集、存入自己的库，凭据只放在工作台的 Railway 服务上。这些数据对应到剧目时，只用 RealShort 导出的身份和解析结果，不在工作台重算。见 `2026-09-25-trends-radar-design.md` 第 1.2 节。
 
 **同时遵守：**
 - 问答抽屉不移植，工作台的对话替代它。
