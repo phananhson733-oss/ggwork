@@ -225,6 +225,7 @@ def test_record_forgets_requests_older_than_an_hour():
         lambda d: {**d, "recent": ["2026-09-25T20:31:00.000000+00:00", "2026-09-25T20:30:00.000000+00:00"]},
         lambda d: {**d, "unit_gap": -1.0},
         lambda d: {**d, "unit_gap": True},
+        lambda d: {**d, "recent": "2026-09-25T20:30:00.000000+00:00"},
     ],
 )
 def test_state_from_dict_refuses_bad_input(mutate):
@@ -249,6 +250,8 @@ def test_params_refuse_nonsense():
         pacing.PacingParams(intra_unit_seconds=(3.0, 1.5))
     with pytest.raises(ValueError):
         pacing.PacingParams(rest_minutes=0)
+    with pytest.raises(ValueError):
+        pacing.PacingParams(hour_cap=0)
 
 
 def test_default_params_are_design_4_2():

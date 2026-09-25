@@ -107,6 +107,10 @@ EXTINGUISH_CASES = {
         [(0, S.RATE_LIMITED), (30, S.RATE_LIMITED), (90, S.RATE_LIMITED), (210, S.SUCCESS), (215, S.RATE_LIMITED), (455, S.RATE_LIMITED)],
         "rate_limited",
     ),
+    "429_x5_on_a_trip": (
+        [(0, S.RATE_LIMITED), (30, S.RATE_LIMITED), (90, S.RATE_LIMITED), (210, S.SUCCESS), (215, S.RATE_LIMITED), (455, S.SUCCESS), (460, S.RATE_LIMITED)],
+        "rate_limited",  # also the third trip: the 429 count is checked first
+    ),
     "captcha_or_consent": ([(0, S.WALL)], "wall"),
     "sorry_page": ([(0, breaker.signal_of("blocked_redirect"))], "wall"),
     "wall_while_probing": ([(0, S.LIMITED), (30, S.WALL)], "wall"),
@@ -407,10 +411,37 @@ def test_mode_plan_fits_window(name, start, plan, cap, fits):
             budget.ModeLimits(name, start=start, plan=plan, cap=cap)
 
 
-@pytest.mark.parametrize(("plan", "cap"), [(0, 10), (11, 10), (-1, 5)])
+@pytest.mark.parametrize(("plan", "cap"), [(0, 10), (11, 10), (-1, 5), (10.0, 10)])
 def test_mode_limits_refuse_bad_plan_or_cap(plan, cap):
     with pytest.raises(ValueError):
         budget.ModeLimits("x", start=time(20, 0), plan=plan, cap=cap)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"start": time(20, 0), "deadline": time(2, 30)},  # past the publication
+        {"start": "20:00"},
+        {"start": time(20, 0, tzinfo=UTC)},  # times are plain UTC times of day
+    ],
+)
+def test_mode_limits_refuse_bad_times(fields):
+    with pytest.raises(ValueError):
+        budget.ModeLimits("x", plan=10, cap=10, **{"start": time(20, 0), **fields})
+
+
+def test_budget_calls_refuse_mismatches():
+    day = budget.BudgetDay(TARGET, reserved=3)
+    for ordinal in (0, 4, True):
+        with pytest.raises(ValueError):
+            budget.note_limit(day, ordinal=ordinal, at=EVENING)
+    with pytest.raises(ValueError):
+        budget.note_limit(day, ordinal=3, at=EVENING.replace(tzinfo=None))
+    other = breaker.initial_state(TARGET + timedelta(days=1))
+    with pytest.raises(ValueError):
+        budget.stop_reason(breaker_state=other, day=day, limits=budget.mode_limits("stable"), now=EVENING)
+    assert budget.for_target_date(day, TARGET - timedelta(days=1)) == day  # a clock stepped back reopens nothing
+    assert budget.mode_limits("canary1").halved() == budget.ModeLimits("canary1", start=time(22, 0), plan=110, cap=110)
 
 
 # ---- persistence ----------------------------------------------------------------------------------------------------
@@ -443,6 +474,13 @@ def test_budget_day_roundtrips_through_json():
         lambda d: {**d, "day": {**d["day"], "extinguished": "bored"}},
         lambda d: {**d, "day": {**d["day"], "paused_until": "2026-09-25T22:30:00"}},
         lambda d: {k: v for k, v in d.items() if k != "day"},
+        lambda d: {**d, "extinguished_days": ["2026-09-26", "2026-09-26"]},
+        lambda d: {**d, "extinguished_days": [None]},
+        lambda d: {**d, "extinguished_days": "2026-09-26"},
+        lambda d: {**d, "day": {**d["day"], "target_date": None}},
+        lambda d: {**d, "day": {**d["day"], "retry_at": "yesterday"}},
+        lambda d: {**d, "day": {**d["day"], "retry_at": 1758837600}},
+        lambda d: {**d, "day": ["not", "a", "mapping"]},
     ],
 )
 def test_breaker_from_dict_refuses_bad_input(mutate):
