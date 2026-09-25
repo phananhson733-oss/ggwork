@@ -4,6 +4,8 @@ entry does the same with its own check and run.
 
 - `run` (the default): one trigger of the channel (CronEntry.run).
 - `status`: a read-only look at the channel (cron_status.py), as ggwp-obs-admin, no lease taken.
+- a channel's own read-only commands (CronEntry.commands): the trends entry's `preflight`, tonight's task list in
+  figures without a request (trends/preflight.py).
 - `--selfcheck-only`: the channel's configuration check (CronEntry.check: what a run checks before it reads or sends
   anything), then the start-up self-check (selfcheck.selfcheck_only), and nothing else. S6 runs it once after the
   deploy, so a bad mode, control list, state key or egress URL shows then, not at the first night's trigger.
@@ -23,6 +25,7 @@ import os
 import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TextIO
 
 from ggwork_pick.observe.admin.args import CommandParser
@@ -38,6 +41,7 @@ SELFCHECK_VARIABLES = frozenset({"PICK_OBS_EXPECTED_COLLECTOR", "PICK_OBS_EXPECT
 
 Check = Callable[[Mapping[str, str]], Awaitable[None]]
 Run = Callable[[Mapping[str, str]], Awaitable[int]]
+Command = Callable[[Mapping[str, str], TextIO], Awaitable[int]]  # a channel's own read-only command: its exit status
 
 
 @dataclass(frozen=True)
@@ -51,11 +55,13 @@ class CronEntry:
     variables: frozenset[str]  # the PICK_OBS_* names the channel reads, the self-check's included
     check: Check
     run: Run
+    commands: Mapping[str, Command] = MappingProxyType({})
 
 
 def parse_args(entry: CronEntry, argv: Sequence[str]):
     parser = CommandParser(prog=entry.prog, description=entry.description)
-    parser.add_argument("command", nargs="?", default="run", choices=COMMANDS, help="run：跑一次触发（默认）；status：只读查看")
+    help_text = "run：跑一次触发（默认）；status：只读查看" + "".join(f"；{name}：只读，见手册" for name in entry.commands)
+    parser.add_argument("command", nargs="?", default="run", choices=(*COMMANDS, *entry.commands), help=help_text)
     parser.add_argument("--selfcheck-only", action="store_true", help="只校验配置并做启动自检，不取租约、不发请求")
     return parser.parse_args(list(argv))
 
@@ -78,6 +84,8 @@ async def _dispatch(entry: CronEntry, args, environ: Mapping[str, str], out: Tex
         return int(ExitCode.OK)
     if args.command == "status":
         return await print_status(entry.channel, environ, out)
+    if args.command in entry.commands:
+        return await entry.commands[args.command](environ, out)
     return await entry.run(environ)
 
 

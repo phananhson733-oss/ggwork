@@ -45,28 +45,32 @@
 | 字段 | 值 | 为什么 |
 |---|---|---|
 | `[build]` | 与根目录 `railway.toml` 相同：`builder = "DOCKERFILE"`，`dockerfilePath = "docker/Dockerfile.pick-gateway"` | 与 gateway 同一个镜像 |
-| `startCommand` | `/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends run"` | Railway 按 exec 形式执行启动命令，不经 shell，`cd` 与 `&&` 要靠 `/bin/sh -c`；`exec` 让 python 替换 shell、成为这个进程本身（大概率是容器的 PID 1）。观测包不处理 SIGTERM：Railway 停容器时进程不做任何收尾，随后被 SIGKILL 终止（只有 SIGINT 会变成 KeyboardInterrupt、以 130 退出）。重跑照样安全：租约最多 5 分钟后过期，请求预算在发出之前就已在租约下扣掉，下一次触发从库里的状态续跑 |
+| `startCommand` | `/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends run"` | Railway 按 exec 形式执行启动命令，不经 shell，`cd` 与 `&&` 要靠 `/bin/sh -c`；`exec` 让 python 替换 shell、成为这个进程本身（大概率是容器的 PID 1）。观测包不处理 SIGTERM：Railway 停容器时进程不做任何收尾，随后被 SIGKILL 终止（只有 SIGINT 会变成 KeyboardInterrupt、以 130 退出）。被强停时：已提交状态保留、预算不退；未提交的响应、最新 cookie、熔断事件可能丢失；续跑可能重做未完成单元；五分钟是租约失效上界，不是恢复时间，通常要等下一次半小时触发（第 7 节）。请求预算在发出之前就已在租约下扣掉，所以续跑不会多发超出预算的请求 |
 | `restartPolicyType` | `NEVER` | 失败不立刻重跑：1 由下一次触发续跑，2、3 要人处理，重跑只会原样再失败 |
-| `cronSchedule` | `*/30 20-23,0-1 * * *`（UTC） | 见下表 |
+| `cronSchedule` | `*/30 17-23,0-1 * * *`（UTC） | 见下表 |
 | 不写 `healthcheckPath` | | cron 不监听端口；写了就会一直等不到健康而判失败 |
 
 服务设置里的配置路径必须填绝对路径 `/deploy/pick-obs/trends/railway.toml`。不填，Railway 读的是根目录的 `railway.toml`，即 gateway 的配置：健康检查 `/health/ready`、`ON_FAILURE` 重启、没有 cron（设计 3.1）。根目录的 `railway.toml` 与 Dockerfile 的 `CMD` 都不改（`test_root_railway_untouched`、`test_dockerfile_cmd_untouched`）。
 
-**触发时刻**（UTC，每晚 12 次；02:00 UTC 是北京 10:00 的目标发布时刻，D23 的 target_date 是这次发布的日期）：
+**触发时刻**（UTC，每晚 18 次；02:00 UTC 是北京 10:00 的目标发布时刻，D23 的 target_date 是这次发布的日期）：
 
-| 触发 | stable（20:30 起跑） | canary1、canary2（22:00 起跑） |
-|---|---|---|
-| 20:00 | 不到起跑时刻，退出 0，什么都不做 | 同左 |
-| 20:30 | 建当晚批次，开始会话，一直跑到做完或 01:45 | 不到起跑时刻，退出 0 |
-| 21:00–21:30 | 会话还在跑，Railway 跳过这次触发；会话已崩溃，就续跑 | 不到起跑时刻，退出 0 |
-| 22:00 | 同上 | 建当晚批次，开始会话 |
-| 22:30–01:30 | 会话在跑就跳过；崩溃了就续跑（`window_end` 与任务清单不重算）；已做完就退出 0 | 同左 |
-| 01:45 | 硬截止：之后不再发请求，会话收尾退出 | 同左 |
+| 触发 | stable（17:30 起跑） | canary2（18:30 起跑） | canary1（21:00 起跑） |
+|---|---|---|---|
+| 17:00 | 不到起跑时刻，退出 0，什么都不做 | 同左 | 同左 |
+| 17:30 | 建当晚批次，开始会话，一直跑到做完或 01:45 | 不到起跑时刻，退出 0 | 同左 |
+| 18:00 | 会话还在跑，Railway 跳过这次触发；会话已崩溃，就续跑 | 不到起跑时刻，退出 0 | 同左 |
+| 18:30 | 同上 | 建当晚批次，开始会话 | 不到起跑时刻，退出 0 |
+| 19:00–20:30 | 同上 | 会话还在跑就跳过；会话已崩溃，就续跑 | 不到起跑时刻，退出 0 |
+| 21:00 | 同上 | 同上 | 建当晚批次，开始会话 |
+| 21:30–01:30 | 会话在跑就跳过；崩溃了就续跑（`window_end` 与任务清单不重算）；已做完就退出 0 | 同左 | 同左 |
+| 01:45 | 硬截止：之后不再发请求，会话收尾退出 | 同左 | 同左 |
+
+起跑时刻由 G3 从 20:30、22:00 提前到上表（计划第 9 节）：生产节奏（`PICK_OBS_TRENDS_PACE` 默认 `user`）下，原来的 stable、canary2 放不进窗口，canary1 的 22:00 刚过线、午夜后崩溃一次只剩 86%。`window_end` 随之变早（建批次那个整点减 3 小时，`trends-session.md`）。
 
 - Railway cron 在上一轮没退出时跳过下一次触发，也不会替程序终止上一轮，所以程序自己在 01:45 停（设计 3.1）。会话中途崩溃，最多隔 30 分钟由下一次触发接着跑；01:30 是最后一次，离截止 15 分钟。
 - 触发不保证准到分钟，02:00 是目标和监测指标，不是保证。
-- 每次触发（包括 20:00 那次）都先校验配置：配置错了当晚 20:00 就以 2 退出，日志里看得见。启动自检（采集合同版本、迁移头、角色）只在窗口内的触发里做，在取租约之前（`lease-and-selfcheck.md`）；窗口外的空转触发不连库。不在窗口里的触发在日志里留一行 `[pick-obs] trends <日期>: 还没到 … 的起跑时刻 …，什么都不做`，可以用来确认 cron 在按时触发。
-- `test_cron_schedule_fits_the_session_modes` 把这张表与 `budget.MODES` 对着钉住：每个模式的起跑时刻都是一次触发、没有触发落在 01:45 及之后、窗口里相邻触发不超过 30 分钟、最早的起跑（stable 的 20:30）之前只有 20:00 一次空转；UTC 02:00–20:00 之间既没有触发，也没有会话（第 7 节的部署时段）。以后改模式的起跑时刻，要同时看这里。
+- 每次触发（包括 17:00 那次）都先校验配置（包括模式在所设节奏下放不放得进窗口，计划第 9 节）：配置错了当晚 17:00 就以 2 退出，日志里看得见。启动自检（采集合同版本、迁移头、角色）只在窗口内的触发里做，在取租约之前（`lease-and-selfcheck.md`）；窗口外的空转触发不连库。不在窗口里的触发在日志里留一行 `[pick-obs] trends <日期>: 还没到 … 的起跑时刻 …，什么都不做`，可以用来确认 cron 在按时触发。
+- `test_cron_schedule_fits_the_session_modes` 把这张表与 `budget.MODES` 对着钉住：每个模式的起跑时刻都是一次触发、没有触发落在 01:45 及之后、窗口里相邻触发不超过 30 分钟、最早的起跑（stable 的 17:30）之前只有 17:00 一次空转；UTC 02:00–17:00 之间既没有触发，也没有会话（第 7 节的部署时段）。以后改模式的起跑时刻，要同时看这里与 cron 计划。
 
 ### 3.2 一次性自检：`deploy/pick-obs/trends/selfcheck/railway.toml`
 
@@ -103,6 +107,7 @@
 | `PICK_OBS_TRENDS_MODE` | `canary1`；金丝雀阶段 2 改 `canary2`；S10 改 `stable` | 代理 | 必填 |
 | `PICK_OBS_TRENDS_GRANULARITY` | G2 定的粒度：`H`（默认）、`D` 或 `HD` | 代理 | 可选，金丝雀期间不改 |
 | `PICK_OBS_TRENDS_ROUTE` | 第 8 节的去向：`both`（默认）、`a_only`、`b_only` | 代理 | 可选，金丝雀期间不改；`neither` 会被拒，Trends 不上线 |
+| `PICK_OBS_TRENDS_PACE` | 不设（即 `user`：令牌桶 4、每分钟补 2） | — | 可选，金丝雀期间不改。`design`（桶 8、每分钟补 4）是设计 4.2 的原值，只在计划第 9 节按它重排之后才用；取值不认识，或模式在这个节奏下放不进窗口，以 2 拒跑 |
 | `PICK_DB_SIZE_CAP_BYTES` | 与 gateway 相同 | 代理 | 计划 S5 列了它，给 TR-20 的发布前容量检查用；TR-20 之前没有代码读它，设了也不生效 |
 | `PICK_OBS_PUBLISH` | 不设 | — | D11：不设就是 shadow；金丝雀无论如何不发布。S12b 才设 `1` |
 | `PICK_OBS_EGRESS_ECHO_URL` | 不设 | — | U13 批准前不设。计划 S5 写的 `PICK_OBS_EGRESS_URL` 是错名，代码读的是这个；设成错名时入口会在 stderr 点名并提示正确名字，但出口测量不会开 |
@@ -136,7 +141,7 @@
    - **`--first-record` 只用这一次**：progress.md 里还没有 `cron:trends` 的守卫记录时（S5 这一轮）才带，以后每次部署都不带。带错了守卫会拒（没有记录时不带，或已有记录时带），不要为了过守卫改这个参数。
    - **记录行只记一次，放在最后**：两次部署都核对完，把守卫这一轮最后一次通过时打印的那一行（`pick-deploy-guard target=cron:trends commit=…`）追加进 progress.md，提交，经用户同意推到 `ggwork/main`（`deploy-guard.md`「progress.md 里的守卫记录」）。两次部署之间不要提交它：提交之后 HEAD 就不再等于 `ggwork/main`（守卫的检查 5），只写不提交则工作区不干净（检查 2），这一轮再跑守卫都会被拒。
    - **中间拖久了**（`deploy-guard.md`「通过之后立即部署」），就在第二次 `railway up` 之前重跑守卫，命令与这一轮开头那次一字不差：记录还没推，首次仍要带 `--first-record`。重跑被拒（通常是 `ggwork/main` 前进了），就不要从这个检出继续：在最新 main 的干净检出里从头走这一套，因为提交变了，包摘要要重新核。
-   - 只在 UTC 02:00–20:00 之间做这一套（第 7 节）。
+   - 只在 UTC 02:00–17:00 之间做这一套（第 7 节）。
 
    `test_cron_deploy_procedure.py` 把上面的代码块逐行交给 TR-34 的守卫重放（假 git、假库）：首次照写执行、以后去掉 `--first-record` 执行、第二次部署之前按原样重跑守卫，都必须通过，而且每一行 `railway up` 都与守卫打印的下一步一字不差。TR-34 的守卫不在树里时（TR-15 分支单独时）它跳过，集成之后生效。
 
@@ -150,7 +155,7 @@
    [pick-obs] selfcheck ok: collector=obs-collector-v1 head=<生产迁移头> role=pick_observer package=sha256:<摘要> at=/app/backend/.venv/lib/python3.12/site-packages/ggwork_pick
    ```
 
-   这一行出现之前，入口已经校验过会话配置（模式、金丝雀对照清单与市场序列、状态密钥、出口测量地址），与每晚 `run` 发请求之前的校验相同；自检本身只读、不取租约、不发任何 HTTP 请求（`test_trends_entrypoint_argv_selfcheck_only` 用真实的 `__main__` 在两种库上钉住）。
+   这一行出现之前，入口已经校验过会话配置（模式与节奏、金丝雀对照清单与市场序列、状态密钥、出口测量地址），与每晚 `run` 发请求之前的校验相同；自检本身只读、不取租约、不发任何 HTTP 请求（`test_trends_entrypoint_argv_selfcheck_only` 用真实的 `__main__` 在两种库上钉住）。
 2. **逐项核对**：
    - `collector` 等于所部署提交的 `versions.COLLECTOR_VERSION`；
    - `head` 等于守卫刚打印的生产迁移头；
@@ -176,6 +181,7 @@
 | 现象 | 原因与处理 |
 |---|---|
 | 退出 2，点名 `PICK_OBS_TRENDS_MODE` 等会话变量 | 变量缺失或取值不认识（为免泄露不回显值）；按第 5 节的表改 |
+| 退出 2，说模式的计划在这个节奏下放不进窗口 | `PICK_OBS_TRENDS_PACE` 或模式设错；按第 5 节的表与计划第 9 节改，不要为了过这一步改模式参数 |
 | 退出 2，点名 `canary_controls.json` 或列出缺市场序列的 geo | TR-05 的对照清单没进包或缺短语；补齐后走第 2 节刷新、合进 main，从新的 main 重走第 5 节第 4 步 |
 | 退出 2，`PICK_OBS_EXPECTED_COLLECTOR` 不符 | 变量填错，或镜像不是预期那一版（反例 15）；先核对包摘要 |
 | 退出 2，迁移头不在本镜像的迁移链里 | 镜像比库旧：从最新 main 经守卫重新部署（先 gateway 再 cron，`deploy-guard.md`） |
@@ -185,17 +191,19 @@
 | 退出 3，不带 SQLSTATE | 连不上：查 DSN、`PGSSLMODE`、Supavisor 端口是否是 5432 |
 | 包摘要不符 | 见上一步；不要带着不符的镜像进 S7 |
 
-4. **切回 cron 配置**：自检通过后，走第 5 节第 4 步顺序的后半段：把服务的配置路径改成 `/deploy/pick-obs/trends/railway.toml`，从同一个检出再 `railway up --detach --service pick-obs-trends` 一次。不重跑守卫：同一个提交，守卫刚核过（拖久了按第 5 节第 4 步的规则重跑）。再核一遍服务设置：健康检查为空、重启 Never、Cron Schedule 是 `*/30 20-23,0-1 * * *`。都对了，才把守卫的记录行追加进 progress.md，提交，经用户同意推送。
-5. **第一晚（S7）**：20:00 那次触发的日志应当是「还没到 canary1 的起跑时刻 22:00 UTC，什么都不做」；22:00 起会话开头的自检照样打出同一行 `selfcheck ok`，其中的 `package=` 应与 S6 相同（两次部署构建自同一个提交）。之后按 `trends-session.md` 与 TR-30 监控。
+4. **切回 cron 配置**：自检通过后，走第 5 节第 4 步顺序的后半段：把服务的配置路径改成 `/deploy/pick-obs/trends/railway.toml`，从同一个检出再 `railway up --detach --service pick-obs-trends` 一次。不重跑守卫：同一个提交，守卫刚核过（拖久了按第 5 节第 4 步的规则重跑）。再核一遍服务设置：健康检查为空、重启 Never、Cron Schedule 是 `*/30 17-23,0-1 * * *`。都对了，才把守卫的记录行追加进 progress.md，提交，经用户同意推送。
+5. **开跑前的负载闸门（S6 → S7）**：第一晚之前，以服务自己的变量跑一次 `python -m ggwork_pick.observe.trends preflight`（`trends-session.md`「金丝雀的负载闸门」）。它只读、不取租约、不发 HTTP，打印当晚的任务清单概览：计划请求与门槛、各组对照匹配数、缺的对照、近 14 天剧目数、三种夜晚的容量估算。退出 0 才进 S7；退出 2 就按它列出的原因补共享剧库批次或对照清单，不改门槛。当晚的 `run` 会按同一个闸门再判一次，不合格就拒跑，那一天不算金丝雀日。
+6. **第一晚（S7）**：17:00 那次触发的日志应当是「还没到 canary1 的起跑时刻 21:00 UTC，什么都不做」；21:00 起会话开头的自检照样打出同一行 `selfcheck ok`，其中的 `package=` 应与 S6 相同（两次部署构建自同一个提交）。之后按 `trends-session.md` 与 TR-30 监控。
 
 ## 7. 之后的部署、回滚与停用
 
-- **什么时候部署**：只在 UTC 02:00–20:00 之间部署 cron 服务，重做 S6 的整套也一样。20:00 起有触发，20:30 起 stable 会话开跑，会话最晚到 01:45 截止后收尾退出：窗口里重新部署会终止正在跑的会话，当晚少一截数据；切到自检配置的那段时间服务没有 cron 计划，赶上窗口就漏掉触发。`test_cron_schedule_fits_the_session_modes` 钉住这段时间里没有触发、也没有会话。
-- **每次部署 cron** 都先跑守卫，不带 `--first-record`。推荐每次都按第 5 节第 4 步的顺序重做 S6（配置路径指向自检配置、部署、核对，再切回 cron 配置部署，最后记一次记录行），这样每个上线的镜像在第一次发请求之前都被人看过包摘要。不重做时，配置路径保持 cron 配置：守卫通过后 `railway up` 一次，核对服务设置，再记记录行；然后在部署后的第一晚，读窗口内第一次触发打出的那行 `selfcheck ok`，按第 6 节核对 `package=`。采集合同、迁移头、角色三项在窗口内的每次触发（会话开始或续跑）都会在取租约之前自动比对，不符就在任何请求之前以 2 退出；窗口外的空转触发（如 20:00 那次）只校验配置，不做自检。只有包摘要要靠人看。
+- **什么时候部署**：只在 UTC 02:00–17:00 之间部署 cron 服务，重做 S6 的整套也一样。17:00 起有触发，17:30 起 stable 会话开跑，会话最晚到 01:45 截止后收尾退出：窗口里重新部署会终止正在跑的会话，当晚少一截数据；切到自检配置的那段时间服务没有 cron 计划，赶上窗口就漏掉触发。`test_cron_schedule_fits_the_session_modes` 钉住这段时间里没有触发、也没有会话。
+- **每次部署 cron** 都先跑守卫，不带 `--first-record`。推荐每次都按第 5 节第 4 步的顺序重做 S6（配置路径指向自检配置、部署、核对，再切回 cron 配置部署，最后记一次记录行），这样每个上线的镜像在第一次发请求之前都被人看过包摘要。不重做时，配置路径保持 cron 配置：守卫通过后 `railway up` 一次，核对服务设置，再记记录行；然后在部署后的第一晚，读窗口内第一次触发打出的那行 `selfcheck ok`，按第 6 节核对 `package=`。采集合同、迁移头、角色三项在窗口内的每次触发（会话开始或续跑）都会在取租约之前自动比对，不符就在任何请求之前以 2 退出；窗口外的空转触发（如 17:00 那次）只校验配置，不做自检。只有包摘要要靠人看。
 - **新迁移上生产之后**，先 gateway、后两个 cron，都从最新 main 经守卫重部署（D5；守卫的 cron 模式要求生产迁移头等于本检出的链头）。cron 的镜像认不出生产的迁移头时，每次触发都以 2 退出，数据页会亮 `run_missed`。
 - **回滚**只用 main 上的 revert 提交，而且回滚后的代码必须认识生产的迁移头（计划第 10 节回滚规则）。守卫拒绝从旧检出部署。
-- **改变量**：Railway 改变量会重新部署服务；对 cron 来说，新值从下一次触发起生效。改模式（`canary1` → `canary2` → `stable`）在白天改，不要在会话进行中改。
-- **停用**：按计划第 10 节的顺序关 `PICK_OBS_AGENT`、关 `PICK_OBS_PUBLISH`、再停 cron。停 cron 用控制台暂停服务，或提交一个去掉 `cronSchedule` 的改动；不回退镜像。暂停前确认控制台里这个服务没有正在运行的实例：会话中途被停，最多 5 分钟后租约过期，下一次触发照常续跑，不会丢状态，但当晚的数据会少一截。
+- **改变量**：Railway 改变量会重新部署服务；对 cron 来说，新值从下一次触发起生效。改模式（`canary1` → `canary2` → `stable`）在白天改，不要在会话进行中改；改了模式，起跑时刻与 `window_end` 跟着变（`trends-session.md`「换起跑时刻的第一天」）。
+- **停用**：按计划第 10 节的顺序关 `PICK_OBS_AGENT`、关 `PICK_OBS_PUBLISH`、再停 cron。停 cron 用控制台暂停服务，或提交一个去掉 `cronSchedule` 的改动；不回退镜像。暂停前确认控制台里这个服务没有正在运行的实例。
+- **会话中途被强停**（暂停服务、重新部署、容器被杀，都不做收尾）：已提交状态保留、预算不退；未提交的响应、最新 cookie、熔断事件可能丢失；续跑可能重做未完成单元；五分钟是租约失效上界，不是恢复时间，通常要等下一次半小时触发。当晚的数据因此可能少一截；续跑的 `window_end` 与任务清单不变（D23）。
 
 ## 8. CI
 
@@ -214,7 +222,7 @@
 | `test_root_railway_untouched` | 根目录 `railway.toml` 原样 |
 | `test_dockerfile_cmd_untouched` | 镜像的 `CMD` 仍是 gateway 的，没有 `ENTRYPOINT` |
 | `test_start_command_runs_in_the_image` | 启动命令的目录与 `python` 是镜像里 backend 的那一份 |
-| `test_cron_schedule_fits_the_session_modes` | 触发时刻与三个模式的起跑、截止对得上（第 3.1 节）；UTC 02:00–20:00 没有触发也没有会话（第 7 节） |
+| `test_cron_schedule_fits_the_session_modes` | 触发时刻与三个模式的起跑、截止对得上（第 3.1 节）；相邻触发间隔等于容量估算用的 30 分钟；UTC 02:00–17:00 没有触发也没有会话（第 7 节），本页不再出现旧的部署时段 |
 | `test_railway_up_uploads_the_configs` | 两份配置不被 `.gitignore` 排除（`railway up` 不上传被排除的文件）；仓库里没有 `.railwayignore`（加了就要在这里对着它核对） |
 | `test_packaged_files_reach_the_image` | 包里每个文件都进得了构建上下文与 wheel |
 | `test_ci_runs_on_the_deploy_files` | 第 8 节的触发路径与 lint 步骤 |

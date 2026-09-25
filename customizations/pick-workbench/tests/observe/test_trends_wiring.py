@@ -48,6 +48,7 @@ from ggwork_pick.observe.instants import stamp
 from ggwork_pick.observe.lease import LEASE_SECONDS, LeasedWriter, locked_runtime
 from ggwork_pick.observe.trends import __main__ as trends_entry
 from ggwork_pick.observe.trends import breaker
+from ggwork_pick.observe.trends.admission import STRICT
 
 TRANSIENT = frozenset({"503", "timeout"})
 UNIT_HEADS = ("warmup", "explore")
@@ -96,10 +97,12 @@ class NoopPacer:
 
 
 async def _faulty_night(url, tmp_path, pacer=None) -> FakeGoogle:
+    """At design 4.2's pace, whose figures (the rerun 30-60 s after a 5xx, the gaps at half speed) the envelope test
+    reads off the transport; the production preset, user, is tighter still (test_production_pace_is_the_user_preset)."""
     controls = await _night(url, tmp_path, dramas=60)
     clock = ManualClock(at(EVE, 22, 0))
     google = FakeGoogle(clock, script=FAULTS)
-    assert await trigger(trends_env(url), clock, google, controls=controls, pacer=pacer) == ExitCode.OK
+    assert await trigger(trends_env(url, PICK_OBS_TRENDS_PACE="design"), clock, google, controls=controls, pacer=pacer) == ExitCode.OK
     return google
 
 
@@ -151,6 +154,43 @@ async def test_transport_level_noop_pacer_red(obs_url, tmp_path):
     await _assert_one_for_one(obs_url, google)
     with pytest.raises(AssertionError):
         assert_envelope_bounds(transport_log(google))
+
+
+# ---- the production pace (G3 seam 2: stage 0's --pace user reaches the cron) ---------------------------------------
+
+
+def _most_in(google: FakeGoogle, minutes: int) -> int:
+    """The most requests the transport saw leave within any `minutes` minutes."""
+    times = [seen.sent_at for seen in google.seen]
+    width = timedelta(minutes=minutes)
+    return max(sum(1 for later in times[index:] if later < start + width) for index, start in enumerate(times))
+
+
+@pytest.mark.parametrize(("pace", "user"), [(None, True), ("user", True), ("design", False)])
+@pytest.mark.asyncio
+async def test_production_pace_is_the_user_preset(obs_url, tmp_path, pace, user):
+    """The cron paces at pacing.PRESETS[PICK_OBS_TRENDS_PACE], user unless set: a bucket of 4 refilled at 2 a minute
+    lets no 10 minutes hold more than 4 + 2 x 10 = 24 requests. design (8, 4 a minute) goes well past that. Until G3
+    the real entry built a bare EnvelopePacer(), design's, whatever stage 0 had shown."""
+    controls = await _night(obs_url, tmp_path, dramas=60)
+    clock = ManualClock(at(EVE, 22, 0))
+    google = FakeGoogle(clock)
+    env = trends_env(obs_url, **({"PICK_OBS_TRENDS_PACE": pace} if pace else {}))
+    assert await trigger(env, clock, google, controls=controls) == ExitCode.OK
+    assert len(google.seen) > 60
+    assert (_most_in(google, 10) <= 24) is user and _most_in(google, 1) <= (6 if user else 12)
+    assert_envelope_bounds(transport_log(google))  # design 4.2's upper bounds hold at either preset
+
+
+@pytest.mark.asyncio
+async def test_unknown_pace_is_refused(obs_url, tmp_path):
+    controls = await _night(obs_url, tmp_path, dramas=3)
+    clock = ManualClock(at(EVE, 22, 0))
+    google, err = FakeGoogle(clock), io.StringIO()
+    env = trends_env(obs_url, PICK_OBS_TRENDS_PACE="fast-secret")
+    assert await trigger(env, clock, google, controls=controls, err=err) == ExitCode.REFUSED
+    assert google.seen == [] and "PICK_OBS_TRENDS_PACE" in err.getvalue() and "fast-secret" not in err.getvalue()
+    assert (await runtime_row(obs_url))["lease_generation"] == 0
 
 
 # ---- a rerun unit's second 5xx (design 4.2 "连续两次按限流处理"; TR-03's RETRY) ------------------------------------
@@ -421,24 +461,27 @@ async def test_night_as_the_observer(observer_url, tmp_path):  # noqa: F811  (th
 
 @pytest.mark.asyncio
 async def test_simulated_canary2_night(obs_url, tmp_path):
-    """canary2 from 22:00: a 503 and a timeout retried, the whole plan fetched before 01:45, withheld; the envelope,
-    the budget, the rows and the transport agree. The night takes seconds of the wall clock."""
+    """canary2 from its 18:30 start at the production pace (user), through the production payload gate: a 503 and a
+    timeout retried, the whole plan fetched long before 01:45, withheld; the envelope, the budget, the rows and the
+    transport agree, and the batch keeps the gate's overview. The night takes seconds of the wall clock."""
     catalog = recent_catalog(260)
     await seed_catalog(obs_url, catalog)
     controls = write_controls(tmp_path, catalog[:6])
-    clock = ManualClock(at(EVE, 22, 0))
+    clock = ManualClock(at(EVE, 18, 30))
     google = FakeGoogle(clock, script={50: "503", 120: "timeout"})
     started = time.perf_counter()
-    assert await trigger(trends_env(obs_url, mode="canary2"), clock, google, controls=controls) == ExitCode.OK
+    assert await trigger(trends_env(obs_url, mode="canary2"), clock, google, controls=controls, admission=STRICT) == ExitCode.OK
     elapsed = time.perf_counter() - started
     sent = await _assert_one_for_one(obs_url, google)
     (batch,) = await batches(obs_url)
-    assert (batch["collect_mode"], batch["outcome"], batch["window_end"]) == ("canary2", "withheld", stamp(at(EVE, 19)))
+    assert (batch["collect_mode"], batch["outcome"], batch["window_end"]) == ("canary2", "withheld", stamp(at(EVE, 15)))
     assert batch["coverage"] == 1.0 and batch["summary_json"]["uncovered_units"] and batch["status_codes_json"] == []
-    assert 380 <= len(sent) <= 430 and google.seen[-1].done_at < at(TARGET, 1, 45)
+    assert 270 <= len(sent) <= 300 and google.seen[-1].done_at < at(TARGET, 1, 45)
     assert_envelope_bounds(transport_log(google))
     assert {row["budget_item"] for row in sent} >= {"warmup", "market", "control", "title", "related", "retry"}
     budget = await rows(obs_url, "select budget_day, collect_mode, cap, requests from ggwp_obs_budget where channel = 'trends'")
-    assert [(row["budget_day"], row["collect_mode"], row["cap"]) for row in budget] == [("2026-09-26", "canary2", 600)]
+    assert [(row["budget_day"], row["collect_mode"], row["cap"]) for row in budget] == [("2026-09-26", "canary2", 450)]
+    admitted = batch["plan_json"]["notes"]["admission"]
+    assert admitted["reasons"] == [] and admitted["controls"]["positive"] == {"listed": 6, "matched": 6}
     span = google.seen[-1].done_at - google.seen[0].sent_at
     print(f"simulated canary2 night: {len(sent)} requests over {span} simulated, {elapsed:.1f} s wall")

@@ -37,8 +37,9 @@ from ggwork_pick.observe.trends.stage0_run import ARTIFACTS_ROOT, DayRunner, Sta
 
 PROG = "python -m ggwork_pick.observe.trends.stage0"
 # design: design 4.2's envelope (about 4 a minute). user: the user's own tested rhythm, a burst of at most 4 and about 2 a
-# minute sustained; day 1 met a 429 after 14 minutes at the design's speed and none at half of it.
-PACES = {"design": pacing.DEFAULT_PARAMS, "user": pacing.PacingParams(bucket_capacity=4, refill_per_minute=2)}
+# minute sustained; day 1 met a 429 after 14 minutes at the design's speed and none at half of it. The presets are
+# pacing.PRESETS, the same ones the cron's PICK_OBS_TRENDS_PACE picks from.
+PACES = pacing.PRESETS
 MAX_MANUAL_BYTES = 1024 * 1024
 
 

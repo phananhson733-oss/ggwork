@@ -9,7 +9,8 @@ The summary, written when the session ends: planned and fetched units and the co
 reasons (the plan's truncated ones first, design 4.5's "未覆盖 N 个单元"), the breaker events, the all-zero rate and the
 userType values. The codes (contract STATUS_CODES, in its order):
 - extinguished_today, disabled_7d: from the breaker (TR-03);
-- canary_terminated: a canary whose target dates were put out twice (design 4.11; section 9);
+- canary_terminated: a canary that met one captcha or consent wall, or whose target dates were put out twice for any
+  other reason (design 4.11; section 9; G3 seam 3);
 - all_zero_jump: the share of all-zero bare series rose by ALL_ZERO_JUMP or more over the previous target date's,
   with at least MIN_JUDGED series today (placeholders, like every threshold here, until the shadow run);
 - usertype_changed: the session saw more than one userType, or a set different from the previous target date's;
@@ -31,7 +32,8 @@ JUDGED = frozenset({FetchStatus.OK.value, FetchStatus.OK_ZERO.value})
 DRAMA_ITEMS = frozenset({"control", "title"})
 ALL_ZERO_JUMP = 0.20  # placeholder, calibrated in the shadow run
 MIN_JUDGED = 10
-CANARY_TERMINATE_AFTER = 2  # design 4.11: a captcha or an extinguished day, twice
+CANARY_TERMINATE_AFTER = 2  # extinguished target dates, for any reason but a wall (design 4.11; section 9)
+WALL = "wall"  # breaker.ExtinguishReason of a captcha or consent page: one ends the canary
 CARRIED_CODES = frozenset({"parse_error"})  # lasting conditions a new batch takes over from the one before it
 
 
@@ -104,16 +106,23 @@ class Judged:
     """What the codes are computed from, besides the breaker."""
 
     canary: bool
-    extinguished_canary_days: int
+    canary_extinguished: tuple[str | None, ...]  # the reasons of the canary's extinguished target dates
     carried: frozenset[str]
     contract_verdict: str | None
     zero_jump: bool
     usertype_changed: bool
 
 
+def canary_terminated(reasons: Sequence[str | None]) -> bool:
+    """Section 9: "出现验证码或熄火 2 次立即终止". One wall (captcha or consent) ends the canary at once; a day put out
+    for any other reason ends it on the second. `reasons` are the persisted ones (session_rows.canary_extinguish_reasons),
+    so the refusal at start and the finishing step read the same thing, a crash in between included."""
+    return WALL in reasons or len(reasons) >= CANARY_TERMINATE_AFTER
+
+
 def session_codes(state: breaker.BreakerState, judged: Judged) -> tuple[str, ...]:
     codes = set(breaker.status_codes(state))
-    if judged.canary and judged.extinguished_canary_days >= CANARY_TERMINATE_AFTER:
+    if judged.canary and canary_terminated(judged.canary_extinguished):
         codes.add("canary_terminated")
     if judged.zero_jump:
         codes.add("all_zero_jump")

@@ -45,7 +45,7 @@ from ggwork_pick.observe.db import DATABASE_URL_VARIABLE
 from ggwork_pick.observe.errors import ExitCode
 from ggwork_pick.observe.selfcheck import package_digest
 from ggwork_pick.observe.trends import __main__ as trends_entry
-from ggwork_pick.observe.trends import budget
+from ggwork_pick.observe.trends import budget, capacity
 from ggwork_pick.observe.versions import COLLECTOR_VERSION
 
 TRENDS_CONFIG = Path("deploy/pick-obs/trends/railway.toml")
@@ -56,13 +56,14 @@ RUNBOOK = ROOT / "docs/pick-workbench/observe-runbook/packaging.md"
 MODULE = "ggwork_pick.observe.trends"
 START = '/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends run"'
 SELFCHECK_START = '/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends --selfcheck-only"'
-SCHEDULE = "*/30 20-23,0-1 * * *"
+SCHEDULE = "*/30 17-23,0-1 * * *"
 GATEWAY_CMD = 'CMD ["sh", "-c", "cd backend && python -m app.gateway.pick_entrypoint"]'
 RAILWAY_MIN_INTERVAL = timedelta(minutes=5)  # Railway runs a cron at most every 5 minutes
 TRIGGER_INTERVAL = timedelta(minutes=30)
 
 # UTC hours no trigger falls in and no session runs through: when the runbook deploys the cron (packaging.md section 7).
-DEPLOY_WINDOW = (time(2, 0), time(20, 0))
+# It ends at the night's first trigger, half an hour before the earliest start (stable's 17:30 since G3).
+DEPLOY_WINDOW = (time(2, 0), time(17, 0))
 
 GUARD_SCRIPTS = ("scripts/pick-deploy-guard.py", "scripts/_pick_deploy_guard_readers.py")  # TR-34's
 # Every ignore file at every level: hatchling in the image drops what the first .gitignore above the managed copy
@@ -145,10 +146,13 @@ def _night(schedule: str) -> list[datetime]:
 
 def test_cron_schedule_fits_the_session_modes():
     """Every mode starts on a trigger, no trigger falls at or after the 01:45 deadline, a session that dies is picked
-    up within 30 minutes, and the only trigger before every start is 20:00, which exits 0 without doing anything. The
-    runbook's deploy window (UTC 02:00-20:00) has no trigger in it and every session is over before it opens."""
+    up within 30 minutes (capacity.py prices that wait as capacity.TRIGGER_INTERVAL), and the only trigger before the
+    earliest start is the one half an hour before it, which exits 0 without doing anything. The runbook's deploy window
+    runs from 02:00 to that first trigger: no trigger in it, and every session is over before it opens. (G3 moved the
+    starts earlier: the schedule that began at 20:00 never reached stable's 17:30 or canary2's 18:30.)"""
     night = _night(railway_toml(TRENDS_CONFIG)["deploy"]["cronSchedule"])
     assert all(later - earlier >= RAILWAY_MIN_INTERVAL for earlier, later in zip(night, night[1:], strict=False))
+    assert capacity.TRIGGER_INTERVAL == TRIGGER_INTERVAL and all(moment.minute in (0, 30) for moment in night)
     windows = {name: mode.window(TARGET) for name, mode in budget.MODES.items()}
     for name, (start, deadline) in windows.items():
         assert start in night, name
@@ -157,11 +161,13 @@ def test_cron_schedule_fits_the_session_modes():
         assert all(later - earlier <= TRIGGER_INTERVAL for earlier, later in zip(inside, inside[1:], strict=False)), name
         assert deadline - inside[-1] <= TRIGGER_INTERVAL, name
     earliest = min(start for start, _ in windows.values())
-    assert [moment.time() for moment in night if moment < earliest] == [time(20, 0)]
+    assert [moment for moment in night if moment < earliest] == [earliest - TRIGGER_INTERVAL]
     quiet_from, quiet_until = DEPLOY_WINDOW
+    assert night[0].time() == quiet_until
     assert not [moment for moment in night if quiet_from <= moment.time() < quiet_until]
     assert all(deadline <= datetime.combine(TARGET, quiet_from, UTC) for _, deadline in windows.values())
-    assert f"UTC {quiet_from:%H:%M}–{quiet_until:%H:%M}" in RUNBOOK.read_text(encoding="utf-8")
+    text = RUNBOOK.read_text(encoding="utf-8")
+    assert f"UTC {quiet_from:%H:%M}–{quiet_until:%H:%M}" in text and "UTC 02:00–20:00" not in text
 
 
 # ---- what reaches Railway and the image ------------------------------------------------------------------------------

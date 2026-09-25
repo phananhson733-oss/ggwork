@@ -39,7 +39,9 @@ from ggwork_pick.observe.errors import ExitCode
 from ggwork_pick.observe.instants import stamp
 from ggwork_pick.observe.lease import DbStateStore, LeasedWriter, collector_session
 from ggwork_pick.observe.state import RuntimeState
+from ggwork_pick.observe.trends import __main__ as entry
 from ggwork_pick.observe.trends import breaker
+from ggwork_pick.observe.trends import run as run_module
 from ggwork_pick.observe.trends.canary import SourceUnits
 from ggwork_pick.observe.trends.run import Day, Published, Wiring, run_session
 from ggwork_pick.observe.trends.settings import settings_from
@@ -72,10 +74,11 @@ async def _night(obs_url, tmp_path, *, dramas=12, controls=2):
 # ---- when a trigger does nothing ------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("when", [at(EVE, 21, 30), at(TARGET, 1, 45), at(TARGET, 1, 55)])
+@pytest.mark.parametrize("when", [at(EVE, 17, 0), at(EVE, 20, 30), at(TARGET, 1, 45), at(TARGET, 1, 55)])
 @pytest.mark.asyncio
 async def test_outside_the_window_does_nothing(obs_url, tmp_path, when):
-    """Before 22:00 (canary) or from the 01:45 hard deadline: exit 0, no HTTP, not even the lease."""
+    """Before canary1's 21:00 start (the cron's first trigger, 17:00, included) or from the 01:45 hard deadline: exit
+    0, no HTTP, not even the lease."""
     _, controls = await _night(obs_url, tmp_path)
     clock = ManualClock(when)
     google = FakeGoogle(clock)
@@ -273,36 +276,160 @@ async def test_uncovered_units_listed(obs_url, tmp_path):
     assert sum(1 + unit["timeline"] + unit["related"] for unit in batch["plan_json"]["units"]) <= 205  # canary1's plan less 15
 
 
-# ---- the breaker, the canary's end, and the daily alerts --------------------------------------------------------------
+# ---- the canary's payload (G3 seam 1) -------------------------------------------------------------------------------
+
+
+async def _as_deployed(env, clock, google, controls, *, argv=("run",), out=None, err=None) -> int:
+    """One command through the real entry with every production default, the payload gate included."""
+    return await entry.amain(list(argv), environ=env, clock=clock, rng=random_source(7), transport=google.transport(), controls_path=controls, out=out, err=err)
+
+
+def _stale_catalog(count: int) -> list[dict]:
+    """A published batch whose dramas were all listed a month before the target date: no recent titles."""
+    return [drama(index, listed_at=EVE - timedelta(days=30)) for index in range(count)]
 
 
 @pytest.mark.asyncio
-async def test_canary_terminate_rule(obs_url, tmp_path):
-    """[design 4.11] A canary put out twice (here: a sorry page, then five 429s) writes canary_terminated and never runs
-    again: every later trigger exits 2 with no HTTP, and the row keeps the red code."""
-    _, controls = await _night(obs_url, tmp_path, dramas=6)
-    env = trends_env(obs_url)
+async def test_canary_without_its_payload_is_refused(obs_url, tmp_path):
+    """[G3 seam 1] A published shared batch is not a canary's payload: here no drama is recent and none of the
+    controls is in the batch, so the night would be the eight market series alone and come back at 100% coverage.
+    Refused (exit 2) before any request, on a refusal row that carries not_published_low_coverage and the overview
+    (planned requests against the plan, the controls matched per group, the missing ones), which status shows."""
+    await seed_catalog(obs_url, _stale_catalog(40))
+    controls = write_controls(tmp_path, [drama(900 + index) for index in range(4)])  # four positives, none in the batch
     clock = ManualClock(at(EVE, 22, 0))
-    walled = FakeGoogle(clock, script={3: "sorry"})
-    assert await trigger(env, clock, walled, controls=controls) == ExitCode.OK
-    (first,) = await batches(obs_url)
-    assert "extinguished_today" in first["status_codes_json"] and "canary_terminated" not in first["status_codes_json"]
-    clock.advance((at(TARGET, 22, 0) - clock.now()).total_seconds())
-    limited = FakeGoogle(clock, script={ordinal: "429" for ordinal in range(2, 40)})
-    assert await trigger(env, clock, limited, controls=controls) == ExitCode.OK
-    second = (await batches(obs_url))[-1]
-    assert {"extinguished_today", "canary_terminated"} <= set(second["status_codes_json"])
-    for later in (at(TARGET + timedelta(days=1), 1, 40), at(TARGET + timedelta(days=1), 22, 0)):
-        clock.advance((later - clock.now()).total_seconds())
+    google, err = FakeGoogle(clock), io.StringIO()
+    env = trends_env(obs_url)
+    assert await _as_deployed(env, clock, google, controls, err=err) == ExitCode.REFUSED
+    assert google.seen == [] and "计划请求" in err.getvalue() and "正对照" in err.getvalue()
+    (row,) = await batches(obs_url)
+    assert (row["outcome"], row["plan_json"], row["window_end"]) == ("failed", None, None)
+    assert row["status_codes_json"] == ["not_published_low_coverage"]
+    admission = row["summary_json"]["admission"]
+    assert (admission["planned_requests"], admission["plan"], admission["recent_dramas"]) == (16, 220, 0)
+    assert admission["controls"]["positive"] == {"listed": 4, "matched": 0} and admission["missing_controls"] == 4
+    assert admission["missing_first"] == [identity_of(drama(900 + index)) for index in range(4)] and len(admission["reasons"]) == 2
+    out = io.StringIO()
+    assert await _as_deployed(env, clock, FakeGoogle(clock), controls, argv=["status"], out=out) == ExitCode.OK
+    shown = [json.loads(line)["plan"] for line in out.getvalue().splitlines() if "plan" in json.loads(line)]
+    assert shown[0]["missing_controls"] == 4 and shown[0]["reasons"] == admission["reasons"]
+
+
+@pytest.mark.asyncio
+async def test_canary_without_its_positive_controls_is_refused(obs_url, tmp_path):
+    """Enough recent titles to fill the plan, but fewer than half the positive controls in the batch: refused, and
+    only for the controls."""
+    catalog = recent_catalog(150)
+    await seed_catalog(obs_url, catalog)
+    controls = write_controls(tmp_path, [*catalog[:1], *(drama(900 + index) for index in range(3))])  # 1 of 4 matched
+    clock = ManualClock(at(EVE, 22, 0))
+    google = FakeGoogle(clock)
+    assert await _as_deployed(trends_env(obs_url), clock, google, controls) == ExitCode.REFUSED and google.seen == []
+    (row,) = await batches(obs_url)
+    admission = row["summary_json"]["admission"]
+    assert admission["controls"]["positive"] == {"listed": 4, "matched": 1} and admission["planned_requests"] >= 176
+    assert len(admission["reasons"]) == 1 and "正对照" in admission["reasons"][0]
+
+
+@pytest.mark.asyncio
+async def test_preflight_reads_tonight_without_sending(obs_url, tmp_path):
+    """S6 -> S7: `preflight` prints tonight's task list in figures (no lease, no request, nothing written): 0 when it
+    is a canary's payload, 2 with the reasons when it is not."""
+    catalog = recent_catalog(150)
+    await seed_catalog(obs_url, catalog)
+    good = write_controls(tmp_path, catalog[:4], name="good.json")
+    bad = write_controls(tmp_path, [drama(900 + index) for index in range(4)], name="bad.json")
+    env = trends_env(obs_url)
+    clock = ManualClock(at(EVE, 12, 0))  # daytime, as S6 is
+    before = await runtime_row(obs_url)
+    for controls, expected in ((good, ExitCode.OK), (bad, ExitCode.REFUSED)):
+        google, out = FakeGoogle(clock), io.StringIO()
+        assert await _as_deployed(env, clock, google, controls, argv=["preflight"], out=out) == expected
+        (line,) = [json.loads(text)["preflight"] for text in out.getvalue().splitlines()]
+        assert (line["target_date"], line["mode"], line["pace"]) == ("2026-09-26", "canary1", "user") and google.seen == []
+        assert line["planned_requests"] >= 176 and bool(line["reasons"]) == (expected == ExitCode.REFUSED)
+    assert await runtime_row(obs_url) == before and await batches(obs_url) == []
+
+
+# ---- the breaker, the canary's end, and the daily alerts --------------------------------------------------------------
+
+
+async def _refused_from_now_on(env, clock, controls, obs_url) -> None:
+    """Every later trigger, a night's first and its last, exits 2 with no HTTP; the row keeps the red code."""
+    for hour, minute in ((22, 0), (1, 30), (22, 0)):
+        later = at(clock.now().date(), hour, minute)
+        clock.advance(((later if later > clock.now() else later + timedelta(days=1)) - clock.now()).total_seconds())
         refused = FakeGoogle(clock)
         assert await trigger(env, clock, refused, controls=controls) == ExitCode.REFUSED
         assert refused.seen == []
     assert "canary_terminated" in (await batches(obs_url))[-1]["status_codes_json"]
+
+
+@pytest.mark.parametrize("wall", ["sorry", "consent"])
+@pytest.mark.asyncio
+async def test_canary_terminate_rule(obs_url, tmp_path, wall):
+    """[design 4.11; plan section 9; G3 seam 3] One captcha or consent wall in the canary ends it: the night's row
+    writes canary_terminated at once, and every later trigger exits 2 with no HTTP. (Until G3 this test pinned the
+    opposite: a first sorry page only put the day out, and the canary ran again the next night.)"""
+    _, controls = await _night(obs_url, tmp_path, dramas=6)
+    env = trends_env(obs_url)
+    clock = ManualClock(at(EVE, 22, 0))
+    walled = FakeGoogle(clock, script={3: wall})
+    assert await trigger(env, clock, walled, controls=controls) == ExitCode.OK
+    (first,) = await batches(obs_url)
+    assert {"extinguished_today", "canary_terminated"} <= set(first["status_codes_json"])
+    await _refused_from_now_on(env, clock, controls, obs_url)
+    out = io.StringIO()  # preflight says so too, before any night
+    assert await trigger(env, clock, FakeGoogle(clock), controls=controls, argv=["preflight"], out=out) == ExitCode.REFUSED
+    assert json.loads(out.getvalue())["preflight"]["refused_by"] == ["canary_terminated"]
     # TR-30's fix-and-rerun starts the count afresh from a date, without deleting a row.
     rerun = FakeGoogle(clock)
     since = trends_env(obs_url, key=env["PICK_OBS_STATE_KEY"], PICK_OBS_CANARY_SINCE=f"{clock.now().date() + timedelta(days=1):%Y-%m-%d}")
     assert await trigger(since, clock, rerun, controls=controls) == ExitCode.OK and rerun.seen
     assert "canary_terminated" not in (await batches(obs_url))[-1]["status_codes_json"]
+
+
+@pytest.mark.asyncio
+async def test_canary_other_extinguished_days_terminate_on_the_second(obs_url, tmp_path):
+    """[G3 seam 3] A day put out by anything but a wall (here five 429s) does not end the canary: the next night runs.
+    A second such day does, and from then on every trigger is refused."""
+    _, controls = await _night(obs_url, tmp_path, dramas=6)
+    env = trends_env(obs_url)
+    clock = ManualClock(at(EVE, 22, 0))
+    limited = FakeGoogle(clock, script={ordinal: "429" for ordinal in range(2, 40)})
+    assert await trigger(env, clock, limited, controls=controls) == ExitCode.OK
+    (first,) = await batches(obs_url)
+    assert "extinguished_today" in first["status_codes_json"] and "canary_terminated" not in first["status_codes_json"]
+    clock.advance((at(TARGET, 22, 0) - clock.now()).total_seconds())
+    again = FakeGoogle(clock, script={ordinal: "429" for ordinal in range(2, 40)})
+    assert await trigger(env, clock, again, controls=controls) == ExitCode.OK and again.seen  # the second night ran
+    second = (await batches(obs_url))[-1]
+    assert {"extinguished_today", "canary_terminated"} <= set(second["status_codes_json"])
+    await _refused_from_now_on(env, clock, controls, obs_url)
+
+
+@pytest.mark.asyncio
+async def test_canary_wall_terminates_after_a_crash(obs_url, tmp_path, monkeypatch):
+    """[G3 seam 3] The rule reads what is committed: a wall's day is on its budget row (extinguish_reason wall) the
+    moment its request row is. A process that dies before its finishing step writes no code, yet the next trigger
+    refuses with canary_terminated and closes the batch the crash left running."""
+    _, controls = await _night(obs_url, tmp_path, dramas=6)
+    env = trends_env(obs_url)
+    clock = ManualClock(at(EVE, 22, 0))
+
+    async def dies(*args, **kwargs):
+        raise Crash("synthetic crash before the finishing step")
+
+    monkeypatch.setattr(run_module, "_finish", dies)
+    assert await trigger(env, clock, FakeGoogle(clock, script={3: "sorry"}), controls=controls) == ExitCode.FAILED
+    monkeypatch.undo()
+    (left,) = await batches(obs_url)
+    assert left["outcome"] == "running" and left["status_codes_json"] == []
+    clock.advance(1800)
+    refused = FakeGoogle(clock)
+    assert await trigger(env, clock, refused, controls=controls) == ExitCode.REFUSED and refused.seen == []
+    (closed,) = await batches(obs_url)
+    assert closed["outcome"] == "failed" and "canary_terminated" in closed["status_codes_json"]
 
 
 async def _save_state(url, state, cipher, clock) -> None:
@@ -550,7 +677,11 @@ async def test_status_and_selfcheck_only(obs_url, tmp_path):
     out = io.StringIO()
     assert await trigger(env, clock, FakeGoogle(clock), controls=controls, argv=["status"], out=out) == ExitCode.OK
     lines = [json.loads(line) for line in out.getvalue().splitlines()]
-    assert lines[0]["runtime"]["lease_owner"] is None and {"budget", "batch"} <= {key for line in lines for key in line}
+    assert lines[0]["runtime"]["lease_owner"] is None and {"budget", "batch", "plan"} <= {key for line in lines for key in line}
+    (plan,) = [line["plan"] for line in lines if "plan" in line]  # the night's task list in figures (G3 seam 1)
+    assert (plan["target_date"], plan["plan"], plan["reasons"]) == ("2026-09-26", 220, []) and plan["planned_requests"] > 0
+    assert plan["controls"]["positive"] == {"listed": 2, "matched": 2} and plan["missing_controls"] == 0
+    assert all("plan_json" not in line.get("batch", {}) for line in lines)  # the task list itself is not printed
     assert env["PICK_OBS_STATE_KEY"] not in out.getvalue() and "cookie" not in out.getvalue().lower()
     out = io.StringIO()
     google = FakeGoogle(clock)

@@ -95,6 +95,7 @@ class NewBatch:
     status_codes: tuple[str, ...]
     outcome: str = "running"
     finished_at: datetime | None = None
+    summary: Mapping[str, Any] | None = None  # summary_json; None: no unit done yet
 
 
 async def insert_batch(step: LeasedStep, batch: NewBatch) -> None:
@@ -113,7 +114,7 @@ async def insert_batch(step: LeasedStep, batch: NewBatch) -> None:
         "planned_units": batch.planned_units,
         "fetched_units": 0 if batch.planned_units is not None else None,
         "plan_json": dict(batch.plan) if batch.plan is not None else None,
-        "summary_json": {"units": {}},
+        "summary_json": dict(batch.summary) if batch.summary is not None else {"units": {}},
         "status_codes_json": list(batch.status_codes),
     }
     await step.execute(insert(obs_batches).values(**values))
@@ -181,15 +182,16 @@ async def insert_raw(step: LeasedStep, rows: Sequence[Mapping[str, Any]]) -> Non
         await step.execute(insert(obs_raw).values(**row))
 
 
-async def extinguished_canary_days(step: ReadStep, *, since: date | None) -> tuple[date, ...]:
-    """The canary target dates the breaker put out, from their budget rows (collect_mode canary1 or canary2, an
-    extinguish time): a wall (captcha or consent) always puts the day out, so each such day is one event of design
-    4.11's "验证码或熄火". `since` (PICK_OBS_CANARY_SINCE) starts the count afresh for a fix-and-rerun (TR-30)."""
+async def canary_extinguish_reasons(step: ReadStep, *, since: date | None) -> tuple[str | None, ...]:
+    """Why each canary target date the breaker put out was put out, oldest first, from the budget rows (collect_mode
+    canary1 or canary2, an extinguish time): breaker.ExtinguishReason, `wall` for a captcha or consent page. The row is
+    written in the same step as the request row that put the day out, so a crash after it cannot lose it. `since`
+    (PICK_OBS_CANARY_SINCE) starts the count afresh for a fix-and-rerun (TR-30)."""
     where = (obs_budget.c.channel == CHANNEL) & obs_budget.c.collect_mode.in_(EXTINGUISHED_CANARY_MODES) & obs_budget.c.extinguished_at.is_not(None)
     if since is not None:
         where = where & (obs_budget.c.budget_day >= codec.encode_day(since))
-    found = await step.execute(select(obs_budget.c.budget_day).where(where).order_by(obs_budget.c.budget_day))
-    return tuple(codec.decode_day(day, "budget_day") for (day,) in found.all())
+    found = await step.execute(select(obs_budget.c.extinguish_reason).where(where).order_by(obs_budget.c.budget_day))
+    return tuple(reason for (reason,) in found.all())
 
 
 # ---- raw rows (ggwp_obs_raw) ----------------------------------------------------------------------------------------
