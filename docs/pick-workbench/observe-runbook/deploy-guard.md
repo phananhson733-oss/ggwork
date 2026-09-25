@@ -8,6 +8,8 @@ gateway、两个观测 cron、前端，**每次部署之前**都先跑守卫，�
 
 它要拦住的是：从脏工作区或旧检出部署、带着 `.env*` 部署、从个人 fork 部署、部署一份认不出生产迁移头的代码（库已到 0007，镜像却不认识 0007：扩展加载失败，而 `/health/ready` 照样通过，故障是静默的）、从生产已经越过的提交部署（等于回滚）。
 
+**守卫只保证来源，不保证合同能力。** 它核对的是 Git 来源（共享仓库的 `ggwork/main`、生产上次记录提交的后代）、工作区与迁移链；它不看代码还能不能读旧卡、新卡、混合会话与存量快照。在 main 上 revert 掉 TR-16 的前端解析改动（或 S13 之后 revert 掉 TR-26 至 TR-28）的提交，仍是上次生产提交的后代、仍在 main 上，守卫照样放行，解析器却可能已退回 F0（gateway 退回 M0）。守卫也证明不了 Railway 控制台里的配置（配置路径、cron 计划、自动部署）是对的。所以每次发布与回滚，除了守卫，还要在要部署的提交上跑 `rollback-matrix.md`「四格验证」（G3 处置，计划第 14.3 节分层 P2-4）；Railway 的服务设置按 `packaging.md` 逐项核对。
+
 ## 用法
 
 在要部署的检出里，用后端环境的 Python 执行（DSN 读取要用它的 psycopg）：
@@ -128,9 +130,9 @@ RESET ROLE;
 
 ## 各模式通过之后
 
-- **gateway**：打印 `cd <检出> && railway up --detach`。部署后按第 10 节 S4 核对（日志里没有 `service start() failed`、迁移头、授权、认证后的 `/api/pick/sync`、一次选剧对话）。提示了迁移头升级时，把记录行推到 main 之后，从最新的 main 经守卫重部署已经建好的 cron 服务。
-- **cron**：打印 `cd <检出> && railway up --detach --service pick-obs-<服务>`。部署后以 `--selfcheck-only` 手动触发一次（S6）。
-- **frontend**：守卫已把 `git archive <HEAD> frontend` 导出到新目录，里面只有已跟踪的文件。下一步：从已经 `vercel link` 的检出里只拷 `.vercel/project.json` 到导出目录的 `.vercel/`，再在导出目录执行 `vercel deploy --prod`。Vercel 项目的 Root Directory 是 `frontend`，所以在导出目录的根上部署。别的 gitignore 文件一个都不要拷进去。
+- **gateway**：打印 `cd <检出> && railway up --detach`。`rollback-matrix.md` 四格验证的 gateway 一列（扩展完整套件）在同一提交上、跑守卫之前做完：守卫通过后要立即部署。部署后按计划第 10 节 S4 核对（日志里没有 `service start() failed`、能导入 `observe.selfcheck` 与 `observe.grants`、迁移头、`regrant --check` 与权限实读、认证后的 `/api/pick/sync`、一次选剧对话），再做四格的手工核对。提示了迁移头升级时，把记录行推到 main 之后，从最新的 main 经守卫重部署已经建好的 cron 服务。
+- **cron**：打印 `cd <检出> && railway up --detach --service pick-obs-<服务>`。第一次部署（S5、S6）与以后重做 S6 时，不是「部署后手动触发一次自检」，而是按 `packaging.md` 第 5 节第 4 步与第 6 节的双配置流程：服务的配置路径先指向自检配置 `/deploy/pick-obs/trends/selfcheck/railway.toml` 部署，核对自检日志里的包摘要、角色与迁移头，再从同一检出、同一提交切回 `/deploy/pick-obs/trends/railway.toml` 部署，最后才追加并推送守卫的记录行。守卫只在开头跑一次；期间 `ggwork/main` 前进或间隔过久，按 `packaging.md` 的规则原样重跑。gsc 服务是否也配自检配置由 TR-21 定，写在它自己的手册页。
+- **frontend**：守卫已把 `git archive <HEAD> frontend` 导出到新目录，里面只有已跟踪的文件。`rollback-matrix.md` 四格验证的前端命令在守卫所用的检出（同一提交）的 `frontend/` 下、跑守卫之前做完（导出目录里没有依赖，不在那里跑）。下一步：从已经 `vercel link` 的检出里只拷 `.vercel/project.json` 到导出目录的 `.vercel/`，再在导出目录执行 `vercel deploy --prod`。Vercel 项目的 Root Directory 是 `frontend`，所以在导出目录的根上部署。别的 gitignore 文件一个都不要拷进去。
 
 ## 与其他任务的接缝
 
