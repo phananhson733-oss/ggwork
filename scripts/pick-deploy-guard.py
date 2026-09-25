@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Deploy guard for the pick workbench: run it before every gateway, cron or frontend
-deploy (trends radar plan D41, section 10).
+deploy (trends radar plan D41, section 10). The runbook is
+docs/pick-workbench/observe-runbook/deploy-guard.md.
 
 From the checkout to deploy, with the backend environment (psycopg, postgres extra):
     backend/.venv/bin/python scripts/pick-deploy-guard.py gateway [--first-record]
@@ -9,35 +10,29 @@ From the checkout to deploy, with the backend environment (psycopg, postgres ext
 Common options: --remote (default ggwork: this repository's origin is upstream
 DeerFlow), --repo (default: the checkout holding this script).
 
-Every mode refuses a dirty tree or an untracked .env* file (ignored ones included: a
-CLI that uploads the directory takes them along), fetches the remote's main and refuses
-a HEAD other than it, and refuses when the last production commit progress.md records
-for the target is not an ancestor of HEAD: a rollback is a revert commit on main, never
-a deploy from an older checkout. gateway and cron then read the production migration
-head as pick_observer, the DSN coming from the mode-600 file PICK_OBS_DSN_FILE, and
-refuse a head unknown to the chain this checkout ships: the revision files of the
-managed copy the image installs, which must match the source's. A cron also needs its
-deploy/pick-obs/<service>/railway.toml and a production head equal to the chain's head
-and not before MIN_MIGRATION_HEAD: a new migration reaches production through the
-gateway first (D5). frontend exports `git archive <HEAD> frontend` into a new directory.
+Every mode refuses a dirty tree or an untracked .env* file (ignored ones included), a
+remote other than the shared repository, a HEAD other than the main just fetched from
+it, and a HEAD that does not descend from the last production commit progress.md
+records for the target: a rollback is a revert commit on main. gateway and cron then
+read the production migration head as pick_observer (DSN in the mode-600 file
+PICK_OBS_DSN_FILE, PGSSLMODE require or stricter) and refuse a head the chain this
+checkout ships does not know. A cron also needs its deploy/pick-obs/<service>/
+railway.toml and a production head equal to the chain's head, not before
+MIN_MIGRATION_HEAD: a new migration reaches production through the gateway first (D5).
+frontend exports `git archive <HEAD> frontend` into a new directory.
 
 The guard never runs railway or vercel: it prints the next step, the commit and the line
-to append to progress.md once the deploy is verified. No DSN, password or database
-message is ever printed; errors name their class and SQLSTATE.
+to append to progress.md once the deploy is verified. No DSN, password, remote URL or
+database message is ever printed; errors name their class and SQLSTATE.
 Exit status: 0 passed, 1 a check could not run (git or the database failed), 2 refused,
 130 interrupted.
 """
 
 import argparse
-import ast
-import errno
 import os
 import re
 import shlex
-import stat
-import subprocess
 import sys
-import tarfile
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -45,10 +40,26 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, TextIO
 
+import _pick_deploy_guard_readers as readers
+from _pick_deploy_guard_readers import (
+    CheckFailed,
+    GitRepo,
+    ProdState,
+    Refused,
+    describe,
+    read_chain,
+    read_constant,
+    read_dsn,
+    read_prod_state,
+    repository_of,
+)
+
 EXIT_OK, EXIT_FAILED, EXIT_REFUSED, EXIT_INTERRUPTED = 0, 1, 2, 130
 
 DEFAULT_REPO = Path(__file__).resolve().parents[1]
 DEFAULT_REMOTE = "ggwork"
+# progress.md: the code lives in this repository's main. Only its path is compared.
+SHARED_REPOSITORY = ("phananhson733-oss", "ggwork")
 BRANCH = "main"
 CRON_SERVICES = ("trends", "gsc")
 TARGETS = ("gateway", "frontend", *(f"cron:{service}" for service in CRON_SERVICES))
@@ -63,70 +74,24 @@ MANAGED_OBSERVE_VERSIONS = MANAGED_PACKAGE / "observe" / "versions.py"
 MIN_HEAD_NAME = "MIN_MIGRATION_HEAD"
 PROGRESS = Path("docs/pick-workbench/progress.md")
 
-DSN_FILE_ENV = "PICK_OBS_DSN_FILE"
 SSL_MODE_ENV = "PGSSLMODE"
+# The guard reaches production over the internet. Only a caller of main() (a test
+# against a local cluster) may widen this; the command line cannot.
+SECURE_SSL_MODES = frozenset({"require", "verify-ca", "verify-full"})
+SSL_RULE = "只接受 require、verify-ca、verify-full（守卫经公网连生产库）"
 OBSERVER_ROLE_ENV = "PICK_OBS_OBSERVER_ROLE"  # the variable migration 0007 reads
-# TR-12's role, which may read the version table in the schema the host's tables live
-# in (ggwork_pick.mirror.connection.SEARCH_PATH).
-DEFAULT_OBSERVER_ROLE = "pick_observer"
-VERSION_TABLE = "deerflow.ggwp_alembic_version"
-VERSION_QUERY = f"SELECT version_num FROM {VERSION_TABLE} ORDER BY version_num"
-APPLICATION_NAME = "ggwp-deploy-guard"
-CONNECT_TIMEOUT_SECONDS = 15
-# A gateway migrating right now holds the version table: wait no longer than this.
-STATEMENT_TIMEOUT = "15s"
-MAX_DSN_BYTES = 64 * 1024
-# ggwork_pick.observe.crypto's rule for private files: no exec bit, nothing for others.
-WIDER_THAN_600 = 0o177
-PRIVATE_OPEN_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
-SQLSTATE_HINTS = {
-    "42501": "observer 缺版本表的 SELECT：按 TR-12 补授权（gateway 里跑 regrant）",
-    "42P01": "库里没有 deerflow.ggwp_alembic_version：核对 DSN 连的是不是生产库",
-    "28P01": "observer 的口令不对：核对 DSN 文件",
-}
+DEFAULT_OBSERVER_ROLE = "pick_observer"  # TR-12's role
+REGRANT = "python -m ggwork_pick.observe.admin regrant"
 
-GIT_TIMEOUT_SECONDS = 120
-STATUS_ARGS = ("status", "--porcelain=v1", "-z", "--untracked-files=all")
-# Every untracked .env*, ignored ones included (no --exclude-standard); a dependency's
-# own files under node_modules or .venv are not ours.
-ENV_FILES_ARGS = (
-    *("ls-files", "--others", "-z", "--", ":(glob)**/.env*"),
-    *(":(exclude,glob)**/node_modules/**", ":(exclude,glob)**/.venv/**"),
-)
 RECORD_PREFIX = "pick-deploy-guard"
 RECORD_MARK = f"{RECORD_PREFIX} target="
 STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 SHOWN_ENTRIES = 10
 NEXT = "下一步（守卫不执行）："
+AT_ONCE = "守卫通过后立即部署；隔久了先重跑守卫（这段时间里另一会话可能已经部署）"
 _REMOTE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 _TOKEN = re.compile(r"\s*([a-z_]+)=([^\s`]+)")
-_POSTGRES_SCHEME = re.compile(r"postgres(?:ql)?(?:\+[a-z0-9_]+)?://", re.IGNORECASE)
-_OPEN_REASONS = {
-    errno.ENOENT: "不存在",
-    errno.ELOOP: "是符号链接",
-    errno.EACCES: "读不了",
-}
-_MISSING = object()
-
-
-class Refused(Exception):
-    """A check failed: do not deploy. The message never carries a secret."""
-
-
-class CheckFailed(Exception):
-    """A check could not run. The message names the step, never a secret."""
-
-
-class GitFailed(CheckFailed):
-    def __init__(self, command: str, status: int):
-        super().__init__(f"git {command} 失败（退出码 {status}），手动执行它看原因")
-
-
-@dataclass(frozen=True)
-class ProdState:
-    role: str
-    versions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -168,6 +133,7 @@ class Repo(Protocol):
 
     def status_entries(self) -> Sequence[str]: ...
     def untracked_env_files(self) -> Sequence[str]: ...
+    def remote_url(self, remote: str) -> str: ...
     def fetch(self, remote: str, branch: str) -> None: ...
     def commit_of(self, ref: str) -> str | None: ...
     def is_ancestor(self, older: str, newer: str) -> bool: ...
@@ -175,174 +141,6 @@ class Repo(Protocol):
 
 
 ProdReader = Callable[..., ProdState]
-
-
-def _git_env() -> dict[str, str]:
-    # A fetch that needs credentials fails instead of prompting, and status takes no
-    # optional lock in a repository other sessions share.
-    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"}
-
-
-def _command(cwd: Path, *args: str) -> list[str]:
-    return ["git", "-C", str(cwd), *args]
-
-
-def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
-    command, env = _command(cwd, *args), _git_env()
-    return subprocess.run(
-        command, capture_output=True, env=env, timeout=GIT_TIMEOUT_SECONDS
-    )
-
-
-def _checked(cwd: Path, *args: str) -> bytes:
-    # git's stderr can quote a remote URL with its token: only the status is shown.
-    done = _git(cwd, *args)
-    if done.returncode != 0:
-        raise GitFailed(args[0], done.returncode)
-    return done.stdout
-
-
-def _split(output: bytes) -> tuple[str, ...]:
-    return tuple(
-        part.decode("utf-8", "replace") for part in output.split(b"\0") if part
-    )
-
-
-class GitRepo:
-    """The checkout at `root`, asked through the git command line."""
-
-    def __init__(self, root: Path):
-        self.root = root
-
-    @classmethod
-    def open(cls, path: Path) -> "GitRepo":
-        top = _checked(path, "rev-parse", "--show-toplevel")
-        return cls(Path(top.decode().strip()))
-
-    def status_entries(self) -> tuple[str, ...]:
-        return _split(_checked(self.root, *STATUS_ARGS))
-
-    def untracked_env_files(self) -> tuple[str, ...]:
-        return _split(_checked(self.root, *ENV_FILES_ARGS))
-
-    def fetch(self, remote: str, branch: str) -> None:
-        refspec = f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}"
-        _checked(self.root, "fetch", "--quiet", "--no-tags", remote, refspec)
-
-    def commit_of(self, ref: str) -> str | None:
-        done = _git(self.root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
-        return done.stdout.decode().strip() if done.returncode == 0 else None
-
-    def is_ancestor(self, older: str, newer: str) -> bool:
-        status = _git(self.root, "merge-base", "--is-ancestor", older, newer).returncode
-        if status not in (0, 1):
-            raise GitFailed("merge-base", status)
-        return status == 0
-
-    def archive(self, commit: str, path: str, dest: Path) -> None:
-        command = _command(self.root, "archive", "--format=tar", commit, "--", path)
-        pipe, quiet = subprocess.PIPE, subprocess.DEVNULL
-        with subprocess.Popen(
-            command, stdout=pipe, stderr=quiet, env=_git_env()
-        ) as git:
-            try:
-                with tarfile.open(fileobj=git.stdout, mode="r|") as archive:
-                    archive.extractall(dest, filter="data")
-                broken = False
-            except tarfile.TarError:
-                broken = True
-            git.stdout.read()  # the padding after the end-of-archive blocks
-            status = git.wait(timeout=GIT_TIMEOUT_SECONDS)
-        if status != 0:
-            raise GitFailed("archive", status)
-        if broken:
-            raise CheckFailed("git archive 的输出读不成 tar 包")
-
-
-def _literal(node: ast.expr) -> object:
-    try:
-        return ast.literal_eval(node)
-    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-        return _MISSING
-
-
-def _assigned(node: ast.stmt) -> tuple[str, object] | None:
-    match node:
-        case ast.Assign(targets=[ast.Name(id=name)], value=value):
-            return name, _literal(value)
-        case ast.AnnAssign(target=ast.Name(id=name), value=ast.expr() as value):
-            return name, _literal(value)
-    return None
-
-
-def _assignments(path: Path) -> dict[str, object]:
-    """A file's module-level `NAME = literal` assignments, parsed and never run."""
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.name)
-    return dict(pair for pair in map(_assigned, tree.body) if pair is not None)
-
-
-def read_constant(path: Path, name: str) -> str:
-    if not path.is_file():
-        raise Refused(f"找不到 {path}")
-    value = _assignments(path).get(name, _MISSING)
-    if not isinstance(value, str) or not value:
-        raise Refused(f"{path.name} 里没有字符串常量 {name}")
-    return value
-
-
-def read_revision(path: Path) -> tuple[str, str | None]:
-    values = _assignments(path)
-    revision = values.get("revision", _MISSING)
-    down = values.get("down_revision", _MISSING)
-    if not isinstance(revision, str) or not revision:
-        raise Refused(f"迁移文件 {path.name} 没有 revision 字符串")
-    if down is _MISSING:
-        raise Refused(f"迁移文件 {path.name} 没有 down_revision")
-    if down is not None and not isinstance(down, str):
-        raise Refused(f"迁移文件 {path.name} 的 down_revision 是多个：链不支持合并点")
-    return revision, down
-
-
-def _repeated(values: Sequence[str | None]) -> str:
-    return "、".join(
-        sorted({v for v in values if v is not None and values.count(v) > 1})
-    )
-
-
-def _linear(links: tuple[tuple[str, str | None], ...]) -> tuple[str, ...]:
-    """The revisions from base to head; Refused unless they form one unbranched line."""
-    revisions = [revision for revision, _ in links]
-    if repeated := _repeated(revisions):
-        raise Refused(f"迁移修订 {repeated} 出现了不止一次")
-    bases = [revision for revision, down in links if down is None]
-    if len(bases) != 1:
-        raise Refused(
-            f"迁移链须恰好有一个起点（down_revision 为 None），现有 {len(bases)} 个"
-        )
-    dangling = [
-        f"{rev} → {down}" for rev, down in links if down not in (None, *revisions)
-    ]
-    if dangling:
-        raise Refused(f"迁移的上一个修订不在链里：{'、'.join(sorted(dangling))}")
-    if forks := _repeated([down for _, down in links]):
-        raise Refused(f"迁移链在 {forks} 处分叉")
-    following = {down: revision for revision, down in links}
-    chain = (bases[0],)
-    while chain[-1] in following:
-        chain = (*chain, following[chain[-1]])
-    if len(chain) != len(links):
-        raise Refused("迁移链有环：有修订从起点走不到")
-    return chain
-
-
-def read_chain(directory: Path) -> tuple[str, ...]:
-    """An Alembic versions directory's chain, from each revision and down_revision."""
-    if not directory.is_dir():
-        raise Refused(f"找不到迁移目录 {directory}")
-    files = sorted(p for p in directory.glob("*.py") if not p.name.startswith("__"))
-    if not files:
-        raise Refused(f"迁移目录 {directory} 里没有迁移文件")
-    return _linear(tuple(read_revision(path) for path in files))
 
 
 def _span(chain: tuple[str, ...]) -> str:
@@ -399,81 +197,43 @@ def record_text(passed: Passed) -> str:
     return " ".join((RECORD_PREFIX, *words))
 
 
-def _private_problem(info: os.stat_result) -> str | None:
-    if not stat.S_ISREG(info.st_mode):
-        return "不是普通文件"
-    if info.st_uid != os.geteuid():
-        return "不属于当前用户"
-    if info.st_mode & WIDER_THAN_600:
-        return "权限宽于 600（chmod 600 后重试）"
-    return None
+def _unreadable(role: str, observe_tables: bool) -> CheckFailed:
+    """The role may not read the version table: the fix depends on the stage."""
+    if observe_tables:
+        return CheckFailed(
+            f"{role} 读不了 {readers.VERSION_TABLE}，而生产已有观测表（不早于 "
+            f"{MIN_HEAD_NAME}）：在 gateway 容器里补授权（{REGRANT}）后重跑守卫"
+        )
+    return CheckFailed(
+        f"{role} 读不了 {readers.VERSION_TABLE}，而生产还没有观测表（早于 "
+        f"{MIN_HEAD_NAME}，即 S3 之前）：这条 SELECT 应由 S2 的 bootstrap-observer.sql "
+        "授予（TR-12 接缝），此时 regrant 也帮不上。按 deploy-guard.md「observer "
+        "读不了版本表」以 postgres 身份补授后重跑守卫"
+    )
 
 
-def read_private_file(path: Path) -> bytes:
-    """A regular file this user owns, mode 600 or narrower, not a symlink: checked on
-    the descriptor that reads it. O_NONBLOCK: a FIFO is refused, not waited on."""
-    try:
-        fd = os.open(path, PRIVATE_OPEN_FLAGS)
-    except OSError as exc:
-        reason = _OPEN_REASONS.get(exc.errno, "打不开")
-        raise Refused(f"{DSN_FILE_ENV} 指向的文件{reason}") from None
-    try:
-        if problem := _private_problem(os.fstat(fd)):
-            raise Refused(f"{DSN_FILE_ENV} 指向的文件{problem}")
-        with os.fdopen(fd, "rb", closefd=False) as handle:
-            data = handle.read(MAX_DSN_BYTES + 1)
-    finally:
-        os.close(fd)
-    if len(data) > MAX_DSN_BYTES:
-        raise Refused(f"{DSN_FILE_ENV} 指向的文件超过 {MAX_DSN_BYTES} 字节")
-    return data
-
-
-def libpq_url(text: str) -> str:
-    """postgresql:// for a postgres URL with or without a SQLAlchemy driver suffix."""
-    match = _POSTGRES_SCHEME.match(text)
-    if match is None:
-        raise Refused(f"{DSN_FILE_ENV} 指向的文件不是 PostgreSQL 连接 URL")
-    return "postgresql://" + text[match.end() :]
-
-
-def read_dsn(environ: Mapping[str, str]) -> str:
-    name = environ.get(DSN_FILE_ENV, "").strip()
-    if not name:
-        raise Refused(f"缺少环境变量 {DSN_FILE_ENV}：指向存 observer DSN 的 600 文件")
-    try:
-        text = read_private_file(Path(name)).decode("utf-8").strip()
-    except UnicodeDecodeError:
-        raise Refused(f"{DSN_FILE_ENV} 指向的文件不是 UTF-8 文本") from None
-    if not text or "\n" in text or "\r" in text:
-        raise Refused(f"{DSN_FILE_ENV} 指向的文件应只有一行连接串")
-    return libpq_url(text)
-
-
-def read_prod_state(dsn: str, *, sslmode: str) -> ProdState:
-    """The role the DSN logs in as and the version rows, in one READ ONLY transaction
-    that is rolled back."""
-    import psycopg  # the backend environment's postgres extra; gateway and cron only
-
-    options = {"connect_timeout": CONNECT_TIMEOUT_SECONDS, "sslmode": sslmode}
-    with psycopg.connect(dsn, application_name=APPLICATION_NAME, **options) as conn:
-        conn.read_only = True
-        conn.execute(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'")
-        role = conn.execute("SELECT current_user").fetchone()[0]
-        versions = tuple(row[0] for row in conn.execute(VERSION_QUERY))
-        conn.rollback()
-    return ProdState(role=role, versions=versions)
-
-
-def production_head(environ: Mapping[str, str], read_prod: ProdReader) -> str:
-    dsn = read_dsn(environ)
+def _sslmode(environ: Mapping[str, str], allowed: frozenset[str]) -> str:
     sslmode = environ.get(SSL_MODE_ENV, "").strip()
     if not sslmode:
-        raise Refused(f"缺少环境变量 {SSL_MODE_ENV}：生产用 require 或更严")
+        raise Refused(f"缺少环境变量 {SSL_MODE_ENV}：{SSL_RULE}")
+    if sslmode not in allowed:
+        raise Refused(f"{SSL_MODE_ENV} 的取值太弱或拼错了：{SSL_RULE}")
+    return sslmode
+
+
+def production_head(
+    environ: Mapping[str, str], read_prod: ProdReader, ssl_modes: frozenset[str]
+) -> str:
+    dsn = read_dsn(environ)
+    sslmode = _sslmode(environ, ssl_modes)
     role = environ.get(OBSERVER_ROLE_ENV, "").strip() or DEFAULT_OBSERVER_ROLE
     state = read_prod(dsn, sslmode=sslmode)
     if state.role != role:
-        raise Refused(f"{DSN_FILE_ENV} 连上的角色不是 {role}：守卫只用 observer 的 DSN")
+        raise Refused(
+            f"{readers.DSN_FILE_ENV} 连上的角色不是 {role}：守卫只用 observer 的 DSN"
+        )
+    if state.versions is None:
+        raise _unreadable(role, state.observe_tables)
     if not state.versions:
         raise Refused("生产库的 ggwp_alembic_version 是空的：先查清生产库的迁移状态")
     if len(state.versions) > 1:
@@ -498,11 +258,23 @@ def check_worktree(repo: Repo) -> None:
     if env_files := tuple(repo.untracked_env_files()):
         raise Refused(
             f"检出里有未跟踪的 .env* 文件（gitignore 的也算）：{_listed(env_files)}。"
-            "部署 CLI 可能连 gitignore 的文件一起上传（Vercel 就会），移走后再部署"
+            "移走后再部署：Vercel CLI 会连 gitignore 的文件一起上传"
+        )
+
+
+def check_remote(repo: Repo, remote: str) -> None:
+    """The remote is the shared repository: a fork's main is not the main both
+    sessions deploy from. The URL may hold a token, so it is never shown."""
+    if repository_of(repo.remote_url(remote)) != SHARED_REPOSITORY:
+        shared = "/".join(SHARED_REPOSITORY)
+        raise Refused(
+            f"远端 {remote} 指向的不是 {shared}（只比较 URL 路径的最后两段，"
+            "URL 本身不打印）：只从共享仓库的 main 部署"
         )
 
 
 def verified_head(repo: Repo, remote: str) -> str:
+    check_remote(repo, remote)
     repo.fetch(remote, BRANCH)
     main = f"{remote}/{BRANCH}"
     head, fetched = repo.commit_of("HEAD"), repo.commit_of(f"refs/remotes/{main}")
@@ -614,11 +386,12 @@ class Sources:
     read_prod: ProdReader
     environ: Mapping[str, str]
     now: Callable[[], datetime]
+    ssl_modes: frozenset[str] = SECURE_SSL_MODES
 
 
 def run(request: Request, repo: Repo, sources: Sources) -> Passed:
-    """Every check, the local ones first: nothing is fetched for a dirty tree, and
-    the database is read only after every local check has passed."""
+    """Every check, the local ones first: nothing is fetched for a dirty tree or a
+    foreign remote, and the database is read only after every local check passed."""
     if not _REMOTE_NAME.fullmatch(request.remote):
         raise Refused(
             "远端名只能由字母、数字、点、下划线和连字符组成，且不以连字符开头"
@@ -632,7 +405,7 @@ def run(request: Request, repo: Repo, sources: Sources) -> Passed:
     chain = local_chain(repo.root)
     if request.mode == "cron":
         check_cron_config(repo.root, request.service)
-    head = production_head(sources.environ, sources.read_prod)
+    head = production_head(sources.environ, sources.read_prod, sources.ssl_modes)
     check_prod_head(request, repo.root, chain, head)
     return Passed(
         request, repo.root, commit, sources.now(), chain=chain, prod_head=head
@@ -648,9 +421,12 @@ def _notes(passed: Passed) -> tuple[str, ...]:
     )
     if old == new:
         return (heads,)
+    # The record line pushed after this deploy moves main: the crons follow from the
+    # newest main, which the cron guard requires, not from this very commit.
+    main = f"{passed.request.remote}/{BRANCH}"
     upgrade = (
         f"- 本次部署会把生产迁移头从 {old} 升到 {new}。gateway 上线并核对之后，"
-        "两个 cron 都要从同一提交经守卫重部署（计划 D5）"
+        f"从最新的 {main} 经守卫重部署已经建好的 cron 服务（还没建的不用管；计划 D5）"
     )
     return (heads, upgrade)
 
@@ -685,38 +461,16 @@ def render(passed: Passed) -> str:
         f"- `{record_text(passed)}`",
         "",
         *next_steps(passed),
+        f"  {AT_ONCE}",
     )
     return "\n".join(lines)
 
 
-def _sqlstate(exc: BaseException) -> str | None:
-    seen, pending = set(), [exc]
-    while pending:
-        current = pending.pop(0)
-        if current is None or id(current) in seen:
-            continue
-        seen.add(id(current))
-        state = getattr(current, "sqlstate", None) or getattr(current, "pgcode", None)
-        if isinstance(state, str) and state:
-            return state
-        pending.extend((current.__cause__, current.__context__))
-    return None
-
-
-def describe(exc: BaseException) -> str:
-    """An error's class and SQLSTATE; the guard's own CheckFailed keeps its message."""
-    name = type(exc).__name__
-    text = f"{name}：{exc}" if isinstance(exc, CheckFailed) else name
-    state = _sqlstate(exc)
-    if state is None:
-        return text
-    hint = SQLSTATE_HINTS.get(state)
-    return f"{text}（SQLSTATE {state}）" + (f"：{hint}" if hint else "")
-
-
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
-    remote_help = "部署来源的远端（默认 ggwork；本仓库的 origin 是上游 DeerFlow）"
+    remote_help = (
+        "部署来源的远端，须指向共享仓库（默认 ggwork；origin 是上游 DeerFlow）"
+    )
     common.add_argument("--remote", default=DEFAULT_REMOTE, help=remote_help)
     repo_help = "要部署的检出（默认本脚本所在的检出）"
     common.add_argument("--repo", type=Path, default=DEFAULT_REPO, help=repo_help)
@@ -741,6 +495,20 @@ def _request(args: argparse.Namespace) -> Request:
     return Request(args.mode, args.remote, args.first_record, service, out)
 
 
+def _sources(
+    read_prod: ProdReader | None,
+    environ: Mapping[str, str],
+    now: Callable[[], datetime] | None,
+    ssl_modes: frozenset[str] | None,
+) -> Sources:
+    return Sources(
+        read_prod=read_prod or read_prod_state,
+        environ=environ,
+        now=now or (lambda: datetime.now(UTC)),
+        ssl_modes=SECURE_SSL_MODES if ssl_modes is None else ssl_modes,
+    )
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -750,13 +518,12 @@ def main(
     out: TextIO | None = None,
     err: TextIO | None = None,
     now: Callable[[], datetime] | None = None,
+    ssl_modes: frozenset[str] | None = None,
 ) -> int:
     args = build_parser().parse_args(argv)
     request, out, err = _request(args), out or sys.stdout, err or sys.stderr
     env = os.environ if environ is None else environ
-    sources = Sources(
-        read_prod or read_prod_state, env, now or (lambda: datetime.now(UTC))
-    )
+    sources = _sources(read_prod, env, now, ssl_modes)
     try:
         checkout = GitRepo.open(args.repo) if repo is None else repo
         passed = run(request, checkout, sources)
@@ -766,9 +533,7 @@ def main(
     except KeyboardInterrupt:
         print(f"部署守卫被中断（{request.target}）；重跑是安全的", file=err)
         return EXIT_INTERRUPTED
-    except (
-        Exception
-    ) as exc:  # it may quote a DSN or a remote URL: only its class is shown
+    except Exception as exc:  # it may quote a DSN or a remote URL: only its class
         print(f"部署守卫出错（{request.target}）：{describe(exc)}", file=err)
         return EXIT_FAILED
     print(render(passed), file=out)
