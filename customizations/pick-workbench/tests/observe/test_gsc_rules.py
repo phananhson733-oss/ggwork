@@ -181,7 +181,10 @@ def test_unobserved_not_zero():
     assert f"W−1 的曝光：{UNOBSERVED_GSC}" in lines and "W0 的曝光：44" in lines
     assert not any(line.startswith("W−1 的曝光：") and line.endswith("0") for line in lines)
     assert rules.count_text(None) == UNOBSERVED_GSC and rules.count_text(0) == "0"
-    for text in texts(got):
+    # Before any filter request the row is descriptive and shows the detail: still not observed, not 0.
+    unchecked = rules.judge_24h(inputs24(impressions=imp24(44, None)))
+    assert f"W−1 的曝光：{UNOBSERVED_GSC}" in rules.count_lines(unchecked)
+    for text in texts(got) + texts(unchecked):
         assert not any(term in text for term in FORBIDDEN_ZERO), text
 
 
@@ -194,7 +197,8 @@ def test_unobserved_stored_null():
     }  # fmt: skip
     assert labels(got)["from_zero"].counts["w_minus_1"] is None
     unchecked = rules.judge_24h(inputs24(impressions=imp24(44, None)))
-    assert unchecked.metrics()["impressions"]["w_minus_1"]["x_flt"] is None and unchecked.metrics()["impressions"]["w_minus_1"]["x_flt_rows"] is None
+    before_filter = unchecked.metrics()["impressions"]["w_minus_1"]
+    assert (before_filter["x_det"], before_filter["x_det_rows"], before_filter["x_flt"], before_filter["x_flt_rows"]) == (None, 0, None, None)
 
 
 def test_7d_needs_vd_14_days():

@@ -106,6 +106,20 @@ def test_cutoff_48h_gap():
     assert short_start.gaps == ((H_C - timedelta(hours=48), cutoff.pt_day_bounds(_day(23))[0]),)
     assert not short_start.formal_24h
 
+    # The 24th's slice never arrived, the 25th's is empty so far: the break sits at the end of the 48 hours.
+    missing_today = _cut(_slice(22), _slice(23), _slice(25))
+    assert (missing_today.h_c, missing_today.formal_24h) == (H_C, False)
+    assert missing_today.gaps == ((cutoff.pt_day_bounds(_day(24))[0], H_C),)
+
+
+def test_uncovered_intervals():
+    hour = timedelta(hours=1)
+    span = (H_C - 10 * hour, H_C)
+    assert cutoff.uncovered(span, ()) == (span,)
+    assert cutoff.uncovered(span, ((H_C - 20 * hour, H_C + hour),)) == ()
+    pieces = ((H_C - 8 * hour, H_C - 6 * hour), (H_C - 7 * hour, H_C - 5 * hour), (H_C - 3 * hour, H_C - 2 * hour))
+    assert cutoff.uncovered(span, pieces) == ((H_C - 10 * hour, H_C - 8 * hour), (H_C - 5 * hour, H_C - 3 * hour), (H_C - 2 * hour, H_C))
+
 
 def test_stale_c_slice_blocks_formal_window():
     """Counterexample 28 at the cutoff: a stale slice inside [H_c-48h, H_c) leaves no formal 24-hour window."""

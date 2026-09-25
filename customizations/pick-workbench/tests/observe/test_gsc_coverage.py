@@ -109,8 +109,17 @@ def test_comparison_reasons():
     }
     for reason, got in cases.items():
         assert (got.admitted, got.value, got.reason) == (False, None, reason), reason
-    with pytest.raises(ValueError):
-        coverage.FilterSide("vh", D0, states_of(D0), "fetched", True, value(1))
+    bad_sides = (
+        lambda: coverage.FilterSide("vh", D0, states_of(D0), "fetched", True, value(1)),  # Vh never checks 7 days
+        lambda: coverage.DetailSide(D0, ("final",) * 6, value(1)),  # one dataState per PT day
+        lambda: coverage.DetailSide(D0, ("hourly_all",) * 7, value(1)),  # 7 days use all or final
+        lambda: coverage.DetailSide(W0, ("all",), value(1)),  # 24 hours use hourly_all
+        lambda: coverage.DetailSide(W0, ("hourly_all", "hourly_all"), value(1)),
+        lambda: coverage.DetailSide(D0, ("final",) * 6 + ("draft",), value(1)),
+    )
+    for build in bad_sides:
+        with pytest.raises(ValueError):
+            build()
 
 
 def test_vh_never_reused():

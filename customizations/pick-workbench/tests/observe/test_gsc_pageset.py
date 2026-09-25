@@ -69,6 +69,9 @@ def test_page_set_members():
     assert members.skipped_ids == (f"{CANON}(dub)",)
     assert all(members.contains(url) for url in MEMBERS)
     assert not any(members.contains(url) for url in STRANGERS)
+    new_page, *legacy = members.alternatives
+    assert new_page == f"https://dramashortstv\\.com/en/drama/[^/?#]+-(?:{CANON}|{NONCANON})"
+    assert tuple(legacy) == tuple(pageset.re2_escape(url) for url in members.legacy_urls)
 
 
 def test_consistency_same_pageset():

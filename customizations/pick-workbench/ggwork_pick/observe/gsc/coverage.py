@@ -142,7 +142,8 @@ def _check_states(window: Window, states: tuple[str, ...]) -> None:
     expected = 1 if window.kind == "24h" else len(window.days)
     if len(states) != expected or any(state not in get_args(DataState) for state in states):
         raise ValueError(f"a {window.kind} window takes {expected} dataState(s), got {states!r}")
-    if (window.kind == "24h") != (states == ("hourly_all",)):
+    hourly = tuple(state == "hourly_all" for state in states)
+    if any(hourly) != (window.kind == "24h"):
         raise ValueError("24-hour windows use hourly_all and 7-day windows use all or final")
 
 
