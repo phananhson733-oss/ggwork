@@ -4,7 +4,8 @@
 Premise 1: a missing row is "not observed", never zero. The unobserved phrases themselves are the contract's (TR-33,
 contract section 16 item 18) and are only re-exported here; this module owns the forbidden list. FORBIDDEN_TERMS is the
 plan's list word for word; _FORBIDDEN_PATTERNS is what forbidden_in() checks, and it also catches the obvious variants
-("零次曝光", "曝光为 0") while leaving a window named W0, a threshold such as "≥20 次曝光" and nonzero-hour counts alone.
+("零次曝光", "曝光为 0", and the evidence notes' own form "W−1 曝光 0", "点击 0 次") while leaving a window named W0, a
+threshold such as "≥20 次曝光", a count such as "曝光 0.5 万" and nonzero-hour counts alone.
 
 Premise 2: two lower bounds agreeing is an admission rule. Admission text says exactly ADMISSION_AGREED and never claims
 completeness, verification or independence.
@@ -31,6 +32,7 @@ _FORBIDDEN_PATTERNS = (
     re.compile(rf"零\s*(?:次\s*)?{_COUNTED}"),  # 零曝光, 零次点击
     re.compile(r"为\s*零"),
     re.compile(rf"{_COUNTED}(?:数|量)?\s*(?:为|是|=|：|:)\s*0(?![0-9.])"),  # 曝光为 0, 点击数为0, 曝光：0 次
+    re.compile(rf"{_COUNTED}(?:数|量)?\s*0(?![0-9.%])(?:\s*次)?"),  # W−1 曝光 0, 点击 0 次; not 曝光 0.5 万 or 点击 0.8%
     re.compile(rf"没有\s*(?:任何\s*)?{_COUNTED}"),
 )
 

@@ -49,7 +49,13 @@ HOUR = timedelta(hours=1)
 
 @dataclass(frozen=True, slots=True)
 class LinkPair:
-    """The two sets a link pairs (D13): TR-20 passes the new set and the other channel's latest set of the same mode."""
+    """The two sets a link pairs (D13): TR-20 passes the new set and the other channel's latest set of the same mode.
+
+    degraded_no_country_24h: the GSC set's round fell back to [hour,page] plus daily countries. It has no default on
+    purpose. Contract gap: only obs_link_cases.json's pairs carry it; SetSummaryGsc, FrozenInputsGsc and pick_obs.sets
+    do not. Until a G-approved contract change adds it to SetSummaryGsc (written by TR-21 per round), TR-20 has no
+    source to read it from, and a constant False would link the per-country 24-hour rows contract 8.1 ignores after a fallback.
+    """
 
     link_rules_version: str
     trends: TrendsSetRef

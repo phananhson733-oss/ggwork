@@ -195,6 +195,60 @@ def test_link_unstable_voids_country():
     assert _facts(trends=[unstable], gsc=[_gsc("MEX", row_id=908)]) == [("MEX", "site_only")]
 
 
+def test_link_reference_row_24h_before_7d():
+    """Contract 8.1: a fact cites the first gsc_up row, 24 h before 7 d, whatever order the rows come in. The choice
+    fixes gsc_row_id, gsc_anchor and the pairing's timeliness: here the 24 h row is 48 h 30 min from the block end
+    (untimely) while the 7 d row would be 37 h 30 min (timely), so citing the wrong one would make the fact actionable."""
+    trends = _trends("US", latest_block_end="2026-09-22T17:30:00.000000+00:00")
+    day = _gsc("USA", row_id=907)
+    week = _gsc("USA", window_kind="7d", label="rising", row_id=916, window_end="2026-09-24T07:00:00.000000+00:00")
+    for gsc in ((day, week), (week, day)):
+        (fact,) = link_facts((trends,), gsc, _pair(), has_site_page=True)
+        assert (fact.label, fact.gsc_row_id, fact.gsc_anchor) == ("both_rising", 907, W0_END)
+        assert (fact.pair_gap_minutes, fact.timely) == (2910, False)
+    # No gsc_up row: the first row left is cited, again 24 h before 7 d.
+    plain_day = _gsc("USA", label=None, row_id=907)
+    plain_week = _gsc("USA", window_kind="7d", label=None, row_id=916, window_end="2026-09-24T07:00:00.000000+00:00")
+    for gsc in ((plain_day, plain_week), (plain_week, plain_day)):
+        (fact,) = link_facts((trends,), gsc, _pair(), has_site_page=True)
+        assert (fact.label, fact.gsc_row_id, fact.pair_gap_minutes, fact.timely) == ("trends_lead_page", 907, 2910, False)
+
+
+@pytest.mark.parametrize(
+    ("state", "confirmation", "expected"),
+    [
+        ("flat", None, [("USA", "site_only")]),
+        ("sparse", None, [("USA", "site_only")]),
+        ("failed", None, []),
+        ("ambiguous", None, []),
+        ("insufficient_window", None, []),
+        ("emerging", "confirmed", []),
+        ("rising", "first", []),
+    ],
+)
+def test_trends_low_is_only_no_row_flat_or_sparse(state, confirmation, expected):
+    """Contract 8.1: low(t) is no row, flat or sparse. A failed, ambiguous ("not judged, by design") or too-short row is
+    neither up nor low, and neither are first and emerging, so GSC's rise never becomes site_only next to them."""
+    row = _trends("US", state=state, confirmation=confirmation)
+    assert _facts(trends=[row], gsc=[_gsc("USA")]) == expected
+    assert _facts(trends=[row], gsc=[_gsc("USA")], page=False) == expected
+
+
+def test_gsc_up_labels_follow_the_window():
+    """gsc_up reads the label for the row's window: surge or from_zero on 24 h, rising on 7 d, and nothing else. A 7 d row
+    whose only formal label is surge (or a 24 h row labelled rising) is neither up nor low."""
+    week_surge = _gsc("USA", window_kind="7d", label="surge", row_id=916, window_end="2026-09-24T07:00:00.000000+00:00")
+    day_rising = _gsc("USA", label="rising", row_id=907)
+    for row in (week_surge, day_rising):
+        assert _facts(gsc=[row]) == []
+        assert _facts(trends=[_trends("US")], gsc=[row]) == []
+    assert _facts(trends=[_trends("US")], gsc=[week_surge], page=False) == [("USA", "trends_lead_distribution")]
+    # The same labels on their own windows are up.
+    week_rising = _gsc("USA", window_kind="7d", label="rising", row_id=916, window_end="2026-09-24T07:00:00.000000+00:00")
+    assert _facts(gsc=[week_rising]) == [("USA", "site_only")]
+    assert _facts(gsc=[_gsc("USA", label="from_zero")]) == [("USA", "site_only")]
+
+
 def test_link_fact_refs_and_staleness():
     carried = _trends("US", carried_over=True, stale=True, latest_block_end="2026-09-21T17:00:00.000000+00:00")
     (fact,) = link_facts((carried,), (_gsc("USA", label=None),), _pair(), has_site_page=True)

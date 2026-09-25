@@ -12,6 +12,7 @@ from ggwork_pick.observe.leadtime import (
     BASELINE_EVENT,
     EVAL_RULES,
     FOLLOW_UP_EVENTS,
+    MILESTONE_EVENTS,
     POOL_ENTRY,
     POOL_ENTRY_AMBIGUOUS,
     Discovery,
@@ -183,6 +184,19 @@ def test_leadtime_min_30():
     assert verdict(lagging, now=START + timedelta(days=40), since=START, unfulfilled_cap=0.5, version=V1) == "demote"
 
 
+def test_leadtime_min_30_counts_matured_alerts_only():
+    """The 30 are matured alerts: 35 alerts of which 20 are 14 days old and 15 still observing is no conclusion, even
+    though every matured one is unfulfilled; once 30 have matured the same group is judged."""
+    matured = [_alert(index, index * 0.01, f"R{index}") for index in range(1, 21)]
+    observing = [_alert(index, 30 + index * 0.01, f"R{index}") for index in range(21, 36)]
+    group = _only(_metrics(matured + observing))
+    assert (group.alerts, group.matured, group.observing, group.unfulfilled_rate) == (35, 20, 15, 1.0)
+    assert verdict(group, now=START + timedelta(days=40), since=START, unfulfilled_cap=0.5, version=V1) == "observing"
+    later = _only(_metrics(matured + observing, now_day=45))
+    assert (later.matured, later.observing) == (35, 0)
+    assert verdict(later, now=START + timedelta(days=45), since=START, unfulfilled_cap=0.5, version=V1) == "demote"
+
+
 def test_first_and_confirmed_counted_apart():
     alerts = [_alert(1, 0, "A"), _alert(2, 1, "A", state="rising_confirmed"), _alert(3, 0, "B", channel="gsc")]
     groups = _metrics(alerts)
@@ -216,6 +230,9 @@ def test_eval_rules_v1_events():
         timedelta(days=14), timedelta(days=14), 30, timedelta(weeks=4),
     )  # fmt: skip
     assert versions.EVAL_RULES_VERSION in EVAL_RULES
+    # The milestone writers (TR-20, TR-23b) import every code from here: the follow-ups, the baseline, the entry events.
+    assert MILESTONE_EVENTS == (*FOLLOW_UP_EVENTS, BASELINE_EVENT, POOL_ENTRY, POOL_ENTRY_AMBIGUOUS)
+    assert len(set(MILESTONE_EVENTS)) == len(MILESTONE_EVENTS)
     with pytest.raises(LookupError, match="eval-rules-v9"):
         eval_rules("eval-rules-v9")
 

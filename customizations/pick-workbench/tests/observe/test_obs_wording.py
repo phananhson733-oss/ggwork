@@ -1,8 +1,8 @@
 """TR-10: the shared wording, premise 1 (never call "not observed" zero) and premise 2 (agreement is admission, not proof).
 
 test_wording_forbidden_terms reads every output template the radar has: the wording constants, the contract's labels,
-the banner and exclusion texts, the evidence fixtures' labels and notes, every string literal of the observe package,
-and the agent's prompt.
+the banner and exclusion texts, the evidence fixtures' labels and notes, every string literal of the observe package
+(docstrings excepted: they document, never output, and may quote a forbidden word), and the agent's prompt.
 """
 
 import ast
@@ -48,9 +48,12 @@ def _module_texts(module) -> list[str]:
     return [text for name, value in vars(module).items() if not name.startswith("_") and name.isupper() for text in _strings(value)]
 
 
-def _literals(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    return [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+def _literals(source: str) -> list[str]:
+    """The string constants a module can output. A bare string statement (a module, class or function docstring, or an
+    attribute's) is documentation, never output, so it may quote a forbidden word to explain the rule."""
+    tree = ast.parse(source)
+    notes = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)}
+    return [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in notes]
 
 
 def _fixture_texts() -> list[str]:
@@ -87,9 +90,31 @@ def test_wording_forbidden_terms():
     assert all(templates.values())  # each named source really contributed text
     for path in sorted(OBSERVE.rglob("*.py")):
         if path.name != "wording.py":
-            templates[str(path.relative_to(OBSERVE))] = _literals(path)
+            templates[str(path.relative_to(OBSERVE))] = _literals(path.read_text(encoding="utf-8"))
     found = {where: hits for where, texts in templates.items() if (hits := [hit for text in texts for hit in forbidden_in(text)])}
     assert found == {}
+
+
+def test_literal_scan_skips_documentation_only():
+    """The package-wide scan reads what a module can output: docstrings may quote a forbidden word to explain the rule
+    (another task's module saying it never writes 零曝光 must not turn this test red), output constants may not."""
+    source = '''"""Module docstring: never 0 曝光."""
+
+
+class Note:
+    """Class docstring: never 零曝光."""
+
+    text: str = "曝光为 0"
+    """Attribute docstring: 没有曝光 is forbidden."""
+
+
+def render(count):
+    """Function docstring: 为零 is forbidden."""
+    label = "W−1 曝光 0"
+    return f"没有曝光 {count}" if count is None else label
+'''
+    found = [hit for text in _literals(source) for hit in forbidden_in(text)]
+    assert sorted(found) == sorted(["曝光为 0", "曝光 0", "没有曝光"])
 
 
 @pytest.mark.parametrize("term", FORBIDDEN_TERMS)
@@ -99,7 +124,7 @@ def test_every_forbidden_term_is_caught(term):
 
 @pytest.mark.parametrize(
     "text",
-    ["零次曝光", "曝光为 0", "点击数为0", "0 次点击", "没有任何曝光", "曝光：0 次"],
+    ["零次曝光", "曝光为 0", "点击数为0", "0 次点击", "没有任何曝光", "曝光：0 次", "W−1 曝光 0", "点击 0 次", "W0 曝光 0，W−1 曝光 82"],
 )
 def test_forbidden_variants_are_caught(text):
     assert forbidden_in(text) != ()
@@ -109,6 +134,10 @@ def test_forbidden_variants_are_caught(text):
     "text",
     [
         "W0 曝光 325，W−1 曝光 82",
+        "曝光 0.5 万",
+        "点击 0.8%",
+        "曝光 0% 以上的变化",
+        "曝光 1024",
         "W−1 ≥20 次曝光",
         "从零起量（基线未观测到）",
         "W0 曝光 ≥2000，或 W0 对 W−1 ≥+50%",

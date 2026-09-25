@@ -8,10 +8,12 @@ A channel's banners are every status code its latest run wrote, plus three compu
   before the cron exists that is the rollout, and the page shows last_run_at as empty.
 - shadow_mode: the latest run publishes as shadow (the publish switch is off).
 
-Only the latest run's codes count, so a collector that refuses to run (disabled_7d, canary_terminated) writes a run row
-carrying the code; a code from an older run never lingers after a newer run. Each code appears once, ordered by level
-(red, warn, info) and then by STATUS_CODES order. tests/fixtures/obs_status_cases.json holds the cases, the levels and
-the texts; the data page's TS copy reproduces them.
+Only the latest run's codes count; a code from an older run never lingers after a newer run. So a condition that lasts
+(disabled_7d, canary_terminated, parse_error, db_size_cap, legacy_snapshot_missing) must be written again by every run
+row while it holds, including the row of a run that refuses to start: a refusal row without its code silently clears
+the red banner. The collectors' writers (TR-13, TR-14, TR-21) owe that; the contract's run_status section does not say it
+yet. Each code appears once, ordered by level (red, warn, info) and then by STATUS_CODES order.
+tests/fixtures/obs_status_cases.json holds the cases, the levels and the texts; the data page's TS copy reproduces them.
 
 Levels: red when nothing fresh is published or collection has stopped; warn when data is published with degraded
 quality (descriptive-only rounds, signs of silent degradation); info for shadow mode, which is by design.
@@ -71,30 +73,43 @@ STATUS_TEXT = MappingProxyType(
 )
 
 
+def _check_channel(channel: str) -> None:
+    if channel not in CHANNELS:
+        raise ValueError(f"channel 只能是 trends 或 gsc：{channel!r}")
+
+
 @dataclass(frozen=True, slots=True)
 class LatestRun:
-    """The fields of a channel's latest pick_obs.run_status row that decide its banners."""
+    """The fields of a channel's latest pick_obs.run_status row that decide its banners. Built directly or through
+    from_mapping, it is checked the same way: a Trends run names its target date, a GSC round does not."""
 
+    channel: Channel
     started_at: datetime
     mode: Mode
     target_date: date | None
     status_codes: tuple[StatusCode, ...]
 
-    @classmethod
-    def from_mapping(cls, channel: Channel, row: Mapping[str, Any]) -> "LatestRun":
-        """A run_status row (or the fixture's run); a Trends run names its target date, a GSC round does not."""
-        codes = tuple(row["status_codes"])
-        target = row["target_date"]
+    def __post_init__(self):
+        _check_channel(self.channel)
+        codes = self.status_codes
         problems = (
-            (channel in CHANNELS, f"channel 只能是 trends 或 gsc：{channel!r}"),
-            (row["mode"] in MODES, f"mode 只能是 live 或 shadow：{row['mode']!r}"),
-            ((target is not None) == (channel == "trends"), "Trends 批次带 target_date，GSC 轮次不带"),
+            (isinstance(self.started_at, datetime), "started_at 是带时区的 datetime"),
+            (self.mode in MODES, f"mode 只能是 live 或 shadow：{self.mode!r}"),
+            (self.target_date is None or type(self.target_date) is date, "target_date 是 date 或 None"),
+            ((self.target_date is not None) == (self.channel == "trends"), "Trends 批次带 target_date，GSC 轮次不带"),
+            (isinstance(codes, tuple), "status_codes 是元组"),
             (set(codes) <= set(STATUS_CODES), f"未知的 status code：{sorted(set(codes) - set(STATUS_CODES))}"),
         )
         problem = next((message for holds, message in problems if not holds), None)
         if problem is not None:
             raise ValueError(problem)
-        return cls(instant(row["started_at"]), row["mode"], None if target is None else date.fromisoformat(target), codes)
+        instant(self.started_at)  # a naive moment is refused
+
+    @classmethod
+    def from_mapping(cls, channel: Channel, row: Mapping[str, Any]) -> "LatestRun":
+        """A run_status row (or the fixture's run) of `channel`."""
+        target = row["target_date"]
+        return cls(channel, instant(row["started_at"]), row["mode"], None if target is None else date.fromisoformat(target), tuple(row["status_codes"]))
 
 
 def trends_set_stale(live_published_at: str | datetime | None, now: datetime) -> bool:
@@ -109,7 +124,14 @@ def trends_due_date(now: datetime) -> date:
     return moment.date() if moment >= due_at else moment.date() - timedelta(days=1)
 
 
+def _check_run(channel: Channel, latest_run: LatestRun | None) -> None:
+    _check_channel(channel)
+    if latest_run is not None and latest_run.channel != channel:
+        raise ValueError(f"latest_run 属于 channel {latest_run.channel}，不是 {channel}")
+
+
 def run_missed(channel: Channel, latest_run: LatestRun | None, now: datetime) -> bool:
+    _check_run(channel, latest_run)
     if latest_run is None:
         return False
     if channel == "trends":
@@ -119,8 +141,7 @@ def run_missed(channel: Channel, latest_run: LatestRun | None, now: datetime) ->
 
 def channel_banners(channel: Channel, *, latest_run: LatestRun | None, live_published_at: str | datetime | None, now: datetime) -> tuple[ObsBanner, ...]:
     """One channel's banners at `now`: the latest run's codes and the three time-based ones, each once, in banner order."""
-    if channel not in CHANNELS:
-        raise ValueError(f"channel 只能是 trends 或 gsc：{channel!r}")
+    _check_run(channel, latest_run)
     moment = instant(now)
     computed = {
         "stale_26h": channel == "trends" and trends_set_stale(live_published_at, moment),

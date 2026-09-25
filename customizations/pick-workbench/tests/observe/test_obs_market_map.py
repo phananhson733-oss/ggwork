@@ -12,6 +12,7 @@ from ggwork_pick.observe.market_map import MARKET_MAPS, market_map
 V1 = market_map("market-map-v1")
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "obs_contract"
 LINKS = json.loads((FIXTURES / "obs_link_cases.json").read_text(encoding="utf-8"))
+MAP_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "obs_market_map.json"
 BASES = {case["name"]: case["value"] for case in json.loads((FIXTURES / "state_rows.json").read_text(encoding="utf-8"))["valid"]}
 
 
@@ -78,6 +79,19 @@ def test_geo_plan():
     languages = {plan.geo: plan.languages for plan in V1.geo_plans}
     assert languages["WW"] == ("en",) and languages["MX"] == ("es",) and languages["BR"] == ("pt",)
     assert set(first_round) == set(V1.geo_country)
+
+
+def _display(market) -> dict:
+    groups = [{"key": g.key, "label": g.label, "countries": list(g.countries), "geos": list(g.geos), "core": g.core, "note": g.note} for g in market.groups]
+    return {"version": market.version, "groups": groups, "geo_country": dict(market.geo_country)}
+
+
+def test_market_map_fixture():
+    """D10: tests/fixtures/obs_market_map.json is every registered market map's display table, in display order, for the
+    data page's TS side (TR-24) to read instead of copying some 90 alpha-3 codes by hand; a new version is a new entry."""
+    fixture = json.loads(MAP_FIXTURE.read_text(encoding="utf-8"))
+    assert fixture["maps"] == [_display(market) for market in MARKET_MAPS.values()]
+    assert fixture["about"]
 
 
 def test_market_map_versions():

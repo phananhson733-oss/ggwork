@@ -124,6 +124,38 @@ def test_latest_run_refuses_malformed_rows(channel, run, message):
         LatestRun.from_mapping(channel, run)
 
 
+def test_latest_run_built_directly_is_checked_too():
+    """A LatestRun built without from_mapping names its channel and is checked the same way, so a Trends run without a
+    target date is refused up front instead of failing inside run_missed."""
+    started = datetime(2026, 9, 24, 20, 30, tzinfo=UTC)
+    trends = LatestRun(channel="trends", started_at=started, mode="live", target_date=date(2026, 9, 25), status_codes=())
+    assert trends.channel == "trends"
+    malformed = [
+        ({"channel": "trends", "target_date": None}, "target_date"),
+        ({"channel": "gsc", "target_date": date(2026, 9, 25)}, "target_date"),
+        ({"channel": "web"}, "channel"),
+        ({"mode": "both"}, "mode"),
+        ({"status_codes": ("stale",)}, "status code"),
+        ({"status_codes": ["shadow_mode"]}, "元组"),
+        ({"started_at": datetime(2026, 9, 24, 20, 30)}, "时区"),
+        ({"started_at": "2026-09-24T20:30:00+00:00"}, "datetime"),
+        ({"target_date": "2026-09-25"}, "date"),
+    ]
+    fields = {"channel": "trends", "started_at": started, "mode": "live", "target_date": date(2026, 9, 25), "status_codes": ()}
+    for change, message in malformed:
+        with pytest.raises(ValueError, match=message):
+            LatestRun(**{**fields, **change})
+
+
+def test_banners_refuse_another_channels_run():
+    gsc = LatestRun.from_mapping("gsc", {"started_at": "2026-09-25T03:25:02.000000+00:00", "mode": "live", "target_date": None, "status_codes": []})
+    assert gsc.channel == "gsc"
+    with pytest.raises(ValueError, match="channel"):
+        channel_banners("trends", latest_run=gsc, live_published_at=None, now=datetime(2026, 9, 25, 4, tzinfo=UTC))
+    with pytest.raises(ValueError, match="channel"):
+        run_missed("trends", gsc, datetime(2026, 9, 25, 4, tzinfo=UTC))
+
+
 def test_naive_now_refused():
     with pytest.raises(ValueError, match="时区"):
         channel_banners("gsc", latest_run=None, live_published_at=None, now=datetime(2026, 9, 25, 4))

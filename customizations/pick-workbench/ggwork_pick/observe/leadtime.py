@@ -17,6 +17,11 @@ Only live alerts published since the publish switch opened are evaluated, first 
 state). An event the alert's own channel observes does not fulfil it: a GSC from_zero alert is not its own follow-up.
 Nothing is concluded before four weeks and 30 matured alerts. The event list is frozen by version: changing it means a
 new eval-rules version next to this one.
+
+Two parts of eval-rules-v1 are this module's derivation, written nowhere else yet (the contract has no milestone row
+shape): the own-channel rule above (design 6.2 lists gsc_from_zero and gsc_rising as follow-ups without saying whose),
+and the milestone event codes. The writers of milestones (TR-20, TR-23b) import them from here, MILESTONE_EVENTS or the
+single names, and never spell the strings again: a code written differently is silently never counted.
 """
 
 import statistics
@@ -84,6 +89,9 @@ EVAL_RULES_V1 = EvalRules(
 )
 EVAL_RULES = MappingProxyType({EVAL_RULES_V1.version: EVAL_RULES_V1})
 FOLLOW_UP_EVENTS = tuple(kind.code for kind in EVAL_RULES_V1.events)
+# Every event code a milestone row may carry under eval-rules-v1: the follow-ups, the launch-day baseline and the two
+# out-of-pool entry events.
+MILESTONE_EVENTS = (*FOLLOW_UP_EVENTS, BASELINE_EVENT, POOL_ENTRY, POOL_ENTRY_AMBIGUOUS)
 
 
 def eval_rules(version: str) -> EvalRules:
