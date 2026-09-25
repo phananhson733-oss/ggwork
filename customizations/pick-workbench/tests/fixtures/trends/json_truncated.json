@@ -1,0 +1,16 @@
+{
+  "about": "A 200 whose JSON is cut off (parse_error).",
+  "constructed": true,
+  "pending_stage0": [],
+  "phase": "multiline",
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "content-type",
+        "application/json; charset=utf-8"
+      ]
+    ],
+    "text": ")]}'\n{\"default\": {\"timelineData\": [{\"time\": \"17897"
+  }
+}

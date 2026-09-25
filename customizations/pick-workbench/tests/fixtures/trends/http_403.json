@@ -1,0 +1,17 @@
+{
+  "about": "403 Forbidden.",
+  "constructed": true,
+  "pending_stage0": [
+    "only the status is relied on"
+  ],
+  "response": {
+    "status": 403,
+    "headers": [
+      [
+        "content-type",
+        "text/html; charset=UTF-8"
+      ]
+    ],
+    "text": "<html><body>Forbidden</body></html>"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "about": "30 daily points for one line, all zero with hasData false: a complete series of zeros (ok_zero).",
+  "constructed": true,
+  "pending_stage0": [
+    "timelineData[].time is epoch seconds sent as a string",
+    "isPartial appears only on the trailing point(s) and is absent elsewhere",
+    "hasData[] and formattedValue[] have one entry per comparisonItem, in request order",
+    "now 7-d returns 169 hourly points (7x24+1); today 1-m returns about 30 daily points",
+    "formattedTime/formattedAxisTime wording under hl=en-US, tz=0",
+    "what a series without any searches looks like (all zero, or an empty timelineData)"
+  ],
+  "phase": "multiline",
+  "query": {
+    "terms": [
+      "moonlit vow"
+    ],
+    "bare": "moonlit vow",
+    "geo": "WW",
+    "granularity": "D"
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "content-type",
+        "application/json; charset=utf-8"
+      ]
+    ],
+    "prefix": ")]}',\n",
+    "json": {
+      "default": {
+        "timelineData": [
+            {"time": "1787702400", "formattedTime": "Aug 26, 2026", "formattedAxisTime": "Aug 26", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1787788800", "formattedTime": "Aug 27, 2026", "formattedAxisTime": "Aug 27", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1787875200", "formattedTime": "Aug 28, 2026", "formattedAxisTime": "Aug 28", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1787961600", "formattedTime": "Aug 29, 2026", "formattedAxisTime": "Aug 29", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788048000", "formattedTime": "Aug 30, 2026", "formattedAxisTime": "Aug 30", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788134400", "formattedTime": "Aug 31, 2026", "formattedAxisTime": "Aug 31", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788220800", "formattedTime": "Sep 1, 2026", "formattedAxisTime": "Sep 1", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788307200", "formattedTime": "Sep 2, 2026", "formattedAxisTime": "Sep 2", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788393600", "formattedTime": "Sep 3, 2026", "formattedAxisTime": "Sep 3", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788480000", "formattedTime": "Sep 4, 2026", "formattedAxisTime": "Sep 4", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788566400", "formattedTime": "Sep 5, 2026", "formattedAxisTime": "Sep 5", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788652800", "formattedTime": "Sep 6, 2026", "formattedAxisTime": "Sep 6", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788739200", "formattedTime": "Sep 7, 2026", "formattedAxisTime": "Sep 7", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788825600", "formattedTime": "Sep 8, 2026", "formattedAxisTime": "Sep 8", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788912000", "formattedTime": "Sep 9, 2026", "formattedAxisTime": "Sep 9", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1788998400", "formattedTime": "Sep 10, 2026", "formattedAxisTime": "Sep 10", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789084800", "formattedTime": "Sep 11, 2026", "formattedAxisTime": "Sep 11", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789171200", "formattedTime": "Sep 12, 2026", "formattedAxisTime": "Sep 12", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789257600", "formattedTime": "Sep 13, 2026", "formattedAxisTime": "Sep 13", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789344000", "formattedTime": "Sep 14, 2026", "formattedAxisTime": "Sep 14", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789430400", "formattedTime": "Sep 15, 2026", "formattedAxisTime": "Sep 15", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789516800", "formattedTime": "Sep 16, 2026", "formattedAxisTime": "Sep 16", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789603200", "formattedTime": "Sep 17, 2026", "formattedAxisTime": "Sep 17", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789689600", "formattedTime": "Sep 18, 2026", "formattedAxisTime": "Sep 18", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789776000", "formattedTime": "Sep 19, 2026", "formattedAxisTime": "Sep 19", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789862400", "formattedTime": "Sep 20, 2026", "formattedAxisTime": "Sep 20", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1789948800", "formattedTime": "Sep 21, 2026", "formattedAxisTime": "Sep 21", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1790035200", "formattedTime": "Sep 22, 2026", "formattedAxisTime": "Sep 22", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1790121600", "formattedTime": "Sep 23, 2026", "formattedAxisTime": "Sep 23", "value": [0], "hasData": [false], "formattedValue": ["0"]},
+            {"time": "1790208000", "formattedTime": "Sep 24, 2026", "formattedAxisTime": "Sep 24", "value": [0], "hasData": [false], "formattedValue": ["0"], "isPartial": true}
+          ],
+        "averages": []
+      }
+    }
+  }
+}

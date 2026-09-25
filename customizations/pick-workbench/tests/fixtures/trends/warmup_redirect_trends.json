@@ -1,0 +1,22 @@
+{
+  "about": "Warm-up answered by a redirect inside trends.google.com: not followed, its cookies are kept.",
+  "constructed": true,
+  "pending_stage0": [
+    "whether /trends/?geo=US redirects at all"
+  ],
+  "phase": "warmup",
+  "response": {
+    "status": 302,
+    "headers": [
+      [
+        "location",
+        "https://trends.google.com/trends/explore?geo=US"
+      ],
+      [
+        "set-cookie",
+        "NID=525=synthetic-nid-redirect; path=/; domain=.google.com; HttpOnly"
+      ]
+    ],
+    "text": ""
+  }
+}

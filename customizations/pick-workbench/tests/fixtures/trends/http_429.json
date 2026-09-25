@@ -1,0 +1,21 @@
+{
+  "about": "429 with an HTML body that also tries to set a new NID: the old jar is kept (design 4.4).",
+  "constructed": true,
+  "pending_stage0": [
+    "whether a 429 sets cookies at all; only the status is relied on"
+  ],
+  "response": {
+    "status": 429,
+    "headers": [
+      [
+        "content-type",
+        "text/html; charset=UTF-8"
+      ],
+      [
+        "set-cookie",
+        "NID=525=synthetic-nid-from-429; path=/; domain=.google.com"
+      ]
+    ],
+    "text": "<html><body>Too Many Requests</body></html>"
+  }
+}

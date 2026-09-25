@@ -1,0 +1,97 @@
+{
+  "about": "Explore for a session labelled SCRAPER with the related widgets taken away (reported, unverified).",
+  "constructed": true,
+  "pending_stage0": [
+    "explore is answered to GET (the web client) as well as POST (pytrends)",
+    "widgets[].request.userConfig.userType is where the session label lives, and its values",
+    "RELATED_QUERIES widgets are one per comparisonItem, id RELATED_QUERIES or RELATED_QUERIES_<n>",
+    "the keyword of a related widget sits at request.restriction.complexKeywordsRestriction.keyword[0].value",
+    "whether a SCRAPER session loses RELATED_QUERIES as well as RELATED_TOPICS"
+  ],
+  "phase": "explore",
+  "query": {
+    "terms": [
+      "moonlit vow"
+    ],
+    "bare": "moonlit vow",
+    "geo": "WW",
+    "granularity": "D"
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "content-type",
+        "application/json; charset=utf-8"
+      ]
+    ],
+    "prefix": ")]}'\n",
+    "json": {
+      "widgets": [
+        {
+          "request": {
+            "time": "today 1-m",
+            "resolution": "DAY",
+            "locale": "en-US",
+            "comparisonItem": [
+              {
+                "geo": {},
+                "complexKeywordsRestriction": {
+                  "keyword": [
+                    {
+                      "type": "BROAD",
+                      "value": "moonlit vow"
+                    }
+                  ]
+                }
+              }
+            ],
+            "requestOptions": {
+              "property": "",
+              "backend": "CM",
+              "category": 0
+            },
+            "userConfig": {
+              "userType": "USER_TYPE_SCRAPER"
+            }
+          },
+          "lineAnnotationText": "Search interest",
+          "bullets": [
+            {
+              "text": "moonlit vow"
+            }
+          ],
+          "showLegend": false,
+          "token": "APP6_UEAAAAAsynthetic-timeseries-token",
+          "id": "TIMESERIES",
+          "type": "fe_line_chart",
+          "title": "Interest over time"
+        },
+        {
+          "request": {
+            "geo": {},
+            "comparisonItem": [],
+            "resolution": "REGION",
+            "locale": "en-US",
+            "requestOptions": {
+              "property": "",
+              "backend": "CM",
+              "category": 0
+            },
+            "userConfig": {
+              "userType": "USER_TYPE_SCRAPER"
+            }
+          },
+          "token": "APP6_UEAAAAAsynthetic-geo-token",
+          "id": "GEO_MAP",
+          "type": "fe_geo_chart_explore",
+          "title": "Interest by subregion"
+        }
+      ],
+      "keywords": [],
+      "timeRanges": [],
+      "examples": [],
+      "shareText": "Explore search interest"
+    }
+  }
+}
