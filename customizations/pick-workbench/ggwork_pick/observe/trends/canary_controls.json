@@ -1,0 +1,188 @@
+{
+ "format": "trends-canary-controls-v1",
+ "note": "stage 0 (TR-05) controls as identity keys and geo only; TR-14 reads titles from the current shared batch at run time",
+ "controls": [
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhNjZjY2Q0Y2JiYWZiMDU4ZTBhN2E0Zg\",\"bg\"]",
+   "geo": "BG",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"ZmxhcmVmbG93LTY2NzkxNQ\",\"en\"]",
+   "geo": "US",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhOTEyM2ZhM2ZjM2M1YTkzYTA0YjM5OQ\",\"en\"]",
+   "geo": "US",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhNzFiZDU5NDU2MTEwMGE2NjA5OTY1Yw\",\"fr\"]",
+   "geo": "FR",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhOGQyZDc5ODdjOTM0M2M3YTA1YTc5OA\",\"es\"]",
+   "geo": "MX",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhOGU3YzIyN2NmOTI1YzI0YTA1NDIzMw\",\"pl\"]",
+   "geo": "PL",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhOGU3YzIyN2NmOTI1YzI0YTA1NDIzNQ\",\"ro\"]",
+   "geo": "RO",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhNjZjY2QwY2JiYWZiMDU4ZTBhN2E0Mw\",\"de\"]",
+   "geo": "DE",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhNzk0YjFkNGYwM2ZmNGM1YzA2OTk0OQ\",\"es\"]",
+   "geo": "MX",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhNmRhMmMwYmQ1ZDhlYmYxNzBmMTU4OQ\",\"zh-hant\"]",
+   "geo": "TW",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhOTBlYmU5ODdiMGM2MWY5MDA3NzM1Yw\",\"en\"]",
+   "geo": "US",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhN2FjMjRmMTgxZjc3NTg0MzAwYTgyNw\",\"es\"]",
+   "geo": "MX",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhODY3NDlmZjUyMjk3ZjcwMjA0MDJjZg\",\"en\"]",
+   "geo": "US",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhODdhZWZmMjRkZTA3YmQ1MDA5YjAyMg\",\"en\"]",
+   "geo": "US",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhNTE5MWQ4ZmE5ZjlmN2EwOTA4MTc4OQ\",\"en\"]",
+   "geo": "US",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhODZjODIzZmVhZjk2NzdhNzAwMzQ1Mw\",\"en\"]",
+   "geo": "US",
+   "group": "positive"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTY2ZjVmNWM3ZjBlYmYyZWRmNTA2MzhmNw\",\"en\"]",
+   "geo": "US",
+   "group": "negative"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTY5YzBhYjczZDI5NmE3YjM2MDA4MzMzOQ\",\"pt\"]",
+   "geo": "BR",
+   "group": "negative"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"ZmxpY2tyZWVscy10aGUtYmlsbGlvbmFpcmUtbW90aGVyLWluLXRoZS1jb2ZmaW4teA\",\"en\"]",
+   "geo": "US",
+   "group": "negative"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"ZmxpY2tyZWVscy1teS10cmFwcGVkLWZpcnN0LWhhbGYtb2YtbGlmZS14\",\"en\"]",
+   "geo": "US",
+   "group": "negative"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhYTIwYWQ4YWY3OGU5ZGM0YjA4YWVjMw\",\"bg\"]",
+   "geo": "BG",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhYjFlM2E0MDIzM2U5MmQ4ODA1YTIzOQ\",\"bg\"]",
+   "geo": "BG",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"cmVlbHNob3J0LTZhOGNlZWRjYjQwYWM4N2Q0YTBjMTc3Nw\",\"bg\"]",
+   "geo": "BG",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"c2hvcnRtYXgtZGllLWUtcmFuZy1sLWdlLXdhaHJlLXNzcy1tYWNodC14\",\"de\"]",
+   "geo": "DE",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"ZmxpY2tyZWVscy12b20taGFpLXZlcnNjaGx1bmdlbi12b20tdG9kLXp1ci1ja2dla2VocnQteA\",\"de\"]",
+   "geo": "DE",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"ZmxpY2tyZWVscy1kaWUtdy1jaHRlcmluLWRlci13YWx0aGVyLXg\",\"de\"]",
+   "geo": "DE",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"ZmxpY2tyZWVscy1sYS1tYXJpLWUtZGUtc3Vic3RpdHV0aW9uLXg\",\"fr\"]",
+   "geo": "FR",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"ZmxpY2tyZWVscy1tYS1yZWluZS1tb24tc2FuZy1tb24tZGVzdGluLXg\",\"fr\"]",
+   "geo": "FR",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"ZmxpY2tyZWVscy1wYXJyYWluLXJlZG91dC1tYXJpLW1vZC1sZS14\",\"fr\"]",
+   "geo": "FR",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"ZmxpY2tyZWVscy1yZWdpbmEtZC1hbHRyaS10ZW1waS12aWFnZ2lvLWRpLW9nZ2kteA\",\"it\"]",
+   "geo": "IT",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"c2hvcnRtYXgtc3NzLXJhbmstaWwtZGlvLWRlbC10dW9uby1kZWxsYS1iYXJhY2NvcG9saS14\",\"it\"]",
+   "geo": "IT",
+   "group": "regional"
+  },
+  {
+   "identity": "[\"realshort-pick\",\"c2hvcnRtYXgtZG9wcGlhdG8tZGEtYmFyYWNjb3BvbGktYWxsYS1nbG9yaWEteA\",\"it\"]",
+   "geo": "IT",
+   "group": "regional"
+  }
+ ],
+ "market": [
+  {
+   "geo": "US",
+   "term": "short drama"
+  },
+  {
+   "geo": "BG",
+   "term": "кратка драма"
+  },
+  {
+   "geo": "DE",
+   "term": "Kurzdrama"
+  },
+  {
+   "geo": "FR",
+   "term": "drama court"
+  },
+  {
+   "geo": "IT",
+   "term": "drama breve"
+  }
+ ]
+}
