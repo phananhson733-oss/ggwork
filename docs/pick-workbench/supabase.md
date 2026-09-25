@@ -26,19 +26,21 @@
 - Database → Settings：开启 Enforce SSL。
 - Data API：关闭，或者把 Exposed schemas 清空。
 - 不使用 anon key 和 service_role key，不配置 Auth、Storage、Realtime。
-- Database Settings → Connection pooling：Pool Size 设 **20**，与两个业务角色的 `CONNECTION LIMIT` 相等（第 4 节）。
+- Database Settings → Connection pooling：Pool Size 设 **20**，与三个角色（`deerflow_app`、`pick_board_reader`、`pick_observer`）的 `CONNECTION LIMIT` 相等（第 4 节的表）。
 - PITR（付费附加）要不要开、Spend cap 开还是关：由操作员决定并记下。Pro 默认每日备份、保留 7 天；Spend cap 开启时，超出配额（例如磁盘超过 8 GB）会被限制。
 
-**禁止：** 以后任何时候都不要重新打开 Data API，也不要把 `deerflow`、`pick_mirror` 或 `pickm_v*` 加进 Exposed schemas。里面的推荐人、飞书记录 id、指标以及用户会话都会被公开（方案 10.1）。
+**禁止：** 以后任何时候都不要重新打开 Data API，也不要把 `deerflow`、`pick_mirror`、`pick_obs` 或 `pickm_v*` 加进 Exposed schemas。里面的推荐人、飞书记录 id、指标以及用户会话都会被公开（方案 10.1）。
 
 ## 2. bootstrap（6.2、3.1）
 
 脚本：[supabase/bootstrap.sql](supabase/bootstrap.sql)。只执行一次，以 `postgres` 身份经 session pooler 连 `postgres` 库。它做的事：
-- 建 `deerflow_app`（Railway 用，拥有 `deerflow`、`pick_mirror` 和以后的 `pickm_v*`，对库有 CREATE）与 `pick_board_reader`（Vercel 资料页用，只对 `pick_mirror` 有 USAGE，默认只读事务、语句超时 8 秒），两个都是 `LOGIN NOINHERIT CONNECTION LIMIT 20`。
-- 给 `postgres` 补上对 `deerflow_app` 的 SET 权限（`INHERIT FALSE`），建两个 schema，`SET ROLE deerflow_app` 以属主身份做 REVOKE 和 reader 的 USAGE，再 `RESET ROLE` 回到 postgres 做 `ALTER ROLE`（审计 host-1：少了 SET ROLE 时要么报 permission denied，要么只报 WARNING、授权悄悄缺失）。
+- 建三个角色，都是 `LOGIN NOINHERIT CONNECTION LIMIT 20`：`deerflow_app`（Railway gateway 用，拥有 `deerflow`、`pick_mirror`、`pick_obs` 和以后的 `pickm_v*`，对库有 CREATE）；`pick_board_reader`（Vercel 资料页用，只对 `pick_mirror` 与 `pick_obs` 有 USAGE，默认只读事务、语句超时 8 秒）；`pick_observer`（趋势雷达的两个 cron 用，只对 `deerflow` 与 `pick_mirror` 有 USAGE，碰不到 `pick_obs`；它的表级授权由迁移 0007 给，见 [observe-runbook/observer-role.md](observe-runbook/observer-role.md)）。
+- 给 `postgres` 补上对 `deerflow_app` 的 SET 权限（`INHERIT FALSE`），建三个 schema，`SET ROLE deerflow_app` 以属主身份做 REVOKE 和两个角色的 USAGE，再 `RESET ROLE` 回到 postgres 做 `ALTER ROLE`（审计 host-1：少了 SET ROLE 时要么报 permission denied，要么只报 WARNING、授权悄悄缺失）。
 - 整个脚本是一个事务：任何一句失败都整体回滚，项目保持原样。连的不是 `postgres` 库、或者 `deerflow_app` 没拿到库的 CREATE 权限时，脚本里的检查会让它直接失败，而不是只报 WARNING 继续。
 
-`customizations/pick-workbench/tests/test_bootstrap_sql.py` 在本机 PG 17 上用 `NOSUPERUSER CREATEROLE`、持有库的替身角色执行同一份脚本（`PICK_TEST_PG_URL` 已设时运行），覆盖：无 WARNING、授权与角色设置、删掉 SET 授权或 SET ROLE 时在哪一句失败、替身另有 `pg_read_all_data`/`pg_write_all_data` 时仍然干净、库属主不对时硬失败。真实 Supabase 上的完整执行由演练确认（第 10 节）。
+**生产项目不再执行本节。** 它 2026-09-23 执行的是上一版脚本（两个角色、两个 schema，原样留在 `customizations/pick-workbench/tests/fixtures/supabase/bootstrap-p0.sql`），观测角色由 [supabase/bootstrap-observer.sql](supabase/bootstrap-observer.sql) 补建（趋势雷达上线步骤 S2，步骤与判定见 observer-role.md），`pick_obs` 由迁移 0007 建。两条路走完迁移后，三个角色与所有授权完全相同。本节以下写的是新项目的完整 bootstrap。
+
+`customizations/pick-workbench/tests/test_bootstrap_sql.py` 在本机 PG 17 上用 `NOSUPERUSER CREATEROLE`、持有库的替身角色执行同一份脚本（`PICK_TEST_PG_URL` 已设时运行），覆盖：无 WARNING、输出与 2.1 逐行一致、授权与角色设置、删掉 SET 授权或 SET ROLE 时在哪一句失败、替身另有 `pg_read_all_data`/`pg_write_all_data` 时仍然干净、库属主不对时硬失败，以及上一段说的两条路结果相同。真实 Supabase 上的完整执行由演练确认（第 10 节）。
 
 ### 2.1 执行
 
@@ -58,17 +60,25 @@ BEGIN
 DO
 CREATE ROLE
 CREATE ROLE
+CREATE ROLE
 GRANT ROLE
 GRANT
 GRANT
+GRANT
 DO
+CREATE SCHEMA
 CREATE SCHEMA
 CREATE SCHEMA
 SET
 REVOKE
 REVOKE
 GRANT
+GRANT
 RESET
+ALTER ROLE
+ALTER ROLE
+ALTER ROLE
+ALTER ROLE
 ALTER ROLE
 ALTER ROLE
 ALTER ROLE
@@ -96,7 +106,7 @@ psql 在服务端只警告、什么都没授予时照样打印 `GRANT`，所以�
 
 退出状态为 0 但有 WARNING：说明环境与测试里的替身不同，授权可能缺失。不要设置密码，也不要部署，先按 2.4 逐项检查；要推倒重来时用 2.5 撤销。
 
-### 2.3 设置两个角色的密码
+### 2.3 设置三个角色的密码
 
 先按 2.4 检查通过，再另开一个交互式 psql 会话设置密码。`\password` 在本地算好 SCRAM 摘要再发给服务端，密码明文不会进服务端日志：
 
@@ -107,9 +117,10 @@ PGSSLMODE=require psql "postgresql://postgres.<ref>@aws-0-us-east-1.pooler.supab
 ```
 \password deerflow_app
 \password pick_board_reader
+\password pick_observer
 ```
 
-两个密码各自用 `openssl rand -hex 32` 生成，互不相同，存进密码管理器。然后用新角色各登录一次确认：
+三个密码各自用 `openssl rand -hex 32` 生成，互不相同，存进密码管理器。然后用新角色各登录一次确认（`pick_observer` 的登录与留档见 observer-role.md 的 S2）：
 
 ```bash
 PGSSLMODE=require psql "postgresql://deerflow_app.<ref>@aws-0-us-east-1.pooler.supabase.com:5432/postgres" \
@@ -124,26 +135,32 @@ PGSSLMODE=require psql "postgresql://pick_board_reader.<ref>@aws-0-us-east-1.poo
 
 ```sql
 SELECT rolname, rolcanlogin, rolinherit, rolconnlimit, rolconfig
-  FROM pg_roles WHERE rolname IN ('deerflow_app', 'pick_board_reader') ORDER BY 1;
-\dn+ (deerflow|pick_mirror)
+  FROM pg_roles WHERE rolname IN ('deerflow_app', 'pick_board_reader', 'pick_observer') ORDER BY 1;
+\dn+ (deerflow|pick_mirror|pick_obs)
 SELECT has_schema_privilege('pick_board_reader', 'pick_mirror', 'USAGE') AS reader_mirror,
+       has_schema_privilege('pick_board_reader', 'pick_obs', 'USAGE') AS reader_obs,
        has_schema_privilege('pick_board_reader', 'deerflow', 'USAGE') AS reader_deerflow,
+       has_schema_privilege('pick_observer', 'deerflow', 'USAGE') AS observer_deerflow,
+       has_schema_privilege('pick_observer', 'pick_mirror', 'USAGE') AS observer_mirror,
+       has_schema_privilege('pick_observer', 'pick_obs', 'USAGE') AS observer_obs,
        has_schema_privilege('anon', 'pick_mirror', 'USAGE') AS anon_mirror,
        has_schema_privilege('authenticated', 'deerflow', 'USAGE') AS authenticated_deerflow,
        has_database_privilege('deerflow_app', 'postgres', 'CREATE') AS app_create,
-       has_database_privilege('pick_board_reader', 'postgres', 'CREATE') AS reader_create;
+       has_database_privilege('pick_board_reader', 'postgres', 'CREATE') AS reader_create,
+       has_database_privilege('pick_observer', 'postgres', 'CREATE') AS observer_create;
 SELECT datname, pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'postgres';
 ```
 
 应当看到：
-- 两个角色 `rolcanlogin=t`、`rolinherit=f`、`rolconnlimit=20`。
+- 三个角色 `rolcanlogin=t`、`rolinherit=f`、`rolconnlimit=20`。
 - `deerflow_app` 的 rolconfig 是 `{search_path=deerflow,TimeZone=UTC,idle_in_transaction_session_timeout=5min}`。
 - `pick_board_reader` 的 rolconfig 是 `{search_path=pick_mirror,default_transaction_read_only=on,statement_timeout=8s,idle_in_transaction_session_timeout=15s,TimeZone=UTC}`。
-- `\dn+`：两个 schema 的属主都是 `deerflow_app`；`deerflow` 的权限只有 `deerflow_app=UC/deerflow_app`；`pick_mirror` 另有一行 `pick_board_reader=U/deerflow_app`。没有 `=U/`（PUBLIC）、`anon=`、`authenticated=` 开头的项。
-- `reader_mirror` 为 t，其余几个 reader、anon、authenticated 的列为 f，`app_create` 为 t。
+- `pick_observer` 的 rolconfig 是 `{search_path=deerflow,TimeZone=UTC,idle_in_transaction_session_timeout=1min,statement_timeout=2min}`。
+- `\dn+`：三个 schema 的属主都是 `deerflow_app`；`deerflow` 的权限是 `deerflow_app=UC/deerflow_app` 与 `pick_observer=U/deerflow_app`；`pick_mirror` 是 `deerflow_app=UC/deerflow_app`、`pick_board_reader=U/deerflow_app` 与 `pick_observer=U/deerflow_app`；`pick_obs` 是 `deerflow_app=UC/deerflow_app` 与 `pick_board_reader=U/deerflow_app`。没有 `=U/`（PUBLIC）、`anon=`、`authenticated=` 开头的项。
+- `reader_mirror`、`reader_obs`、`observer_deerflow`、`observer_mirror`、`app_create` 为 t，其余为 f。
 - 库属主记下来，供以后排查（实测是 `postgres`）。
 
-`pick_board_reader` 经 PUBLIC 仍有 `public` schema 的 USAGE（PG 默认），所以工作台的任何表都不能建在 `public` 下；切换后第 8 节第 9 步会核对。
+`pick_board_reader` 与 `pick_observer` 经 PUBLIC 仍有 `public` schema 的 USAGE（PG 默认），所以工作台的任何表都不能建在 `public` 下；切换后第 8 节第 9 步会核对。
 
 ### 2.5 撤销
 
@@ -154,7 +171,7 @@ PGSSLMODE=require psql "postgresql://postgres.<ref>@aws-0-us-east-1.pooler.supab
   -X -f docs/pick-workbench/supabase/bootstrap-undo.sql
 ```
 
-[supabase/bootstrap-undo.sql](supabase/bootstrap-undo.sql) 删掉两个 schema 和两个角色，也是一个事务。`DROP SCHEMA` 不带 CASCADE：宿主一旦建过表，它就在这一句失败并整体回滚，不会删掉任何数据。那时要推倒重来只能删除项目重建（方案第 9 节第 1 步的回滚）。
+[supabase/bootstrap-undo.sql](supabase/bootstrap-undo.sql) 删掉三个 schema 和三个角色，也是一个事务。`DROP SCHEMA` 不带 CASCADE：宿主一旦建过表，它就在这一句失败并整体回滚，不会删掉任何数据。那时要推倒重来只能删除项目重建（方案第 9 节第 1 步的回滚）。它只配本节的新版 bootstrap；生产项目上撤销观测角色用 [supabase/bootstrap-observer-undo.sql](supabase/bootstrap-observer-undo.sql)（observer-role.md「撤销」）。
 
 ## 3. 连接（6.3）
 
@@ -168,22 +185,34 @@ PGSSLMODE=require psql "postgresql://postgres.<ref>@aws-0-us-east-1.pooler.supab
 - `PICK_MIRROR_READER_URL=postgresql://pick_board_reader.<ref>:<pw>@aws-0-us-east-1.pooler.supabase.com:6543/postgres`，同样不带 sslmode；TLS 由代码指定 `rejectUnauthorized: true` 加 `PICK_MIRROR_CA_PEM`（从控制台下载的 CA）。
 - 只配 Vercel Production，Preview 不配。
 
+**Railway 两个观测 cron → session pooler（端口 5432），角色 `pick_observer`（趋势雷达）：**
+- `pick-obs-trends`、`pick-obs-gsc` 的 `PICK_DATABASE_URL=postgresql://pick_observer.<ref>:<pw>@aws-0-us-east-1.pooler.supabase.com:5432/postgres`，同样不带任何 SSL 参数，`PGSSLMODE=require`。每个服务只开 1 条连接，每一步用完就关（趋势雷达计划 D1）。
+- 这个连接串不配给 gateway 和 Vercel。gateway 上的 `observe.admin regrant` 用的是 gateway 自己的 `deerflow_app` 连接串。
+
 **核对（演练与切换后各做一次）：**
 
 ```sql
 -- 以 postgres 身份：业务连接都已加密
 SELECT a.usename, s.ssl, s.version, count(*)
   FROM pg_stat_activity a JOIN pg_stat_ssl s USING (pid)
- WHERE a.usename IN ('deerflow_app', 'pick_board_reader') GROUP BY 1, 2, 3;
+ WHERE a.usename IN ('deerflow_app', 'pick_board_reader', 'pick_observer') GROUP BY 1, 2, 3;
 ```
 
 `postgres` 看不到别的角色的 `pg_stat_ssl` 时，改用对应角色自己的连接执行 `SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid()`。两个驱动的 search_path 按第 10 节第 3 步检查。证书校验（verify-full）是后续加固项。
 
 ## 4. 连接预算（6.4）
 
-- Supavisor 的 Pool Size 按「用户 + 库」分别计。两个业务用户各 20，加 Supabase 内部服务约 10–15，最坏约 50–55 个服务端连接，在 `max_connections=60` 之内。
+| 角色 | 谁用 | 模式 | 角色上限 | 实际 |
+|---|---|---|---|---|
+| `deerflow_app` | Railway gateway（ORM、checkpointer、store、同步专用连接、`railway ssh` 跑的命令） | session | 20 | 常态约 9–10，理论峰值约 25，超出 20 的排队 |
+| `pick_board_reader` | Vercel 资料页 | transaction | 20 | 并发高时用满 Pool Size 20，客户端排队（P3-6 压测） |
+| `pick_observer` | 两个观测 cron；本机导入旧页快照与部署守卫 | session | 20 | 最多 2（每个 cron 1 条）；导入或守卫恰好同时在跑时短时 3–4 |
+| Supabase 内部服务 | | | | 约 10–15 |
+
+- Supavisor 的 Pool Size 按「用户 + 库」分别计。前两个业务用户各 20，加 Supabase 内部服务约 10–15，最坏约 50–55 个服务端连接；`pick_observer` 的上限虽然也是 20，实际最多 2 条，合计最坏约 52–57，在 `max_connections=60` 之内，余量很小（趋势雷达设计 3.4）。
 - `deerflow_app` 常态约 9–10 个连接（ORM 3、checkpointer 4、store 1、同步专用 1）；建账号、启动迁移时短时多 2–3 个；各项同时到顶的理论峰值约 25，超出 20 的客户端在 session 模式里排队（最多约一分钟，方案 13.1 接受）。
-- **角色的 `CONNECTION LIMIT` 不能小于 Pool Size。** 否则并发一高，Supavisor 去开超出角色上限的服务端连接会直接报错，而不是排队。要改 Pool Size 时，两个角色一起改：`ALTER ROLE deerflow_app CONNECTION LIMIT <n>; ALTER ROLE pick_board_reader CONNECTION LIMIT <n>;`，并重算上面的总数。
+- **角色的 `CONNECTION LIMIT` 不能小于 Pool Size。** 否则并发一高，Supavisor 去开超出角色上限的服务端连接会直接报错，而不是排队。要改 Pool Size 时，三个角色一起改：`ALTER ROLE deerflow_app CONNECTION LIMIT <n>; ALTER ROLE pick_board_reader CONNECTION LIMIT <n>; ALTER ROLE pick_observer CONNECTION LIMIT <n>;`，并重算上面的总数。
+- `pick_observer` 的峰值在影子运行期间实测一次（趋势雷达 G5 的核对项，方法见 observer-role.md「连接账」），结果记进第 12 节。
 - 查看峰值：
 
   ```sql
@@ -398,6 +427,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 | Railway gateway | `PICK_REALSHORT_EXPORT_TOKEN` | P2 | v2 导出，与 RealShort 的 `PICK_EXPORT_TOKEN` 是同一个值 |
 | Railway gateway | `PICK_MIRROR_ENABLED`、`PICK_DB_SIZE_CAP_BYTES` | P2 | 镜像开关与容量阈值 |
 | Railway gateway | `PICK_EMIT_MIRROR_VERSION` | P4-1 | 结果与工具的 `data_as_of` 带不带 `mirror_version`，值严格等于 `1` 才输出；前端上线、提醒大家刷新页面之后再设，见 [realshort-sync.md](realshort-sync.md) 的「候选卡的镜像版本号（P4-1）」 |
+| Railway `pick-obs-trends`、`pick-obs-gsc` | `PICK_DATABASE_URL`、`PGSSLMODE` | 趋势雷达 | session pooler 连接串，角色 `pick_observer`（第 3 节）；`require`。其余变量见趋势雷达计划第 10 节 S5、S9 |
 | RealShort Vercel Production | `PICK_EXPORT_TOKEN` | P1 | v2 的 Bearer；未配置时 v2 路由返回 404 |
 | ggwork Vercel Production | `PICK_MIRROR_READER_URL` | P3 | transaction pooler 连接串，角色 `pick_board_reader` |
 | ggwork Vercel Production | `PICK_MIRROR_CA_PEM` | P3 | Supabase 的 CA 证书（公开信息，作为配置放在环境变量里） |
@@ -467,14 +497,14 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 | PITR | 不开（Add-ons 显示 Disabled），靠 Pro 自带的每日备份（保留 7 天） | 2026-09-23 |
 | Spend cap | 开（组织 Billing 显示 enabled） | 2026-09-23 |
 
-**bootstrap（第 2 节）：2026-09-23 完成。** 退出状态 0，`grep -c WARNING` 为 0，输出与 2.1 逐行一致；2.4 各查询结果与演练逐字相同（两个角色 `rolconnlimit=20`，schema 权限只有 `deerflow_app=UC` 与 `pick_board_reader=U`，库属主 postgres）。两个角色的密码用本机算好的 SCRAM 摘要设置，`deerflow_app` 经 5432 登录，search_path 为 `deerflow`；reader 经 6543 登录，默认只读事务为 on。
+**bootstrap（第 2 节）：2026-09-23 完成。** 执行的是上一版脚本（两个角色，见第 2 节开头）。退出状态 0，`grep -c WARNING` 为 0，输出与当时 2.1 的 24 行逐行一致；2.4 各查询结果与演练逐字相同（两个角色 `rolconnlimit=20`，schema 权限只有 `deerflow_app=UC` 与 `pick_board_reader=U`，库属主 postgres）。两个角色的密码用本机算好的 SCRAM 摘要设置，`deerflow_app` 经 5432 登录，search_path 为 `deerflow`；reader 经 6543 登录，默认只读事务为 on。
 
 **演练（第 10 节）：2026-09-23 完成，全部通过。** 临时项目 `ggwork-rehearsal`（us-east-1，Micro，PostgreSQL 17.6）与 Railway 临时环境 `rehearsal`（从 production 复制，镜像 81a518d），演练后都已删除。
 
 | 项 | 结果 |
 |---|---|
 | 控制台设置 | SSL 强制用 CLI 打开：`supabase ssl-enforcement update --experimental --project-ref <ref> --enable-db-ssl-enforcement`。Data API 在 Integrations → Data API → Overview 里关闭。Pool Size 在 Database → Settings → Connection pooling 里改为 20 |
-| bootstrap | 退出状态 0，`grep -c WARNING` 为 0，输出与 2.1 逐行一致。2.4 全部符合：两个角色 `rolconnlimit=20`，rolconfig 与预期一致；`deerflow` 只有 `deerflow_app=UC`，`pick_mirror` 另有 `pick_board_reader=U`；reader_mirror、app_create 为 t，其余为 f；库属主是 postgres |
+| bootstrap | 上一版脚本（两个角色，见第 2 节开头）。退出状态 0，`grep -c WARNING` 为 0，输出与当时的 2.1 逐行一致。2.4 全部符合：两个角色 `rolconnlimit=20`，rolconfig 与预期一致；`deerflow` 只有 `deerflow_app=UC`，`pick_mirror` 另有 `pick_board_reader=U`；reader_mirror、app_create 为 t，其余为 f；库属主是 postgres |
 | 角色密码 | 本机算好 SCRAM 摘要后执行 `ALTER ROLE … PASSWORD`，与 `\password` 发出的语句相同。`deerflow_app` 经 5432 登录，search_path 为 `deerflow`；reader 经 6543 登录，`default_transaction_read_only=on` |
 | 本机建管理员（8.3） | 在新 worktree 里启动，没有 `.env`，只用 8.3.3 列出的变量。宿主建表、ggwp 0001–0004 都完成。`POST /api/v1/auth/initialize` 返回 201，setup-status 为 `needs_setup=false`。第一次 readiness 探测超过 3 秒、返回 503（本机到 us-east-1 延迟高），稍等后为 200 |
 | 新镜像 | 启动时没有 alembic 版本错误（宿主迁移已在 head），`/health/ready` 返回 200，本机建的管理员能登录 |
@@ -513,6 +543,8 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 | 10 题验收 | 经 Vercel 入口跑，对 13:06Z 拉取的 feed 用 `scripts/pick-acceptance-verify.py` 独立核对：8 张卡的顺序、条件与符合总数全部一致；Q5 英语剧 2,360 部与 8 个剧场分项一致；带 `pick_reference` 的 Q7 为 5 部新剧、同一批次，Q8 依据与卡片一致 |
 | 连接峰值 | 对话、保存与同步期间 `deerflow_app` 10 个，所有角色合计 25 个（`max_connections=60`） |
 | 整库大小 | 26 MB |
+
+**观测角色（observer-role.md，趋势雷达 S2、S4）：** 未执行。执行后在这里记下 `bootstrap-observer.out` 是否与 observer-role.md 逐行一致、留档检查的结果、S4 的 `regrant --check` 前后输出，以及影子运行期间 `pick_observer` 的连接峰值实测。
 
 **每周容量（第 6 节）：** 切换后开始记录。
 
