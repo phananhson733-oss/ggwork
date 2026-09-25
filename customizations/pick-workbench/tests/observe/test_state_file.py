@@ -47,12 +47,32 @@ def file_store(path: Path, *keys: str):
 def warm_jar():
     from ggwork_pick.observe.trends.cookies import Cookie, CookieJar
 
-    return CookieJar.fresh(UA).warmed([Cookie("NID", COOKIE_VALUE, domain=".google.com")], day=TARGET)
+    return CookieJar.fresh(UA).warmed([Cookie("NID", COOKIE_VALUE, domain=".google.com")], day=TARGET, now=START)
 
 
 def write_private(path: Path, data: bytes) -> None:
     path.write_bytes(data)
     path.chmod(0o600)
+
+
+def lock_name(path: Path) -> str:
+    return f".{path.name}.lock"
+
+
+def names_in(directory: Path) -> list[str]:
+    return sorted(entry.name for entry in directory.iterdir())
+
+
+def key_env(key: str) -> dict:
+    env = {**os.environ, "PICK_OBS_STATE_KEY": key}
+    env.pop("PICK_OBS_STATE_KEY_FILE", None)
+    return env
+
+
+def run_isolated(code: str, env: dict | None = None, timeout: float = 120) -> subprocess.CompletedProcess:
+    """`code` in a fresh interpreter that sees this worktree's source first, like the cron would."""
+    prelude = f"import sys\nsys.path[:0] = {json.dumps([str(SOURCE), str(EXTENSION_API)])}\n"
+    return subprocess.run([sys.executable, "-I", "-c", prelude + code], env=env, capture_output=True, text=True, timeout=timeout)
 
 
 @pytest.mark.asyncio
@@ -165,7 +185,8 @@ async def test_state_directory_and_links_must_be_private(tmp_path):
 
 @pytest.mark.asyncio
 async def test_atomic_write(tmp_path, monkeypatch):
-    """Interrupted half-way through a save, the old file is still whole and still reads."""
+    """A save replaces the file by renaming a finished temp file over it; interrupted half-way, the old file is still
+    whole and still reads."""
     from ggwork_pick.observe import state as state_module
     from ggwork_pick.observe.errors import StateUnavailable
     from ggwork_pick.observe.state import RuntimeState
@@ -173,6 +194,10 @@ async def test_atomic_write(tmp_path, monkeypatch):
     key, path = new_key(), state_path(tmp_path)
     store = file_store(path, key)
     await store.initialize(RuntimeState(paused_until=START))
+    created = path.stat().st_ino
+    await store.save(RuntimeState(paused_until=START + timedelta(hours=1)))
+    assert path.stat().st_ino != created  # a new file renamed into place, never the old one rewritten
+    assert names_in(path.parent) == sorted([path.name, lock_name(path)])  # no temp file left beside it
     before = path.read_bytes()
 
     def half_then_fail(fd: int, data: bytes) -> None:
@@ -183,8 +208,9 @@ async def test_atomic_write(tmp_path, monkeypatch):
     with pytest.raises(StateUnavailable):
         await store.save(RuntimeState(paused_until=START + timedelta(hours=4)))
     assert path.read_bytes() == before
-    assert sorted(p.name for p in path.parent.iterdir()) == [path.name]  # its own half-written temp file is gone
-    assert (await file_store(path, key).load()).paused_until == START
+    assert names_in(path.parent) == sorted([path.name, lock_name(path)])  # its own half-written temp file is gone
+    store.close()  # the run stops on the failed save
+    assert (await file_store(path, key).load()).paused_until == START + timedelta(hours=1)
 
 
 @pytest.mark.asyncio
@@ -216,13 +242,13 @@ async def test_atomic_write_survives_a_kill_mid_write(tmp_path):
     done = subprocess.run([sys.executable, "-I", "-c", code], env=env, capture_output=True, text=True, timeout=120)
     assert done.returncode == -signal.SIGKILL, done.stderr[-2000:]
     assert path.read_bytes() == before
-    leftovers = [p.name for p in path.parent.iterdir() if p.name != path.name]
+    leftovers = [name for name in names_in(path.parent) if name not in (path.name, lock_name(path))]
     assert len(leftovers) == 1 and leftovers[0].endswith(".tmp")
 
-    store = file_store(path, key)
+    store = file_store(path, key)  # the kill released the lock with the process
     assert (await store.load()).paused_until == START
     await store.save(RuntimeState())
-    assert sorted(p.name for p in path.parent.iterdir()) == [path.name]
+    assert names_in(path.parent) == sorted([path.name, lock_name(path)])
 
 
 @pytest.mark.asyncio
@@ -235,6 +261,7 @@ async def test_restart_keeps_pause(tmp_path):
     assert not state.is_paused(START)
     pause_until = START + timedelta(minutes=30)
     await first.save(dataclasses.replace(state, paused_until=pause_until, breaker={"level": 1, "trips_today": 1}))
+    first.close()  # the process ends
 
     restarted = await open_state(file_store(path, key), init_state=False)  # a new process, same file
     assert restarted.paused_until == pause_until
@@ -262,6 +289,7 @@ async def test_key_rotation(tmp_path, caplog):
     assert state.paused_until == START
     assert "key #2 of 2" in caplog.text  # the operator learns the file is still under the old key
     await rotating.save(state)
+    rotating.close()
 
     assert Fernet(new).decrypt(path.read_bytes())  # written under the new key
     assert (await file_store(path, new).load()).paused_until == START
@@ -319,23 +347,164 @@ async def test_missing_key_refuses_before_touching_the_state(tmp_path):
     assert store.path == path
 
 
+LOAD_IN_CHILD = """
+import asyncio
+from ggwork_pick.observe.crypto import load_cipher
+from ggwork_pick.observe.errors import exit_code_for
+from ggwork_pick.observe.state import FileStateStore
+
+async def main(path):
+    try:
+        await FileStateStore(path, load_cipher()).load()
+    except Exception as exc:
+        return str(int(exit_code_for(exc)))
+    return "loaded"
+
+print(asyncio.run(main(sys.argv[1])))
+"""
+
+
+def load_in_child(path: Path, key: str) -> str:
+    """What a second local run on the same file gets from load(): "loaded", or its exit code."""
+    code = LOAD_IN_CHILD.replace("sys.argv[1]", repr(str(path)))
+    done = run_isolated(code, env=key_env(key))
+    assert done.returncode == 0, done.stderr[-2000:]
+    return done.stdout.strip().splitlines()[-1]
+
+
 @pytest.mark.asyncio
-async def test_a_second_writer_is_detected(tmp_path):
-    """Two local runs on one file: the one that saves second stops instead of overwriting the other's pause."""
-    from ggwork_pick.observe.errors import StateUnavailable
+async def test_a_second_process_is_refused_at_load(tmp_path):
+    """Two local runs on one file: the second stops when it loads, before anything could be sent, so no interleaving of
+    their saves can overwrite the first one's pause (the first holds the file's lock from load to exit)."""
+    from ggwork_pick.observe.errors import ExitCode, StateUnavailable, exit_code_for
     from ggwork_pick.observe.state import RuntimeState
 
     key, path = new_key(), state_path(tmp_path)
     await file_store(path, key).initialize(RuntimeState())
     first, second = file_store(path, key), file_store(path, key)
-    mine, theirs = await first.load(), await second.load()
+    mine = await first.load()
+    with pytest.raises(StateUnavailable, match="另一个进程") as caught:
+        await second.load()
+    assert exit_code_for(caught.value) == ExitCode.STATE_UNAVAILABLE
+    with pytest.raises(RuntimeError):  # refused at load, it cannot save either
+        await second.save(RuntimeState())
+    assert load_in_child(path, key) == str(int(ExitCode.STATE_UNAVAILABLE))  # nor can another process
+
     await first.save(dataclasses.replace(mine, paused_until=START))
     await first.save(dataclasses.replace(mine, paused_until=START + timedelta(minutes=30)))  # its own saves chain
-    with pytest.raises(StateUnavailable, match="另一个进程"):
-        await second.save(dataclasses.replace(theirs, paused_until=None))
-    assert (await file_store(path, key).load()).paused_until == START + timedelta(minutes=30)
+    first.close()  # the first run ends
+    assert load_in_child(path, key) == "loaded"
+    assert (await second.load()).paused_until == START + timedelta(minutes=30)
     with pytest.raises(RuntimeError):  # a store that never read cannot tell whether it would overwrite anything
         await file_store(path, key).save(RuntimeState())
+
+
+@pytest.mark.asyncio
+async def test_a_file_changed_behind_the_lock_is_not_overwritten(tmp_path):
+    """The lock binds only the runs that take it. A file replaced some other way (a copy, a build without the lock) is
+    still caught by the second guard: save compares the file with what this run last read or wrote."""
+    from ggwork_pick.observe.errors import StateUnavailable
+    from ggwork_pick.observe.state import RuntimeState
+
+    key, path = new_key(), state_path(tmp_path)
+    store = file_store(path, key)
+    await store.initialize(RuntimeState())
+    outside = _sealed(key, RuntimeState(paused_until=START).to_document())
+    write_private(path, outside)
+    with pytest.raises(StateUnavailable, match="改过"):
+        await store.save(RuntimeState())
+    assert path.read_bytes() == outside
+
+
+@pytest.mark.asyncio
+async def test_a_state_too_big_to_read_back_is_never_written(tmp_path):
+    """load() refuses a file over MAX_STATE_BYTES, so save() must never write one: every later run would stop on it."""
+    from ggwork_pick.observe.errors import StateUnavailable
+    from ggwork_pick.observe.state import MAX_STATE_BYTES, RuntimeState
+
+    key, path = new_key(), state_path(tmp_path)
+    store = file_store(path, key)
+    await store.initialize(RuntimeState(paused_until=START))
+    before = path.read_bytes()
+    huge = RuntimeState(pacing={"blob": "x" * MAX_STATE_BYTES})
+    with pytest.raises(StateUnavailable, match="上限"):
+        await store.save(huge)
+    assert path.read_bytes() == before
+    assert names_in(path.parent) == sorted([path.name, lock_name(path)])
+    await store.save(RuntimeState(paused_until=START + timedelta(hours=1)))  # the refusal changed nothing else
+    store.close()
+    assert (await file_store(path, key).load()).paused_until == START + timedelta(hours=1)
+
+    elsewhere = tmp_path / "other" / "trends-state.json"
+    with pytest.raises(StateUnavailable, match="上限"):
+        await file_store(elsewhere, key).initialize(huge)
+    assert not elsewhere.exists()
+
+
+def test_a_section_that_does_not_decode_is_state_unavailable():
+    """The sections are TR-03's; their decoders raise ValueError on bad content. Read through RuntimeState.section, any
+    such failure is StateUnavailable (exit 3), never a crash with exit 1."""
+    from ggwork_pick.observe.errors import ExitCode, StateUnavailable, exit_code_for
+    from ggwork_pick.observe.state import RuntimeState
+
+    breaker = {"day": {"target_date": "2026-09-26", "paused_until": None}, "extinguished_days": ["2026-09-24"]}
+    state = RuntimeState(breaker=breaker)
+    seen = []
+
+    def decode(data):
+        seen.append(data)
+        return ("decoded", data["day"]["target_date"])
+
+    assert state.section("breaker", decode) == ("decoded", "2026-09-26")
+    assert type(seen[0]) is dict and type(seen[0]["extinguished_days"]) is list  # plain JSON, as its owner wrote it
+    assert state.section("pacing", decode) is None and len(seen) == 1  # never saved: the machine starts fresh
+    for failure in (ValueError("bad"), TypeError("bad"), KeyError("day"), AttributeError("get"), IndexError("0")):
+
+        def broken(data, failure=failure):
+            raise failure
+
+        with pytest.raises(StateUnavailable, match="breaker") as caught:
+            state.section("breaker", broken)
+        assert exit_code_for(caught.value) == ExitCode.STATE_UNAVAILABLE
+        assert "2026-09-26" not in str(caught.value)
+    with pytest.raises(ValueError):
+        state.section("cookie_jar", decode)
+
+
+FIFO_IN_CHILD = """
+import asyncio, json
+from ggwork_pick.observe.crypto import StateCipher, load_cipher
+from ggwork_pick.observe.errors import ObserveFailure
+from ggwork_pick.observe.state import FileStateStore
+
+KEY_FILE, STATE, KEY = sys.argv[1:4]
+messages = []
+try:
+    load_cipher({"PICK_OBS_STATE_KEY_FILE": KEY_FILE})
+except ObserveFailure as exc:
+    messages.append(str(exc))
+try:
+    asyncio.run(FileStateStore(STATE, StateCipher([KEY])).load())
+except ObserveFailure as exc:
+    messages.append(str(exc))
+print(json.dumps(messages, ensure_ascii=False))
+"""
+
+
+def test_a_fifo_is_refused_without_waiting(tmp_path):
+    """A FIFO where the key file or the state file should be is refused at once as not a regular file. A blocking open
+    would hang the run (and the cron) until something wrote to the FIFO."""
+    key_file, directory = tmp_path / "state.key", tmp_path / "obs"
+    directory.mkdir(mode=0o700)
+    directory.chmod(0o700)
+    os.mkfifo(key_file, 0o600)
+    os.mkfifo(directory / "trends-state.json", 0o600)
+    arguments = [str(key_file), str(directory / "trends-state.json"), new_key()]
+    code = FIFO_IN_CHILD.replace("sys.argv[1:4]", repr(arguments))
+    done = run_isolated(code, timeout=30)
+    assert done.returncode == 0, done.stderr[-2000:]
+    messages = json.loads(done.stdout.strip().splitlines()[-1])
+    assert len(messages) == 2 and all("普通文件" in message for message in messages), messages
 
 
 def test_runtime_state_is_immutable():
@@ -380,13 +549,14 @@ async def test_ua_bound_to_jar(tmp_path):
     jar = warm_jar()
     assert jar.user_agent == UA
     assert dict(jar.request_headers(START)) == {"User-Agent": UA, "Cookie": f"NID={COOKIE_VALUE}"}
-    assert jar.updated([Cookie("NID", "next", domain=".google.com")]).user_agent == UA  # updates keep the UA
+    assert jar.updated([Cookie("NID", "next", domain=".google.com")], now=START).user_agent == UA  # updates keep the UA
     assert CookieJar.fresh(OTHER_UA).cookies == ()  # another UA is another, empty jar
 
     key, path = new_key(), state_path(tmp_path)
     store = file_store(path, key)
     await store.initialize(RuntimeState())
     await store.save(RuntimeState(cookie_jar=jar))
+    store.close()
     assert (await file_store(path, key).load()).cookie_jar == jar  # UA and cookies come back together
 
     cipher = StateCipher([key])
@@ -406,12 +576,12 @@ def test_jar_warms_at_most_once_per_target_date():
     assert jar.warmed_on == TARGET
     assert not jar.can_warm(TARGET)  # 20:30 and 00:10 of one session are one target date (D23)
     with pytest.raises(ValueError):
-        jar.warmed([Cookie("NID", "again", domain=".google.com")], day=TARGET)
-    tomorrow = jar.warmed([Cookie("NID", "tomorrow", domain=".google.com")], day=TARGET + timedelta(days=1))
+        jar.warmed([Cookie("NID", "again", domain=".google.com")], day=TARGET, now=START)
+    tomorrow = jar.warmed([Cookie("NID", "tomorrow", domain=".google.com")], day=TARGET + timedelta(days=1), now=START)
     assert tomorrow.warmed_on == TARGET + timedelta(days=1)
     assert [c.name for c in tomorrow.cookies] == ["NID"]  # a Set-Cookie replaces the cookie of the same name
 
-    expiring = tomorrow.updated([Cookie("AEC", "short-lived", domain=".google.com", expires=int((START + timedelta(hours=1)).timestamp()))])
+    expiring = tomorrow.updated([Cookie("AEC", "short-lived", domain=".google.com", expires=int((START + timedelta(hours=1)).timestamp()))], now=START)
     assert "AEC=short-lived" in expiring.request_headers(START)["Cookie"]
     assert "AEC" not in expiring.request_headers(START + timedelta(hours=2))["Cookie"]
 
@@ -448,6 +618,7 @@ async def test_no_secret_in_logs(tmp_path, caplog):
     rotating = FileStateStore(path, load_cipher({KEY_VARIABLE: f"{new},{old}"}))
     state = await rotating.load()
     await rotating.save(state)
+    rotating.close()
 
     shown = [repr(state), str(state), repr(jar), str(jar), repr(jar.cookies[0]), repr(StateCipher([old, new])), repr(rotating)]
     failures = []

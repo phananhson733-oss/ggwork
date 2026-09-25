@@ -5,23 +5,30 @@ new cookie jar at full speed, the amplification that got the scripted package ra
 the state is StateUnavailable (exit 3), a missing file included: only an explicit --init-state creates the file, and
 never over one that exists.
 
-RuntimeState is immutable. paused_until is the one field a runner must honour before sending anything, so a restart
-keeps the pause. The pacing, breaker and budget sections belong to the TR-03 state machines: each serialises its own
-state to a JSON object and reads it back, and this module only freezes, stores and returns it (None: never saved, the
-machine starts fresh). A section refuses what JSON or PostgreSQL text cannot hold, so the file store and TR-13's
-database store refuse the same states.
+RuntimeState is immutable, and a restart keeps the pause (design 4.3). The pacing, breaker and budget sections belong
+to the TR-03 state machines: each serialises its own state to a JSON object and reads it back, and this module only
+freezes, stores and returns it (None: never saved, the machine starts fresh). A section refuses what JSON or PostgreSQL
+text cannot hold, so the file store and TR-13's database store refuse the same states. A runner reads a section back
+through section(name, decode) with the machine's own decoder: whatever that decoder refuses is StateUnavailable
+(exit 3), like any other state that cannot be read.
+
+One pause, one source: the breaker section decides (TR-03's BreakerDay.paused_until, read through breaker.ready_at).
+paused_until here is its plain copy, like the runtime row's paused_until column in TR-13: the runner sets it from the
+breaker on every save, so is_paused() and a status command can refuse before any section is decoded; where the two
+disagree, the breaker wins.
 
 StateStore is what a runner reads and writes through: FileStateStore here (the local stage 0 runs: one encrypted JSON
 file), DbStateStore on the ggwp_obs_runtime row in TR-13 (the canary and production, D17).
 """
 
+import fcntl
 import json
 import logging
 import math
 import os
 import stat
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,10 +48,14 @@ STATE_FILE_NAME = "trends-state.json"
 DIR_MODE = 0o700
 WIDER_THAN_700 = 0o077
 TEMP_SUFFIX = ".tmp"
+LOCK_SUFFIX = ".lock"
 SECTIONS = ("pacing", "breaker", "budget")
 _FIELDS = frozenset({"format", "paused_until", *SECTIONS, "cookie_jar"})
 _NUL = chr(0)
 _EXISTS = "状态文件已存在，不能重新初始化；去掉 --init-state 再运行"
+_BUSY = "另一个进程正在用同一个状态文件（锁被占用）：本进程停止，一个请求都还没发"
+# What a section's decoder raises on content it refuses (TR-03's raise ValueError; a lookup or a wrong type in between).
+_DECODE_FAILURES = (ValueError, TypeError, LookupError, AttributeError)
 
 
 def default_state_path() -> Path:
@@ -128,6 +139,19 @@ class RuntimeState:
         """Whether nothing may be sent at `now`: a restart inside a breaker pause stays inside it (design 4.3)."""
         return self.paused_until is not None and _aware_utc(now, "now") < self.paused_until
 
+    def section[T](self, name: str, decode: Callable[[dict], T]) -> T | None:
+        """Section `name` read back by its machine's decoder (TR-03's from_dict), which gets plain JSON data; None when
+        it was never saved. Content the decoder refuses is StateUnavailable: the day does not run on a guessed state."""
+        if name not in SECTIONS:
+            raise ValueError(f"没有 {name} 这个分区；分区是 {', '.join(SECTIONS)}")
+        stored = getattr(self, name)
+        if stored is None:
+            return None
+        try:
+            return decode(thaw_json(stored))
+        except _DECODE_FAILURES:
+            raise StateUnavailable(f"状态里的 {name} 分区读不回来：内容不合该状态机的格式（已损坏，或由另一个版本写成）") from None
+
     def to_document(self) -> dict:
         """The state as JSON data. It carries the cookie values, so it is only ever stored encrypted."""
         return {
@@ -205,6 +229,30 @@ def _check_directory(directory: Path) -> None:
         raise StateUnavailable("状态目录权限宽于 700（别人能替换状态文件；chmod 700 后重试）")
 
 
+def _lock(path: Path) -> int:
+    """An exclusive flock on the lock file beside the state, taken without waiting; StateUnavailable when another
+    process holds it. The descriptor is the lock: closing it, or the process ending however it ends, releases it."""
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
+    except OSError as exc:
+        raise StateUnavailable("状态锁文件打不开（是符号链接，或没有权限）") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+            raise StateUnavailable("状态锁文件不是当前用户的普通文件")
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise StateUnavailable(_BUSY) from None
+    except OSError as exc:
+        os.close(fd)
+        raise StateUnavailable("状态锁取不到（锁文件读不了，或这个文件系统不支持 flock）") from exc
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
 def _make_private_directory(directory: Path) -> None:
     if directory.exists():
         return
@@ -218,25 +266,49 @@ def _make_private_directory(directory: Path) -> None:
 class FileStateStore:
     """One encrypted JSON file (mode 600, in a 700 directory), replaced atomically on every save.
 
-    One writer at a time: save() first checks the file still holds what this store last read or wrote, and refuses
-    otherwise, so a second local run on the same file stops instead of overwriting the other's pause. The files are a
-    few kilobytes on a local disk, so the I/O runs inline."""
+    One process at a time. load() and initialize() take an exclusive flock on `.<name>.lock` beside the file and hold
+    it until close() or the process ends; a second run on the same file is refused at load, before it has sent
+    anything (StateUnavailable, exit 3). A load that fails lets the lock go. Second guard, for a file replaced by
+    something that takes no lock: save() checks the file still holds what this store last read or wrote. A state that
+    would seal to more than load() reads (MAX_STATE_BYTES) is refused and the old file stays. The files are a few
+    kilobytes on a local disk, so the I/O runs inline."""
 
     def __init__(self, path: str | os.PathLike, cipher: StateCipher):
         self._path = Path(path)
         self._cipher = cipher
         self._seen: bytes | None = None  # the ciphertext this store last read or wrote
+        self._lock_fd: int | None = None
 
     @property
     def path(self) -> Path:
         return self._path
 
+    @property
+    def lock_path(self) -> Path:
+        return self._path.with_name(f".{self._path.name}{LOCK_SUFFIX}")
+
     def __repr__(self) -> str:
         return f"FileStateStore(path={str(self._path)!r}, cipher={self._cipher!r})"
 
+    def close(self) -> None:
+        """Let the file go: another run may load it now, and this store saves nothing more until it loads again."""
+        fd, self._lock_fd, self._seen = self._lock_fd, None, None
+        if fd is not None:
+            os.close(fd)
+
+    def __del__(self) -> None:
+        if getattr(self, "_lock_fd", None) is not None:
+            self.close()
+
     async def load(self) -> RuntimeState:
-        token = self._read()
-        state = self._decode(token)
+        try:
+            self._require_file()
+            self._acquire()
+            token = self._read()
+            state = self._decode(token)
+        except BaseException:
+            self.close()
+            raise
         self._seen = token
         return state
 
@@ -244,7 +316,7 @@ class FileStateStore:
         if self._seen is None:
             raise RuntimeError("FileStateStore.save() before load() or initialize(): it cannot tell what it would overwrite")
         if self._read() != self._seen:
-            raise StateUnavailable("状态文件在本进程读取之后被改过：可能有另一个进程在用同一个状态文件，本进程停止")
+            raise StateUnavailable("状态文件在本进程读取之后被改过：有别的程序替换了它，本进程停止")
         token = self._seal(state)
         self._write(token, replace_existing=True)
         self._seen = token
@@ -257,16 +329,28 @@ class FileStateStore:
         _check_directory(self._path.parent)
         if os.path.lexists(self._path):
             raise Refused(_EXISTS)
-        token = self._seal(fresh)
-        self._write(token, replace_existing=False)
+        try:
+            self._acquire()
+            token = self._seal(fresh)
+            self._write(token, replace_existing=False)
+        except BaseException:
+            self.close()
+            raise
         self._seen = token
         logger.info("[pick-obs] trends state file created")
         return fresh
 
-    def _read(self) -> bytes:
+    def _acquire(self) -> None:
+        if self._lock_fd is None:
+            self._lock_fd = _lock(self.lock_path)
+
+    def _require_file(self) -> None:
         if not os.path.lexists(self._path):
             raise StateUnavailable("状态文件不存在；首次运行须显式带 --init-state 创建（从不自动新建）")
         _check_directory(self._path.parent)
+
+    def _read(self) -> bytes:
+        self._require_file()
         try:
             return read_private_file(self._path, MAX_STATE_BYTES)
         except PrivateFileRefused as refused:
@@ -287,8 +371,12 @@ class FileStateStore:
         return state
 
     def _seal(self, state: RuntimeState) -> bytes:
+        """The sealed state, refused (nothing written) when load() could not read it back."""
         plain = json.dumps(state.to_document(), sort_keys=True, allow_nan=False, separators=(",", ":"))
-        return self._cipher.seal(plain.encode("ascii"))
+        token = self._cipher.seal(plain.encode("ascii"))
+        if len(token) > MAX_STATE_BYTES:
+            raise StateUnavailable(f"状态加密后 {len(token)} 字节，超过 {MAX_STATE_BYTES} 字节的上限：没有写入，状态文件保持原样")
+        return token
 
     def _write(self, token: bytes, *, replace_existing: bool) -> None:
         """Write a temp file beside the state, then rename it over the state (or link it in, when creating: that
@@ -314,7 +402,7 @@ class FileStateStore:
         self._remove_leftovers()
 
     def _remove_leftovers(self) -> None:
-        """Temp files a killed process left behind; only one process writes (save's check), so none is in use."""
+        """Temp files a killed process left behind; this process holds the lock, so none is in use."""
         prefix = f".{self._path.name}."
         try:
             with os.scandir(self._path.parent) as entries:

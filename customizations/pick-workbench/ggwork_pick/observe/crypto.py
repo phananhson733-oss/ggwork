@@ -111,9 +111,12 @@ def _read_key_file(path: Path) -> str:
 def read_private_file(path: Path, max_bytes: int) -> bytes:
     """The bytes of a regular file this user owns, mode 600 or narrower, not a symlink, at most max_bytes long.
 
-    The checks run on the open descriptor, so the file checked is the file read."""
+    The checks run on the open descriptor, so the file checked is the file read. O_NONBLOCK: a FIFO in the file's place
+    is refused at once as not a regular file instead of hanging the run until something writes to it (it changes
+    nothing for a regular file). Meant to be the observe package's one reader of private files, so that "600" means the
+    same everywhere: the state key and the state file read through it, and the GSC key file is to as well."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
     except OSError as exc:
         raise PrivateFileRefused(_OPEN_REASONS.get(exc.errno, "打不开")) from None
     try:

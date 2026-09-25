@@ -1,5 +1,5 @@
-"""The Google Trends channel (design section 4): client, pacing, cookie jar, session runner and rules.
+"""The Google Trends channel (design section 4): client, pacing, breaker, state and the nightly session.
 
-The cron entry point is `python -m ggwork_pick.observe.trends` (TR-14). Like the parent package, this module imports
-nothing, so each submodule brings only what it uses.
+This package module imports nothing, like ggwork_pick.observe itself (plan D7): each cron or stage 0 process pays for
+exactly the submodules it uses.
 """
