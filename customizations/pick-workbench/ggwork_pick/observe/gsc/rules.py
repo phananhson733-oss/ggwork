@@ -341,28 +341,40 @@ def _check_common(scope: str, flags: tuple[str, ...]) -> None:
         raise ValueError(f"flags {unknown} are computed by the rules, not passed in")
 
 
-def _assemble(kind, inputs, candidates, coverage_reasons, stale_days, p: GscRulesParams) -> Judgment:
-    found = tuple(c for c in candidates if c is not None)
+@dataclass(frozen=True, slots=True)
+class _Found:
+    """What one judge_* call found, handed to _assemble; clicks and query exist for the 24-hour windows only."""
+
+    kind: Literal["24h", "7d"]
+    candidates: tuple[_Candidate | None, ...]
+    coverage_reasons: tuple[str, ...]
+    stale_days: tuple[date, ...]
+    clicks: MetricWindows | None = None
+    query: QueryEvidence | None = None
+
+
+def _assemble(inputs: Inputs24h | Inputs7d, found_in: _Found, p: GscRulesParams) -> Judgment:
+    found = tuple(c for c in found_in.candidates if c is not None)
     formal_labels = {c.label for c in found if c.formal}
     order = {label: index for index, label in enumerate(GSC_STATES)}
     ordered = sorted(found, key=lambda c: order[c.label])
     positions = (inputs.position_w0, inputs.position_w_minus_1)
     return Judgment(
-        window_kind=kind,
+        window_kind=found_in.kind,
         scope=inputs.scope,
         state=next((state for state in GSC_STATES if state in formal_labels), "present"),
-        admission="descriptive" if coverage_reasons else "formal",
+        admission="descriptive" if found_in.coverage_reasons else "formal",
         labels=tuple(LabelHit(label=c.label, formal=c.formal, condition=c.condition, counts=dict(c.counts)) for c in ordered),
-        flags=_flags(inputs.flags, inputs.site, inputs.impressions, bool(stale_days)),
-        reasons=_unique((*coverage_reasons, *(("mapping_changed",) if "mapping_changed" in inputs.flags else ()))),
+        flags=_flags(inputs.flags, inputs.site, inputs.impressions, bool(found_in.stale_days)),
+        reasons=_unique((*found_in.coverage_reasons, *(("mapping_changed",) if "mapping_changed" in inputs.flags else ()))),
         pending=tuple(c.label for c in ordered if c.pending),
         narrative=_narrative(found, positions, p),
         impressions=inputs.impressions,
-        clicks=getattr(inputs, "clicks", None),
+        clicks=found_in.clicks,
         site=inputs.site,
         positions=positions,
-        query=getattr(inputs, "query", None),
-        stale_days=stale_days,
+        query=found_in.query,
+        stale_days=found_in.stale_days,
     )
 
 
@@ -389,7 +401,7 @@ def judge_24h(inputs: Inputs24h, params: GscRulesParams = GSC_RULES_V1) -> Judgm
         _rank_push(inputs, i0, w0, row_formal, params),
     )
     stale_days = inputs.cutoff.stale_dates if "stale_slice" in inputs.cutoff.reasons else ()
-    return _assemble("24h", inputs, candidates, coverage_reasons, stale_days, params)
+    return _assemble(inputs, _Found("24h", candidates, coverage_reasons, stale_days, inputs.clicks, inputs.query), params)
 
 
 def judge_7d(inputs: Inputs7d, params: GscRulesParams = GSC_RULES_V1) -> Judgment:
@@ -407,4 +419,4 @@ def judge_7d(inputs: Inputs7d, params: GscRulesParams = GSC_RULES_V1) -> Judgmen
     i0 = _shown(inputs.impressions.w0, row_formal)
     i1 = _shown(inputs.impressions.w_minus_1, row_formal)
     candidate = _rising(i0, i1, row_formal, "mapping_changed" in inputs.flags, params)
-    return _assemble("7d", inputs, (candidate,), coverage_reasons, tuple(sorted(inputs.stale_days)), params)
+    return _assemble(inputs, _Found("7d", (candidate,), coverage_reasons, tuple(sorted(inputs.stale_days))), params)
