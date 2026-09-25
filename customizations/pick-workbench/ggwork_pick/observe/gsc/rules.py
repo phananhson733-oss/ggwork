@@ -21,7 +21,7 @@ never changes a label (D38).
 
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from types import MappingProxyType
 from typing import Any, Literal
 
@@ -125,7 +125,11 @@ class Inputs7d:
 
 
 def _stamp(moment: datetime) -> str:
-    return moment.astimezone(UTC).isoformat(timespec="microseconds")  # as repository.stamp()
+    # repository.stamp() is the one writer of stored stamps; imported here, not at the top, so importing the rules stays
+    # free of the database layer (the gsc cron loads it anyway before it writes a row).
+    from ggwork_pick.repository import stamp
+
+    return stamp(moment)
 
 
 def _comparison_json(comparison: Comparison) -> dict[str, Any]:
@@ -175,7 +179,7 @@ class Judgment:
             "position_w0": self.positions[0],
             "position_w_minus_1": self.positions[1],
             "site_admission": self.site,
-            "stale_days": [day.isoformat() for day in self.stale_days],
+            "stale_days": [day.strftime("%Y-%m-%d") for day in self.stale_days],
             "reasons": list(self.reasons),
             "pending": list(self.pending),
             "narrative": list(self.narrative),
