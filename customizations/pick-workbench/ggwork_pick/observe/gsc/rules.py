@@ -56,6 +56,7 @@ from ggwork_pick.observe.contract_rows import LabelHit, QualityNote
 from ggwork_pick.observe.gsc.coverage import ALL, Comparison
 from ggwork_pick.observe.gsc.cutoff import Cutoff, Window, daily_windows, hourly_windows
 from ggwork_pick.observe.gsc.params import GscRulesParams
+from ggwork_pick.observe.instants import stamp
 
 W0_TEXT, W1_TEXT = "W0", "W−1"
 METRIC_TEXT = MappingProxyType({"impressions": "曝光", "clicks": "点击"})
@@ -121,10 +122,8 @@ class Inputs7d:
 
 
 def _stamp(moment: datetime) -> str:
-    # repository.stamp() is the one writer of stored stamps; imported here, not at the top, so importing the rules stays
-    # free of the database layer (the gsc cron loads it anyway before it writes a row).
-    from ggwork_pick.repository import stamp
-
+    # repository.stamp()'s form, through the observe package's own copy: a collector module never reaches the gateway's
+    # repository, which writes the database outside the lease (TR-13, test_write_paths).
     return stamp(moment)
 
 
