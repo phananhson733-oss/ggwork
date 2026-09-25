@@ -4,9 +4,12 @@ Commands are found by file name (cmd_import_legacy.py is `import-legacy`), and o
 one command's heavy or broken imports never reach another, and nothing here pulls in the gateway. The module must
 declare the NAME its file name implies and a callable main(argv) returning the exit status (None counts as 0).
 
-Exit status: the command's own, or 2 for an unknown or malformed command (nothing ran), 1 for an unexpected error,
-130 when interrupted (errors.ExitCode). A failure prints its class and SQLSTATE only, and what was typed is never
-echoed: an argument can be a path or a DSN.
+Exit status: the command's own (0-255; anything else counts as 1, since the OS keeps only the low byte and 256 would
+read as success), or 2 for an unknown or malformed command (nothing ran), 1 for an unexpected error, 130 when
+interrupted (errors.ExitCode); an exception group exits with its most severe member's status. A failure prints its
+class and SQLSTATE, plus the value-free message of an ObserveFailure (errors.describe_error). What was typed is never
+echoed, since an argument can be a path or a DSN: commands parse their arguments with args.command_parser, whose usage
+errors print the usage and not the arguments.
 """
 
 import importlib
@@ -16,12 +19,13 @@ from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import TextIO
 
+from ggwork_pick.observe.admin.args import PROG
 from ggwork_pick.observe.errors import ExitCode, Refused, describe_error, exit_code_for
 
 PACKAGE = "ggwork_pick.observe.admin"
-PROG = "python -m ggwork_pick.observe.admin"
 PREFIX = "cmd_"
 HELP_FLAGS = ("-h", "--help")
+MAX_STATUS = 255  # POSIX keeps the low byte of an exit status
 
 
 def command_name(module_name: str) -> str:
@@ -52,10 +56,13 @@ def _load(module_name: str, name: str) -> Callable[[list[str]], object]:
 
 
 def _status(code: object) -> int:
-    """A command's return value, or a SystemExit's code, as an exit status (Python exits 1 for a non-int code)."""
+    """A command's return value, or a SystemExit's code, as an exit status: None is 0, an int within 0-255 is itself,
+    anything else is 1 (Python exits 1 for a non-int code; the OS would turn 256 into 0 and -1 into 255)."""
     if code is None:
         return int(ExitCode.OK)
-    return code if isinstance(code, int) else int(ExitCode.FAILED)
+    if isinstance(code, int) and 0 <= code <= MAX_STATUS:
+        return int(code)
+    return int(ExitCode.FAILED)
 
 
 def main(argv: Sequence[str] | None = None, *, package: str = PACKAGE, out: TextIO | None = None, err: TextIO | None = None) -> int:
@@ -73,7 +80,7 @@ def main(argv: Sequence[str] | None = None, *, package: str = PACKAGE, out: Text
         return _status(_load(commands[name], name)(rest))
     except SystemExit as exc:  # a command's own argparse --help or usage error
         return _status(exc.code)
-    except (Exception, KeyboardInterrupt) as exc:
+    except (Exception, KeyboardInterrupt, BaseExceptionGroup) as exc:  # a group can hold a KeyboardInterrupt
         print(f"{PROG} {name}: {describe_error(exc)}", file=err)
         return int(exit_code_for(exc))
 

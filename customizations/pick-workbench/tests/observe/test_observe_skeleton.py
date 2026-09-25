@@ -17,7 +17,13 @@ ROOT = Path(__file__).resolve().parents[4]
 EXTENSION_API = ROOT / "backend/packages/extension-api"
 HARNESS = ROOT / "backend/packages/harness"
 HEAVY = ("deerflow.runtime", "deerflow.config.app_config", "fastapi", "alembic", "langgraph", "dotenv")
-LIGHT_ENTRIES = ("ggwork_pick.observe.versions", "ggwork_pick.observe.clock", "ggwork_pick.observe.errors", "ggwork_pick.observe.admin.__main__")
+LIGHT_ENTRIES = (
+    "ggwork_pick.observe.versions",
+    "ggwork_pick.observe.clock",
+    "ggwork_pick.observe.errors",
+    "ggwork_pick.observe.admin.__main__",
+    "ggwork_pick.observe.admin.args",
+)
 
 
 def _probe(module: str) -> dict:

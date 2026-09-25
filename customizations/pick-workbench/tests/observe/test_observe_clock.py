@@ -68,7 +68,7 @@ async def test_chunked_sleep_stops_when_renewal_fails():
 
 
 @pytest.mark.asyncio
-async def test_chunked_sleep_keeps_to_the_wall_clock():
+async def test_chunked_sleep_keeps_to_its_target():
     """Slow wakes (a renewal taking time) shorten the remaining sleep instead of adding to it."""
     from ggwork_pick.observe.clock import ManualClock, sleep_in_chunks
 
@@ -80,6 +80,39 @@ async def test_chunked_sleep_keeps_to_the_wall_clock():
     await sleep_in_chunks(clock, 130, on_wake=slow_renew)
     assert clock.now() == START + timedelta(seconds=130)
     assert clock.sleeps == (60, 60)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("step", [-3600, 3600], ids=["wall-steps-back", "wall-steps-forward"])
+async def test_chunked_sleep_ignores_wall_clock_steps(step):
+    """An NTP or operator step of the system time neither stretches a breaker pause nor cuts it short."""
+    from ggwork_pick.observe.clock import ManualClock, sleep_in_chunks
+
+    clock = ManualClock(START)
+    stepped = []
+
+    async def renew():
+        if not stepped:
+            stepped.append(step)
+            clock.step_wall(step)
+
+    started = clock.monotonic()
+    await sleep_in_chunks(clock, 130, on_wake=renew)
+    assert clock.sleeps == (60, 60, 10)
+    assert clock.monotonic() - started == 130
+    assert clock.now() == START + timedelta(seconds=130 + step)
+
+
+def test_manual_clock_monotonic_moves_with_time_but_not_with_wall_steps():
+    from ggwork_pick.observe.clock import ManualClock
+
+    clock = ManualClock(START)
+    first = clock.monotonic()
+    clock.advance(12.5)
+    assert clock.monotonic() - first == 12.5 and clock.now() == START + timedelta(seconds=12.5)
+    clock.step_wall(-600)
+    assert clock.monotonic() - first == 12.5 and clock.now() == START - timedelta(seconds=587.5)
+    assert clock.now().tzinfo is UTC
 
 
 @pytest.mark.asyncio
@@ -138,9 +171,10 @@ async def test_system_clock_is_aware_utc_and_really_sleeps():
     clock = SystemClock()
     before = clock.now()
     assert before.tzinfo is UTC
-    started = asyncio.get_running_loop().time()
+    started, mono = asyncio.get_running_loop().time(), clock.monotonic()
     await clock.sleep(0.01)
     assert asyncio.get_running_loop().time() - started >= 0.01
+    assert clock.monotonic() - mono >= 0.01
     assert clock.now() >= before
 
 

@@ -8,7 +8,9 @@ an old name means: sets and cards keep the version they were judged with.
 
 # The collection contract: a new Trends source or a changed request shape is a new collector version, and sets from
 # different collector versions never confirm one another (design 4.11). The self-check compares it with
-# PICK_OBS_EXPECTED_COLLECTOR before any HTTP (D5).
+# PICK_OBS_EXPECTED_COLLECTOR before any HTTP (D5). One version serves both channels (plan 5), so a GSC contract change
+# also bumps it: both services' PICK_OBS_EXPECTED_COLLECTOR change and both crons redeploy together, and Trends sets
+# either side of the bump stop confirming one another (observe-runbook README, "采集合同版本").
 COLLECTOR_VERSION = "obs-collector-v1"
 
 TREND_RULES_VERSION = "trend-rules-v1"  # design 4.9; the full text is fixed by the stage 0 report (TR-05)
