@@ -152,7 +152,7 @@
 | D21 | 任务分支不提交托管副本，跑测试时显式 `--deselect` `test_managed_copy`。批次合并后在集成分支统一执行 `deerflow extensions upgrade` 并提交；完整套件（含 `test_managed_copy`）只在集成分支跑 | 避免各分支的托管副本互相冲突；执行代理不会误以为任务分支必须全绿到托管副本 |
 | D22 | 覆盖率用 `uv run --with coverage` 临时测量，不改锁文件；`ggwork_pick.observe` 要求 ≥80% | 仓库的 dev 组里没有 pytest-cov |
 | D23 | 预算与熔断计数的「当天」：Trends 按 **target_date**（会话 02:00 UTC 截止的那天），20:30 到次日 01:45 的会话同属一天；「连续 2 天」「7 天内 3 次」都按 target_date 数。GSC 的请求计数按 UTC 日，只作配额记录。`ggwp_obs_budget` 主键 (channel, budget_day) | 设计 3.5 表写的是「UTC 日」，照做会在 00:00 把预算清零、解除熄火，重演设计 4.3 要防的放大模式；这是对设计的细化，不改变它的意图 |
-| D24 | 人工决定的生效链：`decisions_state.effective(decisions, upto_id)` 纯函数算出有效状态；采集服务每次发布读 decisions 到当时最大 id，记作 `decisions_version` 冻结进集合。对应确认按 (identity, 平台, 规范化标题) 记，撤销、改标题、改平台、经别名换了身份都失效，要重新确认。别名类决定由 gsc 服务在每轮第 0 步写成新的别名版本（D43）。确认在该通道下一个集合生效：Trends 最长约一天，而 confirmed 本来就要等 D+1 的集合 | 设计 7.1「只读判定行」：智能体实时读 decisions 会让旧卡随撤销而变；冻结进集合，旧集合永远不变 |
+| D24 | 人工决定的生效链：`decisions_state.effective(decisions, upto_id)` 纯函数算出有效状态；采集服务每次发布读 decisions 到当时最大 id，记作 `decisions_version` 冻结进集合。对应确认按 (identity, 平台, 规范化标题) 记，撤销、改标题、改平台、经别名换了身份都失效，要重新确认；失效是永久的，改回不恢复（G3）：Trends 每个会话开头按上一份失效账本（最近一个折叠过的会话，不论是否发布集合）加上它读到的批次之后新发布的各共享批次，算出新的账本存进会话批次，发布时冻结进 `FrozenInputsTrends.lapsed_confirmations`。别名类决定由 gsc 服务在每轮第 0 步写成新的别名版本（D43）。确认在该通道下一个集合生效：Trends 最长约一天，而 confirmed 本来就要等 D+1 的集合 | 设计 7.1「只读判定行」：智能体实时读 decisions 会让旧卡随撤销而变；冻结进集合，旧集合永远不变 |
 | D25 | 页面集合 P 只由身份与 `FrozenInputs`（正典 id、冻结镜像版本的 `rs_ids`、冻结旧页快照）产出，不读明细；明细汇总与过滤请求共用这一份 | 从明细收集 P 会让「整部剧漏在明细外」时两份下界都为 0 而判一致，反例 22 假绿 |
 | D26 | Vh 每轮重取、从不复用。Vd 结果在满足三条时跨轮沿用：它比较的 14 个 PT 日与本轮相同；这 14 天的 D/E 切片生效版本 id 都没变；每天的 dataState 都没变。V 状态行记下这三样，任一条不满足就对受影响的身份重取 | 设计 5.2 定 Vd「每天一次」，每轮全量重取既违背频率又浪费配额；只按「是不是本轮取的」判断又会让 8 个集合里只有 1 个带 7 天正式标签 |
 | D27 | 每轮取两份日级同口径总量：A″a（`[date]`/`all`/`byPage`）与 A″f（`[date]`/`final`/`byPage`），各覆盖最近 16 个 PT 日，写进 `ggwp_gsc_totals`。A 与 A′ 照设计每轮取。7 天全站层逐日按当天明细的 dataState 选 A″f 或 A″a | 设计 5.2 只写了 A″ 的 `all`，5.6 却要求 A″ 与明细同一 dataState，这是设计遗留的缺口；两次日级请求很便宜 |
@@ -252,7 +252,7 @@
 | `eligibility.py` | 智能体资格真值表（D31） | TR-10 |
 | `status_rules.py` | 状态码到横幅级别的分类，含按时间判陈旧 | TR-10 |
 | `leadtime.py` | eval-rules-v1 事件清单与四个提前量指标（D37） | TR-10 |
-| `decisions_state.py` | 人工决定 → 有效状态（D24） | TR-35 |
+| `decisions_state.py`、`catalog_history.py` | 人工决定 → 有效状态（D24）；对应确认失效的原因，只读地读共享剧库批次（G3） | TR-35 |
 | `store.py` | 观测表通用读写：集合发布、判定行、联动物化、提示、里程碑、发现、清理（D30） | TR-20 |
 | `read.py` | gateway 侧：按集合与身份读判定行与联动行，跨批次映射 | TR-26 |
 | `decisions.py` | gateway 侧：追加写人工决定 | TR-25 |
@@ -262,6 +262,7 @@
 | `trends/__main__.py` | cron 入口：`run`、`status`、`--selfcheck-only` | TR-14 |
 | `trends/run.py` | 会话执行器：批次、`window_end`、续跑、硬截止；发布接线由 TR-20 加 | TR-14、TR-20 |
 | `trends/units.py` | 查询单元、任务清单展开、截断顺序；`WatchTaskSource`（TR-18）、种子单元（TR-19） | TR-14 |
+| `trends/lapses.py` | 对应确认的失效账本：会话开头折叠、随计划存进批次行、逐会话接力（D24，G3 复审） | TR-35（G3），TR-20 接线 |
 | `trends/canary.py`、`canary_controls.json` | 金丝雀任务来源；对照清单（身份键与 geo） | TR-14、TR-05 |
 | `trends/source.py`、`client.py`、`parse.py`、`cookies.py`、`egress.py` | `TrendsSource` 协议、httpx 直连、解析与 10 种 fetch_status、cookie 罐、出口探测 | TR-02、TR-04 |
 | `trends/pacing.py`、`breaker.py`、`budget.py` | 令牌桶与分段、熔断、按 target_date 的预算与模式上限 | TR-03 |
@@ -583,9 +584,9 @@
 - **文件**：`gp/observe/decisions_state.py`；`t/observe/test_decisions_state.py`。
 - **规格**
   - `effective(decisions, upto_id) -> EffectiveDecisions`（不可变）：按 id 顺序应用，后者覆盖前者。内容：别名确认、拒绝、手动配对（交给 D43 的别名刷新写成新版本）；对应确认（键 = identity、平台、规范化标题）；人工加入与暂停（生效条目上限 50）；歧义改判；提示标无关。
-  - 对应确认失效的情形：撤销；该身份在当前共享批次里的规范化标题或平台变了；该身份经别名换成了新身份。
+  - 对应确认失效的情形：撤销；确认之后任一共享批次里该身份的规范化标题或平台变过、身份不在批次里、批次明细已清理无从核对；手动配对把它当旧身份配走。失效永久，改回不恢复，只有新的确认能恢复（G3 评审 P2-2）：`lapse_causes(state, carried, sightings)` 累加并记下每条失效的原因与批次（`lapse` 是它的 id 版），`catalog_history.read_sightings` 只读地读批次，`trends/lapses.py` 的账本逐会话接力（G3 复审 P2），`correspondence(..., lapsed=)` 按冻结的失效集合判。
   - 读取函数 `read_decisions(conn, upto_id)` 只读。
-- **测试**：`test_confirm_then_revoke`；`test_title_change_invalidates_confirmation`；`test_alias_change_requires_reconfirm`；`test_old_set_unchanged_after_revoke`（decisions_version=k 的集合不受 k 之后的决定影响）；`test_watch_add_cap_50_effective`；`test_order_by_id_deterministic`；`test_unknown_kind_rejected`。
+- **测试**：`test_confirm_then_revoke`；`test_title_change_invalidates_confirmation`；`test_alias_change_requires_reconfirm`；`test_old_set_unchanged_after_revoke`（decisions_version=k 的集合不受 k 之后的决定影响）；`test_watch_add_cap_50_effective`；`test_order_by_id_deterministic`；`test_unknown_kind_rejected`。G3 加：`test_title_revert_does_not_restore_confirmation`、`test_platform_revert_does_not_restore_confirmation`、`test_alias_swap_and_back_does_not_restore_confirmation`、`test_old_set_keeps_its_frozen_lapses`、`test_lapse_causes_name_the_batch_and_how`、`test_every_batch_in_the_window_counts_even_one_before_the_confirmation`；`t/observe/test_catalog_history.py`（两种库，含内容复用后重新发布的批次、没有要问的身份也读窗口）；`t/observe/test_trends_lapses.py`（账本、没发布集合的夜晚之后不因清理批次全部失效、三个会话 A→B→A、读不回来的账本不被跳过）。
 - **验收**：纯函数覆盖率 ≥90%。
 
 ### TR-17 Trends 判定规则（批次 2b-i，1.0 人日，依赖阶段 0 报告过 G2）
@@ -664,7 +665,7 @@
 - **文件**：`gp/observe/store.py`、`trends/publish.py`、`trends/run.py`（加发布接线）；`t/observe/test_trends_publish.py`、`test_store.py`、`test_store_prune.py`。
 - **规格**
   - `store.py` 提供：发布集合（channel、mode、`frozen_inputs_json`、`decisions_version`）；写判定行；联动物化（新集合 × 对方通道最新的同模式集合，D13）；写提示（D37）；写里程碑；写发现；清理（D30）；发布前检查 `PICK_DB_SIZE_CAP_BYTES`。全部经 `LeasedWriter`，集合、判定行、联动行在同一事务里提交。每个公开函数的第一个参数是 `LeasedStep`（只读的是 `ReadStep`），导出给采集代码的名字登记进 `test_write_paths.py` 的 `DOORS`（`test_store_takes_a_step` 检查签名）。超过 30 秒的步骤（大批清理、联动物化）用 `writer.step(limits=StepLimits(...))` 只放宽这一步。
-  - Trends 批次收尾：会话开头读 `FrozenInputs`；先按规则判定，再对 first 命中做一致性复取（预算 ≤50），标出 unstable；用 TR-35 的有效状态写对应确认状态进判定行；然后发布。`PICK_OBS_PUBLISH=1` 时集合为 live，否则为 shadow。
+  - Trends 批次收尾：会话开头读 `FrozenInputs`；先按规则判定，再对 first 命中做一致性复取（预算 ≤50），标出 unstable；用 TR-35 的有效状态与本会话折叠出的失效账本（`trends/lapses.py`：会话开头折叠，随计划存进批次行，不论是否发布；集合冻结它的 `lapsed`，日志与 `summary_json` 写 `describe` 的一行）写对应确认状态进判定行（接线见 progress.md 的 TR-35 交接）；然后发布。`PICK_OBS_PUBLISH=1` 时集合为 live，否则为 shadow。
   - 判定行存全部中间量与原始计数。没刷新到的行沿用上次状态和自己的 `window_end`，标 `carried_over`；超过 3 天记 `stale`。A 档覆盖率低于 80% 不发布，上一个集合继续生效，批次写红色状态码。
   - 清理：见 D30；请求与原始表 35 天；提示与里程碑 180 天。
 - **测试**
@@ -672,7 +673,8 @@
   - `test_prune_respects_references`；`test_prune_keeps_current_live_per_channel`：开关关闭后连发 4 个 shadow，当前 live 仍在。`test_prune_per_channel`：GSC 的 8 个集合不挤掉 Trends。`test_prune_race_with_candidate`：清理与候选物化并发，候选要么拿到完整证据，要么报「已过保留期」，不会有半截证据。
   - `test_sets_immutable`：原始数据、规则、别名分别升级后，旧集合的判定行不变。`[反例 9]` `test_alerts_dedupe`（`[反例 20]`）；`test_shadow_alerts_do_not_consume_live_dedupe`。
   - `test_links_same_mode_only`：shadow 集合只和 shadow 配对，live 只和 live 配对。`test_decisions_version_frozen`。`test_shadow_vs_live`。
-- **验收**：用加速时钟跑连续 3 个模拟日，集合、carried_over、stale、提示去重、联动、清理结果都与预期表一致。
+  - D24 接线（G3 复审）：`test_correspondence_lapse_carried_across_sets`（三个模拟日标题 A→B→A，第三天仍是 unconfirmed，新确认后恢复）；`test_lapse_ledger_reused_batch`；`test_lapse_ledger_pruned_batch_named`；`test_lapse_ledger_after_withheld_session`；`test_lapse_ledger_resume_not_recomputed`；`test_lapsed_confirmations_frozen_nontrivial`（冻结值等于账本，模拟里有非空的一天，挡住恒为 `[]` 的实现）。
+- **验收**：用加速时钟跑连续 3 个模拟日，集合、carried_over、stale、提示去重、联动、清理、对应确认的失效结果都与预期表一致。G4 核对 D24 接线：上面六个用例在真实 `run.py` 上通过，且三日模拟里 `lapsed_confirmations` 有非空的一天。
 
 ### TR-23a GSC 逐剧核对与两层准入（批次 2b-ii，1.5 人日，依赖 TR-09、TR-21、TR-22）
 - **目标**：实现设计 5.6 的两层准入、前提 3、4，以及 D25、D26 在请求层的落地。

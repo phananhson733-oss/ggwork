@@ -155,8 +155,25 @@
 - **TR-18（观察清单、歧义、别名）**
   - 人工加入、暂停、歧义改判都记在写入时的身份上，不跟别名走。要不要沿集合冻结的别名版本映射，由 TR-18 定；如果映射，清单按映射后的结果去重。网关按原始条目计数，只会比映射后的多，所以不会让生效条目超过 50。
   - 歧义改判不随标题失效：改名以后，原来的 clear 仍然有效。如果改名后要重新判定，由 TR-18 在拿得到批次历史的地方处理。
-  - 对应确认只比较当前批次的（平台、规范化标题）与最近一次确认的键，不看中间的批次，所以标题改回旧值、别名换回旧身份，确认都会恢复。如果要更严格（改过一次就永久失效），需要把批次历史作为输入，要在 G 节点提出。
+  - 对应确认的键函数：提供一个 `key_of(payload) -> CorrespondenceKey | None`，把共享剧库里一行剧目变成（平台、规范化标题）。判定行的 theater、normalized_title 与下面 TR-20 的 `read_sightings` 必须用同一个函数，否则同一部剧在两边的键对不上，会被当成改了标题而失效。
+- **G3 修订（评审 P2-2，D24；g3-d24 复审后改为逐会话账本）：对应确认的失效是累积的账本，改回不恢复**
+  - 原来只比较当前批次的键与最近一次确认，标题 A→B→A、别名换走再换回，确认都会自动恢复，违反 D24。共享剧库批次两三天就清理明细（`KEEP_BATCHES=3`，一天两次拉取），内容相同的批次还会以新的 `published_at` 重新发布，所以不能在需要时再回看批次表；失效要在看到的当时记下来，逐个会话往下传。
+  - 纯函数：`EffectiveDecisions.correspondence(identity, platform, normalized_title, *, lapsed)` 多了必填的 `lapsed`。`lapse_causes(state, carried, sightings)` 返回 `{决定 id: LapseCause(reason, batch_id)}`，reason 是 changed（平台或规范化标题变了）、absent（批次里没有这个身份）、unverifiable（批次明细已清理，核对不了）、carried（只知道 id，没有原因）；只留仍是该身份最近一次确认的决定 id。`lapse(state, lapsed, sightings)` 是它的 id 版。手动配对 `alias_pair` 直接清掉旧身份的确认。
+  - 读取：`catalog_history.read_sightings(conn, identities, *, upto, after, key_of)`，只读，两种库。每个 `Sighting` 带批次的 `published_at`，最后一个总是 `upto`；没有要问的身份也照读窗口，因为账本要记下读到哪个批次。
+  - 账本：`observe/trends/lapses.py` 的 `LapseLedger`（读到的批次 `through`、它当时的 `published_at` 即 `through_at`、`version`、每条失效的原因），以及 `fold`、`latest_ledger`、`ledger_in`、`after_of`、`describe`。账本不进合同，存在会话批次的 `plan_json.notes.lapses`（`LEDGER_NOTE`）。合同只有 `FrozenInputsTrends.lapsed_confirmations`（必填，升序，不大于 `decisions_version`；GSC 没有这一列）。
+  - **TR-20 接线**（在 `open_batch` 建计划的那一步里做，与读冻结输入同一步）：
+    1. `state = await read_effective(step)`，`state.version` 就是集合要冻结的 `decisions_version`。
+    2. `previous = await latest_ledger(step, target_date)`：target_date 之前最近一个带账本的 Trends 会话批次，不管它有没有发布集合、有没有被拒或失败。读不回来就退出码 3，不拿更早的账本顶替（顶替会让新账本记下的失效复原）。
+    3. `sightings = await read_sightings(step, state.correspondences, upto=source_catalog_batch_id, after=after_of(previous), key_of=TR-18 的函数)`，`ledger = fold(state, previous, sightings)`。`after` 是上一份账本读到的那个批次当时的 `published_at`，两边都是 gateway 盖的时间戳，不用采集服务的时钟，也不用留余量。
+    4. `ledger.to_dict()` 放进计划的 `notes["lapses"]`，随计划写进批次行。午夜后续跑用 `ledger_in(batch.plan)` 读回，不重算。
+    5. 集合冻结 `lapsed_confirmations = list(ledger.lapsed)`；判定行写 `state.correspondence(identity, theater, normalized_title, lapsed=ledger.lapsed)`。
+    6. `describe(ledger, previous)` 写进会话日志和 `summary_json`，例如「对应确认新失效 3 条（平台或标题变了 0、批次里没有这个身份 0、批次已清理核对不了 3），累计 3 条，读到共享剧库批次 …」；新失效里有「核对不了」时按 warning 记。`status` 的 Trends 段也要显示最近一份账本的这一行（TR-20 或 TR-25 做），不要让值守去翻 plan_json。
+    - canary 会话可以照样折叠（没有确认时只读批次行，不读剧目），这样账本从金丝雀期就连上；不折叠也可以，第一个 stable 会话 `previous=None`，只读当前批次。
+    - D30 的清理（TR-20）不能删掉最新一份带账本的 `ggwp_obs_batches` 行。删了，下一会话只能从当前批次读起，中间的变化就看不到了。
+  - **TR-20 的测试**（计划 TR-20 的测试清单已列名）：`test_correspondence_lapse_carried_across_sets`（连续三个模拟日标题 A→B→A，第三天仍是 unconfirmed，新确认后恢复）；`test_lapse_ledger_reused_batch`（A 以新的 `published_at` 重新发布）；`test_lapse_ledger_pruned_batch_named`（窗口里有清理过的批次：全部确认失效，日志与 `summary_json` 写出批次 id 与「核对不了」条数）；`test_lapse_ledger_after_withheld_session`（没发布集合的会话之后，下一会话从它的账本接着累加，窗口里不出现已清理的旧批次）；`test_lapse_ledger_resume_not_recomputed`；`test_lapsed_confirmations_frozen_nontrivial`（冻结进集合的 `lapsed_confirmations` 等于账本，并在模拟里出现非空的一天，挡住恒为 `[]` 的实现）。`test_trends_lapses.py` 已在纯函数与数据库两层验证过这些情形，TR-20 要在真实 `run.py` 上再走一遍。
+  - **TR-24、TR-25（确认按钮）**：确认体的平台与规范化标题取自最新已发布 Trends 集合的判定行（theater、normalized_title），不取实时剧库。折叠只知道批次的先后和决定 id，不知道确认是在哪个批次之后点的，窗口里的批次都算，包括确认之前发布的（G3 复审 P3）。确认取自集合时，下一个窗口从该集合所在会话读到的批次之后开始，窗口里的批次都晚于被确认的状态；取实时剧库时，窗口里较早的旧标题批次会让新确认一出生就失效。上一个会话没发布集合时，最新的集合更早一些；在上一个会话之后点的确认，只核对此后发布的批次。
+  - **取舍**：账本逐会话接力，窗口里只有两次会话开头之间新发布的共享批次，平常是一天两次定时拉取，加上内容有变化的手动同步。共享剧库保留最新 3 个批次，以及 30 天内被候选集引用、被镜像配对的批次，所以只有两次 Trends 会话之间出现超过 3 个没被引用的新批次时（一天里多次内容有变化的手动同步，或 Trends 停跑几天），窗口里才会有已清理的批次。这时全部确认按「核对不了」失效，`describe` 写出条数，账本写出批次 id。另外两种情形也会让确认失效，都按保守处理：某个批次里没有这个身份（上游漏了这部剧，或经 accept-empty 发布了空批次，后者会让全部确认失效）；手动配对把它当旧身份配走（决定一写入就清掉，即使 gsc 的别名刷新之后拒掉了这次配对）。如果实测「核对不了」频繁，可以让共享剧库的清理多保留晚于最新账本 `through_at` 的批次（改 gateway 的 `prune_shared`，要与另一会话协调并估算容量），本轮不改。
 - **D43 的别名刷新**（TR-18 的 `alias.refresh()`，TR-23b 接线）：`alias_verdicts` 是 `{alias_id: AliasMark(decision_id, verdict)}`，`alias_pairs` 是 `{old_identity: PairMark(decision_id, new_identity)}`。跨种类按 `decision_id` 重放，后者覆盖前者。例如先手动配对 SLUG→X、后确认建议 SLUG→Y，应以后者为准，而不是当成多对多一起拒掉。
 - **TR-33 或 G 节点（合同）**
-  - `CorrespondenceConfirm.platform` 至少 1 个字，而 `DramaInput.theater` 默认是空串、`StateRow.theater` 允许空串，所以平台为空的 Trends 行永远确认不了，只能停在 unconfirmed，进不了正式推荐。要么合同放宽，要么在合同文档里写明「平台为空不可确认」。
+  - （G3 已定）`CorrespondenceConfirm.platform` 至少 1 个字，不放宽：平台为空的 Trends 行确认不了，只能停在 unconfirmed。合同文档已写明；页面怎么提示见 decisions.md（TR-24、TR-25 不要给这种行确认按钮）。
   - 合同的 `MAX_ROW_ID` 是 2^63−1，0007 的 id 列却是 Integer（PG 上是 int4）。`read_decisions` 已改为按 bigint 绑定 `upto_id`；其他拿决定里的 `alias_id`、`alert_id` 去比 int4 列的查询，也要按 bigint 绑定或先限幅，否则超过 2^31−1 的值会让 asyncpg 抛 DataError，报错里还带着这个值。
