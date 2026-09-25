@@ -8,6 +8,7 @@ Google's documented envelope and are replaced by TR-07's recorded ones.
 
 import json
 import logging
+import re
 import subprocess
 import sys
 from datetime import UTC, date, datetime, timedelta, timezone
@@ -154,6 +155,14 @@ async def test_token_rejected(key, reply, hint):
     assert "Invalid JWT" not in str(error) and "Client is unauthorized" not in str(error)
 
 
+@pytest.mark.asyncio
+async def test_token_endpoint_failures_classified(key):
+    for reply, kind in ((google_error(503, "UNAVAILABLE", "Backend Error"), "server_error"), (httpx.Response(429), "quota_short")):
+        fake = FakeGoogle(key.public_key(), token_replies=[reply])
+        error = await failure(fake, key)
+        assert (error.endpoint, error.kind, error.status) == ("token", kind, reply.status_code) and len(fake.query_calls) == 0
+
+
 # ---- the request body (rs:src/lib/gsc-encoding.ts:47-76, gsc-api.ts:118-143) ------------------------------------------
 
 
@@ -224,8 +233,8 @@ async def test_query_on_the_wire(key):
     assert call.url.raw_path == b"/webmasters/v3/sites/sc-domain%3Adramashortstv.com/searchAnalytics/query"
     assert sent_body(call) == query_body(query)
     prefix = FakeGoogle(key.public_key(), query_replies=[ok()])
-    config = load_config(env(key, PICK_GSC_SITE_URL="https://dramashortstv.com/"))
-    async with GscClient(config, transport=prefix.transport(), clock=ManualClock(NOW)) as gsc:
+    prefix_env = env(key, PICK_GSC_SITE_URL="https://dramashortstv.com/")
+    async with GscClient.from_env(prefix_env, transport=prefix.transport(), clock=ManualClock(NOW)) as gsc:
         await gsc.query(query)
     assert prefix.query_calls[0].url.raw_path == b"/webmasters/v3/sites/https%3A%2F%2Fdramashortstv.com%2F/searchAnalytics/query"
 
@@ -262,7 +271,10 @@ def test_rows_parsed_strictly():
     assert parsed.keys == ("2026-09-24T01:00:00-07:00", "https://x/", "usa")
     assert (parsed.clicks, parsed.impressions, parsed.ctr, parsed.position) == (2, 30, 0.1, 4.5)
     assert isinstance(parsed.clicks, int) and good.fetched_at == NOW and good.query is query
+    # A count GSC did not send is never read as 0 (design 5.3: no asserted zero); the whole response fails instead.
+    missing = [{name: value for name, value in row("a", "b", "c").items() if name != field} for field in ("clicks", "impressions", "ctr", "position")]
     for bad in (
+        *({"rows": [item]} for item in missing),
         {"rows": [row("2026-09-24T01:00:00-07:00", "https://x/")]},  # fewer keys than dimensions
         {"rows": [row("a", "b", "c", clicks=1.5)]},
         {"rows": [row("a", "b", "c", impressions=-1)]},
@@ -302,6 +314,9 @@ def test_metadata_parsed():
         {"first_incomplete_date": 20260924},
         {"first_incomplete_hour": "2026-09-24T17:00:00-07:00", "firstIncompleteHour": "2026-09-24T18:00:00-07:00"},
     ):
+        with pytest.raises(ResponseShapeError, match="metadata"):
+            parse_response(query, {"metadata": bad}, fetched_at=NOW)
+    for bad in ("2026-09-24", {"first_incomplete_hour": 17}):
         with pytest.raises(ResponseShapeError, match="metadata"):
             parse_response(query, {"metadata": bad}, fetched_at=NOW)
 
@@ -458,6 +473,18 @@ def test_credentials_from_file(key, tmp_path):
     not_json.chmod(0o600)
     with pytest.raises(GscConfigError, match="服务账号"):
         load_config({"PICK_GSC_SA_FILE": str(not_json), "PICK_GSC_SITE_URL": SITE})
+    locked = sa_file(tmp_path, key, mode=0o000)
+    with pytest.raises(GscConfigError, match="打不开"):
+        load_config({"PICK_GSC_SA_FILE": str(locked), "PICK_GSC_SITE_URL": SITE})
+    folder = tmp_path / "folder"
+    folder.mkdir(mode=0o700)
+    with pytest.raises(GscConfigError, match="普通文件"):
+        load_config({"PICK_GSC_SA_FILE": str(folder), "PICK_GSC_SITE_URL": SITE})
+    huge = tmp_path / "huge.json"
+    huge.write_text(" " * (auth.MAX_KEY_FILE_BYTES + 1))
+    huge.chmod(0o600)
+    with pytest.raises(GscConfigError, match="字节"):
+        load_config({"PICK_GSC_SA_FILE": str(huge), "PICK_GSC_SITE_URL": SITE})
 
 
 @pytest.mark.parametrize("site", ["sc-domain:dramashortstv.com", "https://dramashortstv.com/", "https://www.dramashortstv.com/en/"])
@@ -517,3 +544,23 @@ def test_gsc_client_import_is_light():
     modules = json.loads(done.stdout.strip().splitlines()[-1])
     heavy = ("deerflow", "fastapi", "alembic", "langgraph", "langchain", "dotenv", "ggwork_pick.context", "ggwork_pick.routes", "ggwork_pick.service")
     assert [name for name in modules if any(name == prefix or name.startswith(prefix + ".") for prefix in heavy)] == []
+
+
+def test_gsc_runbook_matches_the_code():
+    """docs/pick-workbench/observe-runbook/gsc-client.md names every error kind, variable and number the code uses."""
+    from ggwork_pick.observe.gsc import client as gsc_client
+
+    text = (SOURCE.parents[1] / "docs/pick-workbench/observe-runbook/gsc-client.md").read_text()
+    kinds = re.findall(r"^\| `([a-z_]+)` \|", text.split("## 错误种类", 1)[1], flags=re.MULTILINE)
+    assert kinds == list(gsc_client.ERROR_KINDS)
+    variables = re.findall(r"^\| `(PICK_GSC_[A-Z_]+)` \|", text, flags=re.MULTILINE)
+    assert variables == [auth.EMAIL_ENV, auth.KEY_ENV, auth.FILE_ENV, gsc_client.SITE_ENV]
+    numbers = {
+        f"`rowLimit` 固定 {ROW_LIMIT}": ROW_LIMIT == 25_000,
+        "到期前 5 分钟": gsc_client.TOKEN_REFRESH_MARGIN_SECONDS == 300,
+        "90 秒内": gsc_client.REQUEST_SECONDS == 90,
+        "超过 32 MB": gsc_client.MAX_BODY_BYTES == 32_000_000,
+        "截断到 500 字": gsc_client.DETAIL_CHARS == 500,
+        "有效期 1 小时": auth.ASSERTION_SECONDS == 3600,
+    }
+    assert {phrase: phrase in text and holds for phrase, holds in numbers.items()} == dict.fromkeys(numbers, True)

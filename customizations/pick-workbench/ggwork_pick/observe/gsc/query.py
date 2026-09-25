@@ -38,6 +38,11 @@ _METADATA_FIELDS = {"first_incomplete_date": "firstIncompleteDate", "first_incom
 MAX_WATERMARK_LENGTH = 40  # contract_rows.TotalsRow.watermark
 
 
+def format_day(day: date) -> str:
+    """A GSC date (YYYY-MM-DD). Stored stamps are repository.stamp()'s, never isoformat() (test_pg_compat)."""
+    return day.strftime("%Y-%m-%d")
+
+
 class ResponseShapeError(ValueError):
     """A 200 whose body is not what GSC promises. The message names the field, never a value."""
 
@@ -121,7 +126,7 @@ class GscQuery:
         """For a log line or an error: the shape and the dates, never the filter expressions."""
         shape = "/".join(filter(None, (f"[{','.join(self.dimensions)}]", self.data_state, self.aggregation_type)))
         filtered = "（带过滤）" if self.dimension_filter_groups else ""
-        return f"searchAnalytics.query {shape} {self.start_date.isoformat()}…{self.end_date.isoformat()}{filtered}"
+        return f"searchAnalytics.query {shape} {format_day(self.start_date)}…{format_day(self.end_date)}{filtered}"
 
 
 def query_body(query: GscQuery) -> dict:
@@ -131,8 +136,8 @@ def query_body(query: GscQuery) -> dict:
         **({"dimensionFilterGroups": _thaw(query.dimension_filter_groups)} if query.dimension_filter_groups else {}),
     }
     return {
-        "startDate": query.start_date.isoformat(),
-        "endDate": query.end_date.isoformat(),
+        "startDate": format_day(query.start_date),
+        "endDate": format_day(query.end_date),
         "dimensions": list(query.dimensions),
         "type": SEARCH_TYPE,
         "dataState": query.data_state,

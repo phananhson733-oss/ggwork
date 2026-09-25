@@ -108,21 +108,32 @@ def _email(value: object, source: str) -> str:
     return text
 
 
+def _read_up_to(descriptor: int, limit: int) -> bytes:
+    chunks, size = [], 0
+    while size < limit and (chunk := os.read(descriptor, min(65536, limit - size))):
+        chunks.append(chunk)
+        size += len(chunk)
+    return b"".join(chunks)
+
+
 def _read_key_file(path: Path) -> bytes:
-    """The file's bytes, after checking on the open file itself that nobody but its owner can read or write it."""
+    """The file's bytes, after checking on the open descriptor itself (no race with a swap of the path) that it is a
+    regular file nobody but its owner can read or write. O_NONBLOCK: a FIFO is refused instead of waited on."""
     try:
-        descriptor = os.open(path, os.O_RDONLY)
+        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
     except FileNotFoundError:
         raise GscConfigError(f"{FILE_ENV} 指向的文件不存在") from None
     except OSError:
         raise GscConfigError(f"{FILE_ENV} 指向的文件打不开") from None
-    with os.fdopen(descriptor, "rb") as handle:
-        status = os.fstat(handle.fileno())
+    try:
+        status = os.fstat(descriptor)
         if not stat.S_ISREG(status.st_mode):
             raise GscConfigError(f"{FILE_ENV} 指向的不是普通文件")
         if status.st_mode & 0o077:
             raise GscConfigError(f"{FILE_ENV} 的权限宽于 600（组或其他用户可读写），先 chmod 600 再用")
-        content = handle.read(MAX_KEY_FILE_BYTES + 1)
+        content = _read_up_to(descriptor, MAX_KEY_FILE_BYTES + 1)
+    finally:
+        os.close(descriptor)
     if len(content) > MAX_KEY_FILE_BYTES:
         raise GscConfigError(f"{FILE_ENV} 超过 {MAX_KEY_FILE_BYTES} 字节，不是服务账号的 JSON 密钥")
     return content
