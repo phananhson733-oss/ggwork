@@ -41,7 +41,7 @@
 
 ## 四格验证（每次发布与回滚）
 
-在**要部署的那个提交**上跑（前端在守卫所用的检出里跑：守卫导出的目录只有已跟踪的文件，没有依赖），revert 提交也不例外。测试部分在跑守卫之前做完，守卫通过后立即部署（`deploy-guard.md`「通过之后立即部署」）；手工核对在部署之后。结果（命令与通过数）写进 progress.md，放在守卫记录行旁边的普通一行里：只有带 `pick-deploy-guard target=` 的行算守卫记录，别的行不影响守卫。
+在**要部署的那个提交**上跑（前端在守卫所用的检出里跑：守卫导出的目录只有已跟踪的文件，没有依赖），revert 提交也不例外。测试部分在跑守卫之前做完，守卫通过后立即部署（`deploy-guard.md`「通过之后立即部署」）；手工核对在部署之后。结果（命令与通过数）先记在工作区之外（终端输出或本机的临时文件）：守卫要求工作区干净、HEAD 等于 `ggwork/main`，跑守卫之前改 progress.md 会被拒。部署并核对之后，把结果写成普通的一行，与守卫记录行一起追加进 progress.md、一起提交（只有带 `pick-deploy-guard target=` 的行算守卫记录，别的行不影响守卫）。
 
 | 格 | 前端（每次前端发布或回滚） | gateway（每次 gateway 发布或回滚） | 部署后在生产上手工核对（登录用户） |
 |---|---|---|---|
@@ -59,7 +59,14 @@ pnpm test tests/unit/core/pick/contract-fixtures.test.ts
 
 第一条的输出里必须有四行 ✓，名字分别以 `F1 x old card`、`F1 x new card`、`F1 x mixed session`、`F1 x stored snapshots` 开头，汇总是 `Tests 4 passed`。少一行、改了名、被跳过，或者报找不到测试文件，都按没过处理：revert 掉 TR-16 的提交通常连这些用例一起删掉，只看「全绿」会漏掉它。退出码 0 也不够：`-t` 一个也没匹配到时，rstest 把整个文件记为 skipped，照样以 0 退出（2026-09-25 在 rstest 0.10.6 上核实）。然后照常跑一遍 `pnpm test` 与 `pnpm typecheck` 全量。
 
-**gateway 的命令**：在要部署的提交上跑扩展完整套件（两种库，不带 `-k`，计划第 10 节 S3），并确认上表 gateway 一列点名的测试文件都在、都通过；S13 起还要确认 TR-27 的后端两格在输出里、TR-36 通过。按 D21，完整套件在集成分支与 main 上跑，含 `test_managed_copy`。
+**gateway 的命令**（仓库根目录下）：在要部署的提交上先跑扩展完整套件（两种库，不带 `-k`，计划第 10 节 S3；按 D21 在集成分支与 main 上跑，含 `test_managed_copy`），再把上表 gateway 一列点名的文件单独跑一遍、逐个看结果。`PICK_TEST_PG_URL` 指向本机一次性的 PostgreSQL 17（起法见 `local-run.md`「扩展单元测试」），绝不是生产库：用例会在上面建删数据库和角色。
+
+```sh
+PICK_TEST_PG_URL=<一次性测试库> backend/.venv/bin/python -m pytest customizations/pick-workbench/tests -q -rs -p no:cacheprovider
+PICK_TEST_PG_URL=<一次性测试库> backend/.venv/bin/python -m pytest -v -rs -p no:cacheprovider customizations/pick-workbench/tests/test_frontend_contract.py customizations/pick-workbench/tests/test_mirror_frozen.py customizations/pick-workbench/tests/test_routes.py customizations/pick-workbench/tests/test_restart_persistence.py
+```
+
+第一条以 0 退出，`-rs` 列出的跳过原因里没有 `PICK_TEST_PG_URL is not set`。第二条的输出里，四个文件每个都有 `PASSED` 行，而且 `[sqlite…]` 与 `[postgres…]` 两种参数都在；汇总只有 passed，skipped 为 0。少一个文件、报找不到文件、有 skipped，都按没过处理：没设 `PICK_TEST_PG_URL` 时 PG 那一半整体跳过，skip 不算失败，pytest 照样以 0 退出（2026-09-25 核实：设了时这四个文件 35 passed、0 skipped；不设时 16 passed、19 skipped，退出码 0）。S13 起还要确认 TR-27 的后端两格在输出里、TR-36 通过。
 
 **cron 的部署**不产出卡片，不跑四格；它的合同是采集合同版本与迁移头，由启动自检与 S6 的包摘要核对（`packaging.md` 第 6 节）。
 
