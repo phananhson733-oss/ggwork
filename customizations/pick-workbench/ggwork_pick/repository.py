@@ -392,11 +392,13 @@ class PickRepository:
         catalog_id, knowledge_id = pairing.pair_ids(batches)
         pairing.check_schema_name(schema_name)
         role = pairing.reader_role(reader_role)
+        observer = pairing.observer_role()
         updates = self._batch_updates(batches, pairing.check_moment(t))
         async with self._write() as session:
             if not pairing.is_postgres(session):
                 raise RuntimeError("镜像版本只在 PostgreSQL 上发布")
             granted = await pairing.grant_reader(session, schema_name, role)
+            await pairing.grant_observer(session, schema_name, observer)
             await pairing.publish_batches(session, self.owner_id, updates)
             await pairing.flip_version(session, version_id=version_id, schema_name=schema_name, t=t, catalog_id=catalog_id, knowledge_id=knowledge_id)
             await pairing.settle_control(session, accept_empty_used=accept_empty_used, accept_empty_seen=accept_empty_seen)

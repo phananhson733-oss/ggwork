@@ -17,6 +17,9 @@ from ggwork_pick.models import import_batches
 
 READER_ROLE_ENV = "PICK_MIRROR_READER_ROLE"
 DEFAULT_READER_ROLE = "pick_board_reader"
+# The trends radar's collectors (TR-12, D15): each version's rs_ids and nothing else of it; migration 0007 reads the same variable.
+OBSERVER_ROLE_ENV = "PICK_OBS_OBSERVER_ROLE"
+DEFAULT_OBSERVER_ROLE = "pick_observer"
 # Same rule as migration 0006's reader role check; the migration is frozen, so the pattern is repeated here.
 _ROLE_NAME = re.compile(r"[a-z_][a-z0-9_]{0,62}")
 _VERSION_SCHEMA = re.compile(r"pickm_v[0-9]{6}")
@@ -58,6 +61,14 @@ def reader_role(value: str | None = None, *, environ: Mapping[str, str] | None =
     role = value if value is not None else ((environ if environ is not None else os.environ).get(READER_ROLE_ENV) or DEFAULT_READER_ROLE)
     if not isinstance(role, str) or not _ROLE_NAME.fullmatch(role):
         raise ValueError(f"{READER_ROLE_ENV} 必须是小写字母、数字、下划线组成的角色名：以字母或下划线开头，不超过 63 个字符")
+    return role
+
+
+def observer_role(value: str | None = None, *, environ: Mapping[str, str] | None = None) -> str:
+    """The observer role to grant, as migration 0007 reads it: the argument, else PICK_OBS_OBSERVER_ROLE, else the default."""
+    role = value if value is not None else ((environ if environ is not None else os.environ).get(OBSERVER_ROLE_ENV) or DEFAULT_OBSERVER_ROLE)
+    if not isinstance(role, str) or not _ROLE_NAME.fullmatch(role):
+        raise ValueError(f"{OBSERVER_ROLE_ENV} 必须是小写字母、数字、下划线组成的角色名：以字母或下划线开头，不超过 63 个字符")
     return role
 
 
@@ -120,6 +131,22 @@ async def grant_reader(session, schema_name: str, role: str) -> bool:
     schema, grantee = quote(check_schema_name(schema_name)), quote(reader_role(role))
     await session.execute(text(f"GRANT USAGE ON SCHEMA {schema} TO {grantee}"))
     await session.execute(text(f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {grantee}"))
+    return True
+
+
+async def grant_observer(session, schema_name: str, role: str) -> bool:
+    """Step 1 as well (trends radar D15): the observer resolves non-canonical ids through the version's rs_ids and reads
+    nothing else of it. Skipped like migration 0007 skips it when the role does not exist, and when the version has no
+    rs_ids, so the observer never fails a pair; `observe.admin regrant --check` reports a version without it."""
+    schema, grantee = check_schema_name(schema_name), observer_role(role)
+    if (await session.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": grantee})).first() is None:
+        return False
+    quote = session.bind.dialect.identifier_preparer.quote
+    schema, grantee = quote(schema), quote(grantee)
+    if (await session.execute(text("SELECT to_regclass(:t)"), {"t": f"{schema}.rs_ids"})).scalar() is None:
+        return False
+    await session.execute(text(f"GRANT USAGE ON SCHEMA {schema} TO {grantee}"))
+    await session.execute(text(f"GRANT SELECT ON {schema}.rs_ids TO {grantee}"))
     return True
 
 
