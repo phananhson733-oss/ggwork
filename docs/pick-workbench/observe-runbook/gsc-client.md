@@ -56,6 +56,8 @@
 
 ## 待 TR-07 实测回填
 
+实测命令与读法见 `gsc-probe.md`：`gsc-probe` 一次跑完 P1–P7，下列各条的实测值在 `gsc-probe-<date>.json` 的 `backfill` 与 raw 文件里（实测待 U1、U2）。
+
 - 真实的短期、长期配额错误正文：换掉测试里按文档信封构造的夹具，必要时收窄分类规则。
 - `metadata` 字段的实际拼法：现在两种拼法都接受，蛇形优先，两种都在且值不同就判 `malformed`。
 - 小时数据加 `byPage` 是否被接受：看 `responseAggregationType`。
