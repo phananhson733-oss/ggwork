@@ -300,8 +300,8 @@ def test_cross_day():
     assert breaker.cap_halved(two, d + timedelta(days=2))
     assert not breaker.cap_halved(two, d + timedelta(days=3))  # the streak must end the day before
     halved = budget.day_limits("canary2", d + timedelta(days=2), two)
-    assert (halved.cap, halved.plan) == (300, 300)
-    assert budget.day_limits("stable", d + timedelta(days=2), two).cap == 400
+    assert (halved.cap, halved.plan) == (225, 225)
+    assert budget.day_limits("stable", d + timedelta(days=2), two).cap == 262
     assert budget.day_limits("canary2", d + timedelta(days=3), two) == budget.mode_limits("canary2")
     # Not consecutive: no halving.
     apart = _extinguished_on([d, d + timedelta(days=2)])
@@ -420,24 +420,24 @@ def _stop(reserved, limits, need=2):
 
 
 def test_canary2_cap_is_the_ceiling_not_the_plan():
-    """Section 9: the cap is the hard ceiling after breaker pauses and retries, not the plan. canary2 plans about 430 and
-    stops at 600; stopping at the plan would cut the units a pause or a retry pushed past 430, against its 95 % freshness
+    """Section 9: the cap is the hard ceiling after breaker pauses and retries, not the plan. canary2 plans 300 (G3) and
+    stops at 450; stopping at the plan would cut the units a pause or a retry pushed past 300, against its 95 % freshness
     with one trip allowed."""
     limits = budget.mode_limits("canary2")
     at_plan = budget.BudgetDay(TARGET, reserved=limits.plan)
-    assert budget.reserve(at_plan, limits).reserved == 431
-    assert budget.remaining(at_plan, limits) == 170
-    assert _stop(430, limits) is None and _stop(598, limits) is None
-    assert _stop(599, limits) == budget.TRUNCATED
+    assert budget.reserve(at_plan, limits).reserved == 301
+    assert budget.remaining(at_plan, limits) == 150
+    assert _stop(300, limits) is None and _stop(448, limits) is None
+    assert _stop(449, limits) == budget.TRUNCATED
     with pytest.raises(budget.BudgetExhausted):
-        budget.reserve(budget.BudgetDay(TARGET, reserved=600), limits)
-    # Halved after two extinguished days in a row: 300 and 300.
+        budget.reserve(budget.BudgetDay(TARGET, reserved=450), limits)
+    # Halved after two extinguished days in a row: 225 and 225.
     halved = limits.halved()
-    assert (halved.plan, halved.cap) == (300, 300)
-    assert budget.reserve(budget.BudgetDay(TARGET, reserved=299), halved).reserved == 300
-    assert budget.remaining(budget.BudgetDay(TARGET), halved) == 300 and _stop(299, halved) == budget.TRUNCATED
+    assert (halved.plan, halved.cap) == (225, 225)
+    assert budget.reserve(budget.BudgetDay(TARGET, reserved=224), halved).reserved == 225
+    assert budget.remaining(budget.BudgetDay(TARGET), halved) == 225 and _stop(224, halved) == budget.TRUNCATED
     with pytest.raises(budget.BudgetExhausted):
-        budget.reserve(budget.BudgetDay(TARGET, reserved=300), halved)
+        budget.reserve(budget.BudgetDay(TARGET, reserved=225), halved)
 
 
 def test_canary2_plan_survives_a_trip_and_a_retry():
@@ -528,37 +528,26 @@ def test_stop_reasons_are_contract_values():
 
 
 def test_mode_caps():
+    """Section 9's table since G3: earlier starts, plans cut to the user pace, caps 1.5 times the plan (canary1's
+    excepted). Whether each fits its window is test_trends_capacity's."""
     table = {name: (m.start, m.plan, m.cap, m.deadline) for name, m in budget.MODES.items()}
     assert table == {
-        "canary1": (time(22, 0), 220, 220, time(1, 45)),
-        "canary2": (time(22, 0), 430, 600, time(1, 45)),
-        "stable": (time(20, 30), 650, 800, time(1, 45)),
+        "canary1": (time(21, 0), 220, 220, time(1, 45)),
+        "canary2": (time(18, 30), 300, 450, time(1, 45)),
+        "stable": (time(17, 30), 350, 525, time(1, 45)),
     }
-    assert budget.mode_limits("canary2").window(TARGET) == (datetime(2026, 9, 25, 22, 0, tzinfo=UTC), datetime(2026, 9, 26, 1, 45, tzinfo=UTC))
+    assert budget.mode_limits("canary2").window(TARGET) == (datetime(2026, 9, 25, 18, 30, tzinfo=UTC), datetime(2026, 9, 26, 1, 45, tzinfo=UTC))
     with pytest.raises(ValueError):
         budget.mode_limits("canary3")
 
 
-@pytest.mark.parametrize(
-    ("name", "start", "plan", "cap", "fits"),
-    [
-        ("canary1", time(22, 0), 220, 220, True),  # 116 of 225 minutes
-        ("canary2", time(22, 0), 430, 600, True),  # 188 of 225
-        ("canary2", time(22, 0), 600, 600, False),  # planning at the cap: 247 of 225 (critique C-29)
-        ("stable", time(20, 30), 650, 800, True),  # 264 of 315
-        ("stable", time(20, 30), 800, 800, False),  # 316 of 315: raising the plan to 800 needs an earlier start
-        ("stable", time(20, 0), 800, 800, True),  # 316 of 345
-        ("stable", time(1, 0), 10, 10, True),  # an after-midnight start is on the target date itself
-        ("stable", time(1, 30), 10, 10, False),  # 43 of 15
-    ],
-)
-def test_mode_plan_fits_window(name, start, plan, cap, fits):
-    if fits:
-        limits = budget.ModeLimits(name, start=start, plan=plan, cap=cap)
-        assert plan / budget.AVERAGE_REQUESTS_PER_MINUTE + budget.BREAKER_MARGIN_MINUTES <= limits.window_minutes()
-    else:
-        with pytest.raises(ValueError):
-            budget.ModeLimits(name, start=start, plan=plan, cap=cap)
+def test_mode_limits_leave_the_fit_to_capacity():
+    """ModeLimits checks its shape only. Until G3 it also refused any plan with plan / 2.9 + 40 minutes over its window,
+    which priced one pause but not the half speed after it and admitted canary2 at 430 from 22:00: a clear night at the
+    user pace covers 89% of that. capacity.mode_fit replaced it (test_trends_capacity; settings refuse a mode that does
+    not fit)."""
+    assert not hasattr(budget, "AVERAGE_REQUESTS_PER_MINUTE") and not hasattr(budget, "BREAKER_MARGIN_MINUTES")
+    budget.ModeLimits("x", start=time(1, 30), plan=800, cap=800)  # the shape is fine; it would not fit (capacity's call)
 
 
 @pytest.mark.parametrize(("plan", "cap"), [(0, 10), (11, 10), (-1, 5), (10.0, 10)])
@@ -591,7 +580,7 @@ def test_budget_calls_refuse_mismatches():
     with pytest.raises(ValueError):
         budget.stop_reason(breaker_state=other, day=day, limits=budget.mode_limits("stable"), now=EVENING)
     assert budget.for_target_date(day, TARGET - timedelta(days=1)) == day  # a clock stepped back reopens nothing
-    assert budget.mode_limits("canary1").halved() == budget.ModeLimits("canary1", start=time(22, 0), plan=110, cap=110)
+    assert budget.mode_limits("canary1").halved() == budget.ModeLimits("canary1", start=time(21, 0), plan=110, cap=110)
 
 
 # ---- persistence ----------------------------------------------------------------------------------------------------

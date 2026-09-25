@@ -17,12 +17,21 @@ The limits, all of them at once:
 Together that averages about 2.9 requests a minute. At half speed (after a successful probe, design 4.3) every gap
 doubles and the bucket refills at half the rate. The state is immutable and round-trips through a plain dict; time
 and randomness always come from the caller.
+
+Two named presets, the one source for stage 0's --pace and the cron's PICK_OBS_TRENDS_PACE (settings.py):
+- design: the numbers above, design 4.2's envelope;
+- user: the user's own tested rhythm, a bucket of 4 refilled at 2 a minute, everything else as design. Stage 0's day 1
+  met a 429 at the 56th request at the design's speed, and none at half of it. The production default (G3, seam 2):
+  about 1.7 requests a minute with the rests, 0.9 at half speed. It limits the average rate; it is not a strict
+  "four, then a minute's pause".
 """
 
 import math
 import random
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from types import MappingProxyType
 from typing import Any, Protocol
 
 from ggwork_pick.observe.trends import state_codec as codec
@@ -55,7 +64,11 @@ class PacingParams:
                 raise ValueError("a gap range must be finite, non-negative and ordered")
 
 
-DEFAULT_PARAMS = PacingParams()
+DESIGN_PARAMS = PacingParams()
+USER_PARAMS = replace(DESIGN_PARAMS, bucket_capacity=4, refill_per_minute=2)
+PRESETS: Mapping[str, PacingParams] = MappingProxyType({"design": DESIGN_PARAMS, "user": USER_PARAMS})
+PRODUCTION_PRESET = "user"  # the cron's default (settings.PICK_OBS_TRENDS_PACE)
+DEFAULT_PARAMS = DESIGN_PARAMS  # what a bare EnvelopePacer() paces at: stage 0's default and the TR-03 tests'
 
 _KEYS = frozenset({"tokens", "settled_at", "recent", "segment_started_at", "last_done_at", "intra_gap", "unit_gap"})
 

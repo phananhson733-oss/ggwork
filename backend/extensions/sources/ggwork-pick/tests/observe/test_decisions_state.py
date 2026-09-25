@@ -29,16 +29,24 @@ from ggwork_pick.models import obs_decisions
 from ggwork_pick.observe import contract
 from ggwork_pick.observe.contract_api import CorrespondenceRevoke
 from ggwork_pick.observe.decisions_state import (
+    CARRIED,
+    LAPSE_REASONS,
     STEPS,
     WATCH_ADD_CAP,
     AliasMark,
+    ConfirmMark,
+    CorrespondenceKey,
     DecisionLogError,
     DecisionRecord,
     EffectiveDecisions,
+    LapseCause,
     PairMark,
+    Sighting,
     UnknownDecisionKind,
     decision_record,
     effective,
+    lapse,
+    lapse_causes,
     latest_id,
     lock_for_append,
     read_decisions,
@@ -53,6 +61,8 @@ X = json.dumps(["realshort", "UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ", "
 Y = json.dumps(["realshort", "UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZg", "en"], separators=(",", ":"))
 SLUG = json.dumps(["kalostv", "kalostv-the-alpha-s-bride-en", "en"], separators=(",", ":"))
 PLATFORM, TITLE = "ReelShort", "the alpha's bride"
+RETITLED = "the alpha's bride returns"
+NONE = frozenset()  # no confirmation has lapsed
 
 
 def _rec(row_id: int, kind: str, **fields) -> DecisionRecord:
@@ -79,65 +89,170 @@ def pair(row_id, old=SLUG, new=X):
     return _rec(row_id, "alias_pair", old_identity=old, new_identity=new)
 
 
+def seen(batch_id, platform=PLATFORM, title=TITLE, identity=X) -> Sighting:
+    """A shared batch holding `identity` under this platform and normalized title."""
+    return Sighting(batch_id, {identity: CorrespondenceKey(platform, title)})
+
+
+def missing(batch_id) -> Sighting:
+    """A shared batch without the identity asked about."""
+    return Sighting(batch_id, {})
+
+
 def _identity(n: int) -> str:
     return json.dumps(["kalostv", f"kalostv-drama-{n}-en", "en"], separators=(",", ":"))
 
 
-# ---- correspondence (design 4.7) ----------------------------------------------------------------------------------
+# ---- correspondence (design 4.7; D24: a confirmation holds for one revision) -------------------------------------
 
 
 def test_confirm_then_revoke():
-    assert effective((), 0).correspondence(X, PLATFORM, TITLE) == "unconfirmed"
-    assert effective((confirm(1),), 1).correspondence(X, PLATFORM, TITLE) == "confirmed"
-    assert effective((confirm(1), revoke(2)), 2).correspondence(X, PLATFORM, TITLE) == "unconfirmed"
+    assert effective((), 0).correspondence(X, PLATFORM, TITLE, lapsed=NONE) == "unconfirmed"
+    assert effective((confirm(1),), 1).correspondence(X, PLATFORM, TITLE, lapsed=NONE) == "confirmed"
+    assert effective((confirm(1), revoke(2)), 2).correspondence(X, PLATFORM, TITLE, lapsed=NONE) == "unconfirmed"
     # Confirmed again after the revocation; revoking another identity touches nothing.
-    assert effective((confirm(1), revoke(2), confirm(3)), 3).correspondence(X, PLATFORM, TITLE) == "confirmed"
-    assert effective((confirm(1), revoke(2, Y)), 2).correspondence(X, PLATFORM, TITLE) == "confirmed"
+    assert effective((confirm(1), revoke(2), confirm(3)), 3).correspondence(X, PLATFORM, TITLE, lapsed=NONE) == "confirmed"
+    assert effective((confirm(1), revoke(2, Y)), 2).correspondence(X, PLATFORM, TITLE, lapsed=NONE) == "confirmed"
     # Every answer is one of the contract's correspondence values, the ones a judgment row stores.
     assert {"confirmed", "unconfirmed"} == set(contract.ENUMS["CORRESPONDENCES"])
 
 
 def test_title_change_invalidates_confirmation():
     state = effective((confirm(1),), 1)
-    assert state.correspondence(X, PLATFORM, "the alpha's bride returns") == "unconfirmed"
-    assert state.correspondence(X, "DramaBox", TITLE) == "unconfirmed"
+    assert state.correspondence(X, PLATFORM, RETITLED, lapsed=NONE) == "unconfirmed"
+    assert state.correspondence(X, "DramaBox", TITLE, lapsed=NONE) == "unconfirmed"
     # A new confirmation under the new title holds; the old title no longer does (only the latest confirmation counts).
-    again = effective((confirm(1), confirm(2, title="the alpha's bride returns")), 2)
-    assert again.correspondence(X, PLATFORM, "the alpha's bride returns") == "confirmed"
-    assert again.correspondence(X, PLATFORM, TITLE) == "unconfirmed"
-    assert again.confirmed_key(X) == (PLATFORM, "the alpha's bride returns")
+    again = effective((confirm(1), confirm(2, title=RETITLED)), 2)
+    assert again.correspondence(X, PLATFORM, RETITLED, lapsed=NONE) == "confirmed"
+    assert again.correspondence(X, PLATFORM, TITLE, lapsed=NONE) == "unconfirmed"
+    assert again.confirmed_key(X) == (PLATFORM, RETITLED)
+    assert again.correspondences[X] == ConfirmMark(2, CorrespondenceKey(PLATFORM, RETITLED))
 
 
 def test_alias_change_requires_reconfirm():
     # SLUG was confirmed; a manual pairing (or an auto alias the gsc service writes) replaces it with X.
     decisions = (confirm(1, SLUG, "KalosTV"), pair(2, SLUG, X))
     state = effective(decisions, 2)
-    assert state.correspondence(X, "KalosTV", TITLE) == "unconfirmed"
+    assert state.correspondence(X, "KalosTV", TITLE, lapsed=NONE) == "unconfirmed"
     assert state.confirmed_key(X) is None
     assert state.alias_pairs == {SLUG: PairMark(2, X)}
     # Only a confirmation of the new identity confirms it.
-    assert effective((*decisions, confirm(3, X, "KalosTV")), 3).correspondence(X, "KalosTV", TITLE) == "confirmed"
+    assert effective((*decisions, confirm(3, X, "KalosTV")), 3).correspondence(X, "KalosTV", TITLE, lapsed=NONE) == "confirmed"
 
 
-def test_title_revert_restores_confirmation():
-    """Only the current batch's key and the latest confirmation's are compared, never the batches in between: a title
-    changed and changed back is confirmed again, and so is an identity an alias replaced and then brought back."""
+def test_title_revert_does_not_restore_confirmation():
+    """G3 P2-2 (the test that stood here pinned the opposite): a confirmation holds for the revision it was made on. Once
+    a shared batch since then shows the identity under another title it has lapsed for good; the title changed back
+    does not bring it back, whether the collector saw the three batches on three days or in one read. Only a new
+    confirmation does."""
     state = effective((confirm(1),), 1)
-    assert [state.correspondence(X, PLATFORM, title) for title in (TITLE, "the alpha's bride returns", TITLE)] == [
-        "confirmed",
-        "unconfirmed",
-        "confirmed",
-    ]
-    back = effective((confirm(1, SLUG, "KalosTV"), pair(2, SLUG, X), pair(3, X, SLUG)), 3)
-    assert back.correspondence(SLUG, "KalosTV", TITLE) == "confirmed"
+    first = lapse(state, NONE, [seen("b1")])
+    assert first == NONE and state.correspondence(X, PLATFORM, TITLE, lapsed=first) == "confirmed"
+    changed = lapse(state, first, [seen("b2", title=RETITLED)])
+    assert changed == {1} and state.correspondence(X, PLATFORM, RETITLED, lapsed=changed) == "unconfirmed"
+    back = lapse(state, changed, [seen("b3")])
+    assert back == {1} and state.correspondence(X, PLATFORM, TITLE, lapsed=back) == "unconfirmed"
+    assert lapse(state, NONE, [seen("b1"), seen("b2", title=RETITLED), seen("b3")]) == {1}
+    # A new confirmation holds; the lapsed one is no longer any identity's latest, so what a set keeps drops it.
+    again = effective((confirm(1), confirm(2)), 2)
+    kept = lapse(again, back, [seen("b4")])
+    assert kept == NONE and again.correspondence(X, PLATFORM, TITLE, lapsed=kept) == "confirmed"
+
+
+def test_platform_revert_does_not_restore_confirmation():
+    state = effective((confirm(1),), 1)
+    moved = lapse(state, NONE, [seen("b1", platform="DramaBox")])
+    back = lapse(state, moved, [seen("b2")])
+    assert back == {1} and state.correspondence(X, PLATFORM, TITLE, lapsed=back) == "unconfirmed"
+    # A batch where the platform is unknown (DramaInput.theater defaults to "") is a change as well.
+    assert lapse(state, NONE, [seen("b1", platform=""), seen("b2")]) == {1}
+    again = effective((confirm(1), confirm(3)), 3)
+    assert again.correspondence(X, PLATFORM, TITLE, lapsed=lapse(again, back, [seen("b3")])) == "confirmed"
+
+
+def test_alias_swap_and_back_does_not_restore_confirmation():
+    """An identity an alias replaced loses its confirmation for good, even when a later alias brings it back: by the
+    pairing decision itself, and by the batches, where an identity another one replaced is missing."""
+    swapped_back = effective((confirm(1, SLUG, "KalosTV"), pair(2, SLUG, X), pair(3, X, SLUG)), 3)
+    assert swapped_back.confirmed_key(SLUG) is None
+    assert swapped_back.correspondence(SLUG, "KalosTV", TITLE, lapsed=NONE) == "unconfirmed"
+    # Pairing another identity into a confirmed one leaves that one's confirmation alone.
+    into = effective((confirm(1, X, "KalosTV"), pair(2, SLUG, X)), 2)
+    assert into.correspondence(X, "KalosTV", TITLE, lapsed=NONE) == "confirmed"
+    # An alias the gsc service wrote (or an upstream id that changed and changed back) shows only in the batches.
+    state = effective((confirm(1, SLUG, "KalosTV"),), 1)
+    lapsed = lapse(state, NONE, [seen("b1", "KalosTV", identity=SLUG), missing("b2"), seen("b3", "KalosTV", identity=SLUG)])
+    assert lapsed == {1} and state.correspondence(SLUG, "KalosTV", TITLE, lapsed=lapsed) == "unconfirmed"
+    again = effective((confirm(1, SLUG, "KalosTV"), pair(2, SLUG, X), pair(3, X, SLUG), confirm(4, SLUG, "KalosTV")), 4)
+    assert again.correspondence(SLUG, "KalosTV", TITLE, lapsed=lapse(again, lapsed, [seen("b4", "KalosTV", identity=SLUG)])) == "confirmed"
+
+
+def test_unreadable_batch_lapses_every_confirmation():
+    """A batch whose rows are gone (pruned) could have shown anything: every confirmation it could contradict lapses."""
+    state = effective((confirm(1), confirm(2, Y)), 2)
+    both = Sighting("b1", {X: CorrespondenceKey(PLATFORM, TITLE), Y: CorrespondenceKey(PLATFORM, TITLE)})
+    assert lapse(state, NONE, [both]) == NONE
+    assert lapse(state, NONE, [both, Sighting("b2", None)]) == {1, 2}
+    # No sighting at all changes nothing; lapses already known stay.
+    assert lapse(state, {2}, []) == {2}
+
+
+def test_lapses_kept_only_for_latest_confirmations():
+    """What a set freezes stays small: ids that are no longer any identity's latest confirmation are dropped."""
+    state = effective((confirm(1), revoke(2), confirm(3, Y), confirm(4, Y, title=RETITLED)), 4)
+    assert lapse(state, {1, 3, 4}, []) == {4}
+    assert lapse(effective((), 0), {1}, [Sighting("b1", None)]) == NONE
+
+
+def test_lapse_refuses_what_is_not_its_input():
+    state = effective((confirm(1),), 1)
+    for bad in ([0], [True], ["1"], [1.0], [contract.MAX_ROW_ID + 1]):
+        with pytest.raises(ValueError, match="lapsed"):
+            lapse(state, bad, [])
+    for bad in ((X, {}), {"batch_id": "b1", "keys": {}}, Sighting("b1", [X]), Sighting("b1", {}, 7)):
+        with pytest.raises(TypeError, match="Sighting"):
+            lapse(state, NONE, [bad])
+
+
+def test_lapse_causes_name_the_batch_and_how():
+    """G3 review of the D24 fix (P2): each lapse keeps why, the first batch that showed the identity otherwise and how,
+    so an operator can tell a pruned batch from a real change. A cause handed in is kept as it was; lapse() is the ids
+    of the same fold."""
+    z = _identity(4)
+    state = effective((confirm(1), confirm(2, Y), confirm(3, SLUG, "KalosTV"), confirm(4, z)), 4)
+    first = Sighting("b1", {X: CorrespondenceKey(PLATFORM, RETITLED), SLUG: CorrespondenceKey("KalosTV", TITLE), z: CorrespondenceKey(PLATFORM, TITLE)})
+    window = [first, Sighting("b2", None), seen("b3", identity=z)]
+    causes = lapse_causes(state, {4: LapseCause("changed", "b0")}, window)
+    assert causes == {1: LapseCause("changed", "b1"), 2: LapseCause("absent", "b1"), 3: LapseCause("unverifiable", "b2"), 4: LapseCause("changed", "b0")}
+    assert list(causes) == [1, 2, 3, 4]
+    with pytest.raises(TypeError):
+        causes[5] = LapseCause("absent", "b1")
+    assert lapse(state, {4}, window) == frozenset(causes)
+    assert set(LAPSE_REASONS) == {"changed", "absent", "unverifiable", "carried"}
+    # Only a lapse carried in as a bare id (a set's lapsed_confirmations) has no batch to name.
+    assert lapse_causes(state, {4: CARRIED}, []) == {4: LapseCause("carried", None)}
+    for bad in ({0: CARRIED}, {True: CARRIED}, {1: ("changed", "b1")}, {1: LapseCause("moved", "b1")}, {1: LapseCause("changed", 7)}, [1]):
+        with pytest.raises((TypeError, ValueError), match="carried"):
+            lapse_causes(state, bad, [])
+
+
+def test_every_batch_in_the_window_counts_even_one_before_the_confirmation():
+    """G3 review of the D24 fix (P3): the fold knows the batches' order and the decisions' ids, not when a decision was
+    made against the batches. A batch in the window showing the old title lapses a confirmation of the new one, even if
+    it was published before the confirmation. So a confirmation's platform and title are the latest published set's
+    judgment row's (TR-24, TR-25), never the live catalog's: the next window starts after that set's batch, and every
+    batch it reads came after what was confirmed."""
+    state = effective((confirm(9, title=RETITLED),), 9)
+    assert lapse_causes(state, {}, [seen("W"), seen("X", title=RETITLED)]) == {9: LapseCause("changed", "W")}
+    assert lapse_causes(state, {}, [seen("X", title=RETITLED)]) == {}
 
 
 def test_empty_platform_never_confirmed():
     """A row with an empty platform (DramaInput.theater defaults to "") stays unconfirmed: the contract's
-    CorrespondenceConfirm.platform takes at least one character (a seam handed to TR-33)."""
+    CorrespondenceConfirm.platform takes at least one character (G3 kept it; decisions.md says what the page shows)."""
     with pytest.raises(DecisionLogError, match="correspondence_confirm.platform"):
         confirm(1, platform="")
-    assert effective((confirm(1),), 1).correspondence(X, "", TITLE) == "unconfirmed"
+    assert effective((confirm(1),), 1).correspondence(X, "", TITLE, lapsed=NONE) == "unconfirmed"
 
 
 # ---- versions (D24: a set freezes the largest id it read) ---------------------------------------------------------
@@ -147,12 +262,30 @@ def test_old_set_unchanged_after_revoke():
     decisions = (confirm(1), add(2), revoke(3), add(4, geo="US", active=False), pause(5))
     at_two = effective(decisions, 2)
     assert at_two == effective(decisions[:2], 2)
-    assert (at_two.version, at_two.correspondence(X, PLATFORM, TITLE), at_two.watch_added) == (2, "confirmed", frozenset({(X, "US")}))
+    assert (at_two.version, at_two.correspondence(X, PLATFORM, TITLE, lapsed=NONE), at_two.watch_added) == (2, "confirmed", frozenset({(X, "US")}))
     assert at_two.is_paused(X, "US") is False
     later = effective(decisions, 5)
-    assert (later.correspondence(X, PLATFORM, TITLE), later.watch_added, later.is_paused(X, "US")) == ("unconfirmed", frozenset(), True)
+    assert (later.correspondence(X, PLATFORM, TITLE, lapsed=NONE), later.watch_added, later.is_paused(X, "US")) == ("unconfirmed", frozenset(), True)
     # Version 2 is still what it was after the later decisions.
     assert effective(decisions, 2) == at_two
+
+
+def test_old_set_keeps_its_frozen_lapses():
+    """A set freezes decisions_version and the lapses it judged with (FrozenInputsTrends.lapsed_confirmations): later
+    decisions and later batches change neither what it froze nor the answer they give."""
+    decisions = (confirm(1), confirm(2, Y), revoke(3, Y), confirm(4, Y))
+    old = effective(decisions, 2)
+    frozen = lapse(old, NONE, [Sighting("b1", {X: CorrespondenceKey(PLATFORM, TITLE), Y: CorrespondenceKey(PLATFORM, RETITLED)})])
+    assert frozen == {2}
+    answers = (old.correspondence(X, PLATFORM, TITLE, lapsed=frozen), old.correspondence(Y, PLATFORM, TITLE, lapsed=frozen))
+    assert answers == ("confirmed", "unconfirmed")
+    # The next set: X's title changes; Y, its title back to the one confirmed anew as decision 4, holds.
+    new = effective(decisions, 4)
+    now = lapse(new, frozen, [Sighting("b2", {X: CorrespondenceKey(PLATFORM, RETITLED), Y: CorrespondenceKey(PLATFORM, TITLE)})])
+    assert now == {1}
+    assert (new.correspondence(X, PLATFORM, RETITLED, lapsed=now), new.correspondence(Y, PLATFORM, TITLE, lapsed=now)) == ("unconfirmed", "confirmed")
+    assert effective(decisions, 2) == old and frozen == {2}
+    assert (old.correspondence(X, PLATFORM, TITLE, lapsed=frozen), old.correspondence(Y, PLATFORM, TITLE, lapsed=frozen)) == answers
 
 
 def test_upto_id_must_be_a_version():
@@ -285,8 +418,8 @@ def test_order_by_id_deterministic():
         shuffled = random.Random(seed).sample(decisions, len(decisions))
         assert effective(shuffled, 8) == expected
     # The later id wins wherever it sits in the input.
-    assert effective((revoke(2), confirm(1)), 2).correspondence(X, PLATFORM, TITLE) == "unconfirmed"
-    assert effective((confirm(2), revoke(1)), 2).correspondence(X, PLATFORM, TITLE) == "confirmed"
+    assert effective((revoke(2), confirm(1)), 2).correspondence(X, PLATFORM, TITLE, lapsed=NONE) == "unconfirmed"
+    assert effective((confirm(2), revoke(1)), 2).correspondence(X, PLATFORM, TITLE, lapsed=NONE) == "confirmed"
     # A repeated id is a caller's mistake, not a log this code cannot apply: ValueError, not exit 3.
     with pytest.raises(ValueError, match="重复") as repeated:
         effective((confirm(1), revoke(1)), 1)
@@ -449,8 +582,8 @@ async def test_read_effective_freezes_the_latest_id(db_url):
         async with engine.connect() as conn:
             now = await read_effective(conn)
             then = await read_effective(conn, 1)
-        assert (now.version, now.correspondence(X, PLATFORM, TITLE), now.watch_added) == (3, "unconfirmed", frozenset({(X, "US")}))
-        assert (then.version, then.correspondence(X, PLATFORM, TITLE), then.watch_added) == (1, "confirmed", frozenset())
+        assert (now.version, now.correspondence(X, PLATFORM, TITLE, lapsed=NONE), now.watch_added) == (3, "unconfirmed", frozenset({(X, "US")}))
+        assert (then.version, then.correspondence(X, PLATFORM, TITLE, lapsed=NONE), then.watch_added) == (1, "confirmed", frozenset())
     finally:
         await engine.dispose()
 

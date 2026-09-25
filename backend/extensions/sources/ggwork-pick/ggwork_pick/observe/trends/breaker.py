@@ -75,6 +75,7 @@ DISABLE_AFTER = 3  # extinguished target dates within the window
 
 ExtinguishReason = Literal["wall", "rate_limited", "trips", "probe_failures"]
 EXTINGUISH_REASONS = get_args(ExtinguishReason)
+WALL_REASON: ExtinguishReason = "wall"  # a captcha or consent page put the day out (one ends a canary: session_summary)
 
 EXTINGUISHED_TODAY = "extinguished_today"
 DISABLED_7D = "disabled_7d"
@@ -244,7 +245,7 @@ def observe(state: BreakerState, signal: Signal, *, now: datetime, rng: random.R
         return state, Decision(Action.EXTINGUISH)
     day = replace(state.day, rate_limited=state.day.rate_limited + (signal is Signal.RATE_LIMITED))
     if signal is Signal.WALL:
-        return _extinguish(state, day, "wall")
+        return _extinguish(state, day, WALL_REASON)
     if day.probe_due:
         return _after_probe(state, day, signal, now)
     return _after_request(state, day, signal, now, rng)

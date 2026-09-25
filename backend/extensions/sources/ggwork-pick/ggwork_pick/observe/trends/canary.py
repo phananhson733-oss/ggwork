@@ -22,7 +22,7 @@ Only the titles are the day's own; the parameters stay fixed for the whole canar
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -267,9 +267,16 @@ class CanaryTaskSource:
         by_identity = {drama.identity: drama for drama in dramas if _usable(drama.title)}
         market = tuple(self._market_units())
         controls, missing = self._control_units(by_identity)
-        recent = tuple(self._recent_units(by_identity.values(), target_date))
+        fresh = recent_dramas(by_identity.values(), target_date, self._market_map)
+        recent = tuple(self._recent_units(fresh))
         units = with_related(ordered((*market, *controls, *recent), target_date), related=self._related)
-        notes = {"missing_controls": list(missing), "catalog_dramas": len(dramas), "recent_units": len(recent)}
+        notes = {
+            "missing_controls": list(missing),
+            "controls": control_counts(self._controls.controls, by_identity),
+            "catalog_dramas": len(dramas),
+            "recent_dramas": len(fresh),
+            "recent_units": len(recent),
+        }
         return SourceUnits(units, batch_id, notes)
 
     def _market_units(self):
@@ -289,15 +296,27 @@ class CanaryTaskSource:
         )
         return units, missing
 
-    def _recent_units(self, dramas, target_date: date):
-        first = target_date - timedelta(days=RECENT_DAYS)
+    def _recent_units(self, dramas: Sequence[CatalogDrama]):
         geos = euro_american_geos(self._market_map)
         for drama in dramas:
-            if drama.listed_at is None or not first <= drama.listed_at <= target_date:
-                continue
             for geo, priority in geos.get(drama.language, ()):
                 for granularity in self._granularities:
                     yield _drama_unit(drama, geo, granularity, priority, item="title")
+
+
+def recent_dramas(dramas: Iterable[CatalogDrama], target_date: date, market_map: MarketMap = MARKET_MAP_V1) -> tuple[CatalogDrama, ...]:
+    """The dramas in the six Euro-American languages listed within RECENT_DAYS of `target_date`, both ends in."""
+    first, languages = target_date - timedelta(days=RECENT_DAYS), set(euro_american_geos(market_map))
+    return tuple(drama for drama in dramas if drama.listed_at is not None and first <= drama.listed_at <= target_date and drama.language in languages)
+
+
+def control_counts(controls: Sequence[CanaryControl], by_identity: Mapping[str, CatalogDrama]) -> dict[str, dict[str, int]]:
+    """Per group, the control entries the list names and those whose identity the batch holds (admission.py)."""
+    counts: dict[str, dict[str, int]] = {}
+    for control in controls:
+        before = counts.get(control.group, {"listed": 0, "matched": 0})
+        counts = {**counts, control.group: {"listed": before["listed"] + 1, "matched": before["matched"] + (control.identity in by_identity)}}
+    return counts
 
 
 def with_related(units: Sequence[QueryUnit], *, related: bool, every: int = RELATED_EVERY) -> tuple[QueryUnit, ...]:

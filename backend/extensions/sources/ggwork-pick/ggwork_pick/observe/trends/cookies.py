@@ -1,9 +1,9 @@
 """The Trends cookie jar and the user agent bound to it (plan 5, TR-02 and TR-04; design 4.4; D18, D23).
 
 The channel's one jar: TR-02's client sends from it and updates it, TR-04's file store and TR-13's runtime row keep it.
-One jar per service. It is warmed at most once per target date (D23: the 20:30 and 00:10 halves of one session are one
-day), and a warm-up that was refused uses up the day as well: warmed() with no cookies. A rate-limited session keeps its
-jar, since Google refuses new sessions first: nothing here throws a jar away.
+One jar per service. It is warmed at most once per target date (D23: a session's halves before and after midnight, from
+its start to 01:45, are one day), and a warm-up that was refused uses up the day as well: warmed() with no cookies. A
+rate-limited session keeps its jar, since Google refuses new sessions first: nothing here throws a jar away.
 
 Set-Cookie headers apply in order through updated() (warmed() for the warm-up's): a cookie replaces the one with the same
 name, domain and path in its place, and a Max-Age <= 0 arrives as Cookie.removal, an already expired cookie. Every update

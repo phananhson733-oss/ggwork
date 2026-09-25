@@ -1,15 +1,17 @@
-"""TR-15: the pick-obs-trends cron as Railway builds and starts it (plan TR-15, D5, D6, D21, section 10 S5 and S6;
-design 3.1, 6.3; counterexample 15).
+"""TR-15: the pick-obs-trends cron as Railway builds and starts it (plan TR-15, D5, D6, D21, section 10 S5, S6 and
+S6a; design 3.1, 6.3; counterexample 15).
 
 The cron runs the gateway's image with its own config-as-code file and nothing else of its own. These tests read what
 Railway and Docker read (deploy/pick-obs/trends/railway.toml and its self-check twin, the root railway.toml,
 docker/Dockerfile.pick-gateway, .dockerignore), the CI workflow that runs them and the runbook's variable table, then
-run the start command's own argv through the real __main__ in a fresh interpreter, on both dialects, with every HTTP
-transport refused. What TR-21's gsc tests reuse is in railway_helpers; test_cron_deploy_procedure replays the
-runbook's deploy order against TR-34's guard.
+run the self-check twin's start command the way Railway does, through /bin/sh, each step through the real __main__ in
+a fresh interpreter, on both dialects, with every HTTP transport refused: the self-check, then tonight's preflight
+(S6a), in the service's own container with the service's own variables. What TR-21's gsc tests reuse is in
+railway_helpers; test_cron_deploy_procedure replays the runbook's deploy order against TR-34's guard.
 """
 
 import io
+import json
 import re
 import tomllib
 from datetime import UTC, datetime, time, timedelta
@@ -35,9 +37,10 @@ from railway_helpers import (
     railway_toml,
     run_start_command,
     selfcheck_report,
+    start_steps,
     tracked,
 )
-from trends_session_helpers import EVE, TARGET, at, recent_catalog, trends_env, write_controls
+from trends_session_helpers import EVE, TARGET, at, drama, recent_catalog, seed_catalog, trends_env, write_controls
 
 from ggwork_pick.observe.clock import ManualClock, random_source
 from ggwork_pick.observe.cron import parse_args
@@ -45,7 +48,7 @@ from ggwork_pick.observe.db import DATABASE_URL_VARIABLE
 from ggwork_pick.observe.errors import ExitCode
 from ggwork_pick.observe.selfcheck import package_digest
 from ggwork_pick.observe.trends import __main__ as trends_entry
-from ggwork_pick.observe.trends import budget
+from ggwork_pick.observe.trends import budget, capacity
 from ggwork_pick.observe.versions import COLLECTOR_VERSION
 
 TRENDS_CONFIG = Path("deploy/pick-obs/trends/railway.toml")
@@ -55,14 +58,17 @@ RUNBOOK = ROOT / "docs/pick-workbench/observe-runbook/packaging.md"
 
 MODULE = "ggwork_pick.observe.trends"
 START = '/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends run"'
-SELFCHECK_START = '/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends --selfcheck-only"'
-SCHEDULE = "*/30 20-23,0-1 * * *"
+# S6 and S6a in one run: the self-check, then, only when it passed, tonight's preflight; the container exits with the
+# preflight's status.
+SELFCHECK_START = '/bin/sh -c "cd /app/backend && python -m ggwork_pick.observe.trends --selfcheck-only && exec python -m ggwork_pick.observe.trends preflight"'
+SCHEDULE = "*/30 17-23,0-1 * * *"
 GATEWAY_CMD = 'CMD ["sh", "-c", "cd backend && python -m app.gateway.pick_entrypoint"]'
 RAILWAY_MIN_INTERVAL = timedelta(minutes=5)  # Railway runs a cron at most every 5 minutes
 TRIGGER_INTERVAL = timedelta(minutes=30)
 
 # UTC hours no trigger falls in and no session runs through: when the runbook deploys the cron (packaging.md section 7).
-DEPLOY_WINDOW = (time(2, 0), time(20, 0))
+# It ends at the night's first trigger, half an hour before the earliest start (stable's 17:30 since G3).
+DEPLOY_WINDOW = (time(2, 0), time(17, 0))
 
 GUARD_SCRIPTS = ("scripts/pick-deploy-guard.py", "scripts/_pick_deploy_guard_readers.py")  # TR-34's
 # Every ignore file at every level: hatchling in the image drops what the first .gitignore above the managed copy
@@ -91,12 +97,16 @@ def test_trends_railway_config_pinned():
 
 
 def test_selfcheck_config_pinned():
-    """S6's one-off run: the same image and program as the cron, --selfcheck-only in place of run, and no schedule,
-    so Railway runs it once when it is deployed; it never restarts."""
+    """S6's one-off run: the same image and program as the cron and no schedule, so Railway runs it once when it is
+    deployed; it never restarts. Two steps in place of run: --selfcheck-only, then, only when it exited 0, tonight's
+    preflight (S6a), whose status the container exits with. The cron has no running container to `railway ssh` into,
+    and a `railway run` on the operator's machine would bring the state key there; this runs the preflight where the
+    service's variables already are."""
     config = railway_toml(SELFCHECK_CONFIG)
     assert config == {"build": BUILD, "deploy": {"startCommand": SELFCHECK_START, "restartPolicyType": "NEVER"}}
     cron_dir, cron_argv = module_argv(START)
-    assert module_argv(SELFCHECK_START) == (cron_dir, [*cron_argv[:-1], "--selfcheck-only"])
+    program = cron_argv[:-1]
+    assert start_steps(SELFCHECK_START) == (cron_dir, [[*program, "--selfcheck-only"], [*program, "preflight"]])
 
 
 def test_root_railway_untouched():
@@ -145,10 +155,13 @@ def _night(schedule: str) -> list[datetime]:
 
 def test_cron_schedule_fits_the_session_modes():
     """Every mode starts on a trigger, no trigger falls at or after the 01:45 deadline, a session that dies is picked
-    up within 30 minutes, and the only trigger before every start is 20:00, which exits 0 without doing anything. The
-    runbook's deploy window (UTC 02:00-20:00) has no trigger in it and every session is over before it opens."""
+    up within 30 minutes (capacity.py prices that wait as capacity.TRIGGER_INTERVAL), and the only trigger before the
+    earliest start is the one half an hour before it, which exits 0 without doing anything. The runbook's deploy window
+    runs from 02:00 to that first trigger: no trigger in it, and every session is over before it opens. (G3 moved the
+    starts earlier: the schedule that began at 20:00 never reached stable's 17:30 or canary2's 18:30.)"""
     night = _night(railway_toml(TRENDS_CONFIG)["deploy"]["cronSchedule"])
     assert all(later - earlier >= RAILWAY_MIN_INTERVAL for earlier, later in zip(night, night[1:], strict=False))
+    assert capacity.TRIGGER_INTERVAL == TRIGGER_INTERVAL and all(moment.minute in (0, 30) for moment in night)
     windows = {name: mode.window(TARGET) for name, mode in budget.MODES.items()}
     for name, (start, deadline) in windows.items():
         assert start in night, name
@@ -157,11 +170,13 @@ def test_cron_schedule_fits_the_session_modes():
         assert all(later - earlier <= TRIGGER_INTERVAL for earlier, later in zip(inside, inside[1:], strict=False)), name
         assert deadline - inside[-1] <= TRIGGER_INTERVAL, name
     earliest = min(start for start, _ in windows.values())
-    assert [moment.time() for moment in night if moment < earliest] == [time(20, 0)]
+    assert [moment for moment in night if moment < earliest] == [earliest - TRIGGER_INTERVAL]
     quiet_from, quiet_until = DEPLOY_WINDOW
+    assert night[0].time() == quiet_until
     assert not [moment for moment in night if quiet_from <= moment.time() < quiet_until]
     assert all(deadline <= datetime.combine(TARGET, quiet_from, UTC) for _, deadline in windows.values())
-    assert f"UTC {quiet_from:%H:%M}–{quiet_until:%H:%M}" in RUNBOOK.read_text(encoding="utf-8")
+    text = RUNBOOK.read_text(encoding="utf-8")
+    assert f"UTC {quiet_from:%H:%M}–{quiet_until:%H:%M}" in text and "UTC 02:00–20:00" not in text
 
 
 # ---- what reaches Railway and the image ------------------------------------------------------------------------------
@@ -235,21 +250,23 @@ def _entry():
 
 @pytest.mark.asyncio
 async def test_trends_entrypoint_argv(capsys):
-    """The argv after `python -m ggwork_pick.observe.trends` in the start command parses to one run; with
-    --selfcheck-only (S6) to the check alone; `status` and no argument parse too. A wrong word exits 2 and is not
-    echoed, before anything reads the environment."""
+    """The argv after `python -m ggwork_pick.observe.trends` in the start command parses to one run; the self-check
+    config's two steps to the check alone (S6) and to `preflight` (S6a); `status` and no argument parse too. A wrong
+    word exits 2 and is not echoed, before anything reads the environment."""
     _, cron_argv = module_argv(START)
-    _, check_argv = module_argv(SELFCHECK_START)
+    _, (check_argv, preflight_argv) = start_steps(SELFCHECK_START)
     argv = cron_argv[1:]
     parsed = {
         "cron": parse_args(_entry(), argv),
         "check": parse_args(_entry(), check_argv[1:]),
+        "preflight": parse_args(_entry(), preflight_argv[1:]),
         "bare": parse_args(_entry(), []),
         "status": parse_args(_entry(), ["status"]),
     }
     assert {name: (args.command, args.selfcheck_only) for name, args in parsed.items()} == {
         "cron": ("run", False),
         "check": ("run", True),
+        "preflight": ("preflight", False),
         "bare": ("run", False),
         "status": ("status", False),
     }
@@ -263,10 +280,24 @@ CONTROLS_DEFAULT = ("ggwork_pick.observe.trends.canary", "DEFAULT_CONTROLS_PATH"
 
 
 def _selfcheck_as_railway(env: dict[str, str], controls: Path, cwd: Path):
-    """The self-check config's start command through the real __main__ (railway_helpers.run_start_command), with the
-    test's own control list. The clock reads 22:10 UTC, inside every mode's window: an argv that fell through to `run`
-    would take the lease."""
-    return run_start_command(SELFCHECK_START, env, cwd, now=at(EVE, 22, 10), overrides=[(*CONTROLS_DEFAULT, controls)])
+    """The self-check config's start command, read from the file Railway reads, run as Railway runs it
+    (railway_helpers.run_start_command: /bin/sh, then each step through the real __main__), with the test's own control
+    list. The clock reads 22:10 UTC, inside every mode's window: an argv that fell through to `run` would take the
+    lease."""
+    command = railway_toml(SELFCHECK_CONFIG)["deploy"]["startCommand"]
+    return run_start_command(command, env, cwd, now=at(EVE, 22, 10), overrides=[(*CONTROLS_DEFAULT, controls)])
+
+
+async def _canary_payload(url: str, tmp_path: Path) -> Path:
+    """A published shared catalog batch with enough recent titles for canary1's plan, and four positive controls in
+    it: tonight is a canary night (admission.py)."""
+    catalog = recent_catalog(150)
+    await seed_catalog(url, catalog)
+    return write_controls(tmp_path, catalog[:4])
+
+
+def _preflight(line: str) -> dict:
+    return json.loads(line)["preflight"]
 
 
 @pytest_asyncio.fixture
@@ -276,15 +307,19 @@ async def obs_url(pick_db_url, tmp_path):
 
 @pytest.mark.asyncio
 async def test_trends_entrypoint_argv_selfcheck_only(obs_url, tmp_path):
-    """S6: the self-check config's argv through the real __main__ checks the configuration, runs the self-check,
-    prints the one line S6 reads and exits 0: no HTTP, no lease, no batch. The package digest it prints is what
-    package_digest() gives on the source checkout, the comparison the runbook makes."""
-    controls = write_controls(tmp_path, recent_catalog(2))
+    """S6 and S6a in one deploy: the self-check config's start command checks the configuration, runs the self-check,
+    prints the line S6 reads, then tonight's preflight line S6a reads (the target date the evening's session feeds,
+    the pace, the payload gate's figures) and exits 0: no HTTP, no lease, no batch. The package digest it prints is
+    what package_digest() gives on the source checkout, the comparison the runbook makes."""
+    controls = await _canary_payload(obs_url, tmp_path)
     env = trends_env(obs_url)
     done = _selfcheck_as_railway(env, controls, tmp_path)
     assert done.returncode == ExitCode.OK, done.stderr[-2000:]
     lines = done.stdout.splitlines()
-    assert len(lines) == 1
+    assert len(lines) == 2
+    tonight = _preflight(lines[1])
+    assert (tonight["target_date"], tonight["mode"], tonight["reasons"], tonight["refused_by"]) == (f"{TARGET:%Y-%m-%d}", "canary1", [], [])
+    assert tonight["planned_requests"] >= tonight["min_requests"] and tonight["controls"]["positive"] == {"listed": 4, "matched": 4}
     report = selfcheck_report(lines[0])
     heads = await rows(obs_url, "select version_num from ggwp_alembic_version")
     role = env.get("PICK_OBS_EXPECTED_ROLE", "-") if is_postgres(obs_url) else "-"
@@ -299,10 +334,26 @@ async def test_trends_entrypoint_argv_selfcheck_only(obs_url, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_selfcheck_config_exits_2_when_tonight_is_not_a_canary(obs_url, tmp_path):
+    """S6a: the image is right (the self-check line is printed) but tonight's task list is no canary's payload: every
+    drama older than 14 days, no positive control in the batch. The preflight line says why and the deploy exits 2,
+    before any night has sent a request or written a row."""
+    await seed_catalog(obs_url, [drama(index, listed_at=EVE - timedelta(days=30)) for index in range(40)])
+    controls = write_controls(tmp_path, [drama(900 + index) for index in range(4)])
+    done = _selfcheck_as_railway(trends_env(obs_url), controls, tmp_path)
+    assert done.returncode == ExitCode.REFUSED, done.stderr[-2000:]
+    check, preflight = done.stdout.splitlines()
+    tonight = _preflight(preflight)
+    assert selfcheck_report(check)["collector"] == COLLECTOR_VERSION
+    assert len(tonight["reasons"]) == 2 and tonight["recent_dramas"] == 0 and tonight["controls"]["positive"]["matched"] == 0
+    assert await rows(obs_url, "select id from ggwp_obs_batches") == [] and (await runtime_row(obs_url))["lease_generation"] == 0
+
+
+@pytest.mark.asyncio
 async def test_trends_entrypoint_argv_selfcheck_only_refuses_a_bad_image(obs_url, tmp_path):
     """Counterexample 15 at S6: an image whose collector version is not the one the service expects exits 2 with the
-    variable's name, not its value, and without a report line."""
-    controls = write_controls(tmp_path, recent_catalog(2))
+    variable's name, not its value, without a report line, and the preflight never runs."""
+    controls = await _canary_payload(obs_url, tmp_path)
     env = trends_env(obs_url, PICK_OBS_EXPECTED_COLLECTOR="obs-collector-v0-secret")
     done = _selfcheck_as_railway(env, controls, tmp_path)
     assert done.returncode == ExitCode.REFUSED and done.stdout == ""

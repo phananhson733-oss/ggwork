@@ -9,10 +9,12 @@ from datetime import UTC, date, datetime, time, timedelta
 import pytest
 
 from ggwork_pick.observe import cron, selfcheck
+from ggwork_pick.observe.clock import random_source
 from ggwork_pick.observe.errors import ExitCode, Refused
 from ggwork_pick.observe.trends import __main__ as trends_entry
-from ggwork_pick.observe.trends import breaker, budget
+from ggwork_pick.observe.trends import breaker, budget, capacity, pacing
 from ggwork_pick.observe.trends import session_summary as summary
+from ggwork_pick.observe.trends.budget import plan_budget
 from ggwork_pick.observe.trends.canary import (
     CONTROLS_FORMAT,
     DEFAULT_CONTROLS_PATH,
@@ -26,12 +28,13 @@ from ggwork_pick.observe.trends.canary import (
     load_controls,
     missing_market_geos,
     parse_controls,
+    recent_dramas,
     with_related,
 )
 from ggwork_pick.observe.trends.contract_check import contract_check_due, contract_check_units, contract_check_verdict
 from ggwork_pick.observe.trends.run import day_of, window_end_of
 from ggwork_pick.observe.trends.settings import settings_from
-from ggwork_pick.observe.trends.units import QueryUnit, SessionPlan, TaskList, cut_to_plan, ordered, plan_budget, rotation, unit_key
+from ggwork_pick.observe.trends.units import QueryUnit, SessionPlan, TaskList, cut_to_plan, ordered, rotation, unit_key
 
 TARGET = date(2026, 9, 26)
 
@@ -58,17 +61,17 @@ def _unit(name: str, *, priority: int = 3, listed_at: date | None = None, eviden
 
 @pytest.mark.parametrize(
     "mode, start, plan, cap",
-    [("canary1", time(22, 0), 220, 220), ("canary2", time(22, 0), 430, 600), ("stable", time(20, 30), 650, 800)],
+    [("canary1", time(21, 0), 220, 220), ("canary2", time(18, 30), 300, 450), ("stable", time(17, 30), 350, 525)],
 )
 def test_mode_parameters(mode, start, plan, cap):
-    """Section 9's table: every mode stops at 01:45; its plan fits the window with a breaker's margin."""
+    """Section 9's table since G3: every mode stops at 01:45, and fits its window at the pace (capacity.mode_fit)."""
     settings = settings_from({"PICK_OBS_TRENDS_MODE": mode})
     limits = settings.limits
     assert (limits.start, limits.plan, limits.cap, limits.deadline) == (start, plan, cap, time(1, 45))
     window_start, deadline = limits.window(TARGET)
     assert deadline == datetime(2026, 9, 26, 1, 45, tzinfo=UTC)
     assert window_start == datetime.combine(TARGET - timedelta(days=1), start, UTC)
-    assert limits.plan / 2.9 + 40 <= limits.window_minutes()
+    assert capacity.mode_fit(limits, settings.pace_params).fits
 
 
 def test_settings_defaults_and_refusals():
@@ -93,13 +96,33 @@ def test_settings_defaults_and_refusals():
         assert "canary3" not in str(refused.value) and "W39" not in str(refused.value)  # never echoed
 
 
+def test_pace_setting():
+    """PICK_OBS_TRENDS_PACE picks a pacing.PRESETS preset, user unless set; anything else is refused, not echoed."""
+    assert settings_from({"PICK_OBS_TRENDS_MODE": "canary1"}).pace_params == pacing.PRESETS["user"]
+    assert settings_from({"PICK_OBS_TRENDS_MODE": "canary1", "PICK_OBS_TRENDS_PACE": "design"}).pace_params == pacing.DESIGN_PARAMS
+    with pytest.raises(Refused) as refused:
+        settings_from({"PICK_OBS_TRENDS_MODE": "canary1", "PICK_OBS_TRENDS_PACE": "turbo"})
+    assert refused.value.exit_code == ExitCode.REFUSED and "turbo" not in str(refused.value)
+
+
+def test_a_mode_that_does_not_fit_is_refused(monkeypatch):
+    """[G3 seam 2] The settings ask capacity.mode_fit at the chosen pace: canary2 as it was (430 from 22:00) is refused
+    at the user pace, exit 2, naming the coverage it would reach; the old plan / 2.9 + 40 check let it through."""
+    monkeypatch.setattr(budget, "MODES", {**budget.MODES, "canary2": budget.ModeLimits("canary2", start=time(22, 0), plan=430, cap=600)})
+    with pytest.raises(Refused) as refused:
+        settings_from({"PICK_OBS_TRENDS_MODE": "canary2"})
+    assert refused.value.exit_code == ExitCode.REFUSED and "放不进窗口" in str(refused.value) and "PICK_OBS_TRENDS_PACE=user" in str(refused.value)
+
+
 @pytest.mark.parametrize(
     "mode, now, idle",
     [
-        ("canary1", datetime(2026, 9, 25, 21, 59, tzinfo=UTC), True),
-        ("canary1", datetime(2026, 9, 25, 22, 0, tzinfo=UTC), False),
-        ("stable", datetime(2026, 9, 25, 20, 0, tzinfo=UTC), True),  # TR-15's 20:00 trigger
-        ("stable", datetime(2026, 9, 25, 20, 30, tzinfo=UTC), False),
+        ("canary1", datetime(2026, 9, 25, 20, 59, tzinfo=UTC), True),
+        ("canary1", datetime(2026, 9, 25, 21, 0, tzinfo=UTC), False),
+        ("canary2", datetime(2026, 9, 25, 18, 0, tzinfo=UTC), True),
+        ("canary2", datetime(2026, 9, 25, 18, 30, tzinfo=UTC), False),
+        ("stable", datetime(2026, 9, 25, 17, 0, tzinfo=UTC), True),  # the cron's first trigger (TR-15, since G3)
+        ("stable", datetime(2026, 9, 25, 17, 30, tzinfo=UTC), False),
         ("stable", datetime(2026, 9, 26, 1, 44, tzinfo=UTC), False),
         ("stable", datetime(2026, 9, 26, 1, 45, tzinfo=UTC), True),
         ("stable", datetime(2026, 9, 26, 1, 59, tzinfo=UTC), True),
@@ -113,9 +136,12 @@ def test_trigger_times(mode, now, idle):
 
 
 def test_window_end_is_the_creation_hour_less_three():
-    """Design 4.9 and 6.3: a canary batch created at 22:10 ends its window at 19:00, a stable one at 20:30 at 17:00."""
+    """Design 4.9 and 6.3: the creation's whole hour less three. From the G3 starts: canary1 at 21:00 ends its window at
+    18:00, canary2 at 18:30 at 15:00, stable at 17:30 at 14:00; a batch created late, at 22:10, at 19:00."""
+    assert window_end_of(datetime(2026, 9, 25, 21, 0, tzinfo=UTC)) == datetime(2026, 9, 25, 18, 0, tzinfo=UTC)
+    assert window_end_of(datetime(2026, 9, 25, 18, 30, 59, tzinfo=UTC)) == datetime(2026, 9, 25, 15, 0, tzinfo=UTC)
+    assert window_end_of(datetime(2026, 9, 25, 17, 30, tzinfo=UTC)) == datetime(2026, 9, 25, 14, 0, tzinfo=UTC)
     assert window_end_of(datetime(2026, 9, 25, 22, 10, tzinfo=UTC)) == datetime(2026, 9, 25, 19, 0, tzinfo=UTC)
-    assert window_end_of(datetime(2026, 9, 25, 20, 30, 59, tzinfo=UTC)) == datetime(2026, 9, 25, 17, 0, tzinfo=UTC)
     assert window_end_of(datetime(2026, 9, 26, 0, 20, tzinfo=UTC)) == datetime(2026, 9, 25, 21, 0, tzinfo=UTC)
 
 
@@ -164,7 +190,7 @@ def test_cut_keeps_a_prefix():
 
 def test_plan_budget_keeps_design_allowance():
     """Design 4.5: warm-up, probes and retries are planned out of the day's total (about 15 canary, 20 stable)."""
-    assert [plan_budget(budget.mode_limits(mode)) for mode in ("canary1", "canary2", "stable")] == [205, 415, 630]
+    assert [plan_budget(budget.mode_limits(mode)) for mode in ("canary1", "canary2", "stable")] == [205, 285, 330]
 
 
 def test_plan_round_trips():
@@ -277,8 +303,9 @@ async def test_recent_titles_are_those_listed_within_14_days():
     undated = CatalogDrama(json.dumps(["realshort-pick", "undated", "en"]), "undated", "en", None, None)
     complete = parse_controls({**_controls_document(), "market": [{"geo": geo, "term": "short drama"} for geo in CANARY_TITLE_GEOS]})
     source = CanaryTaskSource(complete, granularities=("H",), related=False)
-    recent = {unit.terms[0] for unit in source._recent_units([*dramas, undated], TARGET)}
-    assert recent == {"today", "a week", "two weeks"}
+    recent = recent_dramas([*dramas, undated], TARGET)
+    assert {drama.title for drama in recent} == {"today", "a week", "two weeks"}
+    assert {unit.terms[0] for unit in source._recent_units(recent)} == {"today", "a week", "two weeks"}
 
 
 def test_related_mixed_every_fourth_drama_and_never_on_a_only():
@@ -287,6 +314,28 @@ def test_related_mixed_every_fourth_drama_and_never_on_a_only():
     mixed = with_related((market, *dramas), related=True)
     assert [unit.related for unit in mixed] == [False, True, False, False, False, True, False, False, False]
     assert not any(unit.related for unit in with_related((market, *dramas), related=False))
+
+
+@pytest.mark.parametrize(
+    ("reasons", "ended"),
+    [
+        ((), False),
+        (("wall",), True),  # one captcha or consent wall ends the canary (G3 seam 3; until G3 it took two days)
+        (("rate_limited",), False),
+        (("trips",), False),
+        (("probe_failures", "rate_limited"), True),  # two days put out for anything else
+        (("rate_limited", "wall"), True),
+    ],
+)
+def test_canary_termination_rule(reasons, ended):
+    """Section 9's "出现验证码或熄火 2 次立即终止", read off the budget rows' extinguish reasons by both the refusal at
+    start and the finishing step."""
+    walled, _ = breaker.observe(breaker.initial_state(TARGET), breaker.Signal.WALL, now=datetime.combine(TARGET, time(0, 10), UTC), rng=random_source(1))
+    assert walled.day.extinguished == summary.WALL  # what the breaker writes for a wall is what this rule reads
+    assert summary.canary_terminated(reasons) is ended
+    judged = summary.Judged(True, reasons, frozenset(), None, False, False)
+    assert ("canary_terminated" in summary.session_codes(breaker.initial_state(TARGET), judged)) is ended
+    assert "canary_terminated" not in summary.session_codes(breaker.initial_state(TARGET), summary.Judged(False, reasons, frozenset(), None, False, False))
 
 
 # ---- the cron entry --------------------------------------------------------------------------------------------------
@@ -335,7 +384,7 @@ def test_contract_check_passes_only_on_usable_answers(first, second, verdict):
     units = contract_check_units()
     answered = {unit.key: status for unit, status in zip(units, (first, second), strict=True) if status is not None}
     assert contract_check_verdict(units, answered) == verdict
-    judged = summary.Judged(False, 0, frozenset({"parse_error"}), verdict, False, False)
+    judged = summary.Judged(False, (), frozenset({"parse_error"}), verdict, False, False)
     assert ("parse_error" in summary.session_codes(breaker.initial_state(TARGET), judged)) == (verdict != "ok")
 
 

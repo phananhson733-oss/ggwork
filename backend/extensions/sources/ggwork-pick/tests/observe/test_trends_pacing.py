@@ -18,7 +18,7 @@ import pytest
 import trends_session_sim as sim
 
 from ggwork_pick.observe.clock import ManualClock, random_source
-from ggwork_pick.observe.trends import breaker, pacing
+from ggwork_pick.observe.trends import breaker, pacing, stage0_cli
 
 START = datetime(2026, 9, 25, 20, 30, tzinfo=UTC)
 THREE_HOURS = timedelta(hours=3)
@@ -302,7 +302,19 @@ def test_default_params_are_design_4_2():
     assert params.intra_unit_seconds == (1.5, 3.0) and params.inter_unit_seconds == (25.0, 35.0)
 
 
-@pytest.mark.parametrize("module", ["pacing", "breaker", "budget"])
+def test_presets_are_the_one_source():
+    """G3 seam 2: stage 0's --pace and the cron's PICK_OBS_TRENDS_PACE read the same named presets. user is the user's
+    rhythm (a bucket of 4 refilled at 2 a minute) and differs from design in nothing else; the cron defaults to it."""
+    assert pacing.PRESETS == {"design": pacing.DESIGN_PARAMS, "user": pacing.USER_PARAMS}
+    assert pacing.DESIGN_PARAMS == pacing.DEFAULT_PARAMS == pacing.PacingParams()
+    assert pacing.USER_PARAMS == replace(pacing.DESIGN_PARAMS, bucket_capacity=4, refill_per_minute=2)
+    assert pacing.PRODUCTION_PRESET == "user"
+    assert stage0_cli.PACES is pacing.PRESETS
+    with pytest.raises(TypeError):
+        pacing.PRESETS["fast"] = pacing.DESIGN_PARAMS  # read-only
+
+
+@pytest.mark.parametrize("module", ["pacing", "breaker", "budget", "capacity"])
 def test_state_machines_import_pure(module):
     """Pure state machines: no database, HTTP or validation library comes with them into the cron process."""
     code = (

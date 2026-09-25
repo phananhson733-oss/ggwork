@@ -14,6 +14,7 @@ from obs_db_helpers import as_json, collector_env, execute, rows
 
 from ggwork_pick.observe.clock import ManualClock, random_source
 from ggwork_pick.observe.trends import __main__ as entry
+from ggwork_pick.observe.trends.admission import Admission
 
 SOURCE = "realshort-pick"
 TARGET = date(2026, 9, 26)  # the target date of a night from 2026-09-25 20:30 to 2026-09-26 01:45 UTC
@@ -111,7 +112,13 @@ def trends_env(url: str, *, mode: str = "canary1", key: str | None = None, **ext
     return env
 
 
-async def trigger(env, clock: ManualClock, google, *, controls: Path, pacer=None, seed: int = 7, argv=("run",), out=None, err=None) -> int:
+# The payload gate (admission.py) wants a canary's task list near its plan and half the positive controls matched; the
+# session tests run nights of a dozen units, so they pass this one. The gate's own tests pass admission.STRICT (or call
+# the entry with no admission at all, as production does).
+LOOSE = Admission(min_plan_share=0.0, min_positive_share=0.0)
+
+
+async def trigger(env, clock: ManualClock, google, *, controls: Path, pacer=None, seed: int = 7, argv=("run",), out=None, err=None, admission=LOOSE) -> int:
     """One cron trigger through the real entry point."""
     return await entry.amain(
         list(argv),
@@ -121,6 +128,7 @@ async def trigger(env, clock: ManualClock, google, *, controls: Path, pacer=None
         transport=google.transport(),
         pacer=pacer,
         controls_path=controls,
+        admission=admission,
         out=out,
         err=err,
     )
