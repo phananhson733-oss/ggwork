@@ -224,7 +224,7 @@
 
 ## 8. CI
 
-`.github/workflows/pick-workbench-tests.yml` 的 push 与 pull_request 触发路径加了：`deploy/pick-obs/**`、根目录的 `railway.toml`、`.dockerignore`、任何一级的 `.gitignore` 与 `.railwayignore`（`**/.gitignore`、`**/.railwayignore`：镜像里的 hatchling 按 `backend/.gitignore` 排除文件，`railway up` 读各级 `.gitignore` 与 `.railwayignore`，第 1 节的两个测试依赖它们）、`docs/pick-workbench/observe-runbook/**`（本页的测试会读这些文件），以及 TR-34 的 `scripts/pick-deploy-guard.py`、`scripts/_pick_deploy_guard_readers.py`（守卫的测试在 `customizations/pick-workbench/tests/test_deploy_guard.py`）。
+`.github/workflows/pick-workbench-tests.yml` 的 push 与 pull_request 触发路径加了：`deploy/pick-obs/**`、根目录的 `railway.toml`、`.dockerignore`、任何一级的 `.gitignore` 与 `.railwayignore`（`**/.gitignore`、`**/.railwayignore`：镜像里的 hatchling 按 `backend/.gitignore` 排除文件，`railway up` 读各级 `.gitignore` 与 `.railwayignore`，第 1 节的两个测试依赖它们）、`docs/pick-workbench/observe-runbook/**`（本页的测试会读这些文件），以及 TR-34 的 `scripts/pick-deploy-guard.py`、`scripts/_pick_deploy_guard_readers.py`（守卫的测试在 `customizations/pick-workbench/tests/test_deploy_guard.py`），还有 G3 文档对齐加的本计划 `docs/plans/2026-09-25-trends-radar-impl-plan.md` 与 `frontend/tests/unit/core/pick/api.test.ts`（`tests/observe/test_rollout_plan.py` 读它们，`test_ci_runs_on_the_files_these_tests_read` 钉住）。
 
 新增的「Lint pick deploy guard」步骤对守卫的两个脚本跑 `ruff check` 与 `ruff format --check`，用 ruff 的默认配置（仓库根没有 ruff 配置，88 列；两个脚本按这个配置写成）。两个脚本名写死在步骤里，改名或删掉任何一个，这一步就失败。TR-15 分支单独不含这两个脚本（它们在 TR-34 的分支里），TR-15 只经已含 TR-34 的 `feat/trends-radar` 进 main，所以步骤里不留「文件不在就跳过」的分支。`test_ci_runs_on_the_deploy_files` 钉住触发路径与这一步。
 
@@ -265,6 +265,6 @@
 
 - **TR-05**：`observe/trends/canary_controls.json` 归 TR-05，本任务不建也不改；测试用自己的夹具副本（子进程里把 `canary.DEFAULT_CONTROLS_PATH` 指向副本）。第 4 节的前提（包里的清单每个 geo 都有市场序列）由 TR-14 的 `test_trends_units.py::test_packaged_controls_file_when_present` 钉住：清单缺序列时它是红的，S6 的自检也会以 2 退出。
 - **TR-21**：gsc 的 `deploy/pick-obs/gsc/railway.toml`（每 3 小时第 25 分，10 分钟硬截止）、它的部署验证与变量表写进 TR-21 自己的手册页，不写进本页：本页第 5 节的变量表由 `test_runbook_variables_are_the_ones_the_service_reads` 按 trends 服务读的变量核对，gsc 的变量写进来会让它失败。`test_gsc_railway_config_pinned`、`test_gsc_entrypoint_argv` 可以复用 `tests/observe/railway_helpers.py`（`railway_toml`、`module_argv`、`start_steps`、`cron_field`、`dockerignore_rules`、`docker_excluded`、`git_ignored`、`run_start_command`、`selfcheck_report`）。要不要同样配一份自检配置由 TR-21 定；配了的话，部署顺序照第 5 节第 4 步写。CI 的 `deploy/pick-obs/**` 已经覆盖。
-- **TR-34**：守卫的 cron 模式要求 `deploy/pick-obs/<服务>/railway.toml` 在 main 上；守卫脚本的触发路径与 lint 由本任务加（第 8 节）。第 5 节第 4 步的顺序按守卫的记录规则写（`--first-record` 只在没有记录时带、记录行推送之前 HEAD 不动），`test_cron_deploy_procedure.py` 用守卫本身重放它：守卫的规则变了，那个测试先红。`deploy-guard.md`「各模式通过之后」的 cron 一条原写「部署后以 `--selfcheck-only` 手动触发一次（S6）」，与本页的做法（第 3.2 节：临时把配置路径指向自检配置）不一致，由 G3 文档对齐改成指向本页第 5 节第 4 步与第 6 节（本页不改别的任务的手册）。
-- **计划**：第 10 节 S5、S6、S6a 由 G3 文档对齐按本页改写（先部署自检配置、读自检与预检两行，再切回 cron 配置；第 3.2 节的理由），命令、运行方式与判据以本页与 `trends-session.md` 为准。
+- **TR-34**：守卫的 cron 模式要求 `deploy/pick-obs/<服务>/railway.toml` 在 main 上；守卫脚本的触发路径与 lint 由本任务加（第 8 节）。第 5 节第 4 步的顺序按守卫的记录规则写（`--first-record` 只在没有记录时带、记录行推送之前 HEAD 不动），`test_cron_deploy_procedure.py` 用守卫本身重放它：守卫的规则变了，那个测试先红。`deploy-guard.md`「各模式通过之后」的 cron 一条原写「部署后以 `--selfcheck-only` 手动触发一次（S6）」，与本页的做法（第 3.2 节：临时把配置路径指向自检配置）不一致，已由 G3 文档对齐改成指向本页第 5 节第 4 步与第 6 节（本页不改别的任务的手册）。
+- **计划**：第 10 节 S5、S6、S6a 已由 G3 文档对齐按本页改写，S6 与 S6a 里预检随自检部署一起跑的写法由 G3 集成补齐（先部署自检配置、读自检与预检两行，再切回 cron 配置；第 3.2 节的理由），命令、运行方式与判据以本页与 `trends-session.md` 为准。
 - **TR-29**：目录页 `README.md` 里本页的状态由 TR-29 更新（D35，本任务不改目录页）。
