@@ -1,0 +1,12 @@
+# S6's one-off self-check of the pick-obs-trends service (trends radar plan section 10 S6, TR-15). Point the service's
+# config path at /deploy/pick-obs/trends/selfcheck/railway.toml, deploy, read the one "selfcheck ok" line in the log,
+# then point it back at /deploy/pick-obs/trends/railway.toml and deploy again. No cronSchedule: the container runs
+# once when deployed. Runbook: docs/pick-workbench/observe-runbook/packaging.md.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/Dockerfile.pick-gateway"
+
+[deploy]
+startCommand = '/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends --selfcheck-only"'
+restartPolicyType = "NEVER"

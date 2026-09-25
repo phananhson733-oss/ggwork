@@ -1,0 +1,17 @@
+# The pick-obs-trends cron (trends radar plan TR-15, D6; design 3.1, 6.3). Railway reads this file only when the
+# service's config path is set to /deploy/pick-obs/trends/railway.toml; without it the service would read the root
+# railway.toml, the gateway's, with its healthcheck. Runbook: docs/pick-workbench/observe-runbook/packaging.md.
+# Pinned field by field by customizations/pick-workbench/tests/observe/test_railway_config.py.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/Dockerfile.pick-gateway"
+
+[deploy]
+# Railway runs the start command without a shell, so the cd needs one; exec leaves python as the process.
+startCommand = '/bin/sh -c "cd /app/backend && exec python -m ggwork_pick.observe.trends run"'
+# A failed trigger is not rerun at once: the next trigger, 30 minutes later, resumes from the database.
+restartPolicyType = "NEVER"
+# UTC. 20:00 does nothing (before every mode's start); a session runs to the 01:45 hard deadline, and while it runs
+# Railway skips the triggers that fall inside it. No healthcheckPath: nothing listens.
+cronSchedule = "*/30 20-23,0-1 * * *"
