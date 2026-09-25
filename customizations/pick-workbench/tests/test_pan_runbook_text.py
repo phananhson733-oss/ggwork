@@ -8,7 +8,21 @@ import hashlib
 import re
 import sys
 
-from pan_runbook import CHECK, JSON_COLUMNS, LOCATIONS, REDACT, REDACTED_NONE, RUNBOOK, pattern_of, runbook_pan, runbook_steps
+from pan_runbook import (
+    CHECK,
+    DELETES,
+    JSON_COLUMNS,
+    KEPT,
+    LOCATIONS,
+    REDACT,
+    REDACTED_NONE,
+    RUNBOOK,
+    UPDATES,
+    cleared_at,
+    pattern_of,
+    runbook_pan,
+    runbook_steps,
+)
 
 # The runbook's broad pattern before this change; the scripts must keep matching all of it.
 OLD_PATTERN = r"pan\.baidu|pan\.quark|aliyundrive|alipan|115\.com|123pan|lanzou|drive\.uc\.cn|cloud\.189\.cn|pan\.xunlei|提取码|提取碼|访问码|訪問碼|pwd="
@@ -131,9 +145,15 @@ def test_the_runbook_and_the_script_headers_count_what_the_scripts_print():
     # section 12; test_pan_runbook_sql.py holds the scripts' real output to the same lists.
     runbook, check, redact = (path.read_text(encoding="utf-8") for path in (RUNBOOK, CHECK, REDACT))
     section = runbook[runbook.index("**网盘片段核查") : runbook.index("## 7.")]
-    locations, rewritten = str(len(LOCATIONS)), str(len(REDACTED_NONE))
-    assert re.findall(r"(\d+) 行 `UPDATE n`", section) == [rewritten]
+    locations, cleared = str(len(LOCATIONS)), str(len(REDACTED_NONE))
+    # The redaction prints one UPDATE per rewritten location, then one DELETE for the GSC queries (D18).
+    assert re.findall(r"(\d+) 行 `UPDATE n`", section) == [str(UPDATES)]
+    assert re.findall(r"(\d+) 行 `DELETE n`", section) == [str(DELETES)]
+    assert int(cleared) == UPDATES + DELETES
     assert set(re.findall(r"(\d+) 个位置", section + check)) == {locations}
     assert set(re.findall(r"(\d+) 个 0", section)) == {locations}
-    assert set(re.findall(r"前 (\d+) 个", section + check)) == {rewritten}
+    assert set(re.findall(r"前 (\d+) 个", section + check)) == {cleared}
+    assert set(re.findall(r"最后 (\d+) 个", section + check)) == {str(len(KEPT))}
     assert set(re.findall(r"(\d+) 个 JSON 列", section + redact)) == {str(len(JSON_COLUMNS))}
+    # A database still before 0005, or before 0007, prints fewer lines; the runbook gives both numbers.
+    assert sorted(set(re.findall(r"只有 (\d+) 行", section)), key=int) == [str(len(cleared_at("0004"))), str(len(cleared_at("0006")))]

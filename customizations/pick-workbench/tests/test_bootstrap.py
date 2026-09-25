@@ -3,6 +3,7 @@ import revisions
 from engines import host_engine
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_pg_migrations import TABLES
 
 
 @pytest.mark.asyncio
@@ -16,17 +17,8 @@ async def test_private_migrations_persist_and_are_repeatable(tmp_path):
     await service.initialize(factory)
     async with engine.connect() as conn:
         names = await conn.run_sync(lambda c: inspect(c).get_table_names())
-        assert set(names) == {
-            "ggwp_alembic_version",
-            "ggwp_import_batches",
-            "ggwp_drama_versions",
-            "ggwp_knowledge_versions",
-            "ggwp_candidate_sets",
-            "ggwp_selections",
-            "ggwp_selection_commands",
-            "ggwp_sync_runs",
-            "ggwp_answer_checks",
-        }
+        # The same tables as on PostgreSQL, 0007's observation radar included.
+        assert set(names) == TABLES
         assert (await conn.execute(text("select version_num from ggwp_alembic_version"))).scalar_one() == revisions.head()
     await engine.dispose()
     second = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}")
