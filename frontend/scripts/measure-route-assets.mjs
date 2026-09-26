@@ -10,8 +10,8 @@ import { fileURLToPath } from "node:url";
 const DEMO_THREAD_ID = "7cfa5f8f-a2f8-47ad-acbd-da7137baf990";
 // /workspace/pick-data is measured in the static demo like the other
 // workspace routes: its visitor is the shared demo user, so the page renders
-// its access notice and no mirror query. What counts is the route's own CSS
-// (pick-board.css through its layout) and JavaScript.
+// its access notice and no mirror query. What counts is the route's own
+// JavaScript; its CSS is the global stylesheet like every other route.
 export const ROUTES = [
   "/",
   "/login",

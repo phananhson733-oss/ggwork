@@ -1,11 +1,11 @@
-# DeerFlow Frontend
+# GGWork Frontend
 
-Like the original DeerFlow 1.0, we would love to give the community a minimalistic and easy-to-use web interface with a more modern and flexible architecture.
+The GGWork web interface, built on the open-source DeerFlow project.
 
 ## Tech Stack
 
 - **Framework**: [Next.js 16](https://nextjs.org/) with [App Router](https://nextjs.org/docs/app)
-- **UI**: [React 19](https://react.dev/), [Tailwind CSS 4](https://tailwindcss.com/), [Shadcn UI](https://ui.shadcn.com/), [MagicUI](https://magicui.design/) and [React Bits](https://reactbits.dev/)
+- **UI**: [React 19](https://react.dev/), [Tailwind CSS 4](https://tailwindcss.com/), and [Shadcn UI](https://ui.shadcn.com/)
 - **AI Integration**: [LangGraph SDK](https://www.npmjs.com/package/@langchain/langgraph-sdk) and [Vercel AI Elements](https://vercel.com/ai-sdk/ai-elements)
 
 ## Quick Start
