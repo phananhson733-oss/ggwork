@@ -34,6 +34,9 @@ describe("resolveStaticDemoArtifact", () => {
 
   it.each([
     ["unknown", ["mnt", "user-data", "outputs", "index.html"]],
+    ["constructor", ["mnt", "user-data", "outputs", "index.html"]],
+    ["__proto__", ["mnt", "user-data", "outputs", "index.html"]],
+    ["hasOwnProperty", ["mnt", "user-data", "outputs", "index.html"]],
     [threadId, ["mnt", "user-data", "outputs", "missing.txt"]],
     [threadId, ["mnt", "user-data", "outputs", "..", "thread.json"]],
     [threadId, ["mnt", "user-data", "outputs", "%2e%2e", "thread.json"]],

@@ -87,18 +87,23 @@ export const STATIC_DEMO_ARTIFACTS: Readonly<
   ],
 };
 
-const STATIC_DEMO_ARTIFACT_SETS = Object.fromEntries(
+// A Map, not an object: thread ids come from the URL, and a plain object would
+// resolve "constructor" or "__proto__" to an inherited value.
+const STATIC_DEMO_ARTIFACT_SETS: ReadonlyMap<
+  string,
+  ReadonlySet<string>
+> = new Map(
   Object.entries(STATIC_DEMO_ARTIFACTS).map(([threadId, artifacts]) => [
     threadId,
     new Set(artifacts),
   ]),
-) as Readonly<Record<string, ReadonlySet<string>>>;
+);
 
 export function resolveStaticDemoArtifact(
   threadId: string,
   encodedSegments: readonly string[],
 ): string | null {
-  const allowedArtifacts = STATIC_DEMO_ARTIFACT_SETS[threadId];
+  const allowedArtifacts = STATIC_DEMO_ARTIFACT_SETS.get(threadId);
   if (!allowedArtifacts || encodedSegments[0] !== "mnt") return null;
 
   let segments: string[];
