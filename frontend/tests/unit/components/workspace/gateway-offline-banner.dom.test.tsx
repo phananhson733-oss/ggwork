@@ -11,7 +11,7 @@ import { GatewayOfflineBanner } from "@/components/workspace/gateway-offline-ban
 import { AuthProvider } from "@/core/auth/AuthProvider";
 
 // AuthProvider pulls useRouter/usePathname from next/navigation. Hand it a
-// no-op router so logout()'s `router.push("/")` stays inert under happy-dom
+// no-op router so logout()'s `router.push("/login")` stays inert under happy-dom
 // instead of trying to drive a real Next.js router.
 rs.mock("next/navigation", () => ({
   useRouter: () => ({ push: rs.fn(), replace: rs.fn(), refresh: rs.fn() }),

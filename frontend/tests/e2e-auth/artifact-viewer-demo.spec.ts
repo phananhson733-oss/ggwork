@@ -3,10 +3,10 @@ import { expect, test } from "@playwright/test";
 /**
  * The default E2E config runs with auth disabled, so it cannot see this: the
  * standalone artifact window must stay reachable for a logged-out visitor when
- * the target is a public showcase artifact, and must not for anything else.
+ * the target is a public demo artifact, and must not for anything else.
  */
 
-// An allowlisted showcase artifact — see STATIC_DEMO_ARTIFACTS.
+// An allowlisted demo artifact — see STATIC_DEMO_ARTIFACTS.
 const DEMO_THREAD_ID = "3823e443-4e2b-4679-b496-a9506eae462b";
 const DEMO_ARTIFACT = "/mnt/user-data/outputs/fei-fei-li-podcast-timeline.md";
 
@@ -15,9 +15,7 @@ function viewerUrl(params: Record<string, string>) {
 }
 
 test.describe("standalone artifact viewer access", () => {
-  test("renders a public showcase artifact without a session", async ({
-    page,
-  }) => {
+  test("renders a public demo artifact without a session", async ({ page }) => {
     await page.goto(
       viewerUrl({
         path: DEMO_ARTIFACT,

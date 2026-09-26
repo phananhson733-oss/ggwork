@@ -145,11 +145,6 @@ export interface Translations {
     separator: string;
   };
 
-  home: {
-    docs: string;
-    blog: string;
-  };
-
   // Welcome
   welcome: {
     eyebrow: string;
@@ -1487,7 +1482,6 @@ export interface Translations {
     continueWith: (provider: string) => string;
     noAccountSignUp: string;
     haveAccountSignIn: string;
-    backToHome: string;
     networkError: string;
     serviceUnavailableTitle: string;
     serviceUnavailableDescription: string;

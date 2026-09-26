@@ -205,11 +205,11 @@ describe("returning to the viewer after re-authentication", () => {
 });
 
 describe("requiresAuthenticatedViewer", () => {
-  // A real allowlisted showcase artifact — see STATIC_DEMO_ARTIFACTS.
+  // A real allowlisted demo artifact — see STATIC_DEMO_ARTIFACTS.
   const demoThreadId = "3823e443-4e2b-4679-b496-a9506eae462b";
   const demoFilepath = "/mnt/user-data/outputs/fei-fei-li-podcast-timeline.md";
 
-  test("lets a logged-out visitor read a public showcase artifact", () => {
+  test("lets a logged-out visitor read a public demo artifact", () => {
     expect(
       requiresAuthenticatedViewer({
         filepath: demoFilepath,

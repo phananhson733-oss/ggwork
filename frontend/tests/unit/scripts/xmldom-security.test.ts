@@ -13,7 +13,8 @@ test("the lockfile excludes xmldom versions affected by GHSA-965w-775f-mr7g", ()
     (match) => match[1]!,
   );
 
-  // The dependency can disappear entirely if Nextra drops its XML parser.
+  // Nothing depends on xmldom since Nextra was removed; this keeps a
+  // vulnerable release from coming back with a future dependency.
   for (const version of versions) {
     expect(version).not.toMatch(/^0\.9\.(?:[0-9]|10|11)(?:$|[(-])/);
   }

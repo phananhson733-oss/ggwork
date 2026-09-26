@@ -113,16 +113,16 @@ messages, set thread-scoped `/goal` completion conditions, and receive streamed 
 The backend may produce **artifacts** (files/code), **todos**, and goal-state updates.
 
 **Source layout** (`frontend/src/`):
-- `app/` — App Router routes: `/workspace/chats/[thread_id]` (authenticated chat),
-  `/workspace/agents/[agent_name]` (custom agents), `/showcase/[thread_id]` (allowlisted
-  public read-only demos), `/api/*` route handlers, `(auth)/{login,setup,auth/callback}`.
+- `app/` — App Router routes: `/` (redirects to `/workspace`), `/workspace/chats/[thread_id]`
+  (authenticated chat), `/workspace/agents/[agent_name]` (custom agents), `/api/*` route
+  handlers, `(auth)/{login,setup,auth/callback}`.
 - `core/` — the business-logic heart. Domains: `threads/` (creation, streaming, state),
   `api/` (LangGraph client singleton), `agents/`, `auth/`, `artifacts/`, `channels/`,
   `integrations/`, `memory/`, `skills/`, `mcp/`, `models/`, `tasks/`, `todos/`, `tools/`,
   `workspace-changes/`, `config/`, `i18n/` (en-US, zh-CN), and more.
-- `components/` — `workspace/` (chat), `landing/`, `docs/`; `ui/` and `ai-elements/` are
+- `components/` — `workspace/` (chat), `brand/`; `ui/` and `ai-elements/` are
   registry-generated (Shadcn / Vercel AI SDK) and must not be hand-edited.
-- `hooks/`, `lib/` (`cn()`), `content/` (MDX), `styles/`.
+- `hooks/`, `lib/` (`cn()`), `styles/`.
 
 **Streaming data flow**: `core/threads/` subscribes to the LangGraph run stream via the
 `core/api/` client singleton, normalizes SSE events (messages, `values`, `task_*`,

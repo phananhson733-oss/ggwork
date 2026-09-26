@@ -7,7 +7,6 @@ export const env = createEnv({
    * isn't built with invalid env vars.
    */
   server: {
-    GITHUB_OAUTH_TOKEN: z.string().optional(),
     // Pick data board (src/server/pick-board): the read-only mirror role's URL,
     // without any ssl* query parameter, and the CA its TLS is verified against.
     // db.ts reads both from process.env at call time; listed here for validation.
@@ -40,7 +39,6 @@ export const env = createEnv({
     NEXT_PUBLIC_LANGGRAPH_BASE_URL: process.env.NEXT_PUBLIC_LANGGRAPH_BASE_URL,
     NEXT_PUBLIC_STATIC_WEBSITE_ONLY:
       process.env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY,
-    GITHUB_OAUTH_TOKEN: process.env.GITHUB_OAUTH_TOKEN,
     PICK_MIRROR_READER_URL: process.env.PICK_MIRROR_READER_URL,
     PICK_MIRROR_CA_PEM: process.env.PICK_MIRROR_CA_PEM,
   },

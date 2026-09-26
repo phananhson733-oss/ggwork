@@ -102,8 +102,8 @@ export const maxDuration = 60;
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 type Board = ReadyBoard<BoardRules>;
 
-// searchParams is optional: Nextra's docs page map calls generateMetadata({})
-// on every app page at build time (nextra/dist/server/page-map/index.js).
+// searchParams is optional so a caller without request context still gets a
+// title (the removed Nextra docs build called generateMetadata({})).
 export async function generateMetadata({
   searchParams,
 }: {

@@ -128,11 +128,11 @@ export function artifactViewerTitle(filepath: string | undefined): {
 /**
  * Whether the viewer window has to sit behind the user-auth gate.
  *
- * Public `/showcase` threads render with `isMock`, and their artifacts are
+ * Demo threads render with `isMock` (`?mock=true`), and their artifacts are
  * served by the unauthenticated demo route, which answers only for an
- * allowlisted set of files. Gating those would bounce every logged-out
- * showcase visitor to /login for a document that is already public — and the
- * raw artifact URL this window replaced stayed reachable.
+ * allowlisted set of files. Those files are already public under /demo, so
+ * gating them would bounce a logged-out visitor to /login for a document they
+ * can fetch directly anyway.
  *
  * The allowlist is the authority, not the flag: `mock=true` is caller-supplied
  * and on its own grants nothing, because a target the demo route would answer

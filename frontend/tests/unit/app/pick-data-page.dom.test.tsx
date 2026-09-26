@@ -105,8 +105,8 @@ describe("generateMetadata", () => {
   });
 
   it("titles the default tab when called without searchParams", async () => {
-    // Nextra's page map calls every app page's generateMetadata({}) while
-    // building the docs (nextra/dist/server/page-map/index.js).
+    // A caller without request context (the removed Nextra docs build used
+    // to call generateMetadata({})) still gets the default tab's title.
     const meta = await pageModule.generateMetadata({});
     expect(meta.title).toBe("选剧资料 · 选剧");
     expect(state.calls).toEqual([]);

@@ -162,12 +162,6 @@ export const zhCN: Translations = {
     separator: " ",
   },
 
-  // Home
-  home: {
-    docs: "文档",
-    blog: "博客",
-  },
-
   // Welcome
   welcome: {
     eyebrow: "GGWORK 工作台",
@@ -1741,7 +1735,6 @@ export const zhCN: Translations = {
     continueWith: (provider: string) => `使用 ${provider} 登录`,
     noAccountSignUp: "还没有账号？立即注册",
     haveAccountSignIn: "已有账号？立即登录",
-    backToHome: "← 返回首页",
     networkError: "网络错误，请重试。",
     serviceUnavailableTitle: "服务暂时不可用",
     serviceUnavailableDescription:
