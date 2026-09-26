@@ -39,7 +39,6 @@ import {
 } from "@/core/channels/provider-state";
 import type { ChannelConnection, ChannelProvider } from "@/core/channels/types";
 import { useI18n } from "@/core/i18n/hooks";
-import { cn } from "@/lib/utils";
 
 import { ChannelProviderIcon } from "../channels/channel-provider-icon";
 import { ChannelRuntimeConfigDialog } from "../channels/channel-runtime-config-dialog";
@@ -189,10 +188,7 @@ function ChannelProviderItem({
         <ItemContent className="min-w-0">
           <ItemTitle className="w-full">
             <span className="truncate">{provider.display_name}</span>
-            <Badge
-              variant={isConnected ? "default" : "outline"}
-              className={cn(!isConnected && "text-muted-foreground")}
-            >
+            <Badge variant={isConnected ? "success" : "neutral"}>
               {isConnected ? <CheckCircle2Icon /> : <AlertCircleIcon />}
               {statusLabel}
             </Badge>

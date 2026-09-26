@@ -104,7 +104,7 @@ export function PickToolCard({
         正在查询选剧资料…
       </p>
     ) : (
-      <p role="alert" className="text-sm text-red-600">
+      <p role="alert" className="text-danger-ink text-sm">
         {payload?.status === "catalog_unavailable"
           ? "当前工作空间尚未接入剧库。请在「选剧资料」确认数据状态后重新提问。"
           : (payload?.status === "rejected" ||
@@ -152,7 +152,7 @@ export function PickToolCard({
     }
   };
   return (
-    <div className="my-3 rounded-xl border p-4">
+    <div className="bg-card my-3 rounded-lg border p-4">
       <p className="font-medium">
         {payload?.requires_confirmation ? "确认要保存的剧目" : "选剧候选已生成"}
       </p>
@@ -174,12 +174,12 @@ export function PickToolCard({
         typeof payload.note === "string" &&
         payload.note && <p className="mt-2 text-sm">备注：{payload.note}</p>}
       {query.error && (
-        <p role="alert" className="mt-2 text-sm text-red-600">
+        <p role="alert" className="text-danger-ink mt-2 text-sm">
           {query.error.message}
         </p>
       )}
       {error && (
-        <p role="alert" className="mt-2 text-sm text-red-600">
+        <p role="alert" className="text-danger-ink mt-2 text-sm">
           {error}
         </p>
       )}

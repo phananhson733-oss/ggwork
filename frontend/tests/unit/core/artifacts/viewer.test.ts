@@ -158,13 +158,13 @@ describe("parseArtifactViewerQuery", () => {
 
 describe("artifactViewerTitle", () => {
   test("names the window after the artifact file", () => {
-    expect(artifactViewerTitle("/mnt/user-data/outputs/report.md")).toBe(
-      "report.md - DeerFlow",
-    );
+    expect(artifactViewerTitle("/mnt/user-data/outputs/report.md")).toEqual({
+      absolute: "report.md - GGWork",
+    });
   });
 
   test("falls back to the product name without a target", () => {
-    expect(artifactViewerTitle(undefined)).toBe("DeerFlow");
+    expect(artifactViewerTitle(undefined)).toEqual({ absolute: "GGWork" });
   });
 });
 

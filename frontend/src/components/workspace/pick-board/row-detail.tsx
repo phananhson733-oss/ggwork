@@ -3,6 +3,7 @@
 // 「素材」一格只说有没有网盘（链接与提取码不进镜像），有的话给 RealShort 证据页的外链；剧场文档链接按版本规则的
 // 三种形态渲染（站内 Link / 外链 / 不出链接）；公开页是 ReelShort 站的绝对地址，新标签打开（★38）；
 // Link 加 prefetch={false}；同名行截断时说明；整页拆成几个小组件（函数 <50 行）。
+// GGWork 配色：YouTube 一格用与表格相同的语义 pill（YoutubePill），链接用 link 色。
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -17,7 +18,7 @@ import type { BoardRules } from "@/core/pick-board/rules";
 import { dramaPath, realshortRowUrl } from "@/core/pick-board/site";
 import type { PickRow, RowDetail } from "@/server/pick-board";
 
-import { FactTags, SignalPills } from "./cells";
+import { FactTags, SignalPills, YoutubePill } from "./cells";
 import { ExternalLink, RuleLink } from "./links";
 import { PostedRecordCard } from "./posted-record";
 import { QueyuButton } from "./queyu-button";
@@ -31,7 +32,7 @@ const UNKNOWN_RULE = "规则未知";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-line bg-panel rounded-xl border p-4">
+    <section className="border-line bg-panel rounded-lg border p-4">
       <h3 className="mb-2 font-semibold">{title}</h3>
       {children}
     </section>
@@ -42,7 +43,7 @@ function Fact({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="bg-raised rounded-lg p-3">
       <div className="text-helper text-xs">{label}</div>
-      <div className="mt-1 text-sm leading-relaxed">{value}</div>
+      <div className="mt-1 text-sm leading-[1.65]">{value}</div>
     </div>
   );
 }
@@ -96,7 +97,7 @@ function DetailHead({
   rules: BoardRules;
 }) {
   return (
-    <section className="border-line bg-panel rounded-xl border px-5 py-4">
+    <section className="border-line bg-panel rounded-lg border px-5 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold">
@@ -145,7 +146,7 @@ function Material({
           有网盘（网盘信息不同步到本页，到 RealShort 证据页查看）{" "}
           <ExternalLink
             href={realshortRowUrl(row.rowKey)}
-            className="text-brand hover:underline"
+            className="text-link hover:underline"
           >
             RealShort 证据页 ↗
           </ExternalLink>
@@ -168,11 +169,14 @@ function RuleFacts({ row, rules }: { row: PickRow; rules: BoardRules }) {
         <Fact
           label="YouTube"
           value={
-            <span className={yt.blocked ? "text-brand" : ""}>
-              {yt.label}
-              <br />
-              <span className="text-helper text-xs">{rule?.ytNote ?? ""}</span>
-            </span>
+            <>
+              <YoutubePill kind={yt.kind} blocked={yt.blocked}>
+                {yt.label}
+              </YoutubePill>
+              <div className="text-helper mt-1 text-xs">
+                {rule?.ytNote ?? ""}
+              </div>
+            </>
           }
         />
         <Fact label="报备" value={text((r) => r.report)} />
@@ -203,7 +207,7 @@ function RuleDoc({ rule }: { rule: PlatformRule | undefined }) {
     <>
       <RuleLink
         href={rule.doc}
-        className="text-brand hover:underline"
+        className="text-link hover:underline"
         fallback={<span className="text-helper">版本里没有可用的链接</span>}
       >
         {rule.doc.startsWith("/") ? "打开 ›" : "飞书 ↗"}
@@ -281,14 +285,14 @@ function SiteDramas({ detail, req }: { detail: RowDetail; req: PickRequest }) {
             </span>
             <ExternalLink
               href={dramaPath(d.locale, d.slug)}
-              className="text-brand hover:underline"
+              className="text-link hover:underline"
             >
               公开页
             </ExternalLink>
             <Link
               prefetch={false}
               href={rowHref(req, reelshortRowKey(d.id))}
-              className="text-brand hover:underline"
+              className="text-link hover:underline"
             >
               证据页
             </Link>

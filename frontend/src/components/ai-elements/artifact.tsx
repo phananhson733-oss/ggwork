@@ -16,7 +16,7 @@ export type ArtifactProps = HTMLAttributes<HTMLDivElement>;
 export const Artifact = ({ className, ...props }: ArtifactProps) => (
   <div
     className={cn(
-      "bg-background flex flex-col overflow-hidden rounded-lg border shadow-lg",
+      "bg-card flex flex-col overflow-hidden rounded-lg border",
       className,
     )}
     {...props}

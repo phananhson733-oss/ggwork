@@ -2,6 +2,7 @@
 // 本地改动：榜名、剧场榜依据与 rs 排序的标签改读版本规则（rules.rsRankLabels / basisLabels / sortLabels；
 // 订单对账的标签由 buildBoardRules 固定成「ReelShort 订单对账」）；「更早…」表单的 action 改成 /workspace/pick-data
 // 并带隐藏的 v；ReelShort 与剧场榜两排 chips、rs 榜的排序 / 语种 / 上线筛选、「更早…」的隐藏字段拆成小组件（函数 <50 行）。
+// GGWork 样式：「更早…」下拉聚焦用 link 边框加 brand-soft 光圈，「查看」按钮白底、悬停加深边框，chip 行间距 8。
 import { LOCALE_CODES, localeFromCode } from "@/core/pick-board/lang";
 import { BUCKETS, bucketLabel } from "@/core/pick-board/metrics";
 import {
@@ -252,7 +253,7 @@ function EarlierForm({
   optionText?: (v: string) => string;
 }) {
   return (
-    <form action={BOARD_PATH} method="get" className="flex items-center gap-1">
+    <form action={BOARD_PATH} method="get" className="flex items-center gap-2">
       <EarlierHidden req={req} />
       <label htmlFor={`pick-${name}-more`} className="sr-only">
         更早的{label}
@@ -264,7 +265,7 @@ function EarlierForm({
         name={name}
         defaultValue={rest.includes(current) ? current : ""}
         required
-        className="border-line bg-panel rounded-full border px-2 py-1 text-[12px]"
+        className="border-line bg-panel focus-visible:border-link focus-visible:ring-brand-soft rounded-full border px-2 py-1 text-[12px] focus-visible:ring-[3px] focus-visible:outline-none"
       >
         <option value="">更早…</option>
         {rest.map((v) => (
@@ -275,7 +276,7 @@ function EarlierForm({
       </select>
       <button
         type="submit"
-        className="border-line hover:border-brand/50 rounded-full border px-2.5 py-1 text-[12px]"
+        className="border-line-strong bg-panel text-ink-1 hover:bg-panel-hover rounded-full border px-2.5 py-1 text-[12px] font-medium"
       >
         查看
       </button>
@@ -310,7 +311,7 @@ function DateChips({
   /* 选中的在「更早」里时把它顶到 chips 末尾，否则页面上看不出当前选的是哪天 */
   const chips = current && !head.includes(current) ? [...head, current] : head;
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       <Chips
         label={label}
         current={current}

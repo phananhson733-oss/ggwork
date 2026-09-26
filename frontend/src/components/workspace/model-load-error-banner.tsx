@@ -58,9 +58,9 @@ export function ModelLoadErrorBanner({
   return (
     <Alert
       variant="destructive"
-      className="border-destructive/20 bg-destructive/10 rounded-none border-x-0 border-t-0 px-4 py-2"
+      className="border-danger-line bg-danger-surface rounded-none border-x-0 border-t-0 px-4 py-2"
     >
-      <AlertDescription className="text-destructive flex w-full items-center justify-between gap-3">
+      <AlertDescription className="text-danger-ink flex w-full items-center justify-between gap-3">
         <span className="min-w-0">{t.workspace.modelLoadFailed}</span>
         <Button
           type="button"
@@ -71,7 +71,7 @@ export function ModelLoadErrorBanner({
           onClick={() => {
             void retry();
           }}
-          className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/10 h-7 bg-transparent px-3 text-xs shadow-none dark:bg-transparent"
+          className="border-danger-line text-danger-ink hover:bg-destructive/10 hover:text-danger-ink h-7 bg-transparent px-3 text-xs shadow-none"
         >
           {isRetrying
             ? t.workspace.modelLoadRetrying

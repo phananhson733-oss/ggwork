@@ -1,0 +1,246 @@
+/*
+ * GGWork theme tokens: the single palette for the whole app.
+ *
+ * Source: Claude Design project "GGWork 设计系统规范化"
+ * (tokens/ggwork-theme.css), direction 1c "Aurora": ink primary buttons,
+ * teal links and selection, and the mint-to-sky gradient only on the one
+ * main CTA per screen. Neutrals come from gengrowth.ai (#F7F9FB page,
+ * #0E1621 ink). 1a "evergreen" and 1b "tide" stay available through
+ * <html data-brand="evergreen|tide">; the attribute has to sit on <html>,
+ * because the shadcn aliases below resolve at :root.
+ *
+ * Dark mode only swaps tokens (next-themes puts .dark on <html>). Status is
+ * always a semantic pill plus text; the brand color never encodes status.
+ * The former pick-board palette is global now, so .pick-board no longer
+ * overrides anything.
+ */
+
+:root {
+  --radius: 0.5rem; /* sm 4 · md 8 · lg 12 · xl 16 */
+
+  /* Neutrals */
+  --bg: #f7f9fb;
+  --surface: #ffffff;
+  --raised: #f1f4f7;
+  --hover: #f4f7f9;
+  --sidebar-bg: #f2f5f7;
+  --line: #e3e8ee;
+  --line-strong: #cdd5de;
+  --ink-1: #0e1621;
+  --ink-2: #36414d;
+  --helper: #5a6675;
+  --ink-dim: #8995a3;
+
+  /* Brand (1c Aurora) */
+  --brand: #0e1621;
+  --brand-hover: #26313d;
+  --on-brand: #ffffff;
+  --link: #0b7468;
+  --brand-soft: #e3f3f0;
+  --brand-ink: #0a5f55;
+  --brand-line: #bfe2db;
+  --cta: linear-gradient(90deg, #3ddc97, #4fc3f7);
+  --cta-ink: #06231a;
+
+  /* Semantic colors, shared by every direction */
+  --success-surface: #e3f4ea;
+  --success-ink: #1f7a45;
+  --warning-surface: #fbf0d9;
+  --warning-ink: #8a5a00;
+  --warning-line: rgb(138 90 0 / 30%);
+  --danger-surface: #fdecea;
+  --danger-ink: #b42318;
+  --danger-line: rgb(180 35 24 / 30%);
+  --info-surface: #e4eff8;
+  --info-ink: #1d5c8f;
+
+  /* Charts (ordered) */
+  --chart-1: #0b7468;
+  --chart-2: #0a659a;
+  --chart-3: #3ddc97;
+  --chart-4: #4fc3f7;
+  --chart-5: #8a5a00;
+
+  /* shadcn aliases */
+  --background: var(--bg);
+  --foreground: var(--ink-1);
+  --card: var(--surface);
+  --card-foreground: var(--ink-1);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink-1);
+  --primary: var(--brand);
+  --primary-foreground: var(--on-brand);
+  --secondary: var(--raised);
+  --secondary-foreground: var(--ink-1);
+  --muted: var(--raised);
+  --muted-foreground: var(--helper);
+  --accent: var(--hover);
+  --accent-foreground: var(--ink-1);
+  --destructive: var(--danger-ink);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--link);
+  --sidebar: var(--sidebar-bg);
+  --sidebar-foreground: var(--ink-2);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--on-brand);
+  --sidebar-accent: var(--brand-soft);
+  --sidebar-accent-foreground: var(--brand-ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--link);
+
+  /* Former pick-board names */
+  --panel: var(--surface);
+  --panel-hover: var(--hover);
+  --gold: var(--warning-ink);
+  --violet-surface: var(--info-surface);
+  --violet-ink: var(--info-ink);
+  --chart-series-revenue: var(--chart-1);
+  --chart-series-promoters: var(--chart-2);
+}
+
+.dark {
+  --bg: #0c1115;
+  --surface: #11181d;
+  --raised: #172027;
+  --hover: #151d23;
+  --sidebar-bg: #0f151a;
+  --line: #222c34;
+  --line-strong: #2f3b45;
+  --ink-1: #e7edf1;
+  --ink-2: #c2ccd4;
+  --helper: #93a0ab;
+  --ink-dim: #6b7884;
+
+  --brand: #e7edf1;
+  --brand-hover: #ffffff;
+  --on-brand: #0c1115;
+  --link: #4fd8bd;
+  --brand-soft: #10272a;
+  --brand-ink: #7fe6d1;
+  --brand-line: #1d4540;
+
+  --success-surface: #14301f;
+  --success-ink: #7dd8a0;
+  --warning-surface: #362b15;
+  --warning-ink: #e8c07d;
+  --warning-line: rgb(232 192 125 / 30%);
+  --danger-surface: #3a1818;
+  --danger-ink: #ff8a80;
+  --danger-line: rgb(255 138 128 / 35%);
+  --info-surface: #10233a;
+  --info-ink: #8cc3f5;
+
+  /*
+   * Not in the design file: its light chart colors fall under 3:1 on the
+   * dark surface (#0A659A is 2.85:1). These reuse the design's own dark link
+   * and warning values so every series stays visible.
+   */
+  --chart-1: #4fd8bd;
+  --chart-2: #79c5ee;
+  --chart-3: #3ddc97;
+  --chart-4: #4fc3f7;
+  --chart-5: #e8c07d;
+}
+
+/* Alternate 1b "tide": blue brand */
+[data-brand="tide"] {
+  --brand: #0a659a;
+  --brand-hover: #08547f;
+  --on-brand: #ffffff;
+  --link: #0a659a;
+  --brand-soft: #e3eff7;
+  --brand-ink: #084c73;
+  --brand-line: #bcd7ea;
+  --cta: linear-gradient(#0a659a, #0a659a);
+  --cta-ink: #ffffff;
+}
+.dark[data-brand="tide"],
+[data-brand="tide"] .dark {
+  --brand: #56b4e6;
+  --brand-hover: #79c5ee;
+  --on-brand: #04121b;
+  --link: #79c5ee;
+  --brand-soft: #0f2230;
+  --brand-ink: #9dd3f1;
+  --brand-line: #1c3a50;
+  --cta: linear-gradient(#56b4e6, #56b4e6);
+  --cta-ink: #04121b;
+}
+
+/* Alternate 1a "evergreen": green brand */
+[data-brand="evergreen"] {
+  --brand: #0e7a55;
+  --brand-hover: #0b6446;
+  --on-brand: #ffffff;
+  --link: #0e7a55;
+  --brand-soft: #e4f3ec;
+  --brand-ink: #0b5e42;
+  --brand-line: #bfe3d2;
+  --cta: linear-gradient(#0e7a55, #0e7a55);
+  --cta-ink: #ffffff;
+}
+.dark[data-brand="evergreen"],
+[data-brand="evergreen"] .dark {
+  --brand: #3ccb8e;
+  --brand-hover: #5cd9a2;
+  --on-brand: #04140c;
+  --link: #5cd9a2;
+  --brand-soft: #12291f;
+  --brand-ink: #7ee3b5;
+  --brand-line: #1e4534;
+  --cta: linear-gradient(#3ccb8e, #3ccb8e);
+  --cta-ink: #04140c;
+}
+
+/*
+ * Utilities for the raw tokens (text-link, bg-brand-soft, border-line, ...).
+ * `inline` makes each utility read the variable at the element, so dark mode
+ * and data-brand switch them without extra classes. --cta is a gradient in
+ * 1c and a flat color in 1a/1b; the alternates write their color as a
+ * one-stop gradient so bg-cta (a background image) works for all three.
+ */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
+  --color-sidebar-bg: var(--sidebar-bg);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink-1: var(--ink-1);
+  --color-ink-2: var(--ink-2);
+  --color-helper: var(--helper);
+  --color-ink-dim: var(--ink-dim);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-on-brand: var(--on-brand);
+  --color-link: var(--link);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-line: var(--brand-line);
+  --color-cta-ink: var(--cta-ink);
+  --color-success-surface: var(--success-surface);
+  --color-success-ink: var(--success-ink);
+  --color-warning-surface: var(--warning-surface);
+  --color-warning-ink: var(--warning-ink);
+  --color-warning-line: var(--warning-line);
+  --color-danger-surface: var(--danger-surface);
+  --color-danger-ink: var(--danger-ink);
+  --color-danger-line: var(--danger-line);
+  --color-info-surface: var(--info-surface);
+  --color-info-ink: var(--info-ink);
+  --color-panel: var(--panel);
+  --color-panel-hover: var(--panel-hover);
+  --color-gold: var(--gold);
+  --color-violet-surface: var(--violet-surface);
+  --color-violet-ink: var(--violet-ink);
+
+  --background-image-cta: var(--cta);
+
+  /* Depth comes from surfaces and 1px lines. Only inputs and overlays get
+     one light shadow. */
+  --shadow-popover: 0 8px 24px -12px rgb(15 23 33 / 0.1);
+  --shadow-composer:
+    0 1px 2px rgb(15 23 33 / 0.04), 0 8px 24px -12px rgb(15 23 33 / 0.1);
+}

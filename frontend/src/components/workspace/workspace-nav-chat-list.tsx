@@ -32,7 +32,7 @@ export function WorkspaceNavChatList() {
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton isActive={pathname === "/workspace/chats"} asChild>
-            <Link className="text-muted-foreground" href="/workspace/chats">
+            <Link href="/workspace/chats">
               <MessagesSquare />
               <span>{t.sidebar.chats}</span>
             </Link>
@@ -44,7 +44,7 @@ export function WorkspaceNavChatList() {
               isActive={pathname.startsWith("/workspace/agents")}
               asChild
             >
-              <Link className="text-muted-foreground" href="/workspace/agents">
+              <Link href="/workspace/agents">
                 <BotIcon />
                 <span>{t.sidebar.agents}</span>
               </Link>
@@ -62,7 +62,6 @@ export function WorkspaceNavChatList() {
                     still receives pointer events), not the inert button. */}
                 <span className="block w-full cursor-not-allowed">
                   <SidebarMenuButton
-                    className="text-muted-foreground/50"
                     aria-disabled
                     aria-describedby="agents-disabled-reason"
                   >
@@ -85,10 +84,7 @@ export function WorkspaceNavChatList() {
             isActive={pathname.startsWith("/workspace/scheduled-tasks")}
             asChild
           >
-            <Link
-              className="text-muted-foreground"
-              href="/workspace/scheduled-tasks"
-            >
+            <Link href="/workspace/scheduled-tasks">
               <CalendarClock />
               <span>{t.sidebar.scheduledTasks}</span>
             </Link>
@@ -99,10 +95,7 @@ export function WorkspaceNavChatList() {
             isActive={pathname.startsWith("/workspace/capabilities")}
             asChild
           >
-            <Link
-              className="text-muted-foreground"
-              href="/workspace/capabilities"
-            >
+            <Link href="/workspace/capabilities">
               <BlocksIcon />
               <span>{t.capabilities.title}</span>
             </Link>

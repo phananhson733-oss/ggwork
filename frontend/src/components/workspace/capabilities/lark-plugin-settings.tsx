@@ -633,7 +633,7 @@ function LarkIntegrationCard() {
     <Card>
       <CardHeader>
         <div className="flex items-center gap-3">
-          <div className="bg-primary/10 text-primary rounded-lg p-2">
+          <div className="bg-raised text-ink-2 rounded-lg p-2">
             <PlugZapIcon className="size-5" />
           </div>
           <div>
@@ -743,14 +743,14 @@ function LarkIntegrationCard() {
                 {data.latest_available_version &&
                   data.latest_available_version !==
                     (data.manifest_version ?? data.version) && (
-                    <span className="text-amber-600 dark:text-amber-500">
+                    <span className="text-warning-ink">
                       {t.settings.integrations.lark.updateAvailable(
                         data.latest_available_version,
                       )}
                     </span>
                   )}
                 {data.runtime_version_mismatch && (
-                  <span className="text-amber-600 dark:text-amber-500">
+                  <span className="text-warning-ink">
                     {t.settings.integrations.lark.runtimeVersionMismatch}
                   </span>
                 )}
@@ -1042,7 +1042,7 @@ function StatusItem({
     <div className="rounded-lg border p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="text-sm font-medium">{label}</div>
-        <Badge variant={ok ? "secondary" : "outline"}>
+        <Badge variant={ok ? "success" : "warning"}>
           {ok ? (
             <CheckCircle2Icon className="size-3" />
           ) : (

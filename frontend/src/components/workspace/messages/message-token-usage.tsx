@@ -147,7 +147,7 @@ export function MessageTokenUsageDebugList({
                 )}
               </div>
             </div>
-            <Badge className="shrink-0 font-mono" variant="outline">
+            <Badge className="shrink-0 tabular-nums" variant="outline">
               {step.usage
                 ? `${formatTokenCount(step.usage.totalTokens)} ${t.tokenUsage.label}`
                 : t.tokenUsage.unavailableShort}

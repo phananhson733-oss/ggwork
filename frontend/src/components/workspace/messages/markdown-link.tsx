@@ -142,7 +142,7 @@ export function createMarkdownLinkComponent(threadId?: string) {
         {...rest}
         href={href}
         className={cn(
-          "text-primary decoration-primary/30 hover:decoration-primary/60 underline underline-offset-2 transition-colors",
+          "text-link decoration-link/30 hover:decoration-link/60 underline underline-offset-2 transition-colors",
           className,
         )}
         target={target ?? (external ? "_blank" : undefined)}

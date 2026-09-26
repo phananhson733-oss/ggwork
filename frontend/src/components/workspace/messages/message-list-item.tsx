@@ -545,7 +545,7 @@ function MessageContent_({
         )}
         {filesList}
         {editState ? (
-          <div className="bg-background border-border flex w-full min-w-0 flex-col gap-2 rounded-lg border p-2 shadow-sm">
+          <div className="bg-card border-border flex w-full min-w-0 flex-col gap-2 rounded-lg border p-2">
             <Textarea
               autoFocus
               className="min-h-24 resize-y"
@@ -733,7 +733,7 @@ function RichFileCard({
 
   if (isUploading) {
     return (
-      <div className="bg-background border-border/40 flex max-w-50 min-w-30 flex-col gap-1 rounded-lg border p-3 opacity-60 shadow-sm">
+      <div className="bg-card border-border flex max-w-50 min-w-30 flex-col gap-1 rounded-lg border p-3 opacity-60">
         <div className="flex items-start gap-2">
           <Loader2Icon className="text-muted-foreground mt-0.5 size-4 shrink-0 animate-spin" />
           <span
@@ -782,7 +782,7 @@ function RichFileCard({
   }
 
   return (
-    <div className="bg-background border-border/40 flex max-w-50 min-w-30 flex-col gap-1 rounded-lg border p-3 shadow-sm">
+    <div className="bg-card border-border flex max-w-50 min-w-30 flex-col gap-1 rounded-lg border p-3">
       <div className="flex items-start gap-2">
         <FileIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
         <span

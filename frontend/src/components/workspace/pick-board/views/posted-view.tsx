@@ -27,7 +27,7 @@ function PostedEmpty({ req, none }: { req: PickRequest; none: boolean }) {
         <Link
           prefetch={false}
           href={pickHref(req, { q: "" })}
-          className="text-brand ml-2 hover:underline"
+          className="text-link ml-2 hover:underline"
         >
           清掉搜索词
         </Link>

@@ -22,7 +22,7 @@ const PICK_NOTE =
   "入选池 = 有任一剧场榜单 / 评级 / 清单 / 备注信号的剧单行，加 ReelShort 里满足候选条件（7 天有出站 / 有预估订单 / 有搜索匹配）的正典行；默认排除剧单下架表里的行。剧场信号是剧场自己的声明，不是需求证据；ReelShort 的数值是本站采集的原值。日期是那条证据自己的日期，没有就写日期未知。";
 const ALL_NOTE =
   "九个剧场剧单的全部行加 ReelShort 全部正典行，用来搜索与补查。「同名未核」= 剧名归一后对上 ReelShort 片库，只是同名匹配，不是同剧确认。";
-const LINK = "text-brand hover:underline";
+const LINK = "text-link hover:underline";
 
 type Relax = Readonly<{
   key: string;
@@ -135,7 +135,7 @@ export function ListBody({
   return (
     <>
       <Filters req={req} facets={data.facets} rules={ctx.rules} />
-      <p className="text-helper mb-3 text-sm leading-relaxed">
+      <p className="text-helper mb-3 text-sm leading-[1.65]">
         {req.tab === "pick" ? PICK_NOTE : ALL_NOTE}
       </p>
       {rows.length === 0 ? (

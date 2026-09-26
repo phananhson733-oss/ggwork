@@ -1086,7 +1086,12 @@ export function MessageList({
         initial={initialScroll}
         resize={resizeScroll}
       >
-        <ConversationContent className="mx-auto w-full max-w-(--container-width-md) gap-8 pt-8">
+        <ConversationContent
+          className={cn(
+            "mx-auto w-full max-w-[768px] gap-6 py-8",
+            sidecarSurface ? "px-4" : "px-6",
+          )}
+        >
           <LoadMoreHistoryIndicator
             isLoading={isHistoryLoading}
             hasMore={hasMoreHistory}
@@ -1116,6 +1121,11 @@ export function MessageList({
                     className={cn(
                       "w-full",
                       group.type === "assistant" && "group/assistant-turn",
+                      // Assistant prose is 14/1.7 in the main chat only; the
+                      // sidecar keeps its inherited size.
+                      group.type === "assistant" &&
+                        !sidecarSurface &&
+                        "text-sm leading-[1.7]",
                     )}
                   >
                     {group.messages.map((msg) => {
@@ -1460,7 +1470,7 @@ export function MessageList({
       {selectionToolbar && sidecar && (
         <div
           className={cn(
-            "bg-popover text-popover-foreground border-border fixed z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border p-1 shadow-lg",
+            "bg-popover text-popover-foreground border-border shadow-popover fixed z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border p-1",
             selectionToolbar.placement === "bottom"
               ? "translate-y-0"
               : "-translate-y-full",

@@ -85,7 +85,7 @@ export function formatThreadAsMarkdown(
     if (message.type === "human") {
       const content = formatMessageContent(message);
       if (content) {
-        lines.push(`## 🧑 User`, "", content, "", "---", "");
+        lines.push("## User", "", content, "", "---", "");
       }
     } else if (message.type === "ai") {
       const reasoning = options.includeReasoning
@@ -98,7 +98,7 @@ export function formatThreadAsMarkdown(
 
       if (!content && !toolCalls && !reasoning) continue;
 
-      lines.push(`## 🤖 Assistant`);
+      lines.push("## Assistant");
 
       if (reasoning) {
         lines.push(

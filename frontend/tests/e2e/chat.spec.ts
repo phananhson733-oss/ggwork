@@ -863,6 +863,11 @@ test.describe("Chat workspace", () => {
 
     const textarea = page.getByPlaceholder(/how can i assist you/i);
     await expect(textarea).toBeVisible({ timeout: 15_000 });
+    // The welcome header (the workbench or the pick welcome, each with the
+    // page's only h1) must be on screen first, or the checks below pass
+    // without ever seeing it.
+    const welcomeHeading = page.getByRole("heading", { level: 1 });
+    await expect(welcomeHeading).toBeVisible();
 
     await textarea.fill(
       "/goal finish a small repo check and report the result",
@@ -873,12 +878,10 @@ test.describe("Chat workspace", () => {
       hasText: "finish a small repo check",
     });
     await expect(goal).toBeVisible();
-    await expect(page.getByText(/welcome to/i)).toBeHidden();
+    await expect(welcomeHeading).toBeHidden();
 
     const overlaps = await page.evaluate(() => {
-      const welcome = [...document.querySelectorAll("p")].find((el) =>
-        el.textContent?.toLowerCase().includes("welcome to"),
-      );
+      const welcome = document.querySelector("h1");
       const goal = [...document.querySelectorAll("span")].find((el) =>
         el.textContent?.includes(
           "finish a small repo check and report the result",

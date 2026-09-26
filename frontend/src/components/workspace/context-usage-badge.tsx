@@ -48,7 +48,7 @@ export function ContextUsageBadge({
     >
       <GaugeIcon size={14} />
       <span>{t.contextUsage.label}</span>
-      <span className="font-mono">{formatted}%</span>
+      <span className="tabular-nums">{formatted}%</span>
     </div>
   );
 }

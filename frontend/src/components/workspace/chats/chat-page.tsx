@@ -446,10 +446,10 @@ export default function ChatPage() {
           <div className="relative flex size-full min-h-0 justify-between">
             <header
               className={cn(
-                "absolute top-0 right-0 left-0 flex h-12 shrink-0 items-center gap-2 px-2 sm:px-4",
+                "absolute top-0 right-0 left-0 flex h-14 shrink-0 items-center gap-2 px-2 sm:px-5",
                 isWelcomeMode
-                  ? "bg-background/0 z-40 backdrop-blur-none"
-                  : "bg-background/80 z-30 shadow-xs backdrop-blur",
+                  ? "z-40 bg-transparent"
+                  : "bg-background border-line z-30 border-b",
               )}
             >
               {!isMock && <SidebarTrigger className="md:hidden" />}
@@ -513,7 +513,7 @@ export default function ChatPage() {
                   archiveDownloadsEnabled={
                     isNewThread || isMock || threadMetadata.data != null
                   }
-                  className={cn("size-full", !isWelcomeMode && "pt-10")}
+                  className={cn("size-full", !isWelcomeMode && "pt-12")}
                   testId="main-message-list"
                   threadId={threadId}
                   thread={thread}
@@ -569,9 +569,7 @@ export default function ChatPage() {
                     "relative w-full",
                     isWelcomeMode &&
                       "-translate-y-[calc(50vh-48px)] sm:-translate-y-[calc(50vh-96px)]",
-                    isWelcomeMode
-                      ? "max-w-(--container-width-sm)"
-                      : "max-w-(--container-width-md)",
+                    isWelcomeMode ? "max-w-[720px]" : "max-w-[768px]",
                   )}
                 >
                   {(hasGoal || hasTodos) && (
@@ -590,7 +588,6 @@ export default function ChatPage() {
                         {activeGoal && <GoalStatus goal={activeGoal} />}
                         {hasTodos && (
                           <TodoList
-                            className="bg-background/5"
                             todos={thread.values.todos ?? []}
                             hidden={false}
                           />
@@ -601,7 +598,7 @@ export default function ChatPage() {
                   {mountedRef.current ? (
                     <InputBox
                       className={cn(
-                        "bg-background/5 w-full",
+                        "w-full",
                         isWelcomeMode && "-translate-y-2 sm:-translate-y-4",
                       )}
                       isWelcomeMode={isWelcomeMode}
@@ -658,7 +655,7 @@ export default function ChatPage() {
                     <div
                       aria-hidden="true"
                       className={cn(
-                        "bg-background/5 h-32 w-full rounded-2xl",
+                        "h-32 w-full rounded-2xl",
                         isWelcomeMode && "-translate-y-2 sm:-translate-y-4",
                       )}
                     />

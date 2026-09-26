@@ -87,7 +87,7 @@ export function CitationLink({
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary mt-2 inline-flex items-center gap-1 text-xs hover:underline"
+            className="text-link mt-2 inline-flex items-center gap-1 text-xs hover:underline"
           >
             Visit source
             <ExternalLinkIcon className="size-3" />

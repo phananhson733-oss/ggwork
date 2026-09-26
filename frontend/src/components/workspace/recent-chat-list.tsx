@@ -170,14 +170,7 @@ export function ThreadSidebarItem({
   }, [t.chats.pinChatFailed, thread, updatePinnedThread]);
 
   const handleShare = useCallback(async () => {
-    // Always use Vercel URL for sharing so others can access
-    const VERCEL_URL = "https://deer-flow-v2.vercel.app";
-    const isLocalhost =
-      window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1";
-    // On localhost: use Vercel URL; On production: use current origin
-    const baseUrl = isLocalhost ? VERCEL_URL : window.location.origin;
-    const shareUrl = `${baseUrl}${pathOfThread(thread)}`;
+    const shareUrl = `${window.location.origin}${pathOfThread(thread)}`;
     try {
       const didCopy = await writeTextToClipboard(shareUrl);
       if (!didCopy) {
@@ -227,7 +220,7 @@ export function ThreadSidebarItem({
       <SidebarMenuButton isActive={isActive} asChild>
         <Link
           aria-label={branchLabel}
-          className="text-muted-foreground min-w-0 whitespace-nowrap group-hover/side-menu-item:overflow-hidden"
+          className="min-w-0 whitespace-nowrap group-hover/side-menu-item:overflow-hidden"
           data-branch-depth={
             branchEntry && branchEntry.depth > 0 ? branchEntry.depth : undefined
           }
@@ -238,7 +231,7 @@ export function ThreadSidebarItem({
           {branchEntry && branchEntry.depth > 0 && (
             <span
               aria-hidden="true"
-              className="text-muted-foreground/70 shrink-0 font-mono text-[10px] leading-none"
+              className="text-ink-dim shrink-0 font-mono text-[10px] leading-none"
               data-testid="thread-branch-stem"
               style={{
                 marginLeft: `${Math.min(branchEntry.depth - 1, 1) * 8}px`,
@@ -257,7 +250,7 @@ export function ThreadSidebarItem({
           <span className="min-w-0 truncate">{title}</span>
           {channelSource && (
             <span
-              className="bg-muted text-muted-foreground ml-auto inline-flex h-5 max-w-14 shrink-0 items-center rounded-md px-1.5 text-[10px] font-medium"
+              className="bg-raised text-helper ml-auto inline-flex h-5 max-w-14 shrink-0 items-center rounded-sm px-1.5 text-[10px] font-medium"
               title={`${channelSource.label} channel`}
             >
               <span className="truncate">{channelSource.label}</span>
@@ -276,11 +269,7 @@ export function ThreadSidebarItem({
               <span className="sr-only">{t.common.more}</span>
             </SidebarMenuAction>
           </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="w-48 rounded-lg"
-            side={"right"}
-            align={"start"}
-          >
+          <DropdownMenuContent className="w-48" side={"right"} align={"start"}>
             <DropdownMenuItem onSelect={handleTogglePin}>
               {pinned ? (
                 <PinOff className="text-muted-foreground" />

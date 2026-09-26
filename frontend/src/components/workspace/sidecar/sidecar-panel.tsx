@@ -602,7 +602,7 @@ export function SidecarPanel({ className }: { className?: string }) {
       <div className="bg-background/95 shrink-0 px-3 pt-3 pb-4 sm:px-4">
         <PromptInputProvider key={sidecar.parentThreadId}>
           <PromptInput
-            className="bg-background/85 rounded-2xl backdrop-blur-sm *:data-[slot='input-group']:rounded-2xl"
+            className="*:data-[slot='input-group']:shadow-composer rounded-2xl *:data-[slot='input-group']:rounded-2xl"
             disabled={disabled}
             multiple
             onSubmit={handleSubmit}
@@ -657,7 +657,9 @@ export function SidecarPanel({ className }: { className?: string }) {
                         ? "submitted"
                         : "ready"
                     }
-                    variant="outline"
+                    // Ink, not the gradient: the main composer's send is
+                    // the one CTA on the chat screen.
+                    variant="default"
                   />
                 </Tooltip>
               </PromptInputTools>
@@ -768,15 +770,10 @@ function SidecarModeMenu({
             {mode === "thinking" && <LightbulbIcon className="size-3" />}
             {mode === "pro" && <GraduationCapIcon className="size-3" />}
             {mode === "ultra" && (
-              <RocketIcon className="size-3 text-[#dabb5e]" />
+              <RocketIcon className="text-brand-ink size-3" />
             )}
           </div>
-          <div
-            className={cn(
-              "truncate text-xs font-normal",
-              mode === "ultra" && "golden-text",
-            )}
-          >
+          <div className="truncate text-xs font-normal">
             {(mode === "flash" && t.inputBox.flashMode) ||
               (mode === "thinking" && t.inputBox.reasoningMode) ||
               (mode === "pro" && t.inputBox.proMode) ||
@@ -888,12 +885,10 @@ function SidecarModeMenu({
                 <RocketIcon
                   className={cn(
                     "mr-2 size-4",
-                    mode === "ultra" && "text-[#dabb5e]",
+                    mode === "ultra" && "text-accent-foreground",
                   )}
                 />
-                <div className={cn(mode === "ultra" && "golden-text")}>
-                  {t.inputBox.ultraMode}
-                </div>
+                {t.inputBox.ultraMode}
               </div>
               <div className="pl-7 text-xs">
                 {t.inputBox.ultraModeDescription}

@@ -220,7 +220,7 @@ export function ModelPickerContent({
                     size="icon"
                     className={cn(
                       "size-8 shrink-0 rounded-l-none",
-                      isFavorite && "text-amber-500",
+                      isFavorite && "text-warning-ink",
                     )}
                     aria-label={t.modelPicker.favoriteModel(
                       model.display_name,
@@ -260,7 +260,7 @@ export function ModelPickerContent({
         align="end"
         sideOffset={8}
         collisionPadding={8}
-        className="bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 z-50 flex max-h-[min(20rem,var(--radix-popover-content-available-height))] w-72 max-w-[calc(100vw-1rem)] origin-(--radix-popover-content-transform-origin) flex-col overflow-hidden rounded-md border shadow-md outline-none"
+        className="bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 shadow-popover z-50 flex max-h-[min(20rem,var(--radix-popover-content-available-height))] w-72 max-w-[calc(100vw-1rem)] origin-(--radix-popover-content-transform-origin) flex-col overflow-hidden rounded-xl border outline-none"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           focusInitialModel();

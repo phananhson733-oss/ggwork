@@ -1,12 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
 import { RememberSessionOption } from "@/components/auth/remember-session-option";
+import { GGWorkWordmark } from "@/components/brand/ggwork-logo";
 import { Button } from "@/components/ui/button";
-import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Input } from "@/components/ui/input";
 import { getCsrfHeaders } from "@/core/api/fetcher";
 import { useAuth } from "@/core/auth/AuthProvider";
@@ -23,7 +22,6 @@ type SetupMode = "loading" | "init_admin" | "change_password" | "unavailable";
 export default function SetupPage() {
   const router = useRouter();
   const { user, isAuthenticated } = useAuth();
-  const { theme, resolvedTheme } = useTheme();
   const { t } = useI18n();
   const [mode, setMode] = useState<SetupMode>("loading");
   const [setupStatusAttempt, setSetupStatusAttempt] = useState(0);
@@ -161,8 +159,6 @@ export default function SetupPage() {
     }
   };
 
-  const actualTheme = theme === "system" ? resolvedTheme : theme;
-
   if (mode === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -209,18 +205,12 @@ export default function SetupPage() {
   // ── Admin initialization form ──────────────────────────────────────
   if (mode === "init_admin") {
     return (
-      <div className="bg-background flex min-h-screen items-center justify-center">
-        <FlickeringGrid
-          className="absolute inset-0 z-0 mask-[url(/images/deer.svg)] mask-size-[100vw] mask-center mask-no-repeat md:mask-size-[72vh]"
-          squareSize={4}
-          gridGap={4}
-          color={actualTheme === "dark" ? "white" : "black"}
-          maxOpacity={0.3}
-          flickerChance={0.25}
-        />
-        <div className="border-border/20 bg-background/5 w-full max-w-md space-y-6 rounded-3xl border p-8 backdrop-blur-sm">
+      <div className="bg-background flex min-h-screen items-center justify-center px-4">
+        <div className="bg-card border-line w-full max-w-md space-y-6 rounded-xl border p-8">
           <div className="text-center">
-            <h1 className="font-serif text-3xl">DeerFlow</h1>
+            <h1 className="flex justify-center">
+              <GGWorkWordmark markSize={32} textClassName="text-2xl" />
+            </h1>
             <p className="text-muted-foreground mt-2">Create admin account</p>
             <p className="text-muted-foreground mt-1 text-xs">
               Set up the administrator account to get started.
@@ -272,7 +262,7 @@ export default function SetupPage() {
               checked={rememberMe}
               onCheckedChange={setRememberMe}
             />
-            {error && <p className="ms-1 text-sm text-red-500">{error}</p>}
+            {error && <p className="text-danger-ink ms-1 text-sm">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Creating account…" : "Create Admin Account"}
             </Button>
@@ -284,18 +274,12 @@ export default function SetupPage() {
 
   // ── Change-password form (needs_setup after login) ─────────────────
   return (
-    <div className="bg-background flex min-h-screen items-center justify-center">
-      <FlickeringGrid
-        className="absolute inset-0 z-0 mask-[url(/images/deer.svg)] mask-size-[100vw] mask-center mask-no-repeat md:mask-size-[72vh]"
-        squareSize={4}
-        gridGap={4}
-        color={actualTheme === "dark" ? "white" : "black"}
-        maxOpacity={0.3}
-        flickerChance={0.25}
-      />
-      <div className="border-border/20 bg-background/5 w-full max-w-md space-y-6 rounded-3xl border p-8 backdrop-blur-sm">
+    <div className="bg-background flex min-h-screen items-center justify-center px-4">
+      <div className="bg-card border-line w-full max-w-md space-y-6 rounded-xl border p-8">
         <div className="text-center">
-          <h1 className="font-serif text-3xl">DeerFlow</h1>
+          <h1 className="flex justify-center">
+            <GGWorkWordmark markSize={32} textClassName="text-2xl" />
+          </h1>
           <p className="text-muted-foreground mt-2">
             Complete admin account setup
           </p>
@@ -338,7 +322,7 @@ export default function SetupPage() {
             checked={rememberMe}
             onCheckedChange={setRememberMe}
           />
-          {error && <p className="text-sm text-red-500">{error}</p>}
+          {error && <p className="text-danger-ink text-sm">{error}</p>}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Setting up…" : "Complete Setup"}
           </Button>

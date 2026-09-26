@@ -137,8 +137,8 @@ function SummaryDelta({
         className,
       )}
     >
-      <span className="text-emerald-500">+{additions}</span>
-      <span className="text-red-500">-{deletions}</span>
+      <span className="text-success-ink">+{additions}</span>
+      <span className="text-danger-ink">-{deletions}</span>
     </span>
   );
 }

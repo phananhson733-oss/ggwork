@@ -23,6 +23,7 @@ import type {
   WechatQRLoginSession,
 } from "@/core/channels/types";
 import { useI18n } from "@/core/i18n/hooks";
+import { cn } from "@/lib/utils";
 
 export function WechatQRLogin({
   onConfigured,
@@ -157,6 +158,8 @@ export function WechatQRLogin({
     error !== null;
   const scanned =
     session?.status === "scanned" || session?.status === "confirmed";
+  // The QR code needs a white tile in both themes; the other states follow the tokens.
+  const showQrCode = !ended && !scanned && !verificationRequired;
   const title = ended
     ? session?.status === "expired"
       ? t.channels.wechatQr.expiredTitle
@@ -184,8 +187,13 @@ export function WechatQRLogin({
 
   return (
     <div className="flex min-h-[328px] flex-col items-center gap-4">
-      <div className="relative flex size-[232px] shrink-0 items-center justify-center overflow-hidden rounded-2xl border bg-white p-3 shadow-xs">
-        {session && !ended && !scanned && !verificationRequired ? (
+      <div
+        className={cn(
+          "relative flex size-[232px] shrink-0 items-center justify-center overflow-hidden rounded-2xl border p-3",
+          showQrCode ? "bg-white" : "bg-surface",
+        )}
+      >
+        {session && showQrCode ? (
           <QRCodeSVG
             value={session.qrcode_content}
             size={208}
@@ -195,7 +203,7 @@ export function WechatQRLogin({
           />
         ) : null}
         {ended ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-lg bg-neutral-50 text-neutral-600">
+          <div className="bg-raised text-helper flex h-full w-full flex-col items-center justify-center gap-4 rounded-lg">
             <CircleAlertIcon
               className="size-8 stroke-[1.5]"
               aria-hidden="true"
@@ -203,7 +211,6 @@ export function WechatQRLogin({
             <Button
               type="button"
               variant="outline"
-              className="bg-white text-neutral-900"
               onClick={() => setAttempt((value) => value + 1)}
             >
               <RefreshCwIcon />
@@ -211,8 +218,8 @@ export function WechatQRLogin({
             </Button>
           </div>
         ) : verificationRequired ? (
-          <div className="flex w-full flex-col gap-3 text-neutral-900">
-            <SmartphoneIcon className="mx-auto size-8 text-emerald-600" />
+          <div className="text-ink-1 flex w-full flex-col gap-3">
+            <SmartphoneIcon className="text-helper mx-auto size-8" />
             <label
               htmlFor="wechat-pairing-code"
               className="text-center text-sm font-medium"
@@ -249,17 +256,17 @@ export function WechatQRLogin({
             </Button>
           </div>
         ) : scanned ? (
-          <div className="flex flex-col items-center gap-3 text-emerald-600">
-            <div className="relative rounded-full bg-emerald-50 p-5">
+          <div className="text-success-ink flex flex-col items-center gap-3">
+            <div className="bg-success-surface relative rounded-full p-5">
               <SmartphoneIcon className="size-10 stroke-[1.5]" />
-              <span className="absolute -right-1 bottom-0 rounded-full bg-emerald-600 p-1 text-white">
+              <span className="bg-success-ink text-surface absolute -right-1 bottom-0 rounded-full p-1">
                 <CheckIcon className="size-4" />
               </span>
             </div>
           </div>
         ) : !session ? (
           <LoaderCircleIcon
-            className="size-6 animate-spin text-neutral-400"
+            className="text-ink-dim size-6 animate-spin"
             aria-label={t.channels.wechatQr.loading}
           />
         ) : null}
@@ -272,7 +279,7 @@ export function WechatQRLogin({
         <p className="flex items-center justify-center gap-2 text-sm font-medium">
           {session && !ended ? (
             <span
-              className="size-1.5 rounded-full bg-emerald-500"
+              className="bg-link size-1.5 rounded-full"
               aria-hidden="true"
             />
           ) : null}

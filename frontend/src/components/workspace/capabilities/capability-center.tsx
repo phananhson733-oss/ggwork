@@ -41,17 +41,19 @@ export function CapabilityCenter() {
   }
   return (
     <div className="bg-background flex h-full min-h-0 flex-col">
-      <div className="text-muted-foreground flex h-14 shrink-0 items-center gap-3 border-b px-4 text-xs md:px-8">
+      <div className="border-line bg-background text-helper flex h-14 shrink-0 items-center gap-2 border-b px-5 text-sm">
         <SidebarTrigger className="md:hidden" />
         <span>{t.breadcrumb.workspace}</span>
-        <span className="opacity-40">/</span>
-        <span className="text-foreground">{t.capabilities.title}</span>
+        <span className="text-ink-dim" aria-hidden="true">
+          /
+        </span>
+        <span className="text-ink-1 font-medium">{t.capabilities.title}</span>
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-7xl px-5 py-8 md:px-10 md:py-10">
           <header className="mb-8 flex flex-wrap items-end justify-between gap-5">
             <div>
-              <h1 className="text-[28px] font-semibold tracking-tight">
+              <h1 className="text-xl font-bold tracking-[-0.01em]">
                 {t.capabilities.title}
               </h1>
               <p className="text-muted-foreground mt-2 text-sm leading-6">
@@ -62,7 +64,7 @@ export function CapabilityCenter() {
               <SearchIcon className="text-muted-foreground pointer-events-none absolute top-3 left-3 size-4" />
               <Input
                 disabled={!hydrated}
-                className="bg-muted/30 h-10 rounded-xl pl-9 shadow-none"
+                className="bg-card h-10 rounded-md pl-9 shadow-none"
                 aria-label={
                   tab === "plugins"
                     ? t.capabilities.searchPlugins

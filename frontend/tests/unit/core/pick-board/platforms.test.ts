@@ -17,22 +17,27 @@ test("youtubeStatus 按版本规则判：可发 / 禁 / 慎用直接取标签，
   assert.deepEqual(youtubeStatus(rules, "shortmax", false), {
     label: "YouTube 可发",
     blocked: false,
+    kind: "ok",
   });
   assert.deepEqual(youtubeStatus(rules, "moboreels", true), {
     label: "禁 YouTube",
     blocked: true,
+    kind: "no",
   });
   assert.deepEqual(youtubeStatus(rules, "touchshort", false), {
     label: "YouTube 慎用",
     blocked: false,
+    kind: "warn",
   });
   assert.deepEqual(youtubeStatus(rules, "kalos", true), {
     label: "YouTube 限剧单 · 在剧单",
     blocked: false,
+    kind: "only",
   });
   assert.deepEqual(youtubeStatus(rules, "kalos", false), {
     label: "YouTube 限剧单 · 不在剧单",
     blocked: true,
+    kind: "only",
   });
 });
 
@@ -60,18 +65,21 @@ test("可发 / 慎用 / 禁三种也取版本里的写法，不回落到静态�
   assert.deepEqual(youtubeStatus(renamed, "shortmax", false), {
     label: "油管可发",
     blocked: false,
+    kind: "ok",
   });
   assert.deepEqual(youtubeStatus(renamed, "touchshort", false), {
     label: "油管慎用",
     blocked: false,
+    kind: "warn",
   });
   assert.deepEqual(youtubeStatus(renamed, "moboreels", true), {
     label: "油管禁发",
     blocked: true,
+    kind: "no",
   });
 });
 
-test("规则里没有这个剧场，或剧场键不认识：规则未知，不拦也不崩", () => {
+test("规则里没有这个剧场，或剧场键不认识：规则未知，不拦也不崩，也不带 kind", () => {
   const rest = Object.fromEntries(
     Object.entries(fixture.platformRules).filter(([k]) => k !== "touchshort"),
   );

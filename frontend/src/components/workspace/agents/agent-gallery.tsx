@@ -4,6 +4,7 @@ import { BotIcon, PlusIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAgents } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 
@@ -20,11 +21,23 @@ export function AgentGallery() {
 
   return (
     <div className="flex size-full flex-col">
-      {/* Page header */}
-      <div className="flex items-center justify-between border-b px-6 py-4">
+      {/* Breadcrumb bar, same as the workspace page header */}
+      <div className="border-line bg-background text-helper flex h-14 shrink-0 items-center gap-2 border-b px-5 text-sm">
+        <SidebarTrigger className="md:hidden" />
+        <span>{t.breadcrumb.workspace}</span>
+        <span className="text-ink-dim" aria-hidden="true">
+          /
+        </span>
+        <span className="text-ink-1 font-medium">{t.agents.title}</span>
+      </div>
+
+      {/* Page title */}
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-4 px-6 pt-6">
         <div>
-          <h1 className="text-xl font-semibold">{t.agents.title}</h1>
-          <p className="text-muted-foreground mt-0.5 text-sm">
+          <h1 className="text-xl font-bold tracking-[-0.01em]">
+            {t.agents.title}
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm">
             {t.agents.description}
           </p>
         </div>

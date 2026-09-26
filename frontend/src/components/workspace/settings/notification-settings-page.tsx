@@ -74,7 +74,7 @@ export function NotificationSettingsPage() {
         )}
 
         {permission === "denied" && (
-          <p className="text-muted-foreground rounded-md border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/50">
+          <p className="border-warning-line bg-warning-surface text-warning-ink rounded-md border p-3 text-sm">
             {t.settings.notification.deniedHint}
           </p>
         )}

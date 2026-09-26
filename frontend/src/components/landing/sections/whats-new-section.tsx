@@ -16,7 +16,7 @@ const MagicBento = dynamic(() => import("@/components/ui/magic-bento"), {
   ssr: false,
 });
 
-const COLOR = "#0a0a0a";
+const COLOR = "var(--surface)";
 const features: BentoCardProps[] = [
   {
     color: COLOR,

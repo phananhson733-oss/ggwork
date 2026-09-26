@@ -2,6 +2,7 @@
 // 本地改动：Link 加 prefetch={false}；公开页（dramaPath）是 ReelShort 站的绝对地址，新标签打开（★38）；
 // 帖子链接只对 https:// 出 <a>，别的（含网盘清洗留下的「[网盘信息已移除]」、http）照原文显示为文字（B9）；
 // 帖子一行与帖子汇总拆成小函数（函数 <50 行）。
+// GGWork 配色：状态 chip 用语义 pill 尺寸，下架是 warning pill，同名未核是中性标签，链接用 link 色。
 import Link from "next/link";
 
 import {
@@ -23,27 +24,29 @@ function fmt(n: number | null | undefined): string {
   return typeof n === "number" ? n.toLocaleString("en-US") : "—";
 }
 
+const CHIP = "rounded-sm border px-2 py-0.5 text-[11.5px] font-medium";
+
 export function PostedStateChips({ p }: { p: PostedRecord }) {
   return (
     <span className="inline-flex flex-wrap gap-1 align-middle">
       {p.life ? (
-        <span className="border-line text-ink-2 rounded-[4px] border px-1 py-px text-[10px]">
-          {p.life}
-        </span>
+        <span className={`${CHIP} border-line text-ink-2`}>{p.life}</span>
       ) : null}
       {p.scheduled ? (
-        <span className="border-success-ink/40 bg-success-surface text-success-ink rounded-[4px] border px-1 py-px text-[10px]">
+        <span
+          className={`${CHIP} bg-success-surface text-success-ink border-transparent`}
+        >
           已排期
         </span>
       ) : (
-        <span className="border-warning-line bg-warning-surface text-warning-ink rounded-[4px] border px-1 py-px text-[10px]">
+        <span
+          className={`${CHIP} bg-warning-surface text-warning-ink border-transparent`}
+        >
           未排期
         </span>
       )}
       {p.archived ? (
-        <span className="border-line text-ink-dim rounded-[4px] border px-1 py-px text-[10px]">
-          已归档
-        </span>
+        <span className={`${CHIP} border-line text-ink-dim`}>已归档</span>
       ) : null}
     </span>
   );
@@ -74,12 +77,14 @@ function LinkedRows({
           <Link
             prefetch={false}
             href={rowHref(req, r.rowKey)}
-            className="text-brand hover:underline"
+            className="text-link hover:underline"
           >
             {PLATFORM_LABELS[r.platform]} · {r.lang || "语种未标"} · {r.title}
           </Link>
           {r.offOn ? (
-            <span className="text-brand ml-1 text-[10px]">下架 {r.offOn}</span>
+            <span className="bg-warning-surface text-warning-ink ml-1 rounded-sm px-2 py-0.5 text-[11.5px] font-medium">
+              下架 {r.offOn}
+            </span>
           ) : null}
         </div>
       ))}
@@ -108,14 +113,14 @@ function LinkedDramas({
           </span>
           <ExternalLink
             href={dramaPath(d.locale, d.slug)}
-            className="text-brand hover:underline"
+            className="text-link hover:underline"
           >
             公开页
           </ExternalLink>
           <Link
             prefetch={false}
             href={rowHref(req, reelshortRowKey(d.id))}
-            className="text-brand hover:underline"
+            className="text-link hover:underline"
           >
             证据页
           </Link>
@@ -157,7 +162,7 @@ export function PostedLinkList({
       <LinkedRows rows={rows} req={req} limit={limit} />
       <LinkedDramas dramas={dramas} req={req} limit={limit} />
       <div className="mt-0.5">
-        <span className="border-warning-line bg-warning-surface text-warning-ink rounded-[4px] border px-1 py-px text-[10px]">
+        <span className="bg-raised text-helper rounded-sm px-2 py-0.5 text-[11px]">
           同名未核
         </span>
       </div>
@@ -174,7 +179,7 @@ function PostUrl({ url }: { url: string | undefined }) {
       <ExternalLink
         href={url}
         rel="nofollow sponsored noopener"
-        className="text-brand hover:underline"
+        className="text-link hover:underline"
       >
         打开 ↗
       </ExternalLink>
@@ -279,7 +284,7 @@ export function PostedRecordCard({
         <Link
           prefetch={false}
           href={pickHref(req, { tab: "posted", sd: p.sd, page: 1 })}
-          className="text-brand font-mono text-xs hover:underline"
+          className="text-link font-mono text-xs hover:underline"
         >
           {p.sd}
         </Link>

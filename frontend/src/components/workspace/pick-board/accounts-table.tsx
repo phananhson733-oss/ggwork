@@ -1,6 +1,6 @@
 // PORTED_FROM: realshort@816ca2e src/components/admin/pick/accounts-table.tsx
 // 本地改动：账号主页只对 https:// 出链接，别的（含网盘清洗留下的「[网盘信息已移除]」、http）只显示账号名（B9）；
-// 一行拆成 AccountRow（函数 <50 行）。
+// 一行拆成 AccountRow（函数 <50 行）；GGWork 样式：账号链接用 link 色，折叠区圆角 12。
 import type { CatalogAccount } from "@/server/pick-board";
 
 import { ExternalLink, isSafeUrl } from "./links";
@@ -14,7 +14,7 @@ function AccountRow({ a }: { a: CatalogAccount }) {
           <ExternalLink
             href={a.url}
             rel="nofollow sponsored noopener"
-            className="text-brand hover:underline"
+            className="text-link hover:underline"
           >
             {name}
           </ExternalLink>
@@ -38,7 +38,7 @@ function AccountRow({ a }: { a: CatalogAccount }) {
 export function AccountsTable({ accounts }: { accounts: CatalogAccount[] }) {
   return (
     <details
-      className="border-line bg-panel mt-6 rounded-xl border px-4 py-3"
+      className="border-line bg-panel mt-6 rounded-lg border px-4 py-3"
       open
     >
       <summary className="cursor-pointer text-sm font-semibold">

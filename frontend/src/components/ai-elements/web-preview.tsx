@@ -242,8 +242,8 @@ export const WebPreviewConsole = ({
               <div
                 className={cn(
                   "text-xs",
-                  log.level === "error" && "text-destructive",
-                  log.level === "warn" && "text-yellow-600",
+                  log.level === "error" && "text-danger-ink",
+                  log.level === "warn" && "text-warning-ink",
                   log.level === "log" && "text-foreground",
                 )}
                 key={`${log.timestamp.getTime()}-${index}`}

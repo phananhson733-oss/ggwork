@@ -190,7 +190,7 @@ export function ChannelRuntimeConfigDialog({
         >
           <div className={cn(hasWechatQR && "flex items-center gap-3 pr-4")}>
             {hasWechatQR ? (
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10">
+              <div className="bg-raised flex size-11 shrink-0 items-center justify-center rounded-xl">
                 <ChannelProviderIcon provider="wechat" className="size-7" />
               </div>
             ) : null}

@@ -180,7 +180,7 @@ function ProjectHeader({ project }: { project: Project }) {
   const { t } = useI18n();
   return (
     <header className="flex flex-wrap items-center gap-3">
-      <h1 className="min-w-0 flex-1 truncate text-2xl font-semibold">
+      <h1 className="min-w-0 flex-1 truncate text-xl font-bold tracking-[-0.01em]">
         {project.name}
       </h1>
       {project.status === "archived" && (

@@ -1,7 +1,15 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { CopyIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  CalendarDaysIcon,
+  CopyIcon,
+  FlameIcon,
+  NewspaperIcon,
+  TagIcon,
+  TriangleAlertIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -47,7 +55,11 @@ import {
   useTriggerScheduledTask,
   useThreadScheduledTasks,
 } from "@/core/scheduled-tasks/hooks";
-import { RECIPES, type Recipe } from "@/core/scheduled-tasks/recipes";
+import {
+  RECIPES,
+  type Recipe,
+  type RecipeTitleKey,
+} from "@/core/scheduled-tasks/recipes";
 import { useScheduledTaskRunHistory } from "@/core/scheduled-tasks/run-history";
 import { matchesScheduledTaskQuery } from "@/core/scheduled-tasks/search";
 import type {
@@ -58,6 +70,18 @@ import { cn } from "@/lib/utils";
 
 const NONE = "—";
 
+const RECIPE_ICONS: Record<RecipeTitleKey, LucideIcon> = {
+  trending: FlameIcon,
+  news: NewspaperIcon,
+  issues: TagIcon,
+  weekly: CalendarDaysIcon,
+};
+
+function RecipeIcon({ titleKey }: { titleKey: RecipeTitleKey }) {
+  const Icon = RECIPE_ICONS[titleKey];
+  return <Icon aria-hidden className="size-3.5" />;
+}
+
 function ReuseThreadNotice({
   title,
   description,
@@ -66,8 +90,8 @@ function ReuseThreadNotice({
   description: string;
 }) {
   return (
-    <Alert className="border-amber-500/50 bg-amber-500/10">
-      <TriangleAlertIcon className="text-amber-600 dark:text-amber-400" />
+    <Alert variant="warning">
+      <TriangleAlertIcon />
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>{description}</AlertDescription>
     </Alert>
@@ -304,7 +328,9 @@ export default function ScheduledTasksPage() {
       <WorkspaceHeader />
       <WorkspaceBody>
         <div className="mx-auto flex w-full max-w-(--container-width-md) flex-col gap-4 p-6">
-          <h1 className="text-2xl font-semibold">{t.sidebar.scheduledTasks}</h1>
+          <h1 className="text-xl font-bold tracking-[-0.01em]">
+            {t.sidebar.scheduledTasks}
+          </h1>
           <div
             ref={createFormRef}
             className="grid gap-2 rounded-lg border p-4"
@@ -325,7 +351,7 @@ export default function ScheduledTasksPage() {
                   size="sm"
                   onClick={() => applyRecipe(recipe)}
                 >
-                  <span aria-hidden>{recipe.icon}</span>
+                  <RecipeIcon titleKey={recipe.titleKey} />
                   {st.recipes[recipe.titleKey].title}
                 </Button>
               ))}

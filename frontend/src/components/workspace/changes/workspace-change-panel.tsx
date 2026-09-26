@@ -133,8 +133,8 @@ function WorkspaceChangeFile({
                 <span>{statusLabel(file.status, t)}</span>
                 {(file.additions > 0 || file.deletions > 0) && (
                   <span>
-                    <span className="text-emerald-500">+{file.additions}</span>{" "}
-                    <span className="text-red-500">-{file.deletions}</span>
+                    <span className="text-success-ink">+{file.additions}</span>{" "}
+                    <span className="text-danger-ink">-{file.deletions}</span>
                   </span>
                 )}
               </div>
@@ -188,12 +188,12 @@ function WorkspaceDiff({ diff }: { diff: string }) {
 function StatusIcon({ status }: { status: WorkspaceChangeStatus }) {
   const className = "mt-0.5 size-4 shrink-0";
   if (status === "created") {
-    return <FilePlusIcon className={cn(className, "text-emerald-500")} />;
+    return <FilePlusIcon className={cn(className, "text-success-ink")} />;
   }
   if (status === "deleted") {
-    return <FileMinusIcon className={cn(className, "text-red-500")} />;
+    return <FileMinusIcon className={cn(className, "text-danger-ink")} />;
   }
-  return <FilePenLineIcon className={cn(className, "text-sky-500")} />;
+  return <FilePenLineIcon className={cn(className, "text-info-ink")} />;
 }
 
 function statusLabel(
@@ -234,13 +234,13 @@ function unavailableLabel(
 function diffLineClassName(line: string) {
   const lineClass = getWorkspaceChangeLineClass(line);
   if (lineClass === "addition") {
-    return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+    return "bg-success-surface text-success-ink";
   }
   if (lineClass === "deletion") {
-    return "bg-red-500/10 text-red-700 dark:text-red-300";
+    return "bg-danger-surface text-danger-ink";
   }
   if (lineClass === "hunk") {
-    return "bg-sky-500/10 text-sky-700 dark:text-sky-300";
+    return "bg-info-surface text-info-ink";
   }
   if (lineClass === "meta") {
     return "text-muted-foreground";

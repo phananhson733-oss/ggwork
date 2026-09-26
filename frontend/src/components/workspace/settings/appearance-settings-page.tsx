@@ -111,6 +111,26 @@ export function AppearanceSettingsPage() {
   );
 }
 
+/**
+ * Literal GGWork palette values (page bg, line, ink-1, surface, link). Each
+ * preview shows its own theme whichever theme is active, so it cannot read
+ * the current tokens.
+ */
+const PREVIEW_PALETTE = {
+  light: {
+    page: "border-[#e3e8ee] bg-[#f7f9fb] text-[#0e1621]",
+    line: "border-[#e3e8ee]",
+    card: "border-[#e3e8ee] bg-[#ffffff]",
+    dot: "bg-[#0b7468]",
+  },
+  dark: {
+    page: "border-[#222c34] bg-[#0c1115] text-[#e7edf1]",
+    line: "border-[#222c34]",
+    card: "border-[#222c34] bg-[#11181d]",
+    dot: "bg-[#4fd8bd]",
+  },
+} as const;
+
 function ThemePreviewCard({
   icon: Icon,
   label,
@@ -130,15 +150,16 @@ function ThemePreviewCard({
 }) {
   const previewMode =
     mode === "system" ? (systemTheme === "dark" ? "dark" : "light") : mode;
+  const palette = PREVIEW_PALETTE[previewMode];
   return (
     <button
       type="button"
       onClick={() => onSelect(mode)}
       className={cn(
-        "group flex h-full flex-col gap-3 rounded-lg border p-4 text-left transition-all",
+        "group flex h-full flex-col gap-3 rounded-lg border p-4 text-left transition-colors",
         active
-          ? "border-primary ring-primary/30 shadow-sm ring-2"
-          : "hover:border-border hover:shadow-sm",
+          ? "border-link ring-brand-soft ring-[3px]"
+          : "hover:border-line-strong",
       )}
     >
       <div className="flex items-start gap-3">
@@ -155,18 +176,16 @@ function ThemePreviewCard({
       <div
         className={cn(
           "relative overflow-hidden rounded-md border text-xs transition-colors",
-          previewMode === "dark"
-            ? "border-neutral-800 bg-neutral-900 text-neutral-200"
-            : "border-slate-200 bg-white text-slate-900",
+          palette.page,
         )}
       >
-        <div className="border-border/50 flex items-center gap-2 border-b px-3 py-2">
-          <div
-            className={cn(
-              "h-2 w-2 rounded-full",
-              previewMode === "dark" ? "bg-emerald-400" : "bg-emerald-500",
-            )}
-          />
+        <div
+          className={cn(
+            "flex items-center gap-2 border-b px-3 py-2",
+            palette.line,
+          )}
+        >
+          <div className={cn("h-2 w-2 rounded-full", palette.dot)} />
           <div className="h-2 w-10 rounded-full bg-current/20" />
           <div className="h-2 w-6 rounded-full bg-current/15" />
         </div>
@@ -174,7 +193,7 @@ function ThemePreviewCard({
           <div className="space-y-2">
             <div className="h-3 w-3/4 rounded-full bg-current/15" />
             <div className="h-3 w-1/2 rounded-full bg-current/10" />
-            <div className="h-[90px] rounded-md border border-current/10 bg-current/5" />
+            <div className={cn("h-[90px] rounded-md border", palette.card)} />
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-2">

@@ -305,7 +305,7 @@ export function PluginGallery({ query }: { query: string }) {
                   href={selected.source}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 underline"
+                  className="text-link inline-flex items-center gap-1 hover:underline"
                 >
                   {copy.source}
                   <ArrowUpRightIcon className="size-3" />

@@ -4,6 +4,7 @@
 // 截断时说明；「现在」取版本的 as_of（now 改名 asOf）；公开页是 ReelShort 站的绝对地址，新标签打开（★38）；
 // Link 加 prefetch={false}；可选的 seriesTrimmedBefore 在清理日落进曲线窗口时说明早于哪天的点已清理；明细行的 book_id
 // 不是正典 id 时在推广类型旁注明（兄弟资源同日同类型的行才分得开）；整页拆成几个小组件（函数 <50 行）。
+// GGWork 配色：曲线与出站条用图表色 --chart-1 / --chart-2，同名未核是中性标签，下架是 warning pill，卡片圆角 12。
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -39,7 +40,7 @@ import { TAB_LABELS, pickHref, rowHref } from "./toolbar";
  */
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-line bg-panel rounded-[12px] border p-4">
+    <section className="border-line bg-panel rounded-lg border p-4">
       <h3 className="mb-2 font-semibold">{title}</h3>
       {children}
     </section>
@@ -68,7 +69,7 @@ function TileGroup({
       </div>
       <div className={`grid grid-cols-2 gap-3 ${cols}`}>
         {tiles.map((t) => (
-          <div key={t.label} className="bg-raised rounded-[10px] p-3">
+          <div key={t.label} className="bg-raised rounded-lg p-3">
             <div className="text-helper text-xs">{t.label}</div>
             <div className="my-1 text-xl font-bold break-words tabular-nums">
               {t.value}
@@ -86,7 +87,7 @@ function IdentityLine({ row, asOf }: { row: ObserveRow; asOf: Date }) {
   return (
     <div className="text-helper mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
       <span>
-        <span className="bg-raised text-ink-2 rounded-[4px] px-1 py-px font-semibold">
+        <span className="bg-raised text-ink-2 rounded-sm px-1 py-px font-semibold">
           {PLATFORM_LABELS.reelshort}
         </span>{" "}
         · 本站 CPS 片库
@@ -106,7 +107,7 @@ function IdentityLine({ row, asOf }: { row: ObserveRow; asOf: Date }) {
       </span>
       <ExternalLink
         href={dramaPath(row.locale, row.slug)}
-        className="text-brand hover:underline"
+        className="text-link hover:underline"
       >
         公开页 ↗
       </ExternalLink>
@@ -154,7 +155,7 @@ function HeadFacts({
       <div className="mt-2 flex flex-wrap gap-1">
         <MetricsValidTag valid={row.metricsValid} />
         {sameTitle.length ? (
-          <Tag tone="warn">同名未核 · 剧场行 {sameTitle.length}</Tag>
+          <Tag tone="neutral">同名未核 · 剧场行 {sameTitle.length}</Tag>
         ) : null}
       </div>
     </div>
@@ -296,7 +297,7 @@ function ValidityNote({ row }: { row: ObserveRow }) {
 function Head({ detail, req, requestedId, asOf, rules }: DetailProps) {
   const rule = rules.platformRules.reelshort;
   return (
-    <section className="border-line bg-panel rounded-[12px] border px-5 py-4">
+    <section className="border-line bg-panel rounded-lg border px-5 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <HeadFacts detail={detail} requestedId={requestedId} asOf={asOf} />
         <div className="flex flex-col items-end gap-2 text-[12px]">
@@ -358,7 +359,7 @@ function Curves({
         rows={series.map((s) => ({ day: s.day, value: s.revenueRaw }))}
         days={SERIES_DAYS}
         today={asOf}
-        color="var(--chart-series-revenue)"
+        color="var(--chart-1)"
         note={`仅绘制已校验的 UTC 每日首次保留值；无效或历史未校验样本留空，不等于零。${trimmed}`}
       />
       <Spark
@@ -371,7 +372,7 @@ function Curves({
         rows={series.map((s) => ({ day: s.day, value: s.promoters }))}
         days={SERIES_DAYS}
         today={asOf}
-        color="var(--chart-series-promoters)"
+        color="var(--chart-2)"
         note={`仅绘制已校验值；持平不能排除同步延迟或上游修订。${trimmed}`}
       />
     </div>
@@ -411,7 +412,7 @@ function ClicksSection({ clicks }: { clicks: ReelshortDetail["clicks"] }) {
                 </td>
                 <td className="w-1/3 px-3">
                   <span
-                    className="bg-success-ink inline-block h-2 rounded"
+                    className="inline-block h-2 rounded-sm bg-[var(--chart-2)]"
                     style={{ width: `${(c.human / maxClicks) * 100}%` }}
                   />
                 </td>
@@ -549,7 +550,7 @@ function SameTitleSection({
                 {PLATFORM_LABELS[s.platform]} · {s.lang || "语种未标"}
               </span>
               {s.offOn ? (
-                <span className="text-warning-ink text-[11px]">
+                <span className="bg-warning-surface text-warning-ink rounded-sm px-2 py-0.5 text-[11.5px] font-medium">
                   下架 {s.offOn}
                 </span>
               ) : null}
@@ -589,7 +590,7 @@ export function ReelshortDetailView(props: DetailProps) {
       <Section title="简介">
         {/* 宽屏分两栏铺满卡片：单栏限 80ch 时右边空一大块，不限宽又是 200 字一行没法读 */}
         {detail.row.description.trim() ? (
-          <p className="text-ink-2 text-sm leading-relaxed whitespace-pre-line lg:columns-2 lg:gap-10">
+          <p className="text-ink-2 text-sm leading-[1.65] whitespace-pre-line lg:columns-2 lg:gap-10">
             {detail.row.description.trim()}
           </p>
         ) : (

@@ -8,7 +8,8 @@
  * - Every next/link <Link> passes prefetch={false}.
  * - Components import from @/server only with a whole-statement `import type`
  *   of the barrel (an inline `{ type X }` leaves an empty import behind).
- * - Color utilities and var(--…) all resolve to the pick-board palette.
+ * - Color utilities and var(--…) all resolve to the global GGWork tokens
+ *   (src/styles/ggwork-theme.css).
  * - No relative /admin/pick link, no wall-clock `new Date()`, no static rule
  *   tables in components or queries.
  */
@@ -23,8 +24,7 @@ const CORE_DIR = "src/core/pick-board";
 const SERVER_DIR = "src/server/pick-board";
 const COMPONENTS_DIR = "src/components/workspace/pick-board";
 const BOARD_DIRS = [CORE_DIR, SERVER_DIR, COMPONENTS_DIR] as const;
-const THEME_CSS = "src/styles/pick-board-theme.css";
-const BOARD_CSS = "src/app/workspace/pick-data/pick-board.css";
+const THEME_CSS = "src/styles/ggwork-theme.css";
 
 function read(relativePath: string): string {
   return readFileSync(path.join(FRONTEND_ROOT, relativePath), "utf8");
@@ -272,12 +272,13 @@ describe("component imports", () => {
 });
 
 const COLOR_CLASS =
-  /(?<![\w-])(?:text|bg|border|ring|fill|stroke|decoration|outline)-(helper|ink-1|ink-2|ink-dim|brand-hover|brand|on-brand|gold|line-strong|line|panel-hover|panel|raised|(?:warning|success|danger|info|violet)-(?:surface|ink|line))(?![\w-])/g;
+  /(?<![\w-])(?:text|bg|border|ring|fill|stroke|decoration|outline)-(helper|ink-1|ink-2|ink-dim|brand-hover|brand-soft|brand-ink|brand-line|brand|on-brand|cta-ink|link|gold|line-strong|line|panel-hover|panel|surface|raised|hover|sidebar-bg|bg|(?:warning|success|danger|info|violet)-(?:surface|ink|line))(?![\w-])/g;
 
 /**
- * Colors the board must not borrow: Tailwind's default palette and the
- * workspace's own design tokens (they follow the workspace theme, not the
- * board's light / dark variables).
+ * Colors the board must not borrow: Tailwind's default palette and the shadcn
+ * aliases. The aliases resolve to the same GGWork tokens, but the board keeps
+ * to the raw token names so that every color it uses goes through the mapping
+ * check above.
  */
 const FOREIGN_COLOR_CLASS =
   /(?<![\w-])(?:text|bg|border|ring|fill|stroke|decoration|outline|divide|placeholder|from|via|to|accent|caret|shadow)-(?:(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}|black|background|foreground|card|popover|primary|secondary|muted|accent|destructive|border|input|ring|sidebar)(?:-foreground)?(?:\/\d+)?(?![\w-])/g;
@@ -285,23 +286,41 @@ const FOREIGN_COLOR_CLASS =
 /** Tailwind's own theme variables that the components may read. */
 const TAILWIND_VARIABLES = new Set(["font-mono"]);
 
+/** The theme file's :root block: the light values every token starts from. */
+function rootBlock(css: string): string {
+  return /^:root \{([\s\S]*?)^\}/m.exec(css)?.[1] ?? "";
+}
+
+/** The theme file's `@theme inline` block: the token-to-utility mapping. */
+function utilityBlock(css: string): string {
+  return /^@theme inline \{([\s\S]*?)^\}/m.exec(css)?.[1] ?? "";
+}
+
+/** `--name:` declared as a whole name (so --line is not found inside --brand-line). */
+function declares(block: string, name: string): boolean {
+  return new RegExp(`(?:^|[^\\w-])--${name}\\s*:`).test(block);
+}
+
 describe("colors", () => {
   it("every pick-board color utility is mapped in the theme file", () => {
-    const theme = read(THEME_CSS);
+    const mapping = utilityBlock(read(THEME_CSS));
+    expect(mapping).toContain("--color-link: var(--link);");
     const missing = componentFiles().flatMap((file) =>
       textsOf(sourceFile(file)).flatMap((text) =>
         [...text.matchAll(COLOR_CLASS)]
           .map((m) => m[1] ?? "")
-          .filter((name) => !theme.includes(`--color-${name}: var(--${name});`))
+          .filter(
+            (name) => !mapping.includes(`--color-${name}: var(--${name});`),
+          )
           .map((name) => `${file}: ${name}`),
       ),
     );
     expect(missing).toEqual([]);
   });
 
-  it("every var(--…) is a pick-board variable or a Tailwind theme variable", () => {
-    const board = read(BOARD_CSS);
-    const lightBlock = /\.pick-board \{([\s\S]*?)\n\}/.exec(board)?.[1] ?? "";
+  it("every var(--…) is a global token on :root or a Tailwind theme variable", () => {
+    const root = rootBlock(read(THEME_CSS));
+    expect(root).toContain("--link:");
     let seen = 0;
     const missing = componentFiles().flatMap((file) =>
       textsOf(sourceFile(file)).flatMap((text) =>
@@ -309,10 +328,7 @@ describe("colors", () => {
           .map((m) => m[1] ?? "")
           .filter((name) => {
             seen += 1;
-            return (
-              !TAILWIND_VARIABLES.has(name) &&
-              !lightBlock.includes(`--${name}:`)
-            );
+            return !TAILWIND_VARIABLES.has(name) && !declares(root, name);
           })
           .map((name) => `${file}: ${name}`),
       ),
@@ -321,7 +337,7 @@ describe("colors", () => {
     expect(seen).toBeGreaterThan(10);
   });
 
-  it("no color utilities from outside the board: no Tailwind palette, no workspace tokens", () => {
+  it("no color utilities from outside the board: no Tailwind palette, no shadcn aliases", () => {
     const offenders = componentFiles().flatMap((file) =>
       textsOf(sourceFile(file)).flatMap((text) =>
         [...text.matchAll(FOREIGN_COLOR_CLASS)].map((m) => `${file}: ${m[0]}`),

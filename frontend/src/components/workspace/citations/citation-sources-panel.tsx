@@ -129,7 +129,7 @@ function CitationSourceCopyButton({ source }: { source: CitationSource }) {
       onClick={handleCopy}
     >
       {copied ? (
-        <CheckIcon className="size-3.5 text-green-500" />
+        <CheckIcon className="text-success-ink size-3.5" />
       ) : (
         <CopyIcon className="size-3.5" />
       )}

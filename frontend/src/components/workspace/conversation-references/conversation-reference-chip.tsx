@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
  * composer, and a read-only chip (linking to the source) in the transcript.
  */
 const CHIP_BASE_CLASS =
-  "border-border bg-muted text-foreground inline-flex h-6 max-w-60 shrink-0 items-center gap-1 rounded-md border px-1.5 text-xs leading-none font-medium shadow-xs";
+  "border-border bg-muted text-foreground inline-flex h-6 max-w-60 shrink-0 items-center gap-1 rounded-md border px-1.5 text-xs leading-none font-medium";
 
 export function ConversationReferenceChip({
   title,

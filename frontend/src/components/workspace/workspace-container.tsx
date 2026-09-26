@@ -16,8 +16,6 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
 
-import { GithubIcon } from "./github-icon";
-import { Tooltip } from "./tooltip";
 // Workspace sections that have an index route (/workspace/<section>/page.tsx)
 // and can therefore be linked to from the breadcrumb.
 const LINKABLE_SECTIONS: Record<string, true> = {
@@ -25,6 +23,9 @@ const LINKABLE_SECTIONS: Record<string, true> = {
   chats: true,
   "scheduled-tasks": true,
 };
+
+/** A section index linked to itself reads like BreadcrumbPage (ink-1, 500). */
+const CURRENT_CRUMB = "text-ink-1 font-medium";
 
 export function WorkspaceContainer({
   className,
@@ -51,18 +52,21 @@ export function WorkspaceHeader({
       return parts.slice(1, 3);
     }
   }, [pathname]);
+  const sectionHref = `/${segments?.[0]}/${segments?.[1]}`;
+  // A section index (e.g. /workspace/chats) is the current page itself.
+  const sectionIsCurrent = !children && pathname === sectionHref;
   return (
     <header
       className={cn(
-        "top-0 right-0 left-0 z-20 flex h-16 shrink-0 items-center justify-between gap-2 border-b backdrop-blur-sm transition-[width,height] ease-out group-has-data-[collapsible=icon]/sidebar-wrapper:h-12",
+        "border-line bg-background z-20 flex h-14 shrink-0 items-center gap-2 border-b px-5",
         className,
       )}
       {...props}
     >
-      <div className="flex min-w-0 items-center gap-2 px-2 sm:px-4">
+      <div className="flex min-w-0 items-center gap-2">
         <SidebarTrigger className="md:hidden" />
         <Breadcrumb>
-          <BreadcrumbList>
+          <BreadcrumbList className="text-helper gap-2 sm:gap-2">
             {segments?.[0] && (
               <BreadcrumbItem className="hidden md:block">
                 <BreadcrumbLink asChild>
@@ -78,7 +82,11 @@ export function WorkspaceHeader({
                 <BreadcrumbItem>
                   {segments[1] && LINKABLE_SECTIONS[segments[1]] ? (
                     <BreadcrumbLink asChild>
-                      <Link href={`/${segments[0]}/${segments[1]}`}>
+                      <Link
+                        href={sectionHref}
+                        aria-current={sectionIsCurrent ? "page" : undefined}
+                        className={cn(sectionIsCurrent && CURRENT_CRUMB)}
+                      >
                         {nameOfSegment(segments[1], t)}
                       </Link>
                     </BreadcrumbLink>
@@ -98,18 +106,6 @@ export function WorkspaceHeader({
             )}
           </BreadcrumbList>
         </Breadcrumb>
-      </div>
-      <div className="pr-4">
-        <Tooltip content={t.workspace.githubTooltip}>
-          <a
-            href="https://github.com/bytedance/deer-flow"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="opacity-75 transition hover:opacity-100"
-          >
-            <GithubIcon className="size-6" />
-          </a>
-        </Tooltip>
       </div>
     </header>
   );

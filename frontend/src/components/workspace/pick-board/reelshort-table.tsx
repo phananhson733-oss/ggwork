@@ -2,6 +2,7 @@
 // 本地改动：删掉「我方分成」一组的五列金额与它的列组头（本页不显示金额），在「指标 / 人数」后面加一列订单笔数；
 // 表宽随之收窄；上线天数按版本的 as_of 算（now 改名 asOf）；公开页是 ReelShort 站的绝对地址，新标签打开（★38）；
 // Link 加 prefetch={false}；表头与行拆成小组件（函数 <50 行），列的口径说明除金额外不变。
+// GGWork 样式：名次用正文墨色与 tabular-nums（不用等宽），链接用 link 色，候选原因是语义 pill 尺寸。
 import Link from "next/link";
 
 import {
@@ -220,7 +221,7 @@ function Reasons({ r }: { r: ObserveRow }) {
         {candidateReasons(r).map((t) => (
           <span
             key={t}
-            className="bg-success-surface text-success-ink rounded-[4px] px-[7px] py-[2px] text-[11.5px]"
+            className="bg-success-surface text-success-ink rounded-sm px-2 py-0.5 text-[11.5px] font-medium"
           >
             {t}
           </span>
@@ -277,13 +278,13 @@ function SiteCells({ r, req }: { r: ObserveRow; req: PickRequest }) {
         <Link
           prefetch={false}
           href={rowHref(req, reelshortRowKey(r.id))}
-          className="text-brand hover:underline"
+          className="text-link hover:underline"
         >
           单剧 ›
         </Link>{" "}
         <ExternalLink
           href={dramaPath(r.locale, r.slug)}
-          className="text-helper hover:text-brand"
+          className="text-helper hover:text-link"
         >
           公开页 ↗
         </ExternalLink>
@@ -318,7 +319,7 @@ function ObserveTr({
   return (
     <tr className={TR}>
       <td
-        className={`${TD} text-brand text-right font-mono text-[14px] font-medium whitespace-nowrap`}
+        className={`${TD} text-ink-1 text-right text-[14px] font-medium whitespace-nowrap tabular-nums`}
       >
         #{n}
       </td>

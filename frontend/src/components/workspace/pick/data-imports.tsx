@@ -48,11 +48,11 @@ export function DataImports() {
         剧库用于筛选，知识资料用于解释规则。每次导入保存独立版本。
       </p>
       <SyncStatus />
-      <section className="space-y-4 rounded-xl border p-5">
+      <section className="bg-card space-y-4 rounded-lg border p-5">
         <label className="block text-sm">
           资料类型
           <select
-            className="bg-background ml-3 rounded-md border p-2"
+            className="bg-card border-input focus-visible:border-ring focus-visible:ring-brand-soft ml-3 rounded-md border p-2 outline-none focus-visible:ring-[3px]"
             value={kind}
             disabled={busy}
             onChange={(event) => {
@@ -102,7 +102,7 @@ export function DataImports() {
           </p>
         )}
         {error && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-danger-ink text-sm">
             {error}
           </p>
         )}
@@ -114,7 +114,7 @@ export function DataImports() {
         {query.data?.length === 0 && (
           <p className="text-muted-foreground">还没有导入资料。</p>
         )}
-        <ul className="divide-y rounded-xl border">
+        <ul className="bg-card divide-y rounded-lg border">
           {query.data?.map((batch) => (
             <li
               key={batch.id}

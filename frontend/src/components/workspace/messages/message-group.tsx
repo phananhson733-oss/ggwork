@@ -566,7 +566,7 @@ function DebugStepLabel({
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0 flex-1">{label}</div>
       {token ? (
-        <div className="text-muted-foreground shrink-0 font-mono text-[11px]">
+        <div className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
           {token}
         </div>
       ) : null}

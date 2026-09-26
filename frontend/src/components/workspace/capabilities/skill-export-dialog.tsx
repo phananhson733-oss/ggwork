@@ -237,9 +237,9 @@ export default function SkillExportDialog({
                 </dl>
               </section>
               {manifest.warnings.length > 0 && (
-                <section className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+                <section className="border-warning-line bg-warning-surface text-warning-ink rounded-lg border p-3 text-sm">
                   <h3 className="font-medium">{text.exportWarnings}</h3>
-                  <p className="text-muted-foreground mt-1 text-xs">
+                  <p className="mt-1 text-xs">
                     {text.exportWarningDescription}
                   </p>
                   <ul className="mt-2 max-h-28 overflow-y-auto text-xs">

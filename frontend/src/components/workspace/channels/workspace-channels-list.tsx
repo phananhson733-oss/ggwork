@@ -137,7 +137,7 @@ export function WorkspaceChannelsList() {
 
           return (
             <SidebarMenuItem key={provider.provider}>
-              <div className="hover:bg-sidebar-accent flex h-10 items-center gap-2 rounded-md px-2 transition-colors">
+              <div className="hover:bg-hover flex h-10 items-center gap-2 rounded-md px-2 transition-colors">
                 <ChannelProviderIcon
                   provider={provider.provider}
                   className="size-5 shrink-0"

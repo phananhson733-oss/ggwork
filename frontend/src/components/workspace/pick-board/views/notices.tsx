@@ -12,8 +12,8 @@ import type {
 import { IMPORTS_HREF } from "./banner-rules";
 
 const BOX =
-  "border-warning-line bg-warning-surface text-warning-ink mb-4 rounded-[10px] border px-4 py-3 text-[13px] leading-relaxed";
-const LINK = "text-brand ml-2 hover:underline";
+  "border-warning-line bg-warning-surface text-warning-ink mb-4 rounded-lg border px-4 py-3 text-[13px] leading-[1.65]";
+const LINK = "text-link ml-2 hover:underline";
 
 const AUTH_TEXT: Record<BoardNoticeReason, string> = {
   forbidden:

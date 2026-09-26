@@ -102,7 +102,7 @@ function OwnedCandidatePanel() {
         </p>
       )}
       {error && (
-        <p role="alert" className="mt-3 text-sm text-red-600">
+        <p role="alert" className="text-danger-ink mt-3 text-sm">
           {error}
         </p>
       )}

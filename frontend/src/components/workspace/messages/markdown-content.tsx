@@ -50,6 +50,20 @@ const SMOOTH_REVEAL_DURATION_MS = 300;
 
 const StreamingCodeBlockContext = createContext(false);
 
+// Inline tables in chat markdown. Streamdown renders a padded wrapper (with
+// the copy/download/fullscreen controls) around a scroll box around the
+// table; the scroll box becomes the card (1px line, r12, surface) and the
+// wrapper only stacks the controls above it. Scoped to this component, so
+// artifact previews and the fullscreen table keep Streamdown's defaults.
+const CHAT_TABLE_CLASSES = [
+  "**:data-[streamdown=table-wrapper]:gap-1 **:data-[streamdown=table-wrapper]:rounded-none **:data-[streamdown=table-wrapper]:border-0 **:data-[streamdown=table-wrapper]:bg-transparent **:data-[streamdown=table-wrapper]:p-0",
+  "[&_[data-streamdown=table-wrapper]>div:last-child]:border-line [&_[data-streamdown=table-wrapper]>div:last-child]:bg-surface [&_[data-streamdown=table-wrapper]>div:last-child]:rounded-lg",
+  // Row dividers are Streamdown's divide-border, which is already --line.
+  "**:data-[streamdown=table-header]:bg-raised",
+  "**:data-[streamdown=table-header-cell]:text-helper **:data-[streamdown=table-header-cell]:px-3 **:data-[streamdown=table-header-cell]:py-2 **:data-[streamdown=table-header-cell]:text-[11px] **:data-[streamdown=table-header-cell]:font-semibold **:data-[streamdown=table-header-cell]:tracking-[0.06em]",
+  "**:data-[streamdown=table-cell]:px-3 **:data-[streamdown=table-cell]:py-2 **:data-[streamdown=table-cell]:text-[13px]",
+].join(" ");
+
 function useSmoothStreamingContent(content: string, isLoading: boolean) {
   const initialContent =
     isLoading && content.length >= SMOOTH_REVEAL_MIN_DELTA ? "" : content;
@@ -253,7 +267,7 @@ export function MarkdownContent({
 
   return (
     <SafeMessageResponse
-      className={className}
+      className={cn(CHAT_TABLE_CLASSES, className)}
       remarkPlugins={remarkPlugins}
       rehypePlugins={effectiveRehypePlugins}
       components={toStreamdownComponents(components)}

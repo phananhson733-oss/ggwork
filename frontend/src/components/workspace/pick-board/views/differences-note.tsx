@@ -12,9 +12,9 @@ const ITEMS = [
 
 export function DifferencesNote() {
   return (
-    <section className="border-line bg-panel mt-6 rounded-xl border px-4 py-3 text-[13px]">
+    <section className="border-line bg-panel mt-6 rounded-lg border px-4 py-3 text-[13px]">
       <h2 className="text-ink-2 font-semibold">与 RealShort 选剧台的差异</h2>
-      <ul className="text-helper mt-2 list-disc space-y-1 pl-5 leading-relaxed">
+      <ul className="text-helper mt-2 list-disc space-y-1 pl-5 leading-[1.65]">
         {ITEMS.map((text) => (
           <li key={text}>{text}</li>
         ))}
@@ -22,7 +22,7 @@ export function DifferencesNote() {
           剧的公开页、证据页原文都外链到{" "}
           <ExternalLink
             href={REALSHORT_ORIGIN}
-            className="text-brand hover:underline"
+            className="text-link hover:underline"
           >
             dramashortstv.com
           </ExternalLink>

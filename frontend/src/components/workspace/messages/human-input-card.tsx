@@ -361,11 +361,11 @@ export function HumanInputCard({
   return (
     <section
       aria-labelledby={titleId}
-      className="border-border bg-card/70 text-card-foreground rounded-lg border p-4 shadow-xs"
+      className="border-border bg-card text-card-foreground rounded-lg border p-4"
       data-testid="human-input-card"
     >
       <div className="flex items-start gap-3">
-        <div className="bg-primary/10 text-primary mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md">
+        <div className="bg-raised text-ink-2 mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md">
           <MessageCircleQuestionMarkIcon className="size-4" />
         </div>
         <div className="min-w-0 flex-1 space-y-3">
@@ -385,13 +385,10 @@ export function HumanInputCard({
             </div>
             {statusLabel ? (
               <Badge
-                className={cn(
-                  "h-6 rounded-md px-2",
-                  pending && "gap-1.5",
-                  answeredResponse &&
-                    "border-primary/20 bg-primary/10 text-primary",
-                )}
-                variant={answeredResponse ? "outline" : "secondary"}
+                className={cn(pending && "gap-1.5")}
+                variant={
+                  answeredResponse ? "success" : pending ? "info" : "neutral"
+                }
               >
                 {pending ? (
                   <Loader2Icon className="size-3 animate-spin" />

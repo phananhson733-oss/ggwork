@@ -3,6 +3,7 @@
 // 同一天、同一部剧、同一推广类型合并后的一行；合计改成行数口径（原始行 / 合并后 / 订单 / 同日有出站）；
 // 剧名在账单归得上正典 id 时链到它的证据页，归不上时只印账单随附的剧名；去掉上线日期与上线天数两列
 // （rs_ids 没有 publish_at，book_id 也不一定是正典）；来源状态按版本的 as_of 判（原 :42、:50 没传 now）；页脚写明三点变化。
+// GGWork 样式：推广类型是中性等宽标签，「同日有出站」是语义 pill 尺寸，卡片圆角 12。
 import { formatInt, formatObservedAt } from "@/core/pick-board/metrics";
 import { reelshortRowKey, type PickRequest } from "@/core/pick-board/request";
 import { sourceStatus, type SourceState } from "@/core/pick-board/source-types";
@@ -28,7 +29,7 @@ function SourceLine({
   asOf: Date;
 }) {
   return (
-    <p className="text-helper mb-3 text-sm leading-relaxed">
+    <p className="text-helper mb-3 text-sm leading-[1.65]">
       账号订单来自上游账单（预估，不是结算）。{sourceStatus(source, asOf)}
       。最近成功采集：{formatObservedAt(source?.completedAt)}。请求区间：
       {source?.details.startDate ?? "未知"} 至{" "}
@@ -58,7 +59,7 @@ function TotalTiles({ totals }: { totals: BillTotals }) {
       {tiles.map((t) => (
         <div
           key={t.l}
-          className="border-line bg-panel rounded-[12px] border px-4 py-3"
+          className="border-line bg-panel rounded-lg border px-4 py-3"
         >
           <div className="text-helper text-[14px]">{t.l}</div>
           <div className="my-1 text-[24px] leading-tight font-bold tabular-nums">
@@ -86,7 +87,7 @@ function OrderTr({ r, req }: { r: BillRow; req: PickRequest }) {
         }
       />
       <td className={`${TD} whitespace-nowrap`}>
-        <span className="border-line rounded-full border px-2 py-0.5 text-[11px]">
+        <span className="bg-raised text-ink-2 rounded-sm px-2 py-0.5 font-mono text-[11px]">
           {r.promotionType}
         </span>
         {r.sourceRows > 1 ? (
@@ -98,7 +99,7 @@ function OrderTr({ r, req }: { r: BillRow; req: PickRequest }) {
       <Num>{formatInt(r.orderCnt)}</Num>
       <td className={`${TD} whitespace-nowrap`}>
         {r.sameDayClicks > 0 ? (
-          <span className="bg-success-surface text-success-ink rounded-full px-2 py-0.5 text-[11px]">
+          <span className="bg-success-surface text-success-ink rounded-sm px-2 py-0.5 text-[11.5px] font-medium">
             有 · {formatInt(r.sameDayClicks)} 次
           </span>
         ) : (
