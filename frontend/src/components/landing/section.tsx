@@ -16,7 +16,7 @@ export function Section({
       className={cn("mx-auto flex w-full min-w-0 flex-col py-16", className)}
     >
       <header className="flex flex-col items-center justify-between px-4">
-        <div className="mb-4 max-w-full bg-linear-to-r from-white via-gray-200 to-gray-400 bg-clip-text text-center text-3xl font-bold break-words text-transparent sm:text-4xl md:text-5xl">
+        <div className="text-ink-1 mb-4 max-w-full text-center text-3xl font-bold break-words sm:text-4xl md:text-5xl">
           {title}
         </div>
         {subtitle && (

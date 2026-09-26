@@ -2,6 +2,7 @@
 // 本地改动：RankTable 加 rules，四处资源格与信号标签都按版本规则判（原来归在「只改 import」，实际要改写）；
 // 表的标题改读 rules.basisLabels；rs_bill 与 rs_ledger 两条说明重写：本页不显示金额，分成榜按 RealShort 导出的
 // 名次（bill_rank）排，「分成对账」改叫「订单对账」；「备用资源」列头说明写明网盘只说有没有。
+// GGWork 配色：日榜名次用正文墨色加粗（品牌色不表状态），分级 pill 用 warning。
 import {
   GROWTH_LIMIT,
   isDailyRank,
@@ -250,7 +251,7 @@ interface RowProps {
 function GradeCell({ grade }: { grade: string }) {
   return (
     <td className={nw}>
-      <span className="border-warning-line bg-warning-surface text-gold rounded-[4px] border px-[7px] py-[2px] font-mono text-[11.5px] font-medium tracking-[.06em]">
+      <span className="border-warning-line bg-warning-surface text-warning-ink rounded-sm border px-2 py-0.5 font-mono text-[11.5px] font-medium tracking-[.06em]">
         {grade || "?"}
       </span>
     </td>
@@ -274,7 +275,7 @@ function RankTr(props: RowProps) {
   if (isDailyRank(kind))
     return (
       <tr className={cls}>
-        <td className={`${num} text-brand font-semibold`}>
+        <td className={`${num} text-ink-1 font-semibold`}>
           {row.dayRank !== null ? `#${row.dayRank}` : <Dim />}
         </td>
         <TitleCell row={row} req={req} />

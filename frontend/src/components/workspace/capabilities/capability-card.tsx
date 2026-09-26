@@ -8,17 +8,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { cn } from "@/lib/utils";
-
-const tones = [
-  "bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300",
-  "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  "bg-violet-50 text-violet-600 dark:bg-violet-950 dark:text-violet-300",
-  "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-];
-
 export function CapabilityIcon({
-  name,
   skill = false,
   icon: CustomIcon,
 }: {
@@ -26,17 +16,9 @@ export function CapabilityIcon({
   skill?: boolean;
   icon?: LucideIcon;
 }) {
-  const tone =
-    [...name].reduce((value, char) => value + char.charCodeAt(0), 0) %
-    tones.length;
   const Icon = CustomIcon ?? (skill ? SparklesIcon : PuzzleIcon);
   return (
-    <div
-      className={cn(
-        "flex size-12 shrink-0 items-center justify-center rounded-2xl",
-        tones[tone],
-      )}
-    >
+    <div className="bg-raised text-ink-2 flex size-12 shrink-0 items-center justify-center rounded-2xl">
       <Icon className="size-6" strokeWidth={1.6} />
     </div>
   );
@@ -62,10 +44,10 @@ export function CapabilityCard({
   detailsLabel?: string;
 }) {
   return (
-    <article className="bg-background group hover:border-foreground/20 flex min-w-0 flex-col rounded-2xl border p-5 transition-[border-color,box-shadow] hover:shadow-sm">
+    <article className="bg-card group hover:border-line-strong flex min-w-0 flex-col rounded-lg border p-5 transition-colors">
       <div className="mb-5 flex items-start justify-between gap-3">
         {icon}
-        <span className="text-muted-foreground bg-muted/60 rounded-md px-2 py-1 text-[11px] font-medium">
+        <span className="text-helper bg-raised rounded-sm px-2 py-0.5 text-[11px] font-medium">
           {label}
         </span>
       </div>

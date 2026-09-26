@@ -1,17 +1,23 @@
 "use client";
 
+import { DatabaseIcon, ListChecksIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useId } from "react";
 
 import {
   Sidebar,
   SidebarHeader,
   SidebarContent,
   SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { cn } from "@/lib/utils";
 
 import { WorkspaceChannelsList } from "./channels/workspace-channels-list";
 import { ProjectsSection } from "./projects-section";
@@ -21,32 +27,53 @@ import { WorkspaceHeader } from "./workspace-header";
 import { WorkspaceNavChatList } from "./workspace-nav-chat-list";
 import { WorkspaceNavMenu } from "./workspace-nav-menu";
 
-const PICK_LINK = "hover:bg-accent block rounded-md px-2 py-2 text-sm";
+const PICKS_PATH = "/workspace/picks";
 const PICK_DATA_PATH = "/workspace/pick-data";
 
-function onPickData(pathname: string | null): boolean {
-  return (
-    pathname === PICK_DATA_PATH ||
-    (pathname?.startsWith(`${PICK_DATA_PATH}/`) ?? false)
-  );
+/** True on `base` and on every page below it (not on `/workspace/picksX`). */
+function isUnder(pathname: string | null, base: string): boolean {
+  return pathname === base || (pathname?.startsWith(`${base}/`) ?? false);
 }
 
-/** The two pick links; 选剧资料 is marked current on its own pages. */
+/**
+ * The 选剧工作台 group: 我的选剧 and 选剧资料, each marked current (selected
+ * style plus aria-current) on its own pages.
+ */
 export function PickNav() {
-  const current = onPickData(usePathname());
+  const pathname = usePathname();
+  const labelId = useId();
+  const links = [
+    {
+      href: PICKS_PATH,
+      label: "我的选剧",
+      icon: ListChecksIcon,
+      current: isUnder(pathname, PICKS_PATH),
+    },
+    {
+      href: PICK_DATA_PATH,
+      label: "选剧资料",
+      icon: DatabaseIcon,
+      current: isUnder(pathname, PICK_DATA_PATH),
+    },
+  ];
   return (
-    <nav aria-label="选剧工作台" className="space-y-1 px-3 py-2">
-      <Link className={PICK_LINK} href="/workspace/picks">
-        我的选剧
-      </Link>
-      <Link
-        className={cn(PICK_LINK, current && "bg-accent")}
-        aria-current={current ? "page" : undefined}
-        href={PICK_DATA_PATH}
-      >
-        选剧资料
-      </Link>
-    </nav>
+    <SidebarGroup>
+      <SidebarGroupLabel id={labelId}>选剧工作台</SidebarGroupLabel>
+      <nav aria-labelledby={labelId}>
+        <SidebarMenu>
+          {links.map(({ href, label, icon: Icon, current }) => (
+            <SidebarMenuItem key={href}>
+              <SidebarMenuButton isActive={current} asChild>
+                <Link href={href} aria-current={current ? "page" : undefined}>
+                  <Icon />
+                  <span>{label}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </nav>
+    </SidebarGroup>
   );
 }
 
@@ -71,7 +98,7 @@ export function WorkspaceSidebar({
             </>
           )}
         </SidebarContent>
-        <SidebarFooter>
+        <SidebarFooter className="border-line border-t">
           <WorkspaceNavMenu />
         </SidebarFooter>
         <SidebarRail />

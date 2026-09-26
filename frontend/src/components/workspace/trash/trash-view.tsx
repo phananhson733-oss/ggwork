@@ -72,7 +72,9 @@ export function TrashView() {
   return (
     <div className="mx-auto flex w-full max-w-(--container-width-md) flex-col gap-6 p-6 pt-8">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold">{t.trash.title}</h1>
+        <h1 className="text-xl font-bold tracking-[-0.01em]">
+          {t.trash.title}
+        </h1>
         {documents.length > 0 && (
           <Button
             variant="destructive"

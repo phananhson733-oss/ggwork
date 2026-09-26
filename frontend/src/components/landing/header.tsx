@@ -1,6 +1,7 @@
 import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import Link from "next/link";
 
+import { GGWorkWordmark } from "@/components/brand/ggwork-logo";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_LOCALE, type Locale } from "@/core/i18n/locale";
 import { getI18n } from "@/core/i18n/server";
@@ -17,7 +18,6 @@ export type HeaderProps = {
 };
 
 export async function Header({ className, homeURL, locale }: HeaderProps) {
-  const isExternalHome = !homeURL;
   const { locale: resolvedLocale, t } = await getI18n(locale ?? DEFAULT_LOCALE);
   const lang = resolvedLocale.substring(0, 2);
   return (
@@ -28,14 +28,9 @@ export async function Header({ className, homeURL, locale }: HeaderProps) {
       )}
     >
       <div className="flex min-w-0 items-center gap-6">
-        <a
-          href={homeURL ?? "https://github.com/bytedance/deer-flow"}
-          target={isExternalHome ? "_blank" : "_self"}
-          rel={isExternalHome ? "noopener noreferrer" : undefined}
-          className="font-serif text-xl whitespace-nowrap"
-        >
-          DeerFlow
-        </a>
+        <Link href={homeURL ?? "/"} className="whitespace-nowrap">
+          <GGWorkWordmark markSize={24} textClassName="text-lg" />
+        </Link>
       </div>
       <nav className="ml-auto hidden items-center gap-5 text-sm font-medium sm:flex md:mr-8 md:gap-8">
         <Link
@@ -52,19 +47,7 @@ export async function Header({ className, homeURL, locale }: HeaderProps) {
         </Link>
       </nav>
       <div className="relative">
-        <div
-          className="pointer-events-none absolute inset-0 z-0 h-full w-full rounded-full opacity-30 blur-2xl"
-          style={{
-            background: "linear-gradient(90deg, #ff80b5 0%, #9089fc 100%)",
-            filter: "blur(16px)",
-          }}
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          asChild
-          className="group relative z-10"
-        >
+        <Button variant="outline" size="sm" asChild className="group">
           <a
             href="https://github.com/bytedance/deer-flow"
             target="_blank"
@@ -82,7 +65,7 @@ export async function Header({ className, homeURL, locale }: HeaderProps) {
           { href: "/blog/posts", label: t.home.blog },
         ]}
       />
-      <hr className="from-border/0 via-border/70 to-border/0 absolute top-16 right-0 left-0 z-10 m-0 h-px w-full border-none bg-linear-to-r" />
+      <hr className="bg-line absolute top-16 right-0 left-0 z-10 m-0 h-px w-full border-none" />
     </header>
   );
 }

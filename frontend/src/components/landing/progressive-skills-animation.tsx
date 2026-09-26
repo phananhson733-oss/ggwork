@@ -350,14 +350,14 @@ export default function ProgressiveSkillsAnimation() {
               onClick={handlePlay}
               className="group flex flex-col items-center gap-4 transition-transform hover:scale-105 active:scale-95"
             >
-              <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white/10 backdrop-blur-md transition-all group-hover:bg-white/20">
+              <div className="border-line bg-raised group-hover:border-line-strong flex h-24 w-24 items-center justify-center rounded-full border transition-all">
                 <Play
                   size={48}
-                  className="ml-1 text-white transition-transform group-hover:scale-110"
-                  fill="white"
+                  className="text-ink-1 ml-1 transition-transform group-hover:scale-110"
+                  fill="currentColor"
                 />
               </div>
-              <span className="text-lg font-medium text-white">
+              <span className="text-ink-1 text-lg font-medium">
                 Click to play
               </span>
             </motion.button>
@@ -372,12 +372,16 @@ export default function ProgressiveSkillsAnimation() {
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             onClick={handleTogglePlayPause}
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 backdrop-blur-md transition-all hover:scale-110 hover:bg-white/20 active:scale-95"
+            className="border-line bg-raised hover:border-line-strong flex h-12 w-12 items-center justify-center rounded-full border transition-all hover:scale-110 active:scale-95"
           >
             {isPlaying ? (
-              <Pause size={24} className="text-white" fill="white" />
+              <Pause size={24} className="text-ink-1" fill="currentColor" />
             ) : (
-              <Play size={24} className="ml-0.5 text-white" fill="white" />
+              <Play
+                size={24}
+                className="text-ink-1 ml-0.5"
+                fill="currentColor"
+              />
             )}
           </motion.button>
           <span className="text-lg font-medium">
@@ -390,7 +394,7 @@ export default function ProgressiveSkillsAnimation() {
         {/* Left: File Tree */}
         <div className="flex flex-1 flex-col">
           <motion.div
-            className="mb-4 font-mono text-sm text-zinc-500"
+            className="text-ink-dim mb-4 font-mono text-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
           >
@@ -403,14 +407,14 @@ export default function ProgressiveSkillsAnimation() {
                 key={`${item.name}-${index}`}
                 className={`flex items-center gap-3 text-lg font-medium transition-all duration-300 ${
                   item.done
-                    ? "text-green-500"
+                    ? "text-success-ink"
                     : item.dragging
-                      ? "translate-x-8 scale-105 text-blue-400"
+                      ? "text-info-ink translate-x-8 scale-105"
                       : item.active
-                        ? "text-white"
+                        ? "text-ink-1"
                         : item.highlight
-                          ? "text-purple-400"
-                          : "text-zinc-600"
+                          ? "text-link"
+                          : "text-ink-dim"
                 }`}
                 style={{ paddingLeft: `${item.indent * 24}px` }}
                 animate={
@@ -427,9 +431,9 @@ export default function ProgressiveSkillsAnimation() {
                     size={20}
                     className={
                       item.done
-                        ? "text-green-500"
+                        ? "text-success-ink"
                         : item.highlight
-                          ? "text-purple-400"
+                          ? "text-link"
                           : ""
                     }
                   />
@@ -438,17 +442,17 @@ export default function ProgressiveSkillsAnimation() {
                     size={20}
                     className={
                       item.done
-                        ? "text-green-500"
+                        ? "text-success-ink"
                         : item.highlight
-                          ? "text-purple-400"
+                          ? "text-link"
                           : ""
                     }
                   />
                 )}
                 <span>{item.name}</span>
-                {item.done && <Check size={16} className="text-green-500" />}
+                {item.done && <Check size={16} className="text-success-ink" />}
                 {item.highlight && !item.done && (
-                  <Sparkles size={16} className="text-purple-400" />
+                  <Sparkles size={16} className="text-link" />
                 )}
               </motion.div>
             ))}
@@ -456,12 +460,12 @@ export default function ProgressiveSkillsAnimation() {
         </div>
 
         {/* Right: Chat Interface */}
-        <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/50">
+        <div className="border-line bg-surface flex flex-1 flex-col overflow-hidden rounded-2xl border">
           {/* Chat Header */}
-          <div className="border-b border-zinc-800 p-4">
+          <div className="border-line border-b p-4">
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-green-500" />
-              <span className="text-sm text-zinc-400">DeerFlow Agent</span>
+              <div className="bg-success-ink h-3 w-3 rounded-full" />
+              <span className="text-helper text-sm">DeerFlow Agent</span>
             </div>
           </div>
 
@@ -478,7 +482,7 @@ export default function ProgressiveSkillsAnimation() {
                   animate={{ opacity: 1, y: 0 }}
                   className="flex justify-end"
                 >
-                  <div className="max-w-[90%] rounded-2xl rounded-tr-sm bg-blue-600 px-5 py-3">
+                  <div className="bg-raised text-ink-1 max-w-[90%] rounded-2xl rounded-tr-sm px-5 py-3">
                     <p className="text-base">
                       Research mRNA delivery, build a landing page, deploy to
                       Vercel
@@ -508,8 +512,8 @@ export default function ProgressiveSkillsAnimation() {
                     "deploying",
                     "done",
                   ].includes(phase) && (
-                    <div className="text-base text-zinc-300">
-                      <span className="text-purple-400">✨</span> Found 3 skills
+                    <div className="text-ink-2 text-base">
+                      <span className="text-link">✨</span> Found 3 skills
                     </div>
                   )}
 
@@ -525,10 +529,8 @@ export default function ProgressiveSkillsAnimation() {
                     "done",
                   ].includes(phase) && (
                     <div className="mt-4">
-                      <hr className="mb-3 border-zinc-700" />
-                      <div className="mb-3 text-zinc-300">
-                        🔬 Researching...
-                      </div>
+                      <hr className="border-line-strong mb-3" />
+                      <div className="text-ink-2 mb-3">🔬 Researching...</div>
                       <div className="mb-3 space-y-2">
                         {/* Loading SKILL.md */}
                         {[
@@ -541,7 +543,7 @@ export default function ProgressiveSkillsAnimation() {
                           "deploying",
                           "done",
                         ].includes(phase) && (
-                          <div className="flex items-center gap-2 pl-4 text-zinc-400">
+                          <div className="text-helper flex items-center gap-2 pl-4">
                             <FileText size={16} />
                             <span>Loading deep-search/SKILL.md...</span>
                           </div>
@@ -556,7 +558,7 @@ export default function ProgressiveSkillsAnimation() {
                           "deploying",
                           "done",
                         ].includes(phase) && (
-                          <div className="flex items-center gap-2 pl-4 text-zinc-400">
+                          <div className="text-helper flex items-center gap-2 pl-4">
                             <FileText size={16} />
                             <span>
                               Found biotech related topic, loading
@@ -573,12 +575,12 @@ export default function ProgressiveSkillsAnimation() {
                               key={i}
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
-                              className="flex items-center gap-2 text-sm text-zinc-500"
+                              className="text-ink-dim flex items-center gap-2 text-sm"
                             >
                               {step.type === "search" ? (
-                                <Search size={14} className="text-blue-400" />
+                                <Search size={14} className="text-info-ink" />
                               ) : (
-                                <Globe size={14} className="text-green-400" />
+                                <Globe size={14} className="text-success-ink" />
                               )}
                               <span className="truncate">{step.text}</span>
                             </motion.div>
@@ -598,12 +600,12 @@ export default function ProgressiveSkillsAnimation() {
                               key={i}
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
-                              className="flex items-center gap-2 text-sm text-zinc-500"
+                              className="text-ink-dim flex items-center gap-2 text-sm"
                             >
                               {step.type === "search" ? (
-                                <Search size={14} className="text-blue-400" />
+                                <Search size={14} className="text-info-ink" />
                               ) : (
-                                <Globe size={14} className="text-green-400" />
+                                <Globe size={14} className="text-success-ink" />
                               )}
                               <span className="truncate">{step.text}</span>
                             </motion.div>
@@ -622,9 +624,9 @@ export default function ProgressiveSkillsAnimation() {
                       animate={{ opacity: 1 }}
                       className="mt-4"
                     >
-                      <hr className="mb-3 border-zinc-700" />
-                      <div className="mb-3 text-zinc-300">🔨 Building...</div>
-                      <div className="mb-3 flex items-center gap-2 pl-4 text-zinc-400">
+                      <hr className="border-line-strong mb-3" />
+                      <div className="text-ink-2 mb-3">🔨 Building...</div>
+                      <div className="text-helper mb-3 flex items-center gap-2 pl-4">
                         <FileText size={16} />
                         <span>Loading frontend-design/SKILL.md...</span>
                       </div>
@@ -634,7 +636,7 @@ export default function ProgressiveSkillsAnimation() {
                             key={file}
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
-                            className="flex items-center gap-2 text-sm text-green-500"
+                            className="text-success-ink flex items-center gap-2 text-sm"
                           >
                             <FileText size={14} />
                             <span>Generating {file}...</span>
@@ -652,10 +654,10 @@ export default function ProgressiveSkillsAnimation() {
                       animate={{ opacity: 1 }}
                       className="mt-4"
                     >
-                      <hr className="mb-3 border-zinc-700" />
-                      <div className="mb-3 text-zinc-300">🚀 Deploying...</div>
+                      <hr className="border-line-strong mb-3" />
+                      <div className="text-ink-2 mb-3">🚀 Deploying...</div>
                       <div className="mb-3 space-y-2">
-                        <div className="flex items-center gap-2 pl-4 text-zinc-400">
+                        <div className="text-helper flex items-center gap-2 pl-4">
                           <FileText size={16} />
                           <span>Loading deploy/SKILL.md...</span>
                         </div>
@@ -663,7 +665,7 @@ export default function ProgressiveSkillsAnimation() {
                           <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
-                            className="flex items-center gap-2 pl-4 text-zinc-400"
+                            className="text-helper flex items-center gap-2 pl-4"
                           >
                             <Terminal size={16} />
                             <span>Executing scripts/deploy.sh</span>
@@ -674,9 +676,9 @@ export default function ProgressiveSkillsAnimation() {
                         <motion.div
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}
-                          className="mt-4 rounded-xl border border-green-500/30 bg-green-500/10 p-4"
+                          className="bg-success-surface mt-4 rounded-xl p-4"
                         >
-                          <div className="text-lg font-medium text-green-500">
+                          <div className="text-success-ink text-lg font-medium">
                             ✅ Live at biotech-startup.vercel.app
                           </div>
                         </motion.div>
@@ -689,8 +691,8 @@ export default function ProgressiveSkillsAnimation() {
           </div>
 
           {/* Chat Input (decorative) */}
-          <div className="border-t border-zinc-800 p-4">
-            <div className="rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-500">
+          <div className="border-line border-t p-4">
+            <div className="bg-raised text-ink-dim rounded-xl px-4 py-3 text-sm">
               Ask DeerFlow anything...
             </div>
           </div>

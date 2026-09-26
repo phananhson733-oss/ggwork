@@ -1,6 +1,6 @@
 // PORTED_FROM: realshort@816ca2e src/components/admin/pick/queyu-button.tsx
 // 本地改动：queyuHref 改从 @/core/pick-board/queyu 引入（那个文件不 import 任何模块，request.ts 与 metrics.ts
-// 不会被这个 client 组件带进客户端包），其余原样。
+// 不会被这个 client 组件带进客户端包），其余原样；GGWork 样式：圆角走 8 的刻度，下架态悬停加深边框。
 "use client";
 
 import { queyuHref } from "@/core/pick-board/queyu";
@@ -22,9 +22,9 @@ export function QueyuButton({ title, off }: { title: string; off: boolean }) {
       onClick={() => {
         void navigator.clipboard?.writeText(title).catch(() => undefined);
       }}
-      className={`inline-flex items-center gap-1 rounded-[8px] border px-2.5 py-1 text-[12px] whitespace-nowrap ${
+      className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[12px] whitespace-nowrap ${
         off
-          ? "border-line text-ink-dim hover:border-brand/50"
+          ? "border-line text-ink-dim hover:border-line-strong"
           : "border-brand bg-brand text-on-brand hover:border-brand-hover hover:bg-brand-hover font-semibold"
       }`}
       title={

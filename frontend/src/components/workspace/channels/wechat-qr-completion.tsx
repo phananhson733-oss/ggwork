@@ -156,8 +156,8 @@ export function WechatQRCompletion({
 
   return (
     <div className="flex min-h-[328px] flex-col gap-5">
-      <div className="flex items-start gap-3 rounded-xl bg-emerald-500/5 p-4">
-        <span className="rounded-full bg-emerald-500/10 p-1.5 text-emerald-600">
+      <div className="bg-success-surface flex items-start gap-3 rounded-xl p-4">
+        <span className="bg-surface text-success-ink rounded-full p-1.5">
           <CheckIcon className="size-4" />
         </span>
         <div className="space-y-1">
@@ -174,7 +174,7 @@ export function WechatQRCompletion({
       >
         {stage === "connected" ? (
           <>
-            <div className="mx-auto rounded-full bg-emerald-500/10 p-4 text-emerald-600">
+            <div className="bg-success-surface text-success-ink mx-auto rounded-full p-4">
               <CheckIcon className="size-8" />
             </div>
             <p className="font-medium">{text.connectedTitle}</p>

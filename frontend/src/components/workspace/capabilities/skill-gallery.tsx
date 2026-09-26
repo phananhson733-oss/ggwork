@@ -284,7 +284,7 @@ function SkillList({ skills, query }: { skills: Skill[]; query: string }) {
                     <span
                       className={
                         skill.enabled
-                          ? "size-1.5 rounded-full bg-emerald-500"
+                          ? "bg-success-ink size-1.5 rounded-full"
                           : "bg-muted-foreground/40 size-1.5 rounded-full"
                       }
                     />

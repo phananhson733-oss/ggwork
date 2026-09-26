@@ -87,7 +87,7 @@ export function TokenUsageIndicator({
         >
           <CoinsIcon size={14} />
           <span>{t.tokenUsage.label}</span>
-          <span className="font-mono">
+          <span className="tabular-nums">
             {preferences.headerTotal
               ? usage
                 ? formatTokenCount(usage.totalTokens)
@@ -96,7 +96,7 @@ export function TokenUsageIndicator({
           </span>
           {contextPercentage != null && (
             <span
-              className="text-muted-foreground/80 border-l pl-1.5 font-mono"
+              className="text-muted-foreground/80 border-l pl-1.5 tabular-nums"
               aria-label={t.contextUsage.badgeAriaLabel(contextPercentage)}
             >
               {contextPercentage}%
@@ -112,20 +112,20 @@ export function TokenUsageIndicator({
             <div className="space-y-1">
               <div className="flex justify-between gap-4">
                 <span>{t.tokenUsage.input}</span>
-                <span className="font-mono">
+                <span className="tabular-nums">
                   {formatTokenCount(usage.inputTokens)}
                 </span>
               </div>
               <div className="flex justify-between gap-4">
                 <span>{t.tokenUsage.output}</span>
-                <span className="font-mono">
+                <span className="tabular-nums">
                   {formatTokenCount(usage.outputTokens)}
                 </span>
               </div>
               <div className="border-t pt-1">
                 <div className="flex justify-between gap-4">
                   <span>{t.tokenUsage.total}</span>
-                  <span className="font-mono font-medium">
+                  <span className="font-medium tabular-nums">
                     {formatTokenCount(usage.totalTokens)}
                   </span>
                 </div>

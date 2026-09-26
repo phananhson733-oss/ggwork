@@ -1,6 +1,6 @@
 // PORTED_FROM: realshort@816ca2e src/components/admin/pick/spark.tsx
 // 本地改动：改 import（几何从 @/core/pick-board/spark-geometry 取）；两张图的外框、刻度与折线拆成小组件（函数 <50 行），
-// 画出来的 SVG 与原文件相同。
+// 画出来的 SVG 与原文件相同；GGWork 配色：序列用图表色 --chart-1 / --chart-2（品牌色是墨色，不画数据）。
 import type { ReactNode } from "react";
 
 import {
@@ -98,7 +98,7 @@ function RankLine({ g }: { g: RankGeometry }) {
           y1={s.y1}
           x2={s.x2}
           y2={s.y2}
-          stroke="var(--brand)"
+          stroke="var(--chart-1)"
           strokeWidth={1.5}
           strokeLinecap="round"
           strokeDasharray={s.gap ? "2 3" : undefined}
@@ -111,8 +111,8 @@ function RankLine({ g }: { g: RankGeometry }) {
           cx={d.x}
           cy={d.y}
           r={d.cur ? 3 : 1.7}
-          fill="var(--brand)"
-          stroke={d.cur ? "var(--on-brand)" : undefined}
+          fill="var(--chart-1)"
+          stroke={d.cur ? "var(--surface)" : undefined}
           strokeWidth={d.cur ? 1.5 : undefined}
         />
       ))}
@@ -149,7 +149,7 @@ function WeekCells({ g }: { g: WeekGeometry }) {
           y={g.cellY}
           width={c.w}
           height={g.cellH}
-          fill={c.on ? "var(--brand)" : "var(--raised)"}
+          fill={c.on ? "var(--chart-1)" : "var(--raised)"}
           stroke={c.cur ? "var(--ink-1)" : c.on ? "none" : "var(--line)"}
           strokeWidth={c.cur ? 1.2 : 1}
         />
@@ -177,7 +177,7 @@ export function WeekGrid({
       <path
         d={g.path}
         fill="none"
-        stroke="var(--brand)"
+        stroke="var(--chart-2)"
         strokeWidth={1.2}
         opacity={0.65}
       />

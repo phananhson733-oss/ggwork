@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
 import { RememberSessionOption } from "@/components/auth/remember-session-option";
+import { GGWorkWordmark } from "@/components/brand/ggwork-logo";
 import { Button } from "@/components/ui/button";
-import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { resolveAuthNextPath } from "@/core/auth/next-path";
@@ -27,7 +26,6 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated } = useAuth();
-  const { theme, resolvedTheme } = useTheme();
   const { t } = useI18n();
 
   const [email, setEmail] = useState("");
@@ -199,21 +197,13 @@ export default function LoginPage() {
     }
   };
 
-  const actualTheme = theme === "system" ? resolvedTheme : theme;
-
   return (
-    <div className="bg-background relative flex min-h-screen items-center justify-center overflow-x-hidden overflow-y-auto">
-      <FlickeringGrid
-        className="absolute inset-0 z-0 mask-[url(/images/deer.svg)] mask-size-[100vw] mask-center mask-no-repeat md:mask-size-[72vh]"
-        squareSize={4}
-        gridGap={4}
-        color={actualTheme === "dark" ? "white" : "black"}
-        maxOpacity={0.3}
-        flickerChance={0.25}
-      />
-      <div className="border-border/20 bg-background/5 w-full max-w-md space-y-6 rounded-3xl border p-8 backdrop-blur-sm">
+    <div className="bg-background flex min-h-screen items-center justify-center overflow-x-hidden overflow-y-auto px-4">
+      <div className="bg-card border-line w-full max-w-md space-y-6 rounded-xl border p-8">
         <div className="text-center">
-          <h1 className="text-foreground font-serif text-3xl">DeerFlow</h1>
+          <h1 className="flex justify-center">
+            <GGWorkWordmark markSize={32} textClassName="text-2xl" />
+          </h1>
           <p className="text-muted-foreground mt-2">
             {isLogin ? t.login.signInTitle : t.login.createAccountTitle}
           </p>
@@ -223,7 +213,7 @@ export default function LoginPage() {
           <div
             role="status"
             aria-live="polite"
-            className="border-l-2 border-amber-500 ps-3 text-sm"
+            className="border-warning-ink border-l-2 ps-3 text-sm"
           >
             <p className="font-medium">{t.login.serviceUnavailableTitle}</p>
             <p className="text-muted-foreground mt-1">
@@ -248,14 +238,14 @@ export default function LoginPage() {
         )}
 
         {systemNeedsAdminSetup && (
-          <div className="border-l-2 border-blue-500 ps-3 text-sm">
+          <div className="border-info-ink border-l-2 ps-3 text-sm">
             <p className="font-medium">{t.login.adminSetupRequiredTitle}</p>
             <p className="text-muted-foreground mt-1">
               {t.login.adminSetupRequiredDescription}
             </p>
             <Link
               href="/setup"
-              className="mt-2 inline-block font-medium text-blue-500 hover:underline"
+              className="text-link mt-2 inline-block font-medium hover:underline"
             >
               {t.login.createAdminAccount}
             </Link>
@@ -296,7 +286,7 @@ export default function LoginPage() {
             onCheckedChange={setRememberMe}
           />
 
-          {error && <p className="text-sm text-red-500">{error}</p>}
+          {error && <p className="text-danger-ink text-sm">{error}</p>}
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading
@@ -315,7 +305,7 @@ export default function LoginPage() {
                   <span className="w-full border-t" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-background text-muted-foreground px-2">
+                  <span className="bg-card text-muted-foreground px-2">
                     {t.login.orContinueWith}
                   </span>
                 </div>
@@ -352,7 +342,7 @@ export default function LoginPage() {
                 setError("");
                 setShowSsoHint(false);
               }}
-              className="text-blue-500 hover:underline"
+              className="text-link hover:underline"
             >
               {isLogin ? t.login.noAccountSignUp : t.login.haveAccountSignIn}
             </button>

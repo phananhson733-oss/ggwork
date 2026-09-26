@@ -45,7 +45,7 @@ export function ArtifactViewer({
 
   return (
     <div className="bg-background flex h-screen flex-col">
-      <header className="border-border bg-background/95 sticky top-0 z-10 flex shrink-0 items-center gap-3 border-b px-4 py-3 backdrop-blur">
+      <header className="border-border bg-background sticky top-0 z-10 flex shrink-0 items-center gap-3 border-b px-4 py-3">
         <div className="text-muted-foreground shrink-0">
           {getFileIcon(filepath, "size-4")}
         </div>

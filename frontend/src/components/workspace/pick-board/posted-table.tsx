@@ -1,6 +1,7 @@
 // PORTED_FROM: realshort@816ca2e src/components/admin/pick/posted-table.tsx
 // 本地改动：搜索表单的 action 改成 /workspace/pick-data 并带隐藏的 v；选剧池链接改读版本规则 rules.postedPoolUrl
 // （buildBoardRules 已净化：空串就不给链接，只写「选剧池」）；Link 加 prefetch={false}。
+// GGWork 样式：搜索框聚焦用 link 边框加 brand-soft 光圈，按钮是次要按钮，链接用 link 色，表格圆角 12。
 import Link from "next/link";
 
 import {
@@ -57,10 +58,10 @@ export function PostedFilters({
           name="q"
           defaultValue={req.q}
           placeholder="搜索剧名 / 编号 / 理由 / 备注 / 来源 / 账号"
-          className="border-line bg-panel min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm"
+          className="border-line bg-panel placeholder:text-ink-dim focus-visible:border-link focus-visible:ring-brand-soft min-w-0 flex-1 rounded-md border px-3 py-2 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
         />
         <button
-          className="border-line rounded-lg border px-4 py-2 text-sm"
+          className="border-line-strong bg-panel text-ink-1 hover:bg-panel-hover rounded-md border px-4 py-2 text-sm font-medium"
           type="submit"
         >
           搜索
@@ -94,14 +95,14 @@ export function PostedNote({
   rules: Pick<BoardRules, "postedPoolUrl">;
 }) {
   return (
-    <p className="text-helper mb-3 text-sm leading-relaxed">
+    <p className="text-helper mb-3 text-sm leading-[1.65]">
       {fmt(shown)} 部（选剧池共 {fmt(stats.total)} 部，已发{" "}
       {fmt(stats.pubCount)} 部、帖子 {fmt(stats.postsSum)} 条、累计播放{" "}
       {fmt(stats.viewsSum)}，指标截至 {stats.metricAt ?? "—"}
       ）。来源：运营的飞书表{" "}
       <RuleLink
         href={rules.postedPoolUrl}
-        className="text-brand hover:underline"
+        className="text-link hover:underline"
         fallback="选剧池"
       >
         选剧池 ↗
@@ -152,7 +153,7 @@ function TitleTd({ p, req }: { p: PostedRecord; req: PickRequest }) {
         title="选剧池里的剧ID · 语言 · 平台 · 来源，原文"
       >
         {p.sd || "无剧ID"} · {p.lang || "语言未填"} ·{" "}
-        <span className="bg-raised text-ink-2 rounded-[4px] px-1 py-px font-semibold">
+        <span className="bg-raised text-ink-2 rounded-sm px-1 py-px font-semibold">
           {p.platform || "平台未填"}
         </span>
         {p.sources.length ? ` · ${p.sources.join(" / ")}` : ""}
@@ -206,7 +207,7 @@ function WhyTd({ p }: { p: PostedRecord }) {
   return (
     <td className="max-w-[300px] px-3 py-2 align-top text-[12px]">
       {p.who.length ? (
-        <span className="border-line text-ink-2 mr-1 rounded-[4px] border px-1 py-px text-[10px]">
+        <span className="bg-raised text-ink-2 mr-1 rounded-sm px-1.5 py-px text-[11px]">
           {p.who.join("、")}
         </span>
       ) : null}
@@ -229,7 +230,7 @@ export function PostedTable({
   req: PickRequest;
 }) {
   return (
-    <div className="border-line bg-panel overflow-x-auto rounded-xl border">
+    <div className="border-line bg-panel overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[960px] border-collapse text-left">
         <thead>
           <tr>
@@ -238,7 +239,7 @@ export function PostedTable({
                 scope="col"
                 key={h.text}
                 title={h.hint}
-                className="border-line bg-raised text-helper border-b px-3 py-2 text-left text-[11px] font-semibold tracking-wider whitespace-nowrap uppercase"
+                className="border-line bg-raised text-helper border-b px-2.5 py-2 text-left text-[11px] font-semibold tracking-[.06em] whitespace-nowrap"
               >
                 {h.text}
               </th>

@@ -36,7 +36,7 @@ function SourceResult({ id }: { id: string }) {
         <div className="mt-3 border-t pt-4">
           <Link
             href={`/workspace/chats/${encodeURIComponent(query.data.thread_id)}`}
-            className="mb-3 inline-block text-sm underline"
+            className="text-link mb-3 inline-block text-sm hover:underline"
           >
             打开来源对话
           </Link>
@@ -86,10 +86,12 @@ function SavedRow({
     }
   };
   return (
-    <article className="rounded-xl border p-5">
+    <article className="bg-card rounded-lg border p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="font-semibold">{row.snapshot_json.title}</h2>
+          <h2 className="text-[15px] font-semibold">
+            {row.snapshot_json.title}
+          </h2>
           <p className="text-muted-foreground mt-1 text-sm">
             {row.snapshot_json.theater} · {row.snapshot_json.language}
           </p>
@@ -128,7 +130,7 @@ function SavedRow({
       </div>
       <SourceResult id={row.source_result_id} />
       {error && (
-        <p role="alert" className="mt-2 text-sm text-red-600">
+        <p role="alert" className="text-danger-ink mt-2 text-sm">
           {error}
         </p>
       )}
@@ -150,7 +152,7 @@ export function MySelections() {
     <div className="mx-auto w-full max-w-4xl space-y-5 p-6">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">我的选剧</h1>
+          <h1 className="text-xl font-bold tracking-[-0.01em]">我的选剧</h1>
           <p className="text-muted-foreground mt-2 text-sm">
             保留你的选择、依据和下一步备注。
           </p>
@@ -170,16 +172,16 @@ export function MySelections() {
       </header>
       {query.isPending && <p role="status">正在读取清单…</p>}
       {(query.error !== null || exportError.length > 0) && (
-        <p role="alert" className="text-red-600">
+        <p role="alert" className="text-danger-ink">
           {query.error?.message ?? exportError}
         </p>
       )}
       {query.data?.length === 0 && (
-        <div className="rounded-xl border border-dashed p-10 text-center">
+        <div className="rounded-lg border border-dashed p-10 text-center">
           <p>还没有保存的剧目。</p>
           <Link
             href="/workspace/chats/new"
-            className="mt-3 inline-block underline"
+            className="text-link mt-3 inline-block hover:underline"
           >
             开始对话选剧
           </Link>

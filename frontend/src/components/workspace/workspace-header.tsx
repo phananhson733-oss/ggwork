@@ -1,9 +1,10 @@
 "use client";
 
-import { MessageSquarePlus } from "lucide-react";
+import { SquarePen } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { GGWorkMark, GGWorkWordmark } from "@/components/brand/ggwork-logo";
 import {
   SidebarMenu,
   SidebarMenuButton,
@@ -11,6 +12,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { APP_NAME } from "@/core/brand";
 import { useI18n } from "@/core/i18n/hooks";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
@@ -28,22 +30,22 @@ export function WorkspaceHeader({ className }: { className?: string }) {
         )}
       >
         {state === "collapsed" ? (
-          <div className="group-has-data-[collapsible=icon]/sidebar-wrapper:-translate-y flex w-full cursor-pointer items-center justify-center">
-            <div className="text-primary block pt-1 font-serif group-hover/workspace-header:hidden">
-              DF
-            </div>
-            <SidebarTrigger className="hidden pl-2 group-hover/workspace-header:block" />
+          <div className="flex w-full cursor-pointer items-center justify-center">
+            <GGWorkMark
+              size={22}
+              alt={APP_NAME}
+              className="group-hover/workspace-header:hidden"
+            />
+            <SidebarTrigger className="hidden group-hover/workspace-header:inline-flex" />
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 pl-1">
             {env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true" ? (
-              <Link href="/" className="text-primary ml-2 font-serif">
-                DeerFlow
+              <Link href="/" className="rounded-md">
+                <GGWorkWordmark />
               </Link>
             ) : (
-              <div className="text-primary ml-2 cursor-default font-serif">
-                DeerFlow
-              </div>
+              <GGWorkWordmark className="cursor-default" />
             )}
             <SidebarTrigger />
           </div>
@@ -53,10 +55,11 @@ export function WorkspaceHeader({ className }: { className?: string }) {
         <SidebarMenuItem>
           <SidebarMenuButton
             isActive={pathname === "/workspace/chats/new"}
+            className="border-line bg-surface border font-medium"
             asChild
           >
-            <Link className="text-muted-foreground" href="/workspace/chats/new">
-              <MessageSquarePlus size={16} />
+            <Link href="/workspace/chats/new">
+              <SquarePen size={16} />
               <span>{t.sidebar.newChat}</span>
             </Link>
           </SidebarMenuButton>

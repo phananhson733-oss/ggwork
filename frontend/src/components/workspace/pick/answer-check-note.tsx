@@ -61,7 +61,7 @@ function AnswerCheckNote({
     <aside
       role="note"
       data-testid="pick-answer-check"
-      className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
+      className="border-warning-line bg-warning-surface text-warning-ink mt-2 rounded-lg border p-3 text-xs leading-5"
     >
       <p className="font-medium">核对提示</p>
       <ul className="mt-1 list-disc space-y-1 pl-4">

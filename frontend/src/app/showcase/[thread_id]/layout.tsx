@@ -1,10 +1,9 @@
 import "katex/dist/katex.min.css";
 import "streamdown/styles.css";
 
-import { Toaster } from "sonner";
-
 import { QueryClientProvider } from "@/components/query-client-provider";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 import { ChatProviders } from "@/components/workspace/chats/chat-providers";
 import { AuthProvider } from "@/core/auth/AuthProvider";
 import { I18nProvider } from "@/core/i18n/context";

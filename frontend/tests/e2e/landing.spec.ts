@@ -7,9 +7,10 @@ test.describe("Landing page", () => {
     await page.goto("/");
 
     await expect(
-      page.locator("header").first().getByText("DeerFlow", { exact: true }),
+      page.locator("header").first().getByText("GGWork", { exact: true }),
     ).toBeVisible();
     await expect(page.locator("h1")).toHaveCount(1);
+    // The hero copy stays DeerFlow until the marketing content is rewritten.
     await expect(page.locator("h1")).toContainText("DeerFlow");
 
     // "Get Started" call-to-action button in hero

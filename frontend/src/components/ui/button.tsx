@@ -10,16 +10,19 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90",
+          "cursor-pointer bg-primary text-primary-foreground hover:bg-brand-hover",
+        // Solid danger fill. text-surface keeps the label legible in both
+        // themes: white on the light danger ink, near-black on the dark one.
         destructive:
-          "cursor-pointer bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+          "cursor-pointer bg-destructive text-surface hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
-          "cursor-pointer border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+          "cursor-pointer border border-line-strong bg-card text-ink-1 hover:bg-hover hover:text-ink-1",
         secondary:
-          "cursor-pointer bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost:
-          "cursor-pointer hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
-        link: "cursor-pointer text-primary underline-offset-4 hover:underline",
+          "cursor-pointer border border-line-strong bg-card text-ink-1 hover:bg-hover hover:text-ink-1",
+        ghost: "cursor-pointer hover:bg-accent hover:text-accent-foreground",
+        link: "cursor-pointer text-link underline-offset-4 hover:underline",
+        // The one gradient call to action per screen (send, run).
+        cta: "cursor-pointer bg-cta text-cta-ink font-semibold hover:opacity-90",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",

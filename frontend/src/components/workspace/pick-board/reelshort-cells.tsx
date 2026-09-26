@@ -1,7 +1,8 @@
 // PORTED_FROM: realshort@816ca2e src/components/admin/pick/reelshort-cells.tsx
 // 本地改动：删掉我方分成的金额格与 Delta 的金额模式（本页没有金额）；上线天数按版本的 as_of 算（PublishCells 的
-// now 改名 asOf）；剧名格的 Link 加 prefetch={false}；TagChips 的散列取模不再用 `!`（noUncheckedIndexedAccess）；
+// now 改名 asOf）；剧名格的 Link 加 prefetch={false}；
 // 表头的 hover 包装抽成 Hinted；剧名格 id 行的 cursor-help 前的空格留在模板里（prettier 会削掉字符串里的前导空格）。
+// GGWork 配色：TagChips 不再按文本散列着色，一律中性底（标签不是状态，语义色只给状态）；负增量用 danger。
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -50,7 +51,7 @@ export function Delta({
   if (d === null) return <Dim>—</Dim>;
   if (d === 0) return <span className="text-ink-dim">0</span>;
   return (
-    <span className={d > 0 ? "text-success-ink" : "text-brand"}>
+    <span className={d > 0 ? "text-success-ink" : "text-danger-ink"}>
       {d > 0 ? "+" : "−"}
       {formatInt(Math.abs(d))}
     </span>
@@ -115,7 +116,7 @@ export function TitleCell({
     <td className={`${TD} min-w-[260px]`}>
       <div className="font-semibold">
         {href ? (
-          <Link prefetch={false} href={href} className="hover:text-brand">
+          <Link prefetch={false} href={href} className="hover:text-link">
             {title}
           </Link>
         ) : (
@@ -207,25 +208,8 @@ export function ThGap({ span }: { span: number }) {
 
 /**
  * 上游标签 chips（tag / show_tag 恒为中文，与剧集语言无关）。
- * 【底色按标签文本散列，不按位置】：同一个标签在每一行、每一页都是同一种底色，扫表时「女性」「浪漫」这类
- * 高频标签一眼能对上；按位置着色的话同一个词在两行里颜色不同，等于没分。六种底色全部 token。
+ * 【一律中性底】：标签不是状态，success / warning / danger / info 只留给状态，不拿来区分标签。
  */
-const CHIP_TONES = [
-  "bg-danger-surface text-brand",
-  "bg-warning-surface text-warning-ink",
-  "bg-success-surface text-success-ink",
-  "bg-info-surface text-info-ink",
-  "bg-violet-surface text-violet-ink",
-  "bg-raised text-ink-2",
-] as const;
-
-/** 稳定散列：同一段文本永远落到同一档 */
-function chipTone(text: string): string {
-  let h = 0;
-  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0;
-  return CHIP_TONES[h % CHIP_TONES.length] ?? CHIP_TONES[0];
-}
-
 export function TagChips({
   tags,
   max,
@@ -240,7 +224,7 @@ export function TagChips({
       {shown.map((t, i) => (
         <span
           key={`${t}-${i}`}
-          className={`rounded-[4px] px-[7px] py-[2px] text-[11.5px] ${chipTone(t)}`}
+          className="bg-raised text-ink-2 rounded-sm px-2 py-0.5 text-[11.5px]"
         >
           {t}
         </span>

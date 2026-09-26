@@ -203,7 +203,7 @@ function BackgroundTaskCard({
 
   return (
     <article
-      className="border-border bg-card rounded-xl border p-3 shadow-xs"
+      className="border-border bg-card rounded-lg border p-3"
       data-testid={`background-task-${task.task_id}`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -221,7 +221,7 @@ function BackgroundTaskCard({
             </span>
           </div>
         </div>
-        <Badge variant="outline" className={cn("shrink-0", status.className)}>
+        <Badge variant={status.variant} className="shrink-0">
           <status.Icon
             className={cn("size-3", status.spinning && "animate-spin")}
           />
@@ -230,13 +230,13 @@ function BackgroundTaskCard({
       </div>
 
       {task.tracking_degraded && (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+        <p className="text-warning-ink mt-2 flex items-center gap-1.5 text-xs">
           <TriangleAlertIcon className="size-3.5 shrink-0" />
           {t.backgroundTasks.trackingDegraded}
         </p>
       )}
       {task.error && (
-        <p className="bg-destructive/5 text-destructive mt-2 rounded-md px-2 py-1.5 text-xs break-words">
+        <p className="bg-danger-surface text-danger-ink mt-2 rounded-md px-2 py-1.5 text-xs break-words">
           {task.error}
         </p>
       )}
@@ -342,7 +342,7 @@ function BackgroundTaskDetails({
   return (
     <div className="border-border mt-3 space-y-3 border-t pt-3">
       {task.last_cancel_error && (
-        <div className="flex gap-2 rounded-md bg-amber-500/10 px-2 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <div className="bg-warning-surface text-warning-ink flex gap-2 rounded-md px-2 py-2 text-xs">
           <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
           <div className="min-w-0">
             <p className="font-medium">
@@ -355,7 +355,7 @@ function BackgroundTaskDetails({
         </div>
       )}
       {task.notification_error && (
-        <div className="flex gap-2 rounded-md bg-amber-500/10 px-2 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <div className="bg-warning-surface text-warning-ink flex gap-2 rounded-md px-2 py-2 text-xs">
           <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
           <div className="min-w-0">
             <p className="font-medium">
@@ -425,6 +425,9 @@ function formatTaskDetailValue(value: unknown): string | null {
   }
 }
 
+/** Status pill variants of the Badge: semantic color, always with a label. */
+type StatusPillVariant = "info" | "warning" | "success" | "danger" | "neutral";
+
 type StatusTranslations = {
   submitted: string;
   working: string;
@@ -437,48 +440,53 @@ type StatusTranslations = {
 function taskStatusPresentation(
   status: BackgroundTaskStatus,
   labels: StatusTranslations,
-) {
+): {
+  Icon: typeof Clock3Icon;
+  label: string;
+  variant: StatusPillVariant;
+  spinning: boolean;
+} {
   switch (status) {
     case "submitted":
       return {
         Icon: Clock3Icon,
         label: labels.submitted,
-        className: "text-blue-700 dark:text-blue-300",
+        variant: "info",
         spinning: false,
       };
     case "working":
       return {
         Icon: LoaderCircleIcon,
         label: labels.working,
-        className: "text-blue-700 dark:text-blue-300",
+        variant: "info",
         spinning: true,
       };
     case "input_required":
       return {
         Icon: MessageCircleQuestionIcon,
         label: labels.inputRequired,
-        className: "text-amber-700 dark:text-amber-300",
+        variant: "warning",
         spinning: false,
       };
     case "completed":
       return {
         Icon: CircleCheckIcon,
         label: labels.completed,
-        className: "text-emerald-700 dark:text-emerald-300",
+        variant: "success",
         spinning: false,
       };
     case "failed":
       return {
         Icon: TriangleAlertIcon,
         label: labels.failed,
-        className: "text-destructive",
+        variant: "danger",
         spinning: false,
       };
     case "cancelled":
       return {
         Icon: CircleStopIcon,
         label: labels.cancelled,
-        className: "text-muted-foreground",
+        variant: "neutral",
         spinning: false,
       };
   }

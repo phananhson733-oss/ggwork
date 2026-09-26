@@ -10,7 +10,7 @@ import {
   LoaderCircleIcon,
   RotateCcwIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -101,8 +101,8 @@ export function ThreadSubagentBatches({ threadId }: { threadId: string }) {
               {t.common.loading}
             </div>
           ) : batchesQuery.isError ? (
-            <div className="border-destructive/30 bg-destructive/5 rounded-xl border p-4 text-sm">
-              <p className="text-destructive font-medium">
+            <div className="border-danger-line bg-danger-surface rounded-xl border p-4 text-sm">
+              <p className="text-danger-ink font-medium">
                 {t.subagentBatches.loadFailed}
               </p>
               <p className="text-muted-foreground mt-1 text-xs">
@@ -178,7 +178,9 @@ function BatchCard({
             )}
           </p>
         </div>
-        <Badge variant="outline">{labels[batch.status]}</Badge>
+        <Badge variant={subagentStatusBadgeVariant(batch.status)}>
+          {labels[batch.status]}
+        </Badge>
       </div>
       <Progress className="mt-3 h-1.5" value={subagentBatchProgress(batch)} />
       <div className="text-muted-foreground mt-1.5 flex flex-wrap gap-x-3 text-[11px]">
@@ -187,7 +189,7 @@ function BatchCard({
           {batch.counts.running} {labels.running.toLowerCase()}
         </span>
         {batch.counts.failed > 0 && (
-          <span className="text-destructive">
+          <span className="text-danger-ink">
             {batch.counts.failed} {labels.failed.toLowerCase()}
           </span>
         )}
@@ -308,6 +310,16 @@ function BatchItems({
   );
 }
 
+function subagentStatusBadgeVariant(
+  status: SubagentBatch["status"] | SubagentBatchItem["status"],
+): ComponentProps<typeof Badge>["variant"] {
+  if (status === "completed" || status === "succeeded") return "success";
+  if (status === "failed") return "danger";
+  if (status === "paused") return "warning";
+  if (status === "running" || status === "leased") return "info";
+  return "neutral";
+}
+
 function BatchItemRow({
   item,
   workerRunning,
@@ -326,7 +338,9 @@ function BatchItemRow({
         <span className="min-w-0 truncate font-medium" title={item.item_key}>
           {item.item_key}
         </span>
-        <Badge variant="outline">{item.status}</Badge>
+        <Badge variant={subagentStatusBadgeVariant(item.status)}>
+          {item.status}
+        </Badge>
       </div>
       {item.result_preview && (
         <p className="mt-1 line-clamp-3 whitespace-pre-wrap">
@@ -334,7 +348,7 @@ function BatchItemRow({
         </p>
       )}
       {item.error && (
-        <p className="text-destructive mt-1 break-words">{item.error}</p>
+        <p className="text-danger-ink mt-1 break-words">{item.error}</p>
       )}
       {item.status === "failed" && (
         <Button

@@ -421,7 +421,7 @@ function ProjectDocumentRow({
         {getFileIcon(document.name, "size-5 shrink-0")}
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="truncate text-sm">{document.name}</span>
-          <Badge variant="destructive" data-testid="content-missing-badge">
+          <Badge variant="danger" data-testid="content-missing-badge">
             {t.projects.contentMissing}
           </Badge>
         </div>
@@ -910,7 +910,7 @@ function ConversationFileGroup({
           {t.projects.threadFilesTruncated(group.files.length)}
           <Link
             href={pathOfThread(group.thread_id)}
-            className="underline underline-offset-4"
+            className="text-link decoration-link/40 hover:decoration-link underline underline-offset-4"
           >
             {t.projects.threadFilesBrowseInThread}
           </Link>

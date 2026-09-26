@@ -176,7 +176,7 @@ export function SubagentSettingsPage() {
                 <ItemContent>
                   <ItemTitle className="flex flex-wrap items-center gap-2">
                     <span>{subagent.display_name ?? subagent.name}</span>
-                    <Badge variant="outline">
+                    <Badge variant="neutral">
                       {subagent.source === "builtin"
                         ? t.settings.subagents.sourceBuiltin
                         : subagent.source === "config"
@@ -184,7 +184,7 @@ export function SubagentSettingsPage() {
                           : t.settings.subagents.sourceManaged}
                     </Badge>
                     {subagent.conflict && (
-                      <Badge variant="destructive">
+                      <Badge variant="danger">
                         {t.settings.subagents.conflict}
                       </Badge>
                     )}

@@ -3,6 +3,8 @@
 // 有的话给 RealShort 证据页的外链（链接与提取码不进镜像）；ReelShort 的「分成 $」pill 改成「订单 N 笔」（★U26）；
 // 公开页（dramaPath）是 ReelShort 站的绝对地址，新标签打开（★38）；Link 加 prefetch={false}；
 // EvidenceLine 的 ev[0] 改成先取再判（noUncheckedIndexedAccess）。
+// GGWork 配色：榜单名次 pill 用 info、负变化与失败用 danger、分级用 warning，品牌色不表状态；
+// YouTube 条件改成语义 pill（YoutubePill，剧场规则 tab 与证据页共用）；pill 里的数字用 tabular-nums，不用等宽。
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -11,7 +13,7 @@ import {
   formatObservedAt,
   formatUsd,
 } from "@/core/pick-board/metrics";
-import { youtubeStatus } from "@/core/pick-board/platforms";
+import { youtubeStatus, type YoutubeRule } from "@/core/pick-board/platforms";
 import {
   PLATFORM_LABELS,
   isDailyRank,
@@ -47,11 +49,20 @@ export function TextOrDim({ text }: { text: string | null | undefined }) {
 
 export const TD = "px-2.5 py-[7px] align-top";
 
-type Tone = "rank" | "grade" | "hot" | "week" | "legacy" | "demand" | "site";
+type Tone =
+  | "rank"
+  | "down"
+  | "grade"
+  | "hot"
+  | "week"
+  | "legacy"
+  | "demand"
+  | "site";
 const TONE: Record<Tone, string> = {
-  rank: "border-danger-line bg-danger-surface text-brand",
+  rank: "border-transparent bg-info-surface text-info-ink",
+  down: "border-transparent bg-danger-surface text-danger-ink",
   grade:
-    "border-warning-line bg-warning-surface font-mono font-medium tracking-[.06em] text-gold",
+    "border-warning-line bg-warning-surface font-mono tracking-[.06em] text-warning-ink",
   hot: "border-transparent bg-warning-surface text-warning-ink",
   week: "border-line bg-raised text-ink-2",
   legacy: "border-line bg-transparent text-helper",
@@ -71,15 +82,15 @@ export function Pill({
   return (
     <span
       title={title}
-      className={`inline-flex max-w-full items-center gap-1 rounded-[4px] border px-[7px] py-[2px] text-[11.5px] leading-[1.35] ${TONE[tone]}`}
+      className={`inline-flex max-w-full items-center gap-1 rounded-sm border px-2 py-0.5 text-[11.5px] leading-[1.35] font-medium ${TONE[tone]}`}
     >
       {children}
     </span>
   );
 }
 
-function Mono({ children }: { children: ReactNode }) {
-  return <b className="font-mono font-medium">{children}</b>;
+function Num({ children }: { children: ReactNode }) {
+  return <b className="font-semibold tabular-nums">{children}</b>;
 }
 
 function signed(n: number): string {
@@ -164,20 +175,20 @@ export function ReelshortPills({ rs }: { rs: NonNullable<PickRow["rs"]> }) {
         title={`上游 recent_revenue 原值，全平台 30 天口径，单位与范围待核验，不是我方收入；采集 ${formatObservedAt(rs.syncedAt)}`}
       >
         30d 指标{" "}
-        <Mono>
+        <Num>
           {rs.metricsValid === false ? "未取得" : formatUsd(rs.revenueCents)}
-        </Mono>
+        </Num>
       </Pill>
       <Pill
         tone="week"
         title={`上游 promoters_cnt，累计推广过这部剧的人数${p7 !== null ? `；较 7 天前快照 ${signed(p7)}` : ""}`}
       >
-        推广 <Mono>{formatInt(rs.promotersCnt)}</Mono>
+        推广 <Num>{formatInt(rs.promotersCnt)}</Num>
         {p7 !== null && p7 !== 0 ? ` · ${signed(p7)}` : ""}
       </Pill>
       {d7 !== null && d7 !== 0 ? (
         <Pill
-          tone={d7 > 0 ? "demand" : "rank"}
+          tone={d7 > 0 ? "demand" : "down"}
           title={`30 天指标较 7 天前快照（${formatObservedAt(rs.baseline7At)}）的净变化，不是新增收入`}
         >
           7 天 {signed(d7)}
@@ -351,12 +362,13 @@ export function EvidenceLine({ row, rules }: { row: PickRow; rules: Labels }) {
   );
 }
 
-type TagTone = "ok" | "warn" | "bad" | "dimmed" | "";
+type TagTone = "ok" | "warn" | "bad" | "neutral" | "dimmed" | "";
 const TAG_TONE: Record<TagTone, string> = {
   "": "border-line text-ink-2",
-  ok: "border-success-ink/40 bg-success-surface text-success-ink",
-  warn: "border-warning-line bg-warning-surface text-warning-ink",
-  bad: "border-danger-line bg-danger-surface text-brand",
+  ok: "border-transparent bg-success-surface text-success-ink",
+  warn: "border-transparent bg-warning-surface text-warning-ink",
+  bad: "border-transparent bg-danger-surface text-danger-ink",
+  neutral: "border-transparent bg-raised text-helper",
   dimmed: "border-line text-ink-dim",
 };
 
@@ -372,7 +384,7 @@ export function Tag({
   return (
     <span
       title={title}
-      className={`rounded-[4px] border px-1 py-px text-[10px] ${TAG_TONE[tone]}`}
+      className={`rounded-sm border px-2 py-0.5 text-[11px] ${TAG_TONE[tone]}`}
     >
       {children}
     </span>
@@ -398,7 +410,7 @@ export function FactTags({ row, rules }: { row: PickRow; rules: Labels }) {
       <Tag key="claim">剧场声明</Tag>
     ) : null,
     row.inSiteIds.length ? (
-      <Tag key="site" tone="warn">
+      <Tag key="site" tone="neutral">
         同名未核
       </Tag>
     ) : null,
@@ -448,12 +460,12 @@ export function TitleCell({ row, req }: { row: PickRow; req: PickRequest }) {
         <Link
           prefetch={false}
           href={rowHref(req, row.rowKey)}
-          className="hover:text-brand"
+          className="hover:text-link"
         >
           {row.title}
         </Link>
         {row.offOn ? (
-          <span className="bg-warning-surface text-warning-ink ml-1.5 rounded-[4px] px-[7px] py-[2px] text-[10.5px] font-normal">
+          <span className="bg-warning-surface text-warning-ink ml-1.5 rounded-sm px-2 py-0.5 text-[11.5px] font-medium">
             下架 {row.offOn}
           </span>
         ) : null}
@@ -464,7 +476,7 @@ export function TitleCell({ row, req }: { row: PickRow; req: PickRequest }) {
         </div>
       ) : null}
       <div className="text-ink-dim mt-0.5 text-[11px]">
-        <span className="bg-raised text-ink-2 rounded-[4px] px-1 py-px font-semibold">
+        <span className="bg-raised text-ink-2 rounded-sm px-1 py-px font-semibold">
           {PLATFORM_LABELS[row.platform]}
         </span>{" "}
         · {row.sourceTable}
@@ -552,7 +564,7 @@ export function PickupCell({ row, req }: { row: PickRow; req: PickRequest }) {
       <Link
         prefetch={false}
         href={rowHref(req, row.rowKey)}
-        className="text-brand hover:underline"
+        className="text-link hover:underline"
       >
         单剧 ›
       </Link>
@@ -561,7 +573,7 @@ export function PickupCell({ row, req }: { row: PickRow; req: PickRequest }) {
           {" "}
           <ExternalLink
             href={dramaPath(row.rs.locale, row.rs.slug)}
-            className="text-helper hover:text-brand"
+            className="text-helper hover:text-link"
           >
             公开页 ↗
           </ExternalLink>
@@ -586,11 +598,45 @@ function PanNote({ row }: { row: PickRow }) {
       <span className="text-ink-2">有网盘</span>
       <ExternalLink
         href={realshortRowUrl(row.rowKey)}
-        className="text-brand hover:underline"
+        className="text-link hover:underline"
       >
         到 RealShort 证据页查看
       </ExternalLink>
     </div>
+  );
+}
+
+const YOUTUBE_TONE: Record<YoutubeRule, string> = {
+  ok: "bg-success-surface text-success-ink",
+  only: "bg-info-surface text-info-ink",
+  warn: "bg-warning-surface text-warning-ink",
+  no: "bg-danger-surface text-danger-ink",
+};
+
+/**
+ * YouTube 条件的语义 pill：可发 success、限剧单 info、慎用 warning、禁 danger，规则未知是中性；
+ * 这一行发不了（禁，或限剧单而这一行不在剧单上）一律 danger。
+ */
+export function YoutubePill({
+  kind,
+  blocked = false,
+  children,
+}: {
+  kind: YoutubeRule | null | undefined;
+  blocked?: boolean;
+  children: ReactNode;
+}) {
+  const tone = blocked
+    ? YOUTUBE_TONE.no
+    : kind
+      ? YOUTUBE_TONE[kind]
+      : "bg-raised text-helper";
+  return (
+    <span
+      className={`inline-block rounded-sm px-2 py-0.5 text-[11.5px] leading-[1.35] font-medium ${tone}`}
+    >
+      {children}
+    </span>
   );
 }
 
@@ -610,10 +656,10 @@ export function ResourceCell({
       ) : (
         <PanNote row={row} />
       )}
-      <div
-        className={`mt-0.5 text-[11px] ${yt.blocked ? "text-brand" : "text-ink-dim"}`}
-      >
-        {yt.label}
+      <div className="mt-1">
+        <YoutubePill kind={yt.kind} blocked={yt.blocked}>
+          {yt.label}
+        </YoutubePill>
       </div>
       {row.reoffNote ? (
         <div className="text-warning-ink mt-0.5 text-[11px]">

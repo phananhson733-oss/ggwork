@@ -1,6 +1,7 @@
 // PORTED_FROM: realshort@816ca2e src/lib/pick/platforms.ts
 // 本地改动：十个剧场的规则表（PLATFORM_RULES）不在前端留一份，按版本从 meta.rules.platformRules 构造（rules.ts）；
-// YOUTUBE_LABEL 只作版本缺标签时的兜底；youtubeStatus 多收一个 rules，规则缺失或 yt 不认识时是「规则未知」、不拦。
+// YOUTUBE_LABEL 只作版本缺标签时的兜底；youtubeStatus 多收一个 rules，规则缺失或 yt 不认识时是「规则未知」、不拦，
+// 另回传规则种类 kind（规则未知时不带），格子按它选语义色。
 // POSTED_POOL_URL 不搬：它是运营飞书表的业务链接，不进这个仓库，页面用版本里的 rules.postedPoolUrl。
 import type { BoardRules } from "./rules";
 
@@ -48,18 +49,28 @@ export interface PlatformRule {
   signals: string;
 }
 
+/**
+ * 一行的 YouTube 判定。kind 是剧场的规则（格子据此选语义色），规则未知时没有 kind；
+ * blocked 是这一行发不了：禁 YouTube，或限剧单而这一行不在剧单上。
+ */
+export interface YoutubeStatus {
+  label: string;
+  blocked: boolean;
+  kind?: YoutubeRule;
+}
+
 /** 这一行在 YouTube 上能不能发：限剧单的剧场还要看这一行自己在不在 YouTube 剧单上 */
 export function youtubeStatus(
   rules: Pick<BoardRules, "platformRules" | "youtubeLabels">,
   platform: string,
   rowOnList: boolean,
-): { label: string; blocked: boolean } {
+): YoutubeStatus {
   const yt = rules.platformRules[platform]?.yt ?? null;
   if (yt === null) return { label: YOUTUBE_UNKNOWN_LABEL, blocked: false };
   const label = rules.youtubeLabels[yt];
   if (yt === "only")
     return rowOnList
-      ? { label: `${label} · 在剧单`, blocked: false }
-      : { label: `${label} · 不在剧单`, blocked: true };
-  return { label, blocked: yt === "no" };
+      ? { label: `${label} · 在剧单`, blocked: false, kind: yt }
+      : { label: `${label} · 不在剧单`, blocked: true, kind: yt };
+  return { label, blocked: yt === "no", kind: yt };
 }

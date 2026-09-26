@@ -19,6 +19,12 @@ const STATUS_LABEL: Record<string, string> = {
   success: "成功",
   failed: "失败",
 };
+/** Run status as a semantic pill: running is info, success and failed their own. */
+const STATUS_TONE: Record<string, string> = {
+  running: "bg-info-surface text-info-ink",
+  success: "bg-success-surface text-success-ink",
+  failed: "bg-danger-surface text-danger-ink",
+};
 const TRIGGER_LABEL: Record<string, string> = {
   cron: "定时",
   manual: "手动",
@@ -132,7 +138,7 @@ export function SyncStatus() {
   const current = data?.current;
   return (
     <section
-      className="space-y-3 rounded-xl border p-5"
+      className="bg-card space-y-3 rounded-lg border p-5"
       aria-label="RealShort 数据同步"
     >
       <div className="flex items-center justify-between gap-3">
@@ -176,7 +182,11 @@ export function SyncStatus() {
                 hour12: false,
               })}{" "}
               · {TRIGGER_LABEL[run.trigger] ?? run.trigger} ·{" "}
-              {STATUS_LABEL[run.status] ?? run.status}
+              <span
+                className={`rounded-sm px-2 py-0.5 text-[11.5px] font-medium ${STATUS_TONE[run.status] ?? "bg-muted text-muted-foreground"}`}
+              >
+                {STATUS_LABEL[run.status] ?? run.status}
+              </span>
               {run.rows !== null && ` · ${run.rows} 部`}
               {run.error && ` · ${run.error}`}
             </li>

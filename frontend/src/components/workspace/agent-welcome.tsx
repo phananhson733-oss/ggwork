@@ -26,12 +26,16 @@ export function AgentWelcome({
         className,
       )}
     >
-      <div className="bg-primary/10 flex h-12 w-12 items-center justify-center rounded-full">
-        <BotIcon className="text-primary h-6 w-6" />
+      <div className="bg-brand-soft flex h-12 w-12 items-center justify-center rounded-full">
+        <BotIcon className="text-brand-ink h-6 w-6" />
       </div>
-      <div className="text-2xl font-bold">{displayName}</div>
+      <h1 className="text-ink-1 text-[30px] leading-tight font-bold tracking-[-0.02em]">
+        {displayName}
+      </h1>
       {description && (
-        <p className="text-muted-foreground max-w-sm text-sm">{description}</p>
+        <p className="text-helper max-w-[520px] text-sm leading-[1.65]">
+          {description}
+        </p>
       )}
     </div>
   );

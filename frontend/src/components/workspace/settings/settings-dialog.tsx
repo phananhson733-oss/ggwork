@@ -183,11 +183,12 @@ export function SettingsDialog(props: SettingsDialogProps) {
                     <button
                       type="button"
                       onClick={() => setActiveSection(id as SettingsSection)}
+                      aria-current={active ? "true" : undefined}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm transition-colors",
                         active
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                          ? "bg-brand-soft text-brand-ink font-semibold"
+                          : "text-ink-2 hover:bg-hover hover:text-ink-1",
                       )}
                     >
                       <Icon className="size-4" />
