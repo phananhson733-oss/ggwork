@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents (Claude Code, Codex, and others) when working with the DeerFlow frontend. It is the source of truth; the sibling `CLAUDE.md` imports it via `@AGENTS.md`.
+This file provides guidance to AI coding agents (Claude Code, Codex, and others) when working with the GGWork frontend (built on DeerFlow). It is the source of truth; the sibling `CLAUDE.md` imports it via `@AGENTS.md`.
 
 ## Project Overview
 
-DeerFlow Frontend is a Next.js 16 web interface for an AI agent system. It communicates with a LangGraph-based backend to provide thread-based AI conversations with streaming responses, artifacts, and a skills/tools system.
+The GGWork frontend is a Next.js 16 web interface for an AI agent system. It communicates with a LangGraph-based backend to provide thread-based AI conversations with streaming responses, artifacts, and a skills/tools system.
 
 **Stack**: Next.js 16, React 19, TypeScript 5.8, Tailwind CSS 4, pnpm 10.26.2. Requires Node.js 22+ and pnpm 10.26.2+.
 
@@ -13,7 +13,7 @@ DeerFlow Frontend is a Next.js 16 web interface for an AI agent system. It commu
 - **LangGraph SDK** (`@langchain/langgraph-sdk` ^1.5.3) — Agent orchestration and streaming
 - **LangChain Core** (`@langchain/core` ^1.1.15) — Fundamental AI building blocks
 - **TanStack Query** (`@tanstack/react-query` ^5.90.17) — Server state management
-- **UI**: Shadcn UI, MagicUI, React Bits, and Vercel AI SDK elements (generated from registries — see Code Style)
+- **UI**: Shadcn UI and Vercel AI SDK elements (generated from registries — see Code Style), styled by the GGWork theme
 
 `pnpm-workspace.yaml` overrides vulnerable `@xmldom/xmldom` 0.9.x releases to
 0.9.12 for GHSA-965w-775f-mr7g. Nextra pulls it in through MathJax and
@@ -75,7 +75,7 @@ The frontend is a stateful chat application. Users create **threads** (conversat
 - **`hooks/`** — Shared React hooks
 - **`lib/`** — Utilities (`cn()` from clsx + tailwind-merge)
 - **`content/`** — MDX content (blog posts, docs) rendered by the app
-- **`styles/`** — Global CSS with Tailwind v4 `@import` syntax and CSS variables for theming
+- **`styles/`** — `globals.css` (Tailwind v4) and `ggwork-theme.css` (theme tokens; see Theme and brand)
 - **`typings/`** — Ambient TypeScript declarations
 - Root files: `env.js` (env validation), `mdx-components.ts` (MDX component map)
 
@@ -98,7 +98,7 @@ do not use HTML `maxLength`, which counts UTF-16 code units instead.
 - **Unused variables**: Prefix with `_`.
 - **Class names**: Use `cn()` from `@/lib/utils` for conditional Tailwind classes.
 - **Path alias**: `@/*` maps to `src/*`.
-- **Components**: `ui/` and `ai-elements/` are generated from registries (Shadcn, MagicUI, React Bits, Vercel AI SDK) — don't manually edit these.
+- **Components**: `ui/` and `ai-elements/` are generated from registries (Shadcn, Vercel AI SDK; the MagicUI and React Bits registries are removed) — edit them by hand only to apply theme tokens.
 
 Scheduled-task list search filters the current authorized query result by title or
 prompt, composing with status/type filters and thread scope. Selection must derive
@@ -106,6 +106,26 @@ from the filtered list so hidden tasks cannot remain actionable. Keep literal
 matching in `core/scheduled-tasks/search.ts`; clearing search retains other filters.
 
 Single-run schedule edits retain the mounted task's original `run_at` while its wall time and timezone match. The parent echoes edits through `initial`; retain a stable snapshot and reset the parent draft during render before remounting with a task key when switching tasks. Use the resolved timezone consistently for the snapshot and displayed wall time. Component and scheduled-task E2E tests cover DST folds and timestamp precision.
+
+### Theme and brand
+
+`src/styles/ggwork-theme.css` (Claude Design project, direction 1c; imported by
+`globals.css`) is the only palette: tokens on `:root`, dark values on `.dark`
+(next-themes sets it on `<html>`; dark mode only swaps tokens), 1a/1b alternates
+under `<html data-brand="evergreen|tide">`, and `@theme inline` utilities such as
+`text-ink-1`, `text-helper`, `text-link`, `border-line`, `bg-brand-soft`, `bg-cta`
+and `bg-{success,info,warning,danger}-surface`. shadcn names alias these tokens.
+The former pick-board utilities are global; `.pick-board` defines no palette. Links
+use `text-link`; brand ink is for primary buttons and selection; status is a
+semantic pill plus text, never the brand color; the gradient is for one main CTA
+per screen and the logo. DM Sans and JetBrains Mono are committed woff2 files in
+`app/fonts/` loaded only in `app/layout.tsx` via `next/font/local`; never
+`next/font/google`, which fetches at build time and breaks mirror/air-gapped Docker
+builds. Chinese falls back to installed CJK faces, Noto Sans SC first. The logo is `public/images/ggwork-logo.png`
+through `components/brand/*`; the product name is `APP_NAME` in `core/brand.ts`.
+Check `cssVars` that `shadcn add` merges into `globals.css` against these tokens.
+`tests/unit/app/layout-boundaries.test.ts` pins the theme and `brand-guards.test.ts`
+keeps DeerFlow's effects, serif wordmark and name out.
 
 ## Environment
 
@@ -170,9 +190,8 @@ routes, writes the detailed result to `.next/performance-results.json`, and comp
 totals with `performance-budgets.json`. Fix route ownership or split points when a
 budget fails; do not raise a ceiling without documenting and reviewing the measured
 regression. `/workspace/pick-data` refuses the static-demo user, so its figure is the
-route's JS/CSS on the access notice: pick-board.css via its layout, utilities from the
-global pick-board-theme.css, and the page's client chunks (glossary, queyu button)
-even though the notice does not render them.
+route's JS/CSS on the access notice: the global stylesheet and the page's client
+chunks (glossary, queyu button) even though the notice does not render them.
 
 Chat archive is a thread metadata flag (`deerflow_archived === true`), independent
 of run status. Sidebar and Chats explicitly request the Gateway's optional

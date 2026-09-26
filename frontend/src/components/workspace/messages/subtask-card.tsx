@@ -16,7 +16,6 @@ import {
 } from "@/components/ai-elements/chain-of-thought";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Button } from "@/components/ui/button";
-import { ShineBorder } from "@/components/ui/shine-border";
 import { useI18n } from "@/core/i18n/hooks";
 import { hasToolCalls } from "@/core/messages/utils";
 import { useModels } from "@/core/models/hooks";
@@ -105,31 +104,22 @@ export function SubtaskCard({
     if (task.status === "completed") {
       return <CheckCircleIcon className="size-3" />;
     } else if (task.status === "failed") {
-      return <XCircleIcon className="size-3 text-red-500" />;
+      return <XCircleIcon className="text-danger-ink size-3" />;
     } else if (task.status === "in_progress") {
       return <Loader2Icon className="size-3 animate-spin" />;
     }
   }, [task.status]);
   return (
     <ChainOfThought
-      className={cn("relative w-full gap-2 rounded-lg border py-0", className)}
+      className={cn(
+        "relative w-full gap-2 rounded-lg border py-0",
+        // Running: the spinner plus a link-colored border, no glow.
+        task.status === "in_progress" && "border-link",
+        className,
+      )}
       open={!collapsed}
     >
-      <div
-        className={cn(
-          "ambilight z-[-1]",
-          task.status === "in_progress" ? "enabled" : "",
-        )}
-      ></div>
-      {task.status === "in_progress" && (
-        <>
-          <ShineBorder
-            borderWidth={1.5}
-            shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
-          />
-        </>
-      )}
-      <div className="bg-background/95 flex w-full flex-col rounded-lg">
+      <div className="bg-surface flex w-full flex-col rounded-lg">
         <div className="flex w-full items-center justify-between p-0.5">
           <Button
             className="w-full items-start justify-start text-left"
@@ -162,7 +152,7 @@ export function SubtaskCard({
                   <div
                     className={cn(
                       "text-muted-foreground flex min-w-0 items-center gap-1 text-xs font-normal",
-                      task.status === "failed" ? "text-red-500 opacity-67" : "",
+                      task.status === "failed" ? "text-danger-ink" : "",
                     )}
                   >
                     {modelLabel && (
@@ -259,8 +249,8 @@ export function SubtaskCard({
           )}
           {task.status === "failed" && (
             <ChainOfThoughtStep
-              label={<div className="text-red-500">{task.error}</div>}
-              icon={<XCircleIcon className="size-4 text-red-500" />}
+              label={<div className="text-danger-ink">{task.error}</div>}
+              icon={<XCircleIcon className="text-danger-ink size-4" />}
             ></ChainOfThoughtStep>
           )}
         </ChainOfThoughtContent>

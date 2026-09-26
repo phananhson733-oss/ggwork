@@ -152,6 +152,7 @@ export interface Translations {
 
   // Welcome
   welcome: {
+    eyebrow: string;
     greeting: string;
     description: string;
     createYourOwnSkill: string;
@@ -782,12 +783,7 @@ export interface Translations {
 
   // Workspace
   workspace: {
-    officialWebsite: string;
-    githubTooltip: string;
     settingsAndMore: string;
-    visitGithub: string;
-    reportIssue: string;
-    contactUs: string;
     about: string;
     logout: string;
     gatewayUnavailable: string;

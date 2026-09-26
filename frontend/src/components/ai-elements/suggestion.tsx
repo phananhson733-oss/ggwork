@@ -64,7 +64,9 @@ export const Suggestion = ({
   return (
     <Button
       className={cn(
-        "text-muted-foreground dark:bg-background h-auto max-w-full cursor-pointer rounded-full px-4 py-2 text-center text-xs font-normal whitespace-normal",
+        // Flat chip: a 1px line (lighter than the outline button's
+        // line-strong) on the surface, no shadow.
+        "border-line bg-surface text-ink-2 hover:bg-hover hover:text-ink-1 h-auto max-w-full cursor-pointer rounded-full px-3 py-1.5 text-center text-[12.5px] font-normal whitespace-normal shadow-none has-[>svg]:px-3",
         className,
       )}
       onClick={handleClick}
@@ -73,7 +75,7 @@ export const Suggestion = ({
       variant={variant}
       {...props}
     >
-      {Icon && <Icon className="size-4" />}
+      {Icon && <Icon className="size-3.5" />}
       {children ?? suggestion}
     </Button>
   );

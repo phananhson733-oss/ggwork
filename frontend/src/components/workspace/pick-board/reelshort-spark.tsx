@@ -174,7 +174,7 @@ export function Spark({
   const filled = points.filter((p) => p !== null).length;
   const g = buildChart(points, CHART_BOX);
   return (
-    <div className="border-line bg-panel rounded-[10px] border px-4 pt-3.5 pb-2.5">
+    <div className="border-line bg-panel rounded-lg border px-4 pt-3.5 pb-2.5">
       <h4 className="flex items-baseline justify-between text-[13px] font-semibold">
         <span>{title}</span>
         <span className="tabular-nums">{current}</span>

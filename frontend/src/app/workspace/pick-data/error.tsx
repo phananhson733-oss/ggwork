@@ -28,7 +28,9 @@ export default function PickDataError({
           role="alert"
           className="mx-auto w-full max-w-xl space-y-3 p-8 text-center"
         >
-          <h1 className="text-xl font-semibold">选剧资料暂时打不开</h1>
+          <h1 className="text-xl font-bold tracking-[-0.01em]">
+            选剧资料暂时打不开
+          </h1>
           <p className="text-muted-foreground text-sm">
             可以重试一次；还是不行，把下面的错误编号发给管理员。
           </p>

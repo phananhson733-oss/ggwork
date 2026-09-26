@@ -54,7 +54,6 @@ import {
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
-import { ConfettiButton } from "@/components/ui/confetti-button";
 import {
   Dialog,
   DialogContent,
@@ -2264,6 +2263,9 @@ export function InputBox({
       ref={promptRootRef}
       className={cn(
         "relative flex min-w-0 flex-col",
+        // The welcome column is anchored from the bottom, so a larger gap
+        // here pushes the composer and the welcome block above it upward and
+        // clips the heading on 768px-tall screens.
         isWelcomeMode ? "gap-4" : "gap-2",
       )}
     >
@@ -2271,7 +2273,7 @@ export function InputBox({
         <div className="flex items-center justify-center pb-1">
           <div className="flex items-center gap-2">
             {followupsLoading ? (
-              <div className="text-muted-foreground bg-background/80 rounded-full border px-4 py-1.5 text-xs backdrop-blur-sm">
+              <div className="text-helper bg-surface border-line rounded-full border px-3 py-1.5 text-[12.5px]">
                 {t.inputBox.followupLoading}
               </div>
             ) : (
@@ -2286,7 +2288,7 @@ export function InputBox({
                 ))}
                 <Button
                   aria-label={t.common.close}
-                  className="text-muted-foreground h-auto cursor-pointer rounded-full px-2.5 py-1.5 text-xs font-normal"
+                  className="text-helper border-line bg-surface hover:bg-hover h-auto cursor-pointer rounded-full px-2.5 py-1.5 text-xs font-normal"
                   variant="outline"
                   size="sm"
                   type="button"
@@ -2303,7 +2305,7 @@ export function InputBox({
         <div className="absolute right-0 bottom-full left-0 z-40 mb-2 px-1">
           <div
             aria-label="Skill suggestions"
-            className="bg-popover/95 text-popover-foreground border-border max-h-72 overflow-y-auto rounded-xl border p-1 shadow-lg backdrop-blur-sm"
+            className="bg-popover text-popover-foreground border-border shadow-popover max-h-72 overflow-y-auto rounded-xl border p-1"
             role="listbox"
           >
             {skillSuggestions.map((suggestion, index) => {
@@ -2347,9 +2349,11 @@ export function InputBox({
       )}
       <PromptInput
         className={cn(
-          "bg-background/85 relative z-10 rounded-2xl backdrop-blur-sm transition-all duration-300 ease-out *:data-[slot='input-group']:rounded-2xl",
-          polishingInput &&
-            "shadow-primary/10 ring-primary/25 shadow-lg ring-1",
+          // The InputGroup primitive supplies the solid surface and the
+          // line-strong border; only the composer gets the 16px radius and
+          // its one light shadow, so other input groups keep their look.
+          "*:data-[slot='input-group']:shadow-composer relative z-10 rounded-2xl transition-all duration-300 ease-out *:data-[slot='input-group']:rounded-2xl",
+          polishingInput && "ring-link/30 ring-1",
           className,
         )}
         disabled={composerLocked}
@@ -2366,7 +2370,7 @@ export function InputBox({
         )}
         {extraHeader && (
           <div className="absolute top-0 right-0 left-0 z-10">
-            <div className="absolute right-0 bottom-0 left-0 flex items-center justify-center">
+            <div className="absolute right-0 bottom-0 left-0 flex items-center justify-center pb-4 sm:pb-7">
               {extraHeader}
             </div>
           </div>
@@ -2486,7 +2490,7 @@ export function InputBox({
                 suppressContentEditableWarning
                 className={cn(
                   "outline-none",
-                  "before:text-muted-foreground before:pointer-events-none",
+                  "before:text-ink-dim before:pointer-events-none",
                   "data-[empty=true]:before:content-[attr(data-placeholder)]",
                   composerLocked && "cursor-not-allowed opacity-50",
                 )}
@@ -2495,7 +2499,7 @@ export function InputBox({
             </div>
           ) : (
             <PromptInputTextarea
-              className="min-h-6! w-full min-w-0 p-0! leading-6!"
+              className="placeholder:text-ink-dim min-h-6! w-full min-w-0 p-0! leading-6!"
               disabled={composerLocked}
               placeholder={t.inputBox.placeholder}
               autoFocus={autoFocus}
@@ -2511,7 +2515,6 @@ export function InputBox({
         <PromptInputFooter className="flex flex-wrap gap-2 sm:flex-nowrap">
           <PromptInputTools className="min-w-0 flex-1 flex-wrap">
             <AddAttachmentsButton
-              className="px-2!"
               disabled={composerLocked}
               uploadLimits={uploadLimits}
             />
@@ -2585,15 +2588,10 @@ export function InputBox({
                       <GraduationCapIcon className="size-3" />
                     )}
                     {context.mode === "ultra" && (
-                      <RocketIcon className="size-3 text-[#dabb5e]" />
+                      <RocketIcon className="text-brand-ink size-3" />
                     )}
                   </div>
-                  <div
-                    className={cn(
-                      "truncate text-xs font-normal",
-                      context.mode === "ultra" ? "golden-text" : "",
-                    )}
-                  >
+                  <div className="truncate text-xs font-normal">
                     {(context.mode === "flash" && t.inputBox.flashMode) ||
                       (context.mode === "thinking" &&
                         t.inputBox.reasoningMode) ||
@@ -2710,16 +2708,11 @@ export function InputBox({
                           <RocketIcon
                             className={cn(
                               "mr-2 size-4",
-                              context.mode === "ultra" && "text-[#dabb5e]",
+                              context.mode === "ultra" &&
+                                "text-accent-foreground",
                             )}
                           />
-                          <div
-                            className={cn(
-                              context.mode === "ultra" && "golden-text",
-                            )}
-                          >
-                            {t.inputBox.ultraMode}
-                          </div>
+                          {t.inputBox.ultraMode}
                         </div>
                         <div className="pl-7 text-xs">
                           {t.inputBox.ultraModeDescription}
@@ -2900,9 +2893,11 @@ export function InputBox({
               />
             </ModelPicker>
             <PromptInputSubmit
-              className="rounded-full"
+              // The single gradient CTA on the screen. Disabled keeps the
+              // base Button's opacity-50 so the stop/denied states still read.
+              className={cn("rounded-full", isWelcomeMode && "size-[34px]")}
               disabled={composerLocked || stopDenied || sendDenied}
-              variant="outline"
+              variant="cta"
               status={status}
               // A bare disabled square reads as a broken composer; explain
               // the permission boundary (native title, since a Radix
@@ -2939,7 +2934,7 @@ export function InputBox({
         searchParams.get("mode") !== "skill" &&
         !selectedSlashSkill &&
         !showSkillSuggestions && (
-          <div className="flex items-center justify-center pt-2">
+          <div className="flex items-center justify-center">
             <SuggestionList onSelectPlaceholder={onSelectPlaceholder} />
           </div>
         )}
@@ -3039,14 +3034,11 @@ function SuggestionList({
   );
   return (
     <Suggestions className="min-h-16 w-full max-w-full justify-center px-4 sm:w-fit sm:px-0">
-      <ConfettiButton
-        className="text-muted-foreground cursor-pointer rounded-full px-4 text-xs font-normal"
-        variant="outline"
-        size="sm"
+      <Suggestion
+        icon={SparklesIcon}
+        suggestion={t.inputBox.surpriseMe}
         onClick={() => handleSuggestionClick(t.inputBox.surpriseMePrompt)}
-      >
-        <SparklesIcon className="size-4" /> {t.inputBox.surpriseMe}
-      </ConfettiButton>
+      />
       {t.inputBox.suggestions.map((suggestion) => (
         <Suggestion
           key={suggestion.suggestion}
@@ -3105,12 +3097,15 @@ function AddAttachmentsButton({
     <Tooltip content={<span className="block max-w-80">{tooltipContent}</span>}>
       <PromptInputButton
         aria-label={t.inputBox.addAttachments}
-        className={cn("px-2!", className)}
+        className={cn(
+          "border-line size-8 rounded-md border p-0 has-[>svg]:p-0",
+          className,
+        )}
         data-testid="add-attachments-button"
         disabled={disabled}
         onClick={() => attachments.openFileDialog()}
       >
-        <PaperclipIcon className="size-3" />
+        <PaperclipIcon className="size-4" />
       </PromptInputButton>
     </Tooltip>
   );

@@ -39,7 +39,7 @@ export function TodoList({
   return (
     <div
       className={cn(
-        "flex h-fit w-full origin-bottom translate-y-4 flex-col overflow-hidden rounded-t-xl border border-b-0 bg-white backdrop-blur-sm transition-all duration-200 ease-out",
+        "bg-card flex h-fit w-full origin-bottom translate-y-4 flex-col overflow-hidden rounded-t-xl border border-b-0 transition-all duration-200 ease-out",
         hidden ? "pointer-events-none translate-y-8 opacity-0" : "",
         className,
       )}
@@ -76,14 +76,14 @@ export function TodoList({
             <QueueItem key={i + (todo.content ?? "")}>
               <div className="flex items-center gap-2">
                 <QueueItemIndicator
-                  className={
-                    todo.status === "in_progress" ? "bg-primary/70" : ""
-                  }
+                  className={todo.status === "in_progress" ? "bg-link" : ""}
                   completed={todo.status === "completed"}
                 />
                 <QueueItemContent
                   className={
-                    todo.status === "in_progress" ? "text-primary/70" : ""
+                    todo.status === "in_progress"
+                      ? "text-ink-1 font-medium"
+                      : ""
                   }
                   completed={todo.status === "completed"}
                 >

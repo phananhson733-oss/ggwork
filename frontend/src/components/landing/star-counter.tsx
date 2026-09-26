@@ -38,7 +38,7 @@ export function StarCounter() {
   if (stars === null) return null;
   return (
     <>
-      <StarFilledIcon className="size-4 transition-colors duration-300 group-hover:text-yellow-500" />
+      <StarFilledIcon className="group-hover:text-warning-ink size-4 transition-colors duration-300" />
       <NumberTicker className="font-mono tabular-nums" value={stars} />
     </>
   );

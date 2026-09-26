@@ -70,7 +70,7 @@ export function ReferenceAttachmentSummary({
   return (
     <div
       className={cn(
-        "border-border bg-muted/40 text-foreground inline-flex max-w-[min(18rem,100%)] items-center gap-1.5 rounded-full border px-2.5 py-1.5 shadow-sm",
+        "border-border bg-muted/40 text-foreground inline-flex max-w-[min(18rem,100%)] items-center gap-1.5 rounded-full border px-2.5 py-1.5",
         className,
       )}
       data-testid={testId}

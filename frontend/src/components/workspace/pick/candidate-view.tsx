@@ -22,7 +22,7 @@ export function RowCheckLink({ href, title }: { href: string; title: string }) {
       target="_blank"
       rel="noopener noreferrer"
       aria-label={`在选剧资料核对：${title}`}
-      className="text-muted-foreground hover:text-foreground text-xs underline"
+      className="text-link text-xs hover:underline"
     >
       在选剧资料核对
     </a>
@@ -40,7 +40,7 @@ export function ReplayLink({ href }: { href: string }) {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-muted-foreground hover:text-foreground text-xs underline"
+        className="text-link text-xs hover:underline"
       >
         回放这份候选
       </a>
@@ -95,7 +95,7 @@ function CandidateCard({
   const posted = postedLine(item.posted, result.conditions);
   const checkHref = itemCheckHref(result.data_as_of, item.identity);
   return (
-    <article className="bg-card rounded-xl border p-4">
+    <article className="bg-card rounded-lg border p-4">
       <label className="flex cursor-pointer items-start gap-3">
         {!readOnly && (
           <input
@@ -119,10 +119,7 @@ function CandidateCard({
       <p className="mt-3 text-sm leading-6">{item.reason}</p>
       {posted && <p className="text-muted-foreground mt-1 text-xs">{posted}</p>}
       {item.warnings.map((warning) => (
-        <p
-          key={warning}
-          className="mt-1 text-xs text-amber-700 dark:text-amber-400"
-        >
+        <p key={warning} className="text-warning-ink mt-1 text-xs">
           {warning}
         </p>
       ))}

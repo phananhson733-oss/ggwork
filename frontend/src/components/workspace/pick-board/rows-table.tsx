@@ -55,13 +55,12 @@ const HEADS: { text: string; hint?: string; right?: boolean }[] = [
 ];
 
 export const TH =
-  "border-b border-line bg-raised px-3 py-2 text-[11px] font-semibold tracking-[.06em] text-helper uppercase whitespace-nowrap";
-export const TR =
-  "border-b border-line/60 last:border-b-0 hover:bg-panel-hover";
+  "border-b border-line bg-raised px-2.5 py-2 text-[11px] font-semibold tracking-[.06em] text-helper whitespace-nowrap";
+export const TR = "border-b border-line last:border-b-0 hover:bg-panel-hover";
 
 export function TableWrap({ children }: { children: ReactNode }) {
   return (
-    <div className="border-line bg-panel overflow-x-auto rounded-[10px] border">
+    <div className="border-line bg-panel overflow-x-auto rounded-lg border">
       {children}
     </div>
   );

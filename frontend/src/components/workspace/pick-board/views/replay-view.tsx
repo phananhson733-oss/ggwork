@@ -1,6 +1,7 @@
 // 工作台新建（RealShort 没有回放）：选剧 tab 带 result= 时的回放视图（P4-2，方案 2.5 第 4 条，批判 B10、B11）。
 // 名单与顺序是 gateway 按智能体语义重跑出来的（/api/pick/replay），行由页面按 row_key 从镜像取好传进来：本视图不筛、
 // 不排，只照名单顺序渲染，卡片展示过的前 limit 部单独框出来；取不到的行、镜像里没有的剧逐条列出。视图是同步的。
+// GGWork 配色：展示过的那一组用 link 色框出（品牌色是墨色，框出来像黑边），链接用 link 色，提示框圆角 12。
 import Link from "next/link";
 
 import {
@@ -58,10 +59,10 @@ const NOTICE: Record<ReplayNoticeReason, string> = {
 };
 
 const BOX =
-  "border-warning-line bg-warning-surface text-warning-ink mb-4 rounded-[10px] border px-4 py-3 text-[13px] leading-relaxed";
+  "border-warning-line bg-warning-surface text-warning-ink mb-4 rounded-lg border px-4 py-3 text-[13px] leading-[1.65]";
 const PANEL =
-  "border-line bg-panel mb-4 rounded-[10px] border px-4 py-3 text-[13px] leading-relaxed";
-const LINK = "text-brand hover:underline";
+  "border-line bg-panel mb-4 rounded-lg border px-4 py-3 text-[13px] leading-[1.65]";
+const LINK = "text-link hover:underline";
 /** 「当前版本已无此行」最多逐条列这么多，其余只给条数 */
 const MISSING_LISTED = 100;
 
@@ -211,8 +212,7 @@ function RowsGroup({
   ctx: BoardContext;
 }) {
   if (rows.length === 0) return null;
-  const frame =
-    kind === "shown" ? "border-brand rounded-[12px] border-2 p-2" : "";
+  const frame = kind === "shown" ? "border-link rounded-lg border-2 p-2" : "";
   return (
     <div data-replay-group={kind} className={`mb-3 ${frame}`}>
       <p className="text-ink-2 mb-2 text-[13px] font-semibold">{title}</p>
@@ -291,7 +291,7 @@ function ReplayIntro({
       >
         回放智能体候选
       </h2>
-      <p className="text-helper mb-3 text-sm leading-relaxed">
+      <p className="text-helper mb-3 text-sm leading-[1.65]">
         名单 {answer.total.toLocaleString("en-US")} 部：在智能体当时的批次
         {
           batch

@@ -63,7 +63,7 @@ export function BoardHeader({
           <ExternalLink
             href={QUEYU_INDEX}
             rel="nofollow sponsored noopener"
-            className="text-brand hover:underline"
+            className="text-link hover:underline"
           >
             鹊娱剧库 ↗
           </ExternalLink>

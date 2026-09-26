@@ -289,16 +289,19 @@ export default function NewAgentPage() {
   ]);
 
   const header = (
-    <header className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
-      <div className="flex items-center gap-3">
+    <header className="border-line bg-background flex h-14 shrink-0 items-center justify-between gap-3 border-b px-5">
+      <div className="flex min-w-0 items-center gap-2">
         <Button
           variant="ghost"
           size="icon-sm"
+          className="text-helper"
           onClick={() => router.push("/workspace/agents")}
         >
           <ArrowLeftIcon className="h-4 w-4" />
         </Button>
-        <h1 className="text-sm font-semibold">{t.agents.createPageTitle}</h1>
+        <h1 className="text-ink-1 truncate text-sm font-medium">
+          {t.agents.createPageTitle}
+        </h1>
       </div>
 
       {step === "chat" ? (
@@ -335,11 +338,11 @@ export default function NewAgentPage() {
         <main className="flex flex-1 flex-col items-center justify-center px-4">
           <div className="w-full max-w-sm space-y-8">
             <div className="space-y-3 text-center">
-              <div className="bg-primary/10 mx-auto flex h-14 w-14 items-center justify-center rounded-full">
-                <BotIcon className="text-primary h-7 w-7" />
+              <div className="bg-brand-soft mx-auto flex h-14 w-14 items-center justify-center rounded-full">
+                <BotIcon className="text-brand-ink h-7 w-7" />
               </div>
               <div className="space-y-1">
-                <h2 className="text-xl font-semibold">
+                <h2 className="text-xl font-bold tracking-[-0.01em]">
                   {t.agents.nameStepTitle}
                 </h2>
                 <p className="text-muted-foreground text-sm">
@@ -409,8 +412,8 @@ export default function NewAgentPage() {
             <div className="bg-background flex shrink-0 justify-center border-t px-4 py-4">
               <div className="w-full max-w-(--container-width-md)">
                 {agent ? (
-                  <div className="flex flex-col items-center gap-4 rounded-2xl border py-8 text-center">
-                    <CheckCircleIcon className="text-primary h-10 w-10" />
+                  <div className="border-line bg-card flex flex-col items-center gap-4 rounded-lg border py-8 text-center">
+                    <CheckCircleIcon className="text-success-ink h-10 w-10" />
                     <p className="font-semibold">{t.agents.agentCreated}</p>
                     <div className="flex gap-2">
                       <Button
@@ -432,6 +435,7 @@ export default function NewAgentPage() {
                   </div>
                 ) : (
                   <PromptInput
+                    className="*:data-[slot='input-group']:shadow-composer rounded-2xl *:data-[slot='input-group']:rounded-2xl"
                     disabled={thread.isLoading}
                     onSubmit={({ text }) => void handleChatSubmit(text)}
                   >
@@ -441,7 +445,11 @@ export default function NewAgentPage() {
                       disabled={thread.isLoading}
                     />
                     <PromptInputFooter className="justify-end">
-                      <PromptInputSubmit disabled={thread.isLoading} />
+                      <PromptInputSubmit
+                        className="rounded-full"
+                        disabled={thread.isLoading}
+                        variant="cta"
+                      />
                     </PromptInputFooter>
                   </PromptInput>
                 )}

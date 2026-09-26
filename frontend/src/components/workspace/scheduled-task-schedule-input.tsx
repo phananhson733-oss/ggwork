@@ -380,7 +380,7 @@ export function ScheduledTaskScheduleInput({
                 href="https://crontab.guru/"
                 target="_blank"
                 rel="noreferrer"
-                className="text-muted-foreground text-xs hover:underline"
+                className="text-link text-xs hover:underline"
               >
                 {labels.cronHelp} ↗
               </a>

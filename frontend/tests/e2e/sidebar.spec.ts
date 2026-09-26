@@ -97,7 +97,13 @@ test.describe("Sidebar navigation", () => {
       expect(box!.x + box!.width).toBeLessThanOrEqual(viewportWidth + 1);
     };
 
-    await expectInsideViewport(page.getByText(/欢迎使用 🦌 DeerFlow/).first());
+    // The new-chat welcome renders either the workbench or the pick welcome;
+    // both carry the page's only h1 followed by its description paragraph.
+    const welcomeHeading = page.getByRole("heading", { level: 1 });
+    await expectInsideViewport(welcomeHeading);
+    await expectInsideViewport(
+      welcomeHeading.locator("xpath=following-sibling::p[1]"),
+    );
     await expectInsideViewport(page.getByRole("textbox").first());
     await expectInsideViewport(page.locator("[data-slot='suggestions-list']"));
 

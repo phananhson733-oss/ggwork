@@ -127,8 +127,8 @@ export function AccountSettingsPage() {
               required
               minLength={8}
             />
-            {error && <p className="text-sm text-red-500">{error}</p>}
-            {message && <p className="text-sm text-green-500">{message}</p>}
+            {error && <p className="text-danger-ink text-sm">{error}</p>}
+            {message && <p className="text-success-ink text-sm">{message}</p>}
             <Button
               type="submit"
               variant="outline"

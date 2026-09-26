@@ -29,7 +29,11 @@ export const Message = ({ className, from, ...props }: MessageProps) => (
   <div
     className={cn(
       "group flex w-full flex-col gap-2",
-      from === "user" ? "is-user ml-auto justify-end" : "is-assistant",
+      // The user turn is capped at 80% of the column, right-aligned; its
+      // content wrapper is w-fit, so the cap has to live on this root.
+      from === "user"
+        ? "is-user ml-auto max-w-[80%] justify-end"
+        : "is-assistant",
       className,
     )}
     {...props}
@@ -47,7 +51,7 @@ export const MessageContent = ({
     className={cn(
       "is-user:dark flex w-fit max-w-full min-w-0 flex-col gap-2 overflow-visible",
       "group-[.is-user]:overflow-hidden",
-      "group-[.is-user]:bg-secondary group-[.is-user]:text-foreground group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:px-4 group-[.is-user]:py-3",
+      "group-[.is-user]:bg-secondary group-[.is-user]:text-foreground group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:px-4 group-[.is-user]:py-2.5 group-[.is-user]:text-sm group-[.is-user]:leading-[1.6]",
       "group-[.is-assistant]:text-foreground",
       className,
     )}
@@ -360,7 +364,7 @@ export function MessageAttachment({
           {onRemove && (
             <Button
               aria-label="Remove attachment"
-              className="bg-background/80 hover:bg-background absolute top-2 right-2 size-6 rounded-full p-0 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100 [&>svg]:size-3"
+              className="bg-surface hover:bg-hover absolute top-2 right-2 size-6 rounded-full p-0 opacity-0 transition-opacity group-hover:opacity-100 [&>svg]:size-3"
               onClick={(e) => {
                 e.stopPropagation();
                 onRemove();

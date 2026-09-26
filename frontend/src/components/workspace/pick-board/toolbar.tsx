@@ -2,6 +2,8 @@
 // 本地改动：pickHref 的前缀改成 /workspace/pick-data；Tabs 加「同步与导入」（imports），tab 链接清掉回放的 result（C27）；
 // 在用剧场与依据标签改读版本规则（rules.inUse / rules.basisLabels），原来模块级的「其他剧场」挪进 PlatformChips 现算；
 // 搜索表单加隐藏的 v；所有 Link 加 prefetch={false}；Filters 拆成几个小组件（函数 <50 行），文案与链接逐条不变。
+// GGWork 样式：当前 tab 用 link 色下划线；chip 默认白底、虚线开关用 line-strong、行间距 8；搜索框聚焦用 link 边框加
+// brand-soft 光圈，搜索按钮是次要按钮；悬停加深边框（不再用品牌色半透明）。
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -27,7 +29,7 @@ import type { PickFacets } from "@/server/pick-board";
  * Tab 与筛选，全部走 URL 参数（筛选结果能发给同事、能加书签、刷新不丢）。
  * 站内跳转一律 next/link 的 Link（不预取：每个链接都是一次镜像库查询）；换筛选条件时回到第 1 页。
  * 版面照 artifact（xuanju.tmpl.html 的 .tabs / .chips / .chip / .pg）：tab 带计数、chips 标签 26px 起、
- * 「其他剧场」是一颗虚线 chip；选中态 bg-brand + text-on-brand（观测台实测过对比度，不用两个粉色叠）。
+ * 「其他剧场」是一颗虚线 chip；选中态是墨色实底 bg-brand + text-on-brand。
  */
 export const BOARD_PATH = "/workspace/pick-data";
 
@@ -131,7 +133,7 @@ function TabLink({
       aria-current={active ? "page" : undefined}
       className={`-mb-px border-b-2 px-3.5 py-2.5 text-[14px] whitespace-nowrap ${
         active
-          ? "border-brand text-ink-1 font-semibold"
+          ? "border-link text-ink-1 font-semibold"
           : "text-helper hover:text-ink-1 border-transparent"
       }`}
     >
@@ -199,7 +201,9 @@ export function Chip({
       className={`rounded-full border px-2.5 py-1 text-[12px] whitespace-nowrap ${
         on
           ? "border-brand bg-brand text-on-brand font-semibold"
-          : `${item.dashed ? "border-dashed" : ""} border-line ${item.muted ? "text-ink-dim" : "text-ink-2"} hover:border-brand/50`
+          : item.dashed
+            ? "border-line-strong text-ink-dim hover:text-ink-2 border-dashed"
+            : `border-line bg-panel hover:border-line-strong ${item.muted ? "text-ink-dim" : "text-ink-2"}`
       }`}
     >
       {item.text}
@@ -234,7 +238,7 @@ export function Chips({
   trailing?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       <ChipLabel>{label}</ChipLabel>
       {items.map((it) => (
         <Chip
@@ -269,7 +273,7 @@ function Toggle({
       className={`rounded-full border px-2.5 py-1 text-[12px] whitespace-nowrap ${
         on
           ? "border-brand bg-brand text-on-brand font-semibold"
-          : "border-line text-ink-2 hover:border-brand/50"
+          : "border-line bg-panel text-ink-2 hover:border-line-strong"
       }`}
     >
       {text}
@@ -389,10 +393,10 @@ function SearchForm({ req }: { req: PickRequest }) {
         name="q"
         defaultValue={req.q}
         placeholder="搜索剧名 / 中文名 / 行键 / book_id"
-        className="border-line bg-panel placeholder:text-ink-dim min-w-0 flex-1 rounded-[8px] border px-3 py-2 text-[14px]"
+        className="border-line bg-panel placeholder:text-ink-dim focus-visible:border-link focus-visible:ring-brand-soft min-w-0 flex-1 rounded-md border px-3 py-2 text-[14px] focus-visible:ring-[3px] focus-visible:outline-none"
       />
       <button
-        className="border-line hover:border-brand/50 rounded-[8px] border px-4 py-2 text-[14px]"
+        className="border-line-strong bg-panel text-ink-1 hover:bg-panel-hover rounded-md border px-4 py-2 text-[14px] font-medium"
         type="submit"
       >
         搜索
@@ -479,7 +483,7 @@ function PostedSortChips({
 
 function ConditionToggles({ req }: { req: PickRequest }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       <ChipLabel>条件</ChipLabel>
       <Toggle
         on={req.youtubeOk}
@@ -549,13 +553,13 @@ export function OutOfRange({
 }) {
   const pages = Math.max(1, Math.ceil(total / req.size));
   return (
-    <p className="border-line bg-panel text-helper rounded-[10px] border px-4 py-8 text-center text-[13px]">
+    <p className="border-line bg-panel text-helper rounded-lg border px-4 py-8 text-center text-[13px]">
       第 {req.page} 页不存在：当前条件下共 {total.toLocaleString("en-US")} 条、
       {pages.toLocaleString("en-US")} 页。
       <Link
         prefetch={false}
         href={pickHref(req, { page: 1 })}
-        className="text-brand ml-2 hover:underline"
+        className="text-link ml-2 hover:underline"
       >
         回第 1 页
       </Link>
@@ -563,7 +567,7 @@ export function OutOfRange({
         <Link
           prefetch={false}
           href={pickHref(req, { page: pages })}
-          className="text-brand ml-3 hover:underline"
+          className="text-link ml-3 hover:underline"
         >
           到最后一页（第 {pages.toLocaleString("en-US")} 页）
         </Link>
@@ -575,7 +579,7 @@ export function OutOfRange({
 /** artifact 的 .empty */
 export function Empty({ children }: { children: ReactNode }) {
   return (
-    <div className="border-line bg-panel text-helper rounded-[10px] border px-4 py-8 text-center text-[13px]">
+    <div className="border-line bg-panel text-helper rounded-lg border px-4 py-8 text-center text-[13px]">
       {children}
     </div>
   );
@@ -583,7 +587,7 @@ export function Empty({ children }: { children: ReactNode }) {
 
 const PAGE_SPAN = 4;
 const PAGER_LINK =
-  "rounded-[8px] border border-line px-3 py-1.5 text-[13px] text-ink-2 hover:border-brand/50";
+  "rounded-md border border-line bg-panel px-3 py-1.5 text-[13px] text-ink-2 hover:border-line-strong";
 
 function PageSizes({ req }: { req: PickRequest }) {
   return (
@@ -596,8 +600,8 @@ function PageSizes({ req }: { req: PickRequest }) {
           aria-current={n === req.size ? "true" : undefined}
           className={
             n === req.size
-              ? "border-brand bg-brand text-on-brand rounded-[8px] border px-2.5 py-1 text-[12px] font-semibold tabular-nums"
-              : "border-line text-ink-2 hover:border-brand/50 rounded-[8px] border px-2.5 py-1 text-[12px] tabular-nums"
+              ? "border-brand bg-brand text-on-brand rounded-md border px-2.5 py-1 text-[12px] font-semibold tabular-nums"
+              : "border-line bg-panel text-ink-2 hover:border-line-strong rounded-md border px-2.5 py-1 text-[12px] tabular-nums"
           }
         >
           {n}
@@ -623,7 +627,7 @@ function PageNumbers({ req, pages }: { req: PickRequest; pages: number }) {
           <span
             key={n}
             aria-current="page"
-            className="border-brand bg-brand text-on-brand min-w-9 rounded-[8px] border px-2.5 py-1.5 text-center text-[13px] font-semibold tabular-nums"
+            className="border-brand bg-brand text-on-brand min-w-9 rounded-md border px-2.5 py-1.5 text-center text-[13px] font-semibold tabular-nums"
           >
             {n}
           </span>
@@ -632,7 +636,7 @@ function PageNumbers({ req, pages }: { req: PickRequest; pages: number }) {
             prefetch={false}
             key={n}
             href={pickHref(req, { page: n })}
-            className="border-line text-ink-2 hover:border-brand/50 min-w-9 rounded-[8px] border px-2.5 py-1.5 text-center text-[13px] tabular-nums"
+            className="border-line bg-panel text-ink-2 hover:border-line-strong min-w-9 rounded-md border px-2.5 py-1.5 text-center text-[13px] tabular-nums"
           >
             {n}
           </Link>

@@ -72,7 +72,7 @@ export function ConversationOutline({
         <DropdownMenuTrigger asChild>
           <Button
             aria-label={t.conversation.outlineLabel}
-            className="bg-background/80 text-muted-foreground hover:text-foreground pointer-events-auto size-9 rounded-full border shadow-sm backdrop-blur-sm lg:h-auto lg:min-h-10 lg:w-7 lg:flex-col lg:gap-1 lg:px-1 lg:py-2"
+            className="bg-card text-muted-foreground hover:text-foreground pointer-events-auto size-9 rounded-full border lg:h-auto lg:min-h-10 lg:w-7 lg:flex-col lg:gap-1 lg:px-1 lg:py-2"
             data-testid="conversation-outline-trigger"
             size="icon"
             type="button"
@@ -97,7 +97,7 @@ export function ConversationOutline({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="center"
-          className="border-border/80 bg-popover/95 max-h-[min(72vh,36rem)] w-72 overflow-y-auto rounded-2xl p-2 shadow-xl backdrop-blur-sm sm:max-h-[min(80vh,40rem)]"
+          className="border-border bg-popover shadow-popover max-h-[min(72vh,36rem)] w-72 overflow-y-auto rounded-2xl p-2 sm:max-h-[min(80vh,40rem)]"
           data-testid="conversation-outline-menu"
           side="left"
           sideOffset={8}

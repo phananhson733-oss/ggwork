@@ -1,7 +1,7 @@
 // PORTED_FROM: realshort@816ca2e src/components/admin/pick/sources.tsx
 // 本地改动：「现在」是版本的 as_of（now 改名 asOf），来源状态取自这个版本的 meta.sources；QUEYU_INDEX 改从
 // @/core/pick-board/queyu 引入；「入选」一段不再写死在用的五个剧场（在用剧场随版本规则走）；
-// 几段说明与来源行拆成小组件（函数 <50 行）。
+// 几段说明与来源行拆成小组件（函数 <50 行）；GGWork 样式：链接用 link 色，折叠区圆角 12。
 import type { ReactNode } from "react";
 
 import { formatObservedAt } from "@/core/pick-board/metrics";
@@ -70,7 +70,7 @@ function PickupParas() {
         <ExternalLink
           href={QUEYU_INDEX}
           rel="nofollow sponsored noopener"
-          className="text-brand hover:underline"
+          className="text-link hover:underline"
         >
           cps-distribution.zwnet.cn
         </ExternalLink>
@@ -133,7 +133,7 @@ export function Sources({
   asOf: Date;
 }) {
   return (
-    <details className="border-line bg-panel mt-6 rounded-[8px] border px-3 py-3 text-[14px]">
+    <details className="border-line bg-panel mt-6 rounded-lg border px-4 py-3 text-[14px]">
       <summary className="cursor-pointer font-medium">
         数据来源与口径 · 9 个分销剧场剧单 + ReelShort 本站 CPS 片库 +
         运营发布记录 · 鹊娱剧库取货

@@ -21,7 +21,7 @@ export function GoalStatus({
   return (
     <div
       className={cn(
-        "bg-background/90 border-border flex min-h-10 w-full items-center gap-3 rounded-t-xl border border-b-0 px-4 py-2 text-sm shadow-sm backdrop-blur-sm",
+        "bg-card border-border flex min-h-10 w-full items-center gap-3 rounded-t-xl border border-b-0 px-4 py-2 text-sm",
         className,
       )}
     >

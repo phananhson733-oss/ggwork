@@ -75,6 +75,7 @@ async function loadTheme(theme: "light" | "dark"): Promise<Extension> {
         gutterBackground: "transparent",
         gutterForeground: "#555",
         gutterActiveForeground: "#fff",
+        fontFamily: "var(--font-mono)",
         fontSize: "var(--text-sm)",
       },
     });
@@ -83,6 +84,7 @@ async function loadTheme(theme: "light" | "dark"): Promise<Extension> {
   return basicLightInit({
     settings: {
       background: "transparent",
+      fontFamily: "var(--font-mono)",
       fontSize: "var(--text-sm)",
     },
   });

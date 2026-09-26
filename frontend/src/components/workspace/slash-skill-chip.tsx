@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
  * their Tailwind classes.
  */
 const CHIP_BASE_CLASS =
-  "border-primary/20 bg-primary/10 text-primary inline-flex h-6 shrink-0 items-center rounded-md border px-1.5 font-mono text-xs leading-none font-medium shadow-xs";
+  "border-primary/20 bg-primary/10 text-primary inline-flex h-6 shrink-0 items-center rounded-md border px-1.5 font-mono text-xs leading-none font-medium";
 
 export function SlashSkillChip({
   name,

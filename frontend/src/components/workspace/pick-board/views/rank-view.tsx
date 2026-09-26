@@ -22,8 +22,8 @@ import { ReelshortTable } from "../reelshort-table";
 
 import type { BoardContext, RankBoard, RankData } from "./board-data";
 
-const NOTE = "text-helper mb-3 text-sm leading-relaxed";
-const LINK = "text-brand hover:underline";
+const NOTE = "text-helper mb-3 text-sm leading-[1.65]";
+const LINK = "text-link hover:underline";
 const GROWTH_SORTS = ["d1", "d7", "dp1", "dp7"] as const;
 
 type Theater = Extract<RankBoard, { kind: "theater" }>;

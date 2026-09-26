@@ -14,9 +14,20 @@ const badgeVariants = cva(
         secondary:
           "border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
         destructive:
-          "border-transparent bg-destructive text-white [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+          "border-transparent bg-destructive text-surface [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
           "text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
+        // Status pills: semantic surface plus ink, always paired with text.
+        // The brand color never encodes status.
+        success:
+          "rounded-sm border-transparent px-2 py-0.5 text-[11.5px] font-medium bg-success-surface text-success-ink",
+        info: "rounded-sm border-transparent px-2 py-0.5 text-[11.5px] font-medium bg-info-surface text-info-ink",
+        warning:
+          "rounded-sm border-transparent px-2 py-0.5 text-[11.5px] font-medium bg-warning-surface text-warning-ink",
+        danger:
+          "rounded-sm border-transparent px-2 py-0.5 text-[11.5px] font-medium bg-danger-surface text-danger-ink",
+        neutral:
+          "rounded-sm border-transparent px-2 py-0.5 text-[11.5px] font-medium bg-raised text-ink-2",
       },
     },
     defaultVariants: {

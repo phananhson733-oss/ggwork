@@ -28,7 +28,8 @@ export interface BentoProps {
 
 const DEFAULT_PARTICLE_COUNT = 12;
 const DEFAULT_SPOTLIGHT_RADIUS = 300;
-const DEFAULT_GLOW_COLOR = "132, 0, 255";
+// GGWork dark link teal (--link in .dark, #4fd8bd); the landing is forced dark.
+const DEFAULT_GLOW_COLOR = "79, 216, 189";
 const MOBILE_BREAKPOINT = 768;
 
 const createParticleElement = (

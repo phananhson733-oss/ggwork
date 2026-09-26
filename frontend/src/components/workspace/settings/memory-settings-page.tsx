@@ -393,7 +393,7 @@ export function MemorySettingsPage() {
     try {
       setIsExporting(true);
       const exportedMemory = await exportMemory();
-      const fileName = `deerflow-memory-${(exportedMemory.lastUpdated || new Date().toISOString()).replace(/[:.]/g, "-")}.json`;
+      const fileName = `ggwork-memory-${(exportedMemory.lastUpdated || new Date().toISOString()).replace(/[:.]/g, "-")}.json`;
       const blob = new Blob([JSON.stringify(exportedMemory, null, 2)], {
         type: "application/json",
       });
@@ -714,7 +714,7 @@ export function MemorySettingsPage() {
                                 ) : (
                                   <Link
                                     href={pathOfThread(fact.source)}
-                                    className="text-primary underline-offset-4 hover:underline"
+                                    className="text-link underline-offset-4 hover:underline"
                                   >
                                     {t.settings.memory.markdown.table.view}
                                   </Link>
