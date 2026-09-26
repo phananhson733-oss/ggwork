@@ -1,3 +1,4 @@
+import { APP_NAME } from "@/core/brand";
 import { resolveStaticDemoArtifact } from "@/core/threads/static-demo";
 import { checkCodeFile, getFileName } from "@/core/utils/files";
 
@@ -113,10 +114,15 @@ export function parseArtifactViewerQuery(
  *
  * Applied through the route's `generateMetadata`, not `document.title`: the
  * App Router owns the title element and re-applies the layout's metadata over
- * anything an effect writes.
+ * anything an effect writes. The title is absolute so the root layout's
+ * `%s - GGWork` template does not append the product name a second time.
  */
-export function artifactViewerTitle(filepath: string | undefined) {
-  return filepath ? `${getFileName(filepath)} - DeerFlow` : "DeerFlow";
+export function artifactViewerTitle(filepath: string | undefined): {
+  absolute: string;
+} {
+  return {
+    absolute: filepath ? `${getFileName(filepath)} - ${APP_NAME}` : APP_NAME,
+  };
 }
 
 /**

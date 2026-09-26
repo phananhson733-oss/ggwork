@@ -218,7 +218,7 @@ test("shows, refreshes, and cancels current-chat background tasks", async ({
   await expect(page.getByText("Agent notification failed")).toBeVisible();
   await expect(
     page.getByText(
-      "Chat notification attempt 2 failed; DeerFlow will retry with backoff.",
+      "Chat notification attempt 2 failed; GGWork will retry with backoff.",
     ),
   ).toBeVisible();
   await expect(
@@ -251,9 +251,7 @@ test("shows, refreshes, and cancels current-chat background tasks", async ({
     .click();
   await expect(page.getByText("Remote cancellation timed out")).toBeVisible();
   await expect(
-    page.getByText(
-      "Cancellation attempt 4 failed; DeerFlow will keep retrying.",
-    ),
+    page.getByText("Cancellation attempt 4 failed; GGWork will keep retrying."),
   ).toBeVisible();
 
   await expect.poll(() => getCalls, { timeout: 5_000 }).toBeGreaterThan(1);
