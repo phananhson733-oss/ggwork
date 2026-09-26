@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { describe, expect, it } from "@rstest/core";
@@ -63,5 +63,28 @@ describe("resolveStaticDemoArtifact", () => {
         [...(STATIC_DEMO_ARTIFACTS[fixtureThreadId] ?? [])].sort(),
       ).toEqual(fixtureFiles);
     }
+  });
+});
+
+describe("demo fixtures", () => {
+  // Demo HTML is served from this origin under /demo, so a remote script would
+  // run with the workbench's storage and cookies when the file is opened
+  // directly. Keep every script in the fixtures local and reviewable.
+  it("load no remote scripts", () => {
+    const threadsRoot = join(
+      import.meta.dirname,
+      "../../../../public/demo/threads",
+    );
+    const remoteScripts = listFiles(threadsRoot)
+      .filter((path) => path.endsWith(".html"))
+      .flatMap((path) =>
+        Array.from(
+          readFileSync(join(threadsRoot, path), "utf8").matchAll(
+            /<script\b[^>]*\bsrc\s*=\s*["']?(?:https?:)?\/\/[^"'\s>]+/gi,
+          ),
+          (match) => `${path}: ${match[0]}`,
+        ),
+      );
+    expect(remoteScripts).toEqual([]);
   });
 });

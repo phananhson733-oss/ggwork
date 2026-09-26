@@ -23,4 +23,25 @@ test.describe("Root routes", () => {
       expect(response.status()).toBe(404);
     });
   }
+
+  test("every response asks search engines not to index it", async ({
+    page,
+  }) => {
+    for (const path of [
+      "/",
+      "/workspace/chats/new",
+      "/images/ggwork-logo.png",
+    ]) {
+      const response = await page.request.get(path, { maxRedirects: 0 });
+      expect(response.headers()["x-robots-tag"], path).toBe(
+        "noindex, nofollow",
+      );
+    }
+
+    await page.goto("/workspace/chats/new");
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "noindex, nofollow",
+    );
+  });
 });

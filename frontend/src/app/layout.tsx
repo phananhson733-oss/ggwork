@@ -32,6 +32,8 @@ const jetBrainsMono = localFont({
 export const metadata: Metadata = {
   title: { default: APP_NAME, template: `%s - ${APP_NAME}` },
   description: "GGWork workbench",
+  // Private, login-only workbench; next.config.js also sends X-Robots-Tag.
+  robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {

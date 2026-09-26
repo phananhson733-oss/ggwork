@@ -27,6 +27,16 @@ const config = {
   },
   devIndicators: false,
   allowedDevOrigins: getAllowedDevOrigins(),
+  async headers() {
+    return [
+      {
+        // GGWork is a private, login-only workbench. The header also covers
+        // files under public/ that page metadata cannot reach.
+        source: "/:path*",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      },
+    ];
+  },
   async rewrites() {
     const rewrites = [];
     const gatewayURL = getInternalServiceURL(
