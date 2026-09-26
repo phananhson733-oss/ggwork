@@ -274,6 +274,7 @@ async def test_regrant_covers_published_versions(pg_cluster, tmp_path, monkeypat
     # Exactly what 0007 gives an observer that existed before it ran, table for table and column for column.
     with stand_in_for(pg_cluster, tmp_path / "fresh", monkeypatch) as fresh:
         bootstrap(fresh)
+        fresh.set_passwords(fresh.app, fresh.reader, fresh.observer)
         await migrate_as_app(fresh, tmp_path / "fresh" / "data")
         assert _observer_grants(fresh, "deerflow", "pick_mirror", "pick_obs") == late_grants
 
@@ -356,6 +357,7 @@ async def test_regrant_refuses_before_0007(pg_cluster, tmp_path, monkeypatch):
 
     with stand_in_for(pg_cluster, tmp_path, monkeypatch) as stand_in:
         bootstrap(stand_in)
+        stand_in.set_passwords(stand_in.app, stand_in.reader, stand_in.observer)
         await migrate_as_app(stand_in, tmp_path, "0006")
         with pytest.raises(Refused, match="0007"):
             await regrant(_dsn(stand_in), stand_in.observer, out=io.StringIO())

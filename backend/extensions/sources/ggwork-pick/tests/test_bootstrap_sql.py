@@ -533,7 +533,8 @@ def _normalized(stand_in, text: str) -> str:
 
 def _snapshot(stand_in) -> dict:
     """Every role attribute and grant the scripts and migrations leave behind, with the per-test suffix taken off."""
-    roles = {_normalized(stand_in, name): (*attributes[:3], sorted(attributes[3])) for name, attributes in _roles(stand_in).items()}
+    # Sorted: pg_roles has no order, and ALTER ROLE (the passwords) moves a role's row within pg_authid.
+    roles = {_normalized(stand_in, name): (*attributes[:3], sorted(attributes[3])) for name, attributes in sorted(_roles(stand_in).items())}
     schemas = {name: (owner, acl) for name, (owner, acl) in _schema_acls(stand_in, "deerflow", "pick_mirror", "pick_obs").items()}
     relations = stand_in.query(
         "SELECT n.nspname || '.' || c.relname, c.relacl::text[] FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
@@ -556,12 +557,15 @@ async def test_the_incremental_path_ends_where_a_new_project_starts(pg_cluster, 
         (tmp_path / name).mkdir()
     with stand_in_for(pg_cluster, tmp_path / "new", monkeypatch) as fresh:
         bootstrap(fresh)
+        fresh.set_passwords(fresh.app, fresh.reader, fresh.observer)
         await migrate_as_app(fresh, tmp_path / "new")
         expected = _snapshot(fresh)
     with stand_in_for(pg_cluster, tmp_path / "production", monkeypatch) as production:
         bootstrap(production, P0_SCRIPT)
+        production.set_passwords(production.app, production.reader)
         await migrate_as_app(production, tmp_path / "production", "0006")
         bootstrap(production, OBSERVER)
+        production.set_passwords(production.observer)
         await migrate_as_app(production, tmp_path / "production")
         assert _snapshot(production) == expected
 
