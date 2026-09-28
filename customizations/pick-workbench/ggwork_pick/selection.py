@@ -223,7 +223,8 @@ def zero_diagnosis(rows, conditions: PickConditions, excluded) -> dict:
             for name, value, relaxed, rest, also in _relaxations(conditions, excluded)
         ],
         "note": "结果为0。matched_total是去掉这一项（连同also_removed列出的项）、其余条件不变时的部数；"
-        "每项都是0说明要同时放宽几项。excluded是个人已选与换一批排除的剧合计。已下架的剧始终不计入。",
+        "null表示这一步数不出来（见unavailable），不是0。各项都是0只说明单放宽一项不够：可能要同时调整几项，也可能这批数据里没有，"
+        "不要承诺放宽就有结果。excluded是个人已选与换一批排除的剧合计。已下架的剧始终不计入。",
     }
 
 

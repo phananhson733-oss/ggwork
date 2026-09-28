@@ -131,8 +131,8 @@ async def test_a_region_as_the_title_word_is_refused_instead_of_matching_inside_
     for call_id, word in enumerate(("US", " 美国 ", "North America", "美国地区", "US 美国", "US 热门", "美国热门短剧", "hot dramas in the US")):
         with pytest.raises(ValueError, match="不是地区"):
             await query(repo, {"query": word}, call_id=f"c{call_id}")
-    # Anything else stays a title search, including titles holding a region word or "us" inside a word.
-    for call_id, word in enumerate(("Guard 3", "Husband", "美國總裁", "Made in USA")):
+    # Anything else stays a title search: a region word inside a title, "us" inside a word, and "Us" as a word.
+    for call_id, word in enumerate(("Guard 3", "Husband", "美國總裁", "Made in USA", "For Us", "us", "hotus")):
         await query(repo, {"query": word}, call_id=f"ok{call_id}")
     assert (await query(repo, {"query": "Guard 3"}, call_id="ok9"))["matched_total"] == 1
 
@@ -403,6 +403,157 @@ def test_hot_kinds_are_the_data_page_theater_bases():
     body = re.search(r"export const THEATER_BASES = \[(.*?)\] as const;", REQUEST_TS.read_text(), re.S)
     assert body, "THEATER_BASES moved: keep hot_only's whitelist equal to the data page's theater bases"
     assert tuple(re.findall(r'"([a-z]+)"', body.group(1))) == HOT_SIGNAL_KINDS
+
+
+def _bare(theater="ReelShort", language="en", tags=(), kinds=(), title="Guard"):
+    return {"title": title, "theater": theater, "language": language, "tags": list(tags), "signals": [{"kind": kind} for kind in kinds]}
+
+
+def test_choices_leave_out_rows_without_a_theater():
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.references import check_references
+
+    with pytest.raises(ValueError) as refused:
+        check_references([_bare(theater=""), _bare(theater=""), _bare()], PickConditions(theater="US"))
+    assert "可选：ReelShort。" in str(refused.value)
+
+
+def test_a_tag_differing_only_in_case_is_refused_like_the_exact_filter():
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.references import check_references
+
+    with pytest.raises(ValueError, match="标签「revenge」"):
+        check_references([_bare(tags=["Revenge"])], PickConditions(tags=["revenge"]))
+
+
+def test_hot_scope_lists_counted_kinds_in_the_data_page_order():
+    from ggwork_pick.references import hot_scope
+
+    assert hot_scope([_bare(kinds=("mg", "sm", "clk"))]) == {"counted": ["sm", "mg"], "not_counted": ["clk"]}
+
+
+def test_region_acronyms_count_only_in_capitals():
+    from ggwork_pick.references import query_languages
+
+    assert query_languages("US") == query_languages("hot dramas in the US") == query_languages("U.S. 热门") == ("en",)
+    assert query_languages("For Us") == query_languages("us") == query_languages("hotus") == ()
+    assert query_languages("uk 热门") == () and query_languages("UK 热门") == ("en",) and query_languages("北美热门短剧") == ("en",)
+
+
+def test_region_phrases_match_across_inner_whitespace():
+    from ggwork_pick.references import query_languages
+
+    assert query_languages("North  America") == query_languages("United\tStates") == query_languages(" 美国\u3000热门 ") == ("en",)
+
+
+def test_several_regions_name_every_language():
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.references import check_references, query_languages
+
+    assert query_languages("hot dramas in US and Japan") == ("en", "ja") and query_languages("美国 韩国 热门") == ("en", "ko")
+    assert query_languages("美国 英国") == ("en",)
+    with pytest.raises(ValueError) as refused:
+        check_references([_bare()], PickConditions(query="hot dramas in US and Japan"))
+    assert "含多个地区" in str(refused.value) and "language=en、language=ja" in str(refused.value)
+
+
+def test_a_title_that_is_a_region_phrase_stays_a_title_search():
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.references import check_references
+
+    check_references([_bare(title="In  America")], PickConditions(query="in america"))
+    check_references([_bare(tags=["美国"])], PickConditions(query="美国"))
+    with pytest.raises(ValueError, match="language=en"):
+        check_references([_bare(title="In America Again")], PickConditions(query="in america"))
+
+
+def test_a_region_tag_refusal_still_lists_the_batch_tags():
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.references import check_references
+
+    with pytest.raises(ValueError) as refused:
+        check_references([_bare(tags=["复仇"])], PickConditions(tags=["美国", "Revenge"]))
+    assert "可选：复仇" in str(refused.value) and "「美国」是地区" in str(refused.value) and "tags:[]" in str(refused.value)
+    with pytest.raises(ValueError) as untagged:
+        check_references([_bare()], PickConditions(tags=["美国", "韩国"]))
+    assert "都没有标签" in str(untagged.value) and "language=en、language=ko" in str(untagged.value)
+
+
+def test_a_missing_signal_kind_or_hot_evidence_says_how_to_clear_it():
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.references import check_references
+
+    with pytest.raises(ValueError) as ranked:
+        check_references([_bare(kinds=("kd",))], PickConditions(signal_kind="qc", sort="rank"))
+    assert "signal_kind:null" in str(ranked.value) and "sort:evidence_date" in str(ranked.value)
+    with pytest.raises(ValueError, match="hot_only:false"):
+        check_references([_bare(kinds=("clk",))], PickConditions(hot_only=True))
+
+
+def test_the_reset_values_the_prompts_name_are_valid_for_every_field():
+    """换一批 clears an inherited field only when told how: null, [], false or the default sort, by the field's type
+    (round-2 audit: a blanket "pass null" made hot_only:null, a ValidationError before the tool ever ran)."""
+    from pydantic import ValidationError
+
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.middleware import PICK_INSTRUCTIONS
+
+    nullable = ("theater", "language", "channel", "query", "signal_kind", "posted_account")
+    switches = ("exclude_selected", "confirmed_eligible_only", "exclude_posted", "hot_only")
+    resets = {**dict.fromkeys(nullable), **dict.fromkeys(switches, False), "tags": [], "sort": "evidence_date"}
+    assert {*resets, "limit", "exclude_previous"} == set(PickConditions.model_fields)
+    assert PickConditions.model_validate({"exclude_previous": True, **resets}).requested().keys() >= resets.keys()
+    for field in (*switches, "sort"):
+        with pytest.raises(ValidationError):
+            PickConditions.model_validate({field: None})
+    assert "剧场/语种/渠道/query/signal_kind/posted_account传null，tags传[]，hot_only等开关传false，sort传evidence_date" in PICK_INSTRUCTIONS
+    skill = (Path(__file__).resolve().parents[3] / "skills/public/pick-drama/SKILL.md").read_text(encoding="utf-8")
+    assert all(name in skill for name in (*nullable, *switches)) and "sort=evidence_date" in skill
+
+
+@pytest.mark.asyncio
+async def test_hot_only_with_a_rank_sort_is_recorded_as_ranked(repo):
+    from ggwork_pick.selection import RANK_RANKING_VERSION
+
+    ranked = await query(repo, {"hot_only": True, "signal_kind": "kd", "sort": "rank"})
+    assert ranked["ranking_version"] == RANK_RANKING_VERSION and [i["title"] for i in ranked["items"]] == ["Guard 3", "Guard 4"]
+
+
+@pytest.mark.asyncio
+async def test_a_zero_hot_only_count_carries_the_diagnosis_and_the_hot_scope(repo):
+    from ggwork_pick.selection import SelectionService
+
+    counted = await SelectionService(repo).count({"theater": "ReelShort", "language": "ko", "hot_only": True})
+    steps = [(d["condition"], d["matched_total"]) for d in counted["zero_diagnosis"]["without_each"]]
+    assert steps == [("theater", 1), ("language", 1), ("hot_only", 0)]
+    assert counted["hot_scope"] == {"counted": ["kd", "qr", "sm"], "not_counted": ["bill", "clk"]}
+
+
+@pytest.mark.asyncio
+async def test_a_derived_zero_count_diagnoses_its_exclusions(repo):
+    from ggwork_pick.selection import SelectionService
+
+    parent = await query(repo, {"signal_kind": "kd", "sort": "rank", "exclude_posted": True, "limit": 1}, call_id="p")
+    counted = await SelectionService(repo).count({"exclude_previous": True}, parent=await repo.result(parent["id"]))
+    assert counted["zero_diagnosis"]["without_each"][-1] == {"condition": "excluded", "value": 1, "matched_total": 1}
+
+
+@pytest.mark.asyncio
+async def test_explain_of_a_stored_zero_a_later_check_refuses_still_diagnoses(repo):
+    from ggwork_pick.selection import SelectionService
+
+    record = await repo.result((await query(repo, {"theater": "ShortMax", "signal_kind": "kd"}))["id"])
+    legacy = {**record, "conditions_json": {**record["conditions_json"], "theater": "US"}}
+    steps = (await SelectionService(repo).explain(legacy))["zero_diagnosis"]["without_each"]
+    assert [(d["condition"], d["matched_total"]) for d in steps] == [("theater", 2), ("signal_kind", 0)]
+
+
+@pytest.mark.asyncio
+async def test_explain_of_a_plain_nonempty_result_reads_no_batch(repo):
+    from ggwork_pick.selection import SelectionService
+
+    record = await repo.result((await query(repo, {"language": "en"}))["id"])
+    assert await SelectionService(repo).explain({**record, "catalog_batch_id": "purged"}) == {}
 
 
 def test_region_hints_point_at_languages_the_feed_uses():

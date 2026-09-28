@@ -36,6 +36,9 @@ FILTER_WORDS = (
     *("hot", "trending", "popular", "top", "drama", "dramas", "short", "shorts", "market", "region", "recent", "latest"),
     *("in", "the", "of", "for", "from", "and"),
 )
+# Region keys that are acronyms, longest first: a query holds them as a region only in capitals.
+REGION_ACRONYMS = ("U.S.A.", "U.S.", "USA", "US", "UK")
+_ACRONYM_KEYS = frozenset(acronym.casefold() for acronym in REGION_ACRONYMS)
 # How many choices an error lists; the rest are summarised by count.
 CHOICES_SHOWN = 30
 # 换一批 merges the bound card's conditions under this call's: leaving a field out keeps the parent's value, so a
@@ -56,30 +59,56 @@ def _word_pattern(word: str) -> str:
     return rf"(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])" if word.isascii() else re.escape(word)
 
 
-def _strip_words(text: str, words) -> tuple[str, str | None]:
-    first = None
+def _strip_words(text: str, words) -> tuple[str, list[str]]:
+    found = []
     for word in sorted(words, key=len, reverse=True):
         pattern = _word_pattern(word)
         if re.search(pattern, text):
-            first = first or word
+            found = [*found, word]
             text = re.sub(pattern, " ", text)
-    return text, first
+    return text, found
 
 
-def query_region(value: str) -> str | None:
-    """The language for a query made only of region and filter words, else None."""
-    text, region = _strip_words(value.casefold(), REGION_LANGUAGES)
-    if region is None:
-        return None
+def _languages(regions) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(REGION_LANGUAGES[region] for region in regions))
+
+
+def query_languages(value: str) -> tuple[str, ...]:
+    """The languages for a query that is only regions, or regions with filter words ("US 热门"), else ().
+
+    Acronyms count only in capitals: "US" is the country, "Us" and "us" are title words ("For Us"). Inner whitespace
+    is folded for the match only ("North  America")."""
+    text, regions = " ".join(value.split()), []
+    for acronym in REGION_ACRONYMS:
+        pattern = rf"(?<![A-Za-z0-9]){re.escape(acronym)}(?![A-Za-z0-9])"
+        if re.search(pattern, text):
+            regions = [*regions, acronym.casefold()]
+            text = re.sub(pattern, " ", text)
+    text, named = _strip_words(text.casefold(), [key for key in REGION_LANGUAGES if key not in _ACRONYM_KEYS])
+    if not regions and not named:
+        return ()
     text, _ = _strip_words(text, FILTER_WORDS)
-    return None if re.sub(r"[\W_]+", "", text) else REGION_LANGUAGES[region]
+    return () if re.sub(r"[\W_]+", "", text) else _languages([*regions, *named])
+
+
+def _languages_hint(label: str, languages: tuple[str, ...]) -> str:
+    codes = "、".join(f"language={code}" for code in languages)
+    if len(languages) == 1:
+        return f"「{label}」是地区；剧库没有地区字段，请改用{codes}（按语种近似，回答里说明）。"
+    if languages:
+        return f"「{label}」含多个地区；剧库没有地区字段，按语种近似要分别查{codes}（回答里说明）。"
+    return "剧库没有地区字段；按地区找剧请用语种代码（如美国/US用en）。"
 
 
 def _region_hint(value: str) -> str:
-    language = region_language(value) or query_region(value)
-    if language:
-        return f"「{value}」是地区；剧库没有地区字段，请改用language={language}（按语种近似，回答里说明）。"
-    return "剧库没有地区字段；按地区找剧请用语种代码（如美国/US用en）。"
+    language = region_language(value)
+    return _languages_hint(value, (language,) if language else query_languages(value))
+
+
+def _names_a_title(rows, query: str) -> bool:
+    # A title or tag that is exactly the region phrase ("In America") is what the user asked for, not a region.
+    wanted = " ".join(query.casefold().split())
+    return any(" ".join(row["title"].casefold().split()) == wanted or wanted in (t.casefold() for t in row["tags"]) for row in rows)
 
 
 def _choices(counts: Counter) -> str:
@@ -110,13 +139,13 @@ def _check_tags(rows, tags: list[str]) -> None:
     counts = Counter(tag for row in rows for tag in row["tags"])
     missing = [tag for tag in tags if tag not in counts]
     if missing:
-        regions = [tag for tag in missing if region_language(tag)]
-        if regions:
-            hint = _region_hint(regions[0])
-        elif counts:
+        if counts:
             hint = f"标签要与剧库原文完全一致，可选：{_choices(counts)}。query是剧名或标签原文的子串搜索，不做翻译。"
         else:
             hint = "当前批次的剧目都没有标签；query是剧名原文的子串搜索，不做翻译。"
+        regions = [tag for tag in missing if region_language(tag)]
+        if regions:
+            hint += _languages_hint("、".join(regions), tuple(dict.fromkeys(region_language(tag) for tag in regions)))
         raise ValueError(f"剧库里没有标签「{'、'.join(missing)}」。{hint}{_clear('tags', '[]')}")
 
 
@@ -130,12 +159,13 @@ def check_references(rows, conditions: PickConditions) -> None:
         _check_language(rows, conditions.language)
     if conditions.tags:
         _check_tags(rows, conditions.tags)
-    if conditions.query and (region_language(conditions.query) or query_region(conditions.query)):
+    if conditions.query and query_languages(conditions.query) and not _names_a_title(rows, conditions.query):
         raise ValueError(f"query是剧名或标签里的词，不是地区或热门条件。{_region_hint(conditions.query)}要热门依据用hot_only。{_clear('query')}")
     if conditions.signal_kind and not any(s["kind"] == conditions.signal_kind for row in rows for s in row["signals"]):
-        raise ValueError(f"剧库里没有 {conditions.signal_kind} 这类信号；信号种类代码见知识资料")
+        rank = "按名次排序的要一并传sort:evidence_date。" if conditions.sort == "rank" else ""
+        raise ValueError(f"剧库里没有 {conditions.signal_kind} 这类信号；信号种类代码见知识资料。{_clear('signal_kind')}{rank}")
     if conditions.hot_only and not any(is_hot_kind(s["kind"]) for row in rows for s in row["signals"]):
-        raise ValueError("剧库里没有热门依据类信号（剧场榜单、评级、剧单或备注）；去掉hot_only，或用signal_kind指定依据")
+        raise ValueError(f"剧库里没有热门依据类信号（剧场榜单、评级、剧单或备注）；去掉hot_only，或用signal_kind指定依据。{_clear('hot_only', 'false')}")
 
 
 def hot_scope(rows) -> dict:
