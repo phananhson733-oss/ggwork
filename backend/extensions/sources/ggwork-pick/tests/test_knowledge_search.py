@@ -18,6 +18,9 @@ from engines import host_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 RULES = (Path(__file__).parent / "fixtures" / "realshort_rules.md").read_text(encoding="utf-8")
+# ToolOutputBudgetMiddleware's default externalize_min_chars: a longer result reaches the model as a head/tail preview,
+# and the pick agent has no read_file to open the rest.
+TOOL_OUTPUT_LIMIT = 12_000
 THEATERS = ("ReelShort", "KalosTV", "ShortMax", "FlickReels", "StarShort", "GoodShort", "DramaBox", "MoboReels", "flareflow", "TouchShort")
 
 
@@ -38,7 +41,8 @@ def test_the_fixture_has_the_production_layout():
 
 
 @pytest_asyncio.fixture
-async def search(tmp_path):
+async def searcher(tmp_path):
+    """Import a knowledge bundle of (text, filename, source_ref) and return the raw pick_search_knowledge output for a query."""
     from ggwork_pick.context import PickLifecycle
     from ggwork_pick.imports import Importer
     from ggwork_pick.repository import PickRepository
@@ -48,18 +52,32 @@ async def search(tmp_path):
     engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
-    importer = Importer(PickRepository(service.session_factory, "alice"), service.data_dir)
-    await importer.catalog(b'[{"source":"synthetic","source_id":"1","language":"en","title":"Example"}]', "json")
-    await importer.knowledge_bundle([(RULES.encode(), "realshort-rules.md", "realshort:feed-v1/rules")])
-    store = ExtensionData("task")
-    await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task", "run", "thread", "lead"))
-    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="call")
 
-    async def run(query: str) -> list[dict]:
-        return json.loads(await search_knowledge_tool.coroutine(query=query, runtime=runtime))["documents"]
+    async def load(bundle):
+        importer = Importer(PickRepository(service.session_factory, "alice"), service.data_dir)
+        await importer.catalog(b'[{"source":"synthetic","source_id":"1","language":"en","title":"Example"}]', "json")
+        await importer.knowledge_bundle([(body.encode(), filename, source_ref) for body, filename, source_ref in bundle])
+        store = ExtensionData("task")
+        await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task", "run", "thread", "lead"))
+        runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="call")
 
-    yield run
+        async def run(query: str) -> str:
+            return await search_knowledge_tool.coroutine(query=query, runtime=runtime)
+
+        return run
+
+    yield load
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def search(searcher):
+    run = await searcher([(RULES, "realshort-rules.md", "realshort:feed-v1/rules")])
+
+    async def documents(query: str) -> list[dict]:
+        return json.loads(await run(query))["documents"]
+
+    return documents
 
 
 @pytest.mark.asyncio
@@ -70,6 +88,8 @@ async def search(tmp_path):
         ("MoboReels", "MoboReels"),
         ("DramaBox 必带标签", "DramaBox"),
         ("flareflow YouTube", "flareflow"),
+        ("flareflow 规则 YouTube 报备 必带标签", "flareflow"),
+        ("TouchShort", "TouchShort"),
         ("TouchShort 报备", "TouchShort"),
         ("YouTube 报备 必带标签 规则", "TouchShort"),
     ],
@@ -101,6 +121,9 @@ async def test_a_longer_document_is_excerpted_at_the_theaters_heading(search, mo
     assert found["excerpt"] == _section("flareflow")
     both = await search("MoboReels DramaBox")
     assert [doc["excerpt"] for doc in both] == [_section("DramaBox"), _section("MoboReels")]
+    for query, theater in (("flareflow 规则 YouTube 报备 必带标签", "flareflow"), ("TouchShort", "TouchShort")):
+        (found,) = await search(query)
+        assert found["excerpt"] == _section(theater), query
 
 
 @pytest.mark.asyncio
@@ -146,3 +169,63 @@ def test_a_document_with_many_named_headings_returns_a_bounded_number_of_excerpt
     spans = excerpt_spans(text, ["theater"])
     assert len(spans) == MAX_EXCERPTS
     assert [text[start:end] for start, end in spans] == [f"## Theater {index}\nrule {index}" for index in range(MAX_EXCERPTS)]
+
+
+def test_a_rule_under_every_theater_comes_from_the_theater_the_query_names(monkeypatch):
+    from ggwork_pick import knowledge_excerpts
+
+    monkeypatch.setattr(knowledge_excerpts, "WHOLE_DOCUMENT_CHARS", 1_000)
+    text = RULES.replace("\nYouTube：", "\n### YouTube\nYouTube：")
+
+    def excerpts(query: str) -> list[str]:
+        return [text[start:end] for start, end in knowledge_excerpts.excerpt_spans(text, query.casefold().split())]
+
+    def youtube(theater: str) -> str:
+        start = text.index("### YouTube", text.index(f"## {theater}\n"))
+        end = text.find("\n\n## ", start)
+        return text[start : end if end != -1 else len(text)].rstrip()
+
+    # Every theater has a "### YouTube": the one under the theater named wins over the first five in the document.
+    assert excerpts("DramaBox YouTube") == [youtube("DramaBox")]
+    assert excerpts("flareflow 规则 YouTube 报备 必带标签") == [youtube("flareflow")]
+    assert excerpts("DramaBox") == [_section("DramaBox").replace("\nYouTube：", "\n### YouTube\nYouTube：")]
+    assert excerpts("YouTube") == [youtube(theater) for theater in THEATERS[:5]]
+
+
+@pytest.mark.asyncio
+async def test_every_matching_document_gets_an_excerpt_before_one_gets_a_second(searcher):
+    from ggwork_pick.knowledge_excerpts import MAX_EXCERPTS
+
+    sections = "".join(f"## Theater {index}\n" + "规则说明。\n" * 200 + "\n" for index in range(8))
+    run = await searcher(
+        [
+            ("# 长规则\n\n" + sections, "long.md", "upload:long"),
+            (RULES, "realshort-rules.md", "realshort:feed-v1/rules"),
+            ("Theater 备注\n" + "规则备注。\n" * 600, "notes.md", "upload:notes"),
+        ]
+    )
+    raw = await run("theater 规则")
+    documents = json.loads(raw)["documents"]
+    assert {doc["title"] for doc in documents} == {"long.md", "realshort-rules.md", "notes.md"}
+    assert len(documents) <= MAX_EXCERPTS and len(raw) < TOOL_OUTPUT_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_documents_that_fit_whole_alone_are_cut_to_keep_the_result_under_the_host_limit(searcher):
+    bundle = [(f"# 规则 {index}\n" + "每一行都是一条较长的规则说明文字。\n" * 210, f"doc{index}.md", f"upload:doc{index}") for index in range(5)]
+    assert all(len(body) <= 4_000 for body, _, _ in bundle)
+    raw = await (await searcher(bundle))("规则")
+    documents = json.loads(raw)["documents"]
+    assert sorted(doc["title"] for doc in documents) == [f"doc{index}.md" for index in range(5)]
+    assert len(raw) < TOOL_OUTPUT_LIMIT
+    for doc in documents:
+        assert doc["excerpt"].startswith("# 规则 ")
+
+
+@pytest.mark.asyncio
+async def test_titles_and_sources_at_their_limits_return_fewer_entries_under_the_host_limit(searcher):
+    bundle = [(f"# 规则 {index}\n" + "规则说明。\n" * 600, f"{'长' * 495}{index}.md", f"upload:{'x' * 2_030}{index}") for index in range(5)]
+    raw = await (await searcher(bundle))("规则")
+    documents = json.loads(raw)["documents"]
+    assert 0 < len(documents) < 5 and len(raw) < TOOL_OUTPUT_LIMIT
+    assert all(doc["excerpt"].startswith("# 规则 ") and len(doc["excerpt"]) > 100 for doc in documents)
