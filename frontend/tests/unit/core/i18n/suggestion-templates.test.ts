@@ -70,6 +70,9 @@ const PINS: Record<
         "do not exclude ones I have already picked",
       ],
     },
+    "Theater rules": {
+      present: ["[theater]", "rule source", "unknown"],
+    },
     "Pool count": {
       present: ["How many", "Do not exclude ones I have already picked"],
     },
@@ -94,6 +97,7 @@ const PINS: Record<
     },
     排除YouTube禁用: { present: ["只排除明确禁用", "不要求确认可发"] },
     查一部剧: { present: ["《[剧名]》", "不排除我已经选过的"] },
+    剧场规则: { present: ["[剧场]", "规则来源", "写未知"] },
     盘点候选池: { present: ["一共多少部", "不排除我已经选过的"] },
   },
 };
@@ -106,7 +110,7 @@ describe("pick quick-action templates", () => {
     ]);
     for (const t of [english, chinese]) {
       expect(t.inputBox.suggestions).toHaveLength(4);
-      expect(t.inputBox.suggestionsMore).toHaveLength(5);
+      expect(t.inputBox.suggestionsMore).toHaveLength(6);
       expect(
         t.inputBox.suggestionsMore.filter((item) => "type" in item),
       ).toHaveLength(1);

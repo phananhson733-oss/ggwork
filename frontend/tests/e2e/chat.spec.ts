@@ -1105,7 +1105,7 @@ test.describe("Chat workspace", () => {
     const more = suggestions.getByRole("button", { name: "More", exact: true });
     // Closing without a choice still returns focus to the trigger.
     await more.click();
-    await expect(page.getByRole("menuitem")).toHaveCount(4);
+    await expect(page.getByRole("menuitem")).toHaveCount(5);
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toHaveCount(0);
     await expect(more).toBeFocused();
