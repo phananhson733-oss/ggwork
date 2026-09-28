@@ -1039,7 +1039,7 @@ test.describe("Chat workspace", () => {
 
     await page.getByRole("button", { name: "By theater", exact: true }).click();
     await expect(textarea).toHaveValue(
-      "Find 5 English (en) dramas from [theater], excluding ones I have already picked",
+      "Find 5 English (en) dramas from [theater], excluding ones I have already picked; if the catalog has no such theater, list the available theaters instead of switching to another",
     );
 
     await textarea.press("Enter");
@@ -1047,7 +1047,7 @@ test.describe("Chat workspace", () => {
 
     expect(streamCalled).toBe(false);
     await expect(textarea).toHaveValue(
-      "Find 5 English (en) dramas from [theater], excluding ones I have already picked",
+      "Find 5 English (en) dramas from [theater], excluding ones I have already picked; if the catalog has no such theater, list the available theaters instead of switching to another",
     );
     await expect
       .poll(
@@ -1062,7 +1062,7 @@ test.describe("Chat workspace", () => {
 
     await textarea.pressSequentially("DramaBox");
     await expect(textarea).toHaveValue(
-      "Find 5 English (en) dramas from DramaBox, excluding ones I have already picked",
+      "Find 5 English (en) dramas from DramaBox, excluding ones I have already picked; if the catalog has no such theater, list the available theaters instead of switching to another",
     );
 
     await textarea.press("Enter");
@@ -1071,7 +1071,7 @@ test.describe("Chat workspace", () => {
     await expect
       .poll(() => submittedText, { timeout: 10_000 })
       .toBe(
-        "Find 5 English (en) dramas from DramaBox, excluding ones I have already picked",
+        "Find 5 English (en) dramas from DramaBox, excluding ones I have already picked; if the catalog has no such theater, list the available theaters instead of switching to another",
       );
   });
 

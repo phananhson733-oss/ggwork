@@ -26,7 +26,7 @@ export const RECIPES: Recipe[] = [
     id: "dailyCandidates",
     titleKey: "dailyCandidates",
     prompt:
-      "找10部英语剧（language=en，limit=10），排除我已经选过的（exclude_selected=true），也排除团队发布记录里已发过的（exclude_posted=true）。条件已完整，直接查询一次，不追问。按候选卡顺序列出，说明符合条件的总数和数据时点（data_as_of）；不足10部按实际数量说明，不凑数；发布记录不可用时如实说明，不要去掉这个条件重查。",
+      "找10部英语剧（language=en，limit=10），排除我已经选过的（exclude_selected=true），也排除团队发布记录里已发过的（exclude_posted=true）。条件已完整，直接查询一次，不追问。按候选卡顺序列出（顺序按最新依据日期，不代表热度排名），说明符合条件的总数和数据时点（data_as_of）；不足10部按实际数量说明，不凑数；发布记录不可用时如实说明，不要去掉这个条件重查。",
     schedule: {
       schedule_type: "cron",
       schedule_spec: { cron: "0 12 * * *" },
@@ -48,7 +48,7 @@ export const RECIPES: Recipe[] = [
     id: "kwWeekly",
     titleKey: "kwWeekly",
     prompt:
-      "找10部有KalosTV周热门依据的英语剧（signal_kind=kw，language=en，limit=10），排除我已经选过的（exclude_selected=true）和团队发布记录里已发过的（exclude_posted=true）。kw没有名次，不按名次排序。条件已完整，直接查询一次，不追问。按候选卡顺序列出，说明符合条件的总数和数据时点（data_as_of）；不足10部按实际数量说明；发布记录不可用时如实说明，不要去掉这个条件重查。",
+      "找10部有KalosTV周热门依据的英语剧（signal_kind=kw，language=en，limit=10），排除我已经选过的（exclude_selected=true）和团队发布记录里已发过的（exclude_posted=true）。kw没有名次，不按名次排序。条件已完整，直接查询一次，不追问。按候选卡顺序列出，每部写出它的kw依据日期（周起始日）；kw依据可能来自较早的周，最新一期不是本周时要说明。说明符合条件的总数和数据时点（data_as_of）；不足10部按实际数量说明；发布记录不可用时如实说明，不要去掉这个条件重查。",
     schedule: {
       schedule_type: "cron",
       schedule_spec: { cron: "20 12 * * 1" },

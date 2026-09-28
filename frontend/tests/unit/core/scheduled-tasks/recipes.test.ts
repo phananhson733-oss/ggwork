@@ -81,6 +81,10 @@ describe("pick scheduled-task recipes", () => {
     expect(byId.kwWeekly).toContain("exclude_selected=true");
     expect(byId.kwWeekly).toContain("exclude_posted=true");
     expect(byId.kwWeekly).toContain(KEEP_POSTED);
+    // kw matches any week's list, so the run must show which week each is from.
+    expect(byId.kwWeekly).toContain("kw依据日期");
+    // The default order is the newest evidence date, not a hotness ranking.
+    expect(byId.dailyCandidates).toContain("不代表热度排名");
     expect(byId.poolWeekly).toContain("pick_count_candidates");
     expect(byId.poolWeekly).toContain("exclude_selected=false");
   });

@@ -45,10 +45,17 @@ const PINS: Record<
     "Find candidates": {
       present: ["(en)", "already picked", "posting records"],
     },
-    "By theater": { present: ["[theater]", "already picked"] },
+    "By theater": {
+      present: ["[theater]", "already picked", "instead of switching"],
+    },
     "KalosTV daily": { present: ["(kd)", "by rank", "already picked"] },
     "Exclude by account": {
-      present: ["[account]", "posting records", "already picked"],
+      present: [
+        "[account]",
+        "posting records",
+        "already picked",
+        "instead of excluding everything the team has posted",
+      ],
     },
     "KalosTV weekly hot": {
       present: ["(kw)", "already picked"],
@@ -69,9 +76,18 @@ const PINS: Record<
   },
   "zh-CN": {
     找候选: { present: ["英语剧", "我已经选过的", "发布记录里发过的"] },
-    按剧场: { present: ["[剧场]", "我已经选过的"] },
+    按剧场: {
+      present: ["[剧场]", "我已经选过的", "不要换成别的剧场"],
+    },
     KalosTV日榜: { present: ["（kd）", "按名次", "我已经选过的"] },
-    按账号排除: { present: ["[账号名]", "发布记录里发过的", "我已经选过的"] },
+    按账号排除: {
+      present: [
+        "[账号名]",
+        "发布记录里发过的",
+        "我已经选过的",
+        "不要改成排除团队全部已发的",
+      ],
+    },
     KalosTV周热门: {
       present: ["（kw）", "依据", "我已经选过的"],
       absent: ["名次"],

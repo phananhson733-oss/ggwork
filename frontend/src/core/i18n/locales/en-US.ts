@@ -396,7 +396,7 @@ export const enUS: Translations = {
       {
         suggestion: "By theater",
         prompt:
-          "Find 5 English (en) dramas from [theater], excluding ones I have already picked",
+          "Find 5 English (en) dramas from [theater], excluding ones I have already picked; if the catalog has no such theater, list the available theaters instead of switching to another",
         icon: ClapperboardIcon,
       },
       {
@@ -408,7 +408,7 @@ export const enUS: Translations = {
       {
         suggestion: "Exclude by account",
         prompt:
-          "Find 5 English (en) dramas, excluding ones account [account] has posted according to the posting records, and ones I have already picked",
+          "Find 5 English (en) dramas, excluding ones account [account] has posted according to the posting records, and ones I have already picked; if the posting records have no such account, say so instead of excluding everything the team has posted",
         icon: UserXIcon,
       },
     ],

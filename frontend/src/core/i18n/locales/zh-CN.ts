@@ -367,7 +367,8 @@ export const zhCN: Translations = {
       },
       {
         suggestion: "按剧场",
-        prompt: "找5部[剧场]的英语剧，排除我已经选过的",
+        prompt:
+          "找5部[剧场]的英语剧，排除我已经选过的；剧库里没有这个剧场就列出可选剧场，不要换成别的剧场",
         icon: ClapperboardIcon,
       },
       {
@@ -379,7 +380,7 @@ export const zhCN: Translations = {
       {
         suggestion: "按账号排除",
         prompt:
-          "找5部英语剧，排除账号[账号名]在发布记录里发过的，也排除我已经选过的",
+          "找5部英语剧，排除账号[账号名]在发布记录里发过的，也排除我已经选过的；发布记录里没有这个账号就如实说明，不要改成排除团队全部已发的",
         icon: UserXIcon,
       },
     ],
