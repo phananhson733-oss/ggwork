@@ -209,3 +209,22 @@
 - 后续自动采集尚未恢复：原 Mac mini 的保存连接当前断开，`.local` 名称无法解析；本机未安装原刷新 LaunchAgent。待用户确认继续原机器或迁到本机后核验运行器。本次只证明一次完整资料恢复，不证明定时链路已恢复。
 - 计数更正：v10 默认全部剧库为 73,682 行、1,474 页。审查初稿误将与 no/yes 重叠的 posted.pool 相加，旧数 73,838 已更正；分页缺陷与修复范围不变。
 - `pick-deploy-guard target=frontend commit=07c79814a5e743f8174cc8e5640eedf16b974549 at=2026-09-28T14:23:29Z`
+
+
+## 下线 DeerFlow 营销面（PR #2，2026-09-28）
+
+- PR #2 下线上游的落地页、文档、博客与 showcase，根路径改为服务端重定向到 `/workspace`，全站加 noindex。它在 S4 之后 rebase 到 6777dea，CI 全绿后合并为 `2ee78b342c7c1894e897dc00bbdbb44f820a382b`。
+- 发布：经守卫从 `git archive` 导出的目录发布，部署 `dpl_G4iDwezLP2Mk3h9CPQzCrsRBeg13`，生产别名 ggwork-deerflow.vercel.app 指向它。上传 1,024 个文件，均来自该提交的导出，另外只放了 `.vercel/project.json`。构建带 `NEXT_PUBLIC_APP_VERSION=20260928-2ee78b3`。#3、#4 此前已上线，这次只多了 #2 的前端改动；gateway 没有动。
+- 部署前在守卫检出里验证：
+  - 四格 4/4；
+  - 合同夹具 12/12；
+  - 前端全套 2,740 通过；
+  - typecheck 通过，检出干净。
+  - 另在 PR 分支上跑过 build、e2e 275 条、e2e-auth 6 条，均通过。
+- 部署后核对：
+  - `/` 307 到 `/workspace`；未登录访问 `/workspace` 307 到 `/login`。
+  - `/en/docs`、`/zh/docs`、`/blog/posts`、`/github-stars`、`/showcase/<id>` 均 404。
+  - 页面与 `public/` 静态文件都带 `X-Robots-Tag: noindex, nofollow`。
+  - `/login` 有 robots meta，没有「Back to home」。
+  - 关于页的版本号要登录后才能看到，待用户核对。
+- `pick-deploy-guard target=frontend commit=2ee78b342c7c1894e897dc00bbdbb44f820a382b at=2026-09-28T14:54:37Z`
