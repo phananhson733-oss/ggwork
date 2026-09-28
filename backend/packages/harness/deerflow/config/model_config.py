@@ -55,6 +55,24 @@ class ModelConfig(BaseModel):
             "the percentage and fraction summarization clauses will degrade with a warning."
         ),
     )
+    max_tokens: int | None = Field(
+        default=None,
+        description=(
+            "Per-call output cap passed to the provider (max_output_tokens under the Responses API, where it "
+            "includes reasoning tokens). Declared so a $VARIABLE placeholder, which resolves to a string, reaches "
+            "the client as an integer; the range is left to the provider, as before."
+        ),
+    )
+    request_timeout: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description=(
+            "Seconds the HTTP client waits on the provider; while streaming it is also the longest silence "
+            "between two bytes. Declared so a $VARIABLE placeholder becomes a float: langchain-openai keeps a "
+            "string timeout as-is (its type admits Any) and every request then fails as a connection error."
+        ),
+    )
     stream_chunk_timeout: float | None = Field(
         default=None,
         description=(

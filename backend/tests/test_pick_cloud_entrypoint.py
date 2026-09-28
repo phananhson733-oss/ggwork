@@ -21,6 +21,20 @@ POSTGRES_DATABASE = {
     "command_timeout": 30,
     "checkpoint_channel_mode": "full",
 }
+# What the gateway runs with when Railway sets none of these (user decision 2026-09-28: thinking on = high, off = low).
+MODEL_DEFAULTS = {
+    "PICK_LLM_EFFORT_THINKING_ON": "high",
+    "PICK_LLM_EFFORT_THINKING_OFF": "low",
+    "PICK_LLM_MAX_OUTPUT_TOKENS": "32000",
+    "PICK_LLM_REQUEST_TIMEOUT_SECONDS": "300",
+    "PICK_LLM_STREAM_CHUNK_TIMEOUT_SECONDS": "300",
+    "PICK_RUN_TIMEOUT_SECONDS": "600",
+}
+AZURE = {
+    "AZURE_OPENAI_BASE_URL": "https://example.openai.azure.com/openai/v1/",
+    "AZURE_OPENAI_API_KEY": "synthetic-test-key",
+    "AZURE_OPENAI_DEPLOYMENT": "synthetic-deployment",
+}
 
 
 def legacy_prepare_config(home: Path, template: Path) -> Path:
@@ -366,3 +380,111 @@ def test_the_pick_image_and_compose_serve_the_sanitized_gateway_with_the_postgre
     compose = yaml.safe_load((BACKEND.parent / "docker/docker-compose.pick.yaml").read_text())
     command = " ".join(compose["services"]["gateway"]["command"])
     assert "uvicorn app.gateway.pick_asgi:app " in command
+
+
+def placeholders(node, prefix: str) -> set[str]:
+    """The variable names of every ``$NAME`` value under ``node`` that starts with ``prefix``; comments are not values."""
+    if isinstance(node, dict):
+        return set().union(*(placeholders(value, prefix) for value in node.values()))
+    if isinstance(node, list):
+        return set().union(*(placeholders(value, prefix) for value in node))
+    return {node[1:]} if isinstance(node, str) and node.startswith(prefix) else set()
+
+
+def test_main_fills_the_model_defaults(environ, served, tmp_path):
+    from app.gateway.pick_entrypoint import main
+
+    environ.update(DEER_FLOW_HOME=str(tmp_path / "home"), PICK_DB_BACKEND="sqlite")
+    main()
+    assert {name: environ.get(name) for name in MODEL_DEFAULTS} == MODEL_DEFAULTS
+    assert len(served) == 1
+
+
+def test_main_keeps_the_model_settings_railway_sets(environ, served, tmp_path):
+    from app.gateway.pick_entrypoint import main
+
+    chosen = {
+        "PICK_LLM_EFFORT_THINKING_ON": "xhigh",
+        "PICK_LLM_EFFORT_THINKING_OFF": "minimal",
+        "PICK_LLM_MAX_OUTPUT_TOKENS": "64000",
+        "PICK_LLM_REQUEST_TIMEOUT_SECONDS": "420.5",
+        "PICK_LLM_STREAM_CHUNK_TIMEOUT_SECONDS": "360",
+        "PICK_RUN_TIMEOUT_SECONDS": "900",
+    }
+    environ.update(DEER_FLOW_HOME=str(tmp_path / "home"), PICK_DB_BACKEND="sqlite", **chosen)
+    main()
+    assert {name: environ.get(name) for name in MODEL_DEFAULTS} == chosen
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("PICK_LLM_EFFORT_THINKING_ON", "hgih"),
+        ("PICK_LLM_EFFORT_THINKING_ON", ""),
+        ("PICK_LLM_EFFORT_THINKING_OFF", "HIGH"),
+        ("PICK_LLM_EFFORT_THINKING_OFF", " low"),
+        ("PICK_LLM_MAX_OUTPUT_TOKENS", "0"),
+        ("PICK_LLM_MAX_OUTPUT_TOKENS", "32k"),
+        ("PICK_LLM_MAX_OUTPUT_TOKENS", "1.5"),
+        # Python's int() reads full-width digits, pydantic does not: the gateway would boot and fail the first request.
+        ("PICK_LLM_MAX_OUTPUT_TOKENS", "\uff13\uff12\uff10\uff10\uff10"),
+        ("PICK_LLM_REQUEST_TIMEOUT_SECONDS", "\uff13\uff10\uff10"),
+        ("PICK_LLM_REQUEST_TIMEOUT_SECONDS", "0"),
+        ("PICK_LLM_REQUEST_TIMEOUT_SECONDS", "nan"),
+        ("PICK_LLM_STREAM_CHUNK_TIMEOUT_SECONDS", "-1"),
+        ("PICK_LLM_STREAM_CHUNK_TIMEOUT_SECONDS", "five minutes"),
+        ("PICK_RUN_TIMEOUT_SECONDS", "inf"),
+        ("PICK_RUN_TIMEOUT_SECONDS", ""),
+    ],
+)
+def test_main_refuses_a_model_setting_the_gateway_cannot_use(environ, served, tmp_path, capsys, name, value):
+    # Checked before anything is written: a typo on Railway stops the deploy instead of failing each request.
+    from app.gateway.pick_entrypoint import main
+
+    environ.update(DEER_FLOW_HOME=str(tmp_path / "home"), PICK_DB_BACKEND="sqlite")
+    environ[name] = value
+    with pytest.raises(SystemExit) as exited:
+        main()
+    assert exited.value.code not in (0, None)
+    assert name in capsys.readouterr().err
+    assert served == []
+    assert not (tmp_path / "home").exists()
+
+
+def test_the_template_reads_every_model_setting_from_the_environment():
+    from app.gateway.pick_entrypoint import MODEL_DEFAULTS as defaults
+
+    assert defaults == MODEL_DEFAULTS
+    model = yaml.safe_load(TEMPLATE.read_text())["models"][0]
+    assert model["when_thinking_enabled"] == {"reasoning": {"effort": "$PICK_LLM_EFFORT_THINKING_ON"}}
+    assert model["when_thinking_disabled"] == {"reasoning": {"effort": "$PICK_LLM_EFFORT_THINKING_OFF"}}
+    assert model["reasoning"] == {"effort": "$PICK_LLM_EFFORT_THINKING_OFF"}
+    assert model["max_tokens"] == "$PICK_LLM_MAX_OUTPUT_TOKENS"
+    assert model["request_timeout"] == "$PICK_LLM_REQUEST_TIMEOUT_SECONDS"
+    assert model["stream_chunk_timeout"] == "$PICK_LLM_STREAM_CHUNK_TIMEOUT_SECONDS"
+    # The run timeout is read by the gateway process, not the yaml; every other default feeds a placeholder.
+    assert placeholders(yaml.safe_load(TEMPLATE.read_text()), "$PICK_") == set(MODEL_DEFAULTS) - {"PICK_RUN_TIMEOUT_SECONDS"}
+
+
+def test_pick_compose_passes_the_same_model_defaults():
+    compose = yaml.safe_load((BACKEND.parent / "docker/docker-compose.pick.yaml").read_text())
+    environment = compose["services"]["gateway"]["environment"]
+    assert {name: environment.get(name) for name in MODEL_DEFAULTS} == {name: f"${{{name}:-{value}}}" for name, value in MODEL_DEFAULTS.items()}
+
+
+@pytest.mark.parametrize(("thinking", "effort"), [(True, "high"), (False, "low")])
+def test_the_defaults_build_the_model_the_deployment_wants(environ, served, tmp_path, thinking, effort):
+    # The whole path Railway takes: entrypoint defaults -> runtime yaml -> AppConfig's $VAR resolution -> the client.
+    from app.gateway.pick_entrypoint import main
+    from deerflow.config.app_config import AppConfig
+    from deerflow.models.factory import create_chat_model
+
+    environ.update(DEER_FLOW_HOME=str(tmp_path / "home"), PICK_DB_BACKEND="sqlite", **AZURE)
+    main()
+    config = AppConfig.from_file(environ["DEER_FLOW_CONFIG_PATH"])
+    model = create_chat_model("azure-pick", thinking_enabled=thinking, app_config=config, attach_tracing=False)
+    assert model.reasoning == {"effort": effort}
+    assert model.max_tokens == 32000
+    assert model.request_timeout == 300.0 and type(model.request_timeout) is float
+    assert model.stream_chunk_timeout == 300.0
+    assert model.max_retries == 0

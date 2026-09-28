@@ -339,3 +339,9 @@
   - 全站带 noindex。
 - 登录后的界面核对还没做，由用户做。
 - `pick-deploy-guard target=frontend commit=1ab52e26a76b1f0707e8fb52a8ffdf245d69f2a4 at=2026-09-28T16:19:25Z`
+
+## 模型换 gpt-6-sol，档位改由 Railway 变量控制（2026-09-29，待上线）
+
+- 2026-09-28 23:45（+08）Railway gateway 的 `AZURE_OPENAI_DEPLOYMENT` 已切到 `gpt-6-sol`（重新部署 4faae063）。`gpt-6-luna` 不收 `reasoning.effort`，不要用，见 [azure-cloud-deployment.md](azure-cloud-deployment.md)。
+- 本分支把开思考/关思考的 effort、输出上限、请求与分块超时改成 `$PICK_LLM_*` 占位，由入口补默认值：开思考 high、关思考 low、32000 token、300 秒、300 秒。整轮上限 `PICK_RUN_TIMEOUT_SECONDS` 从 120 提到 600，扩展自己的截止时间也改读这个变量，之前硬编码的 120 秒不再生效。以后调档只改 Railway 变量。
+- 上线前：经守卫从含 e15f3f3 的 main 部署 gateway。上线后：开思考问 2～3 个需要多轮工具的真实问题，从 gateway 日志的 `LLM token usage` 行读每次调用的 reasoning/output token 和耗时，再在 Railway 上调变量。实测数字补在这里。

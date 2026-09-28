@@ -128,6 +128,51 @@ async def test_deadline_cancels_inflight_tool():
     assert cancelled == [True]
 
 
+def test_turn_deadline_follows_the_gateway_run_timeout(monkeypatch):
+    # The host watchdog and this deadline read one variable; raising it on Railway must lengthen both.
+    import time
+
+    from ggwork_pick.context import PickTask
+
+    monkeypatch.setenv("PICK_RUN_TIMEOUT_SECONDS", "600")
+    before = time.monotonic()
+    task = PickTask(service=None, info=TaskInfo("t", "r", "c", "lead"))
+    assert task.budget == 600.0
+    assert 600 <= task.deadline - before < 601
+    assert 599 < task.remaining() <= 600
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_turn_deadline_keeps_120_seconds_without_a_run_timeout(monkeypatch, value):
+    from ggwork_pick.context import PickTask
+
+    if value is None:
+        monkeypatch.delenv("PICK_RUN_TIMEOUT_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("PICK_RUN_TIMEOUT_SECONDS", value)
+    assert PickTask(service=None, info=TaskInfo("t", "r", "c", "lead")).budget == 120.0
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "soon"])
+def test_turn_deadline_refuses_a_run_timeout_the_host_would_refuse(monkeypatch, value):
+    from ggwork_pick.context import PickTask
+
+    monkeypatch.setenv("PICK_RUN_TIMEOUT_SECONDS", value)
+    with pytest.raises(ValueError, match="PICK_RUN_TIMEOUT_SECONDS"):
+        PickTask(service=None, info=TaskInfo("t", "r", "c", "lead"))
+
+
+def test_expired_turn_names_its_budget(monkeypatch):
+    import time
+
+    from ggwork_pick.context import PickTask
+
+    monkeypatch.setenv("PICK_RUN_TIMEOUT_SECONDS", "600")
+    task = PickTask(service=None, info=TaskInfo("t", "r", "c", "lead"), deadline=time.monotonic() - 1)
+    with pytest.raises(TimeoutError, match="600秒"):
+        task.remaining()
+
+
 @pytest.mark.asyncio
 async def test_final_model_gate_filters_host_added_tools_and_counts_each_call():
     from langchain.agents.middleware.types import ModelRequest

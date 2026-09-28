@@ -1,5 +1,8 @@
 # Personal pick workbench. Copy to config.yaml; never put credentials here.
-# Start the Gateway with PICK_RUN_TIMEOUT_SECONDS=120 (already set in pick Compose).
+# The model's effort, output cap and timeouts are $PICK_LLM_* variables, and the Gateway also reads
+# PICK_RUN_TIMEOUT_SECONDS. pick_entrypoint and pick Compose fill the defaults (thinking on high, off low,
+# 32000 output tokens, 300 s request and chunk timeouts, 600 s per turn); set a variable on Railway to change
+# one without a rebuild. A native Gateway started from a copy of this file must export them itself.
 config_version: 46
 models:
   - name: azure-pick
@@ -15,16 +18,19 @@ models:
     use_previous_response_id: false
     store: false
     include: [reasoning.encrypted_content]
-    reasoning: {effort: low}
+    reasoning: {effort: $PICK_LLM_EFFORT_THINKING_OFF}
     model_kwargs: {parallel_tool_calls: false}
-    request_timeout: 60
+    # Seconds; while streaming also the longest silence between two bytes, which covers reasoning.
+    request_timeout: $PICK_LLM_REQUEST_TIMEOUT_SECONDS
+    stream_chunk_timeout: $PICK_LLM_STREAM_CHUNK_TIMEOUT_SECONDS
     max_retries: 0
-    max_tokens: 4096
+    # Sent as max_output_tokens under the Responses API; reasoning tokens count against it.
+    max_tokens: $PICK_LLM_MAX_OUTPUT_TOKENS
     supports_thinking: true
     when_thinking_enabled:
-      reasoning: {effort: medium}
+      reasoning: {effort: $PICK_LLM_EFFORT_THINKING_ON}
     when_thinking_disabled:
-      reasoning: {effort: low}
+      reasoning: {effort: $PICK_LLM_EFFORT_THINKING_OFF}
     supports_vision: false
 
 database:

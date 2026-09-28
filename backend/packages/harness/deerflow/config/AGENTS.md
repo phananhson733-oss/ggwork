@@ -53,6 +53,7 @@ Configuration priority:
 
 Config values starting with `$` are resolved as environment variables (e.g., `$OPENAI_API_KEY`).
 `ModelConfig` also declares `use_responses_api` and `output_version` so OpenAI `/v1/responses` can be enabled explicitly while still using `langchain_openai:ChatOpenAI`.
+`ModelConfig` declares `max_tokens` (int; the range stays the provider's to judge, as before) and `request_timeout` (positive finite float) so a `$VAR` placeholder, which always resolves to a string, reaches the provider as a number: langchain-openai keeps a string `request_timeout` as-is (its type admits `Any`) and every request then fails as a connection error. Pinned by `tests/test_model_config.py`.
 
 `ModelConfig.request_admission` is optional and is not a provider parameter.
 Its positive RPM, finite wait deadline, queue bound and optional quota-group name

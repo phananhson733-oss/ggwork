@@ -6,7 +6,7 @@
 
 沿用RealShort选剧问答的Azure Responses API语义：endpoint后接`/openai/v1/responses`、api-key头、store=false、encrypted reasoning、禁并行函数调用，不传temperature。DeerFlow使用已有langchain_openai.ChatOpenAI Responses模式，不嵌套RealShort的Azure问答循环。
 
-模型配置名azure-pick，真实deployment从AZURE_OPENAI_DEPLOYMENT读取；唯一活动模型不再包含Ollama。五个业务工具（2026-09-23 新增计数工具 pick_count_candidates）、保存确认、身份隔离及120秒执行期限保留。API密钥只配置在后端，不进入前端环境变量或Git。
+模型配置名azure-pick，真实deployment从AZURE_OPENAI_DEPLOYMENT读取；唯一活动模型不再包含Ollama。五个业务工具（2026-09-23 新增计数工具 pick_count_candidates）、保存确认、身份隔离保留；整轮执行期限原为120秒，2026-09-29 起改由`PICK_RUN_TIMEOUT_SECONDS`决定（默认600秒，见下文「模型档位与超时」）。API密钥只配置在后端，不进入前端环境变量或Git。
 
 Vercel的RealShort生产环境确有AZURE_OPENAI_ENDPOINT/API_KEY/DEPLOYMENT，类型为sensitive不能回读。接入时依用户授权复用RealShort本地同名环境配置，两边用的是同一个Foundry资源（joyocloud05-9398）和同一把资源key。部署名称起初为gpt-5.6-luna-2，2026-09-28起改为gpt-6-sol，见下节。
 
@@ -22,6 +22,38 @@ Vercel的RealShort生产环境确有AZURE_OPENAI_ENDPOINT/API_KEY/DEPLOYMENT，�
 - 回滚就是把变量改回上一个仍然存在的部署名。换模型期间不要删旧部署：2026-09-28删掉gpt-5.6-luna-2后，回滚目标落空，RealShort的问答也跟着中断，直到它改用gpt-6-sol才恢复。
 - RealShort改用同一部署的做法：`vercel env update AZURE_OPENAI_DEPLOYMENT production`（值从文件重定向），再对当前生产部署`vercel redeploy`同一提交。RealShort的请求比这里多带`web_search`与`max_tool_calls`，2026-09-28在gpt-6-sol上实测正常。
 - 这把key曾于2026-09-22~23随Vercel CLI部署源码上传过（项目团队只有一人，那四个部署已于2026-09-28删除）。计划改为ggwork用KEY2、RealShort用KEY1，并轮换被上传过的那一把。轮换前先确认两边各自用的是哪一把。
+
+## 模型档位与超时（Railway 变量）
+
+用户决定（2026-09-28）：开思考用high，关思考保持low。档位、输出上限和超时都在Railway的gateway服务变量里调，不改代码、不重新构建。`config.pick.example.yaml`的模型段只写`$PICK_LLM_*`占位，AppConfig加载时解析（嵌套的`when_thinking_enabled.reasoning.effort`同样解析）；入口`pick_entrypoint.py`对没设的变量补默认值，并在写任何文件之前校验取值，填错时部署直接失败并指出变量名，不会拖到每次请求才报错。
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `PICK_LLM_EFFORT_THINKING_ON` | `high` | 开思考时的`reasoning.effort` |
+| `PICK_LLM_EFFORT_THINKING_OFF` | `low` | 关思考时的effort（界面关掉思考时用；选剧台的标题不调模型，`title.model_name`为空） |
+| `PICK_LLM_MAX_OUTPUT_TOKENS` | `32000` | Responses的`max_output_tokens`，推理token也算在里面 |
+| `PICK_LLM_REQUEST_TIMEOUT_SECONDS` | `300` | httpx超时；流式时也是两段字节之间允许的最长静默，推理期间可能一直没有字节 |
+| `PICK_LLM_STREAM_CHUNK_TIMEOUT_SECONDS` | `300` | langchain两段解析后分块之间的最长间隔；SSE keepalive注释不会重置它 |
+| `PICK_RUN_TIMEOUT_SECONDS` | `600` | 整轮上限：宿主watchdog与扩展自己的截止时间（`ggwork_pick/context.py`）读同一个变量 |
+
+- effort取值限`none`、`minimal`、`low`、`medium`、`high`、`xhigh`。在gpt-6-sol上只冒烟过low和high，改成其他值之前先按上节的清单冒烟。
+- GPT-6按题目难度自适应推理：简单问题上`reasoning_tokens=0`，不代表effort没生效。high档在真实多轮工具问题上的token与耗时要上线后实测再定。
+- 数字必须是正数，`PICK_LLM_MAX_OUTPUT_TOKENS`必须是整数。`ModelConfig`把`max_tokens`、`request_timeout`声明成数字字段，占位解析出的字符串在加载时转成数字。langchain-openai会原样保留字符串形式的超时，结果每个请求都报连接错误。
+- 改法：`railway variable set PICK_LLM_MAX_OUTPUT_TOKENS=48000 --service gateway`。一次改好几个时，前面几个加`--skip-deploys`，最后一个触发部署。改变量会自动重新部署（见上节），不用改仓库，也不用重新`railway up`。卷上的yaml只含占位，不用动。要回到默认值，删掉那个变量（`railway variable delete <名字> --service gateway`）。不要为了回退在控制台Rollback：S3之后gateway只能经守卫部署，见[progress.md](progress.md)。
+- 观测：每次模型调用结束，gateway日志都有一行`LLM token usage: input=… output=… total=… output_token_details={'reasoning': N}`，用`railway logs --service gateway`过滤这一行即可。耗时看相邻两行的时间戳。
+- Docker Compose（`docker/docker-compose.pick.yaml`）用相同默认值传这些变量。原生Gateway如果用的是本模板的拷贝，要自己导出这些变量。
+
+### 长回合的超时链
+
+high档一轮最多12次模型调用，单次调用在推理期间可能几分钟没有输出。下表列出其余可能掐断长回合的环节（2026-09-29核对）：
+
+| 环节 | 限制 | 结论 |
+|---|---|---|
+| 浏览器 → Vercel | 同源`/api/langgraph`，Next在构建时写入的rewrite指向Railway（外部rewrite，不经函数，`maxDuration`不适用） | Vercel代理要求120秒内收到首字节，之后每120秒至少有一次数据（[文档](https://vercel.com/docs/routing/rewrites)，[changelog](https://vercel.com/changelog/cdn-origin-timeout-increased-to-two-minutes)）。gateway空闲时每15秒发一次SSE心跳，所以这条不会触发 |
+| Railway边缘 | 单个HTTP请求最长15分钟，连续5分钟没有数据就断开（[文档](https://docs.railway.com/networking/public-networking/specs-and-limits)） | 心跳能防止空闲断开；整轮上限要留在15分钟以内，默认600秒 |
+| 前端 | LangGraph SDK不设超时；主发送用`onDisconnect: "continue"`，断流后服务端继续跑，可以重新加入 | 「重新生成/编辑」没传`onDisconnect`，走服务端默认的cancel，代理断流会取消这一轮（遗留） |
+| LLM重试 | `LLMErrorHandlingMiddleware`对`ReadTimeout`、`StreamChunkTimeoutError`各重试1次；每次重试都经过`PickModelGate`，计入12次调用上限 | 一次超时重试后最坏耗时约为2×`PICK_LLM_REQUEST_TIMEOUT_SECONDS`，仍受整轮上限约束 |
+| OpenAI SDK重试 | `max_retries: 0` | 不重试 |
 
 ## 部署结构
 
