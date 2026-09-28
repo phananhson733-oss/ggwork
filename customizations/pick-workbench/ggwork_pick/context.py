@@ -1,6 +1,8 @@
 """Task-scoped state, tied to the host's authenticated runtime."""
 
 import asyncio
+import math
+import os
 import time
 from dataclasses import dataclass, field
 
@@ -10,12 +12,29 @@ from deerflow_extension_api import TaskInfo, task_store_from_runtime
 from ggwork_pick.pin import Pin
 from ggwork_pick.repository import PickRepository
 
+# A gateway started without PICK_RUN_TIMEOUT_SECONDS has no host watchdog; the turn still ends here.
+DEFAULT_RUN_SECONDS = 120.0
+
+
+def run_seconds() -> float:
+    """The turn's budget: the host's PICK_RUN_TIMEOUT_SECONDS (pick_entrypoint always sets it), checked the host's way."""
+    raw = os.environ.get("PICK_RUN_TIMEOUT_SECONDS")
+    if not raw:
+        return DEFAULT_RUN_SECONDS
+    try:
+        seconds = float(raw)
+    except ValueError:
+        seconds = math.nan
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError("PICK_RUN_TIMEOUT_SECONDS must be finite and positive")
+    return seconds
+
 
 @dataclass
 class PickTask:
     service: object
     info: TaskInfo
-    deadline: float = field(default_factory=lambda: time.monotonic() + 120)
+    deadline: float | None = None
     owner_id: str | None = None
     catalog_id: str | None = None
     knowledge_id: str | None = None
@@ -36,6 +55,11 @@ class PickTask:
     model_calls: int = 0
     tool_calls: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    budget: float = field(default_factory=run_seconds)
+
+    def __post_init__(self) -> None:
+        if self.deadline is None:
+            self.deadline = time.monotonic() + self.budget
 
     def pin(self) -> Pin:
         return Pin(self.catalog_id, self.knowledge_id, self.mirror_version, self.data_as_of)
@@ -46,7 +70,7 @@ class PickTask:
     def remaining(self):
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
-            raise TimeoutError("本轮选剧已达到120秒执行上限")
+            raise TimeoutError(f"本轮选剧已达到{self.budget:g}秒执行上限")
         return remaining
 
     async def repository(self, runtime):

@@ -244,7 +244,7 @@ DEER_FLOW_CONFIG_PATH="$PWD/../config.yaml" UV_EXTRAS=ollama \
 
 宿主 `app/gateway/services.py` 有一处小型接入修改：将用户提交的 `pick_reference` 深拷贝到本轮runtime context，既不赋予权限，也不写入checkpoint configurable。扩展仍逐次检查owner/thread/item归属。保存序号由服务端映射，避免小模型抄错长ID。
 
-LangGraph步数设为1000，因为宿主每轮有多层图节点；实际模型调用≤12、业务工具执行≤8由配置中间件控制。Gateway启动时设置 `PICK_RUN_TIMEOUT_SECONDS=120`。运行层watchdog从worker入口开始覆盖preflight、模型并发等待、重试退避和Agent执行，截止时记录timeout。数据库和检查点的终态收尾仍完成后才结束响应，不强杀正在提交的写入。模型/工具中间件预算继续作为内层限制。
+LangGraph步数设为1000，因为宿主每轮有多层图节点；实际模型调用≤12、业务工具执行≤8由配置中间件控制。Gateway启动时设置 `PICK_RUN_TIMEOUT_SECONDS`（本机Ollama复现用120；云端入口与Compose默认600，扩展自己的截止时间读同一个变量，见 [azure-cloud-deployment.md](azure-cloud-deployment.md)「模型档位与超时」）。运行层watchdog从worker入口开始覆盖preflight、模型并发等待、重试退避和Agent执行，截止时记录timeout。数据库和检查点的终态收尾仍完成后才结束响应，不强杀正在提交的写入。模型/工具中间件预算继续作为内层限制。
 
 ## 独立验收和备份
 
@@ -272,4 +272,4 @@ PICK_RUN_TIMEOUT_SECONDS=120 PICK_OLLAMA_BASE_URL=http://127.0.0.1:11434 \
 .venv/bin/python -m uvicorn app.gateway.app:app --host 127.0.0.1 --port 8007
 ```
 
-期限只取服务端启动环境；请求context/config里的同名值不会放宽预算。该变量未设置时保留上游行为，因此复现个人工作台时不要省略。Docker pick Compose已固定设为120。独立真实Gateway以2秒期限实测，客户端尝试9999秒仍在2.19秒进入timeout，额外时间为必要收尾。
+期限只取服务端启动环境；请求context/config里的同名值不会放宽预算。该变量未设置时宿主保留上游行为（不限时），扩展仍按120秒截止，因此复现个人工作台时不要省略。Docker pick Compose默认600，可在 `.env` 覆盖。根 `config.yaml` 如果仍是 `config.pick.example.yaml` 的Azure模型段，还要导出 `PICK_LLM_*` 五个变量（取值同云端默认），否则加载配置时报 `Environment variable PICK_LLM_… not found`。独立真实Gateway以2秒期限实测，客户端尝试9999秒仍在2.19秒进入timeout，额外时间为必要收尾。
