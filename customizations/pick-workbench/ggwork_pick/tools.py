@@ -71,7 +71,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
     theater是剧场名(ReelShort等)，不是地区；剧库没有地区字段，美国/US等地区按语种查(美国=language=en)。语种用en/ko等代码。
     剧库里没有的剧场、语种、标签、信号种类、账号会被拒绝(status=rejected)并说明可选值，按提示改条件重查。
     默认排除已选和已下架；渠道明确可发要求规则允许。
-    看某张榜单：signal_kind=榜单种类(如kd)，sort=rank按名次。要“热门/上过榜”但没指定哪张榜：hot_only=true。
+    只要有某类依据：signal_kind=种类(如kd)；按名次看某张榜再加sort=rank(只有kd/qc/qr有名次)。要“热门/上过榜”但没指定哪张榜：hot_only=true。
     团队没发过：exclude_posted=true；某账号没发过：posted_account=账号名。
     exclude_previous=true表示换一批：沿用绑定候选的条件和数据版本，排除它已给出的剧。use_latest=true仅用于用户明确要求最新资料。
     返回持久化的result_id、有序items、matched_total(符合条件总数)、依据、data_as_of(数据时点)；不可自行重排编号。
@@ -84,7 +84,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
         await _pin_latest(task, repo)
     if task.catalog_id is None:
         return _catalog_unavailable()
-    requested = PickConditions.model_validate(filters).model_dump(exclude_unset=True)
+    requested = PickConditions.model_validate(filters).requested()
 
     async def work():
         result, record = await SelectionService(repo).query_with_record(
@@ -120,7 +120,7 @@ async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> st
     repo = await task.repository(runtime)
     if task.catalog_id is None:
         return _catalog_unavailable()
-    requested = PickConditions.model_validate(filters).model_dump(exclude_unset=True)
+    requested = PickConditions.model_validate(filters).requested()
 
     async def work():
         parent = await _bound_parent(task, repo, requested)
@@ -229,4 +229,9 @@ async def search_knowledge_tool(query: str, runtime: Runtime) -> str:
             )
         )
     matches.sort(key=lambda pair: (-pair[0], pair[1]["document_id"]))
+    if not matches:
+        # Words match whole: a joined phrase ("KalosTV日榜") misses what its parts would find.
+        return json.dumps(
+            {"documents": [], "notice": "关键词没有命中，不代表没有这类资料；按剧场名或空格分开的短词（如“KalosTV 日榜”）重查。"}, ensure_ascii=False
+        )
     return json.dumps({"documents": [doc for _, doc in matches[:5]]}, ensure_ascii=False)

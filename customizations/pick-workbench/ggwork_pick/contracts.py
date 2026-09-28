@@ -156,9 +156,16 @@ class PickConditions(StrictInput):
         dumped = handler(self)
         if isinstance(dumped, dict):
             for name in self.OMIT_AT_DEFAULT:
-                if name in dumped and getattr(self, name) == type(self).model_fields[name].default:
+                if name in dumped and getattr(self, name) == type(self).model_fields[name].get_default(call_default_factory=True):
                     del dumped[name]
         return dumped
+
+    def requested(self) -> dict:
+        """The fields the caller set, to merge over a bound card's conditions for 换一批. model_dump leaves out an
+        OMIT_AT_DEFAULT field at its default even when set, which would lose an explicit hot_only=false meant to lift a
+        hot parent's filter; the stored form still leaves it out."""
+        explicit = {name: getattr(self, name) for name in self.OMIT_AT_DEFAULT if name in self.model_fields_set}
+        return {**self.model_dump(exclude_unset=True), **explicit}
 
     @property
     def filters_posted(self) -> bool:

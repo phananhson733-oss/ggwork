@@ -156,12 +156,22 @@ def matching_rows(rows, conditions: PickConditions, excluded: set[str], *, check
     return matches
 
 
+# Every PickConditions field is either taken away one at a time by zero_diagnosis or listed as not narrowing the match
+# by itself (the exclusions come back as one "excluded" step); test_every_condition_field_is_classified keeps a new
+# field from being left out of the diagnosis unnoticed.
+DIAGNOSED_FIELDS = (
+    "theater", "language", "channel", "confirmed_eligible_only", "query", "tags", "signal_kind", "sort", "hot_only",
+    "exclude_posted", "posted_account",
+)  # fmt: skip
+UNDIAGNOSED_FIELDS = frozenset({"limit", "exclude_selected", "exclude_previous"})
+
+
 def _relaxations(conditions: PickConditions, excluded):
     """(condition, value, conditions without it, exclusions without it) for each narrowing condition, fixed order."""
     steps = []
 
-    def without(name, value, **update):
-        steps.append((name, value, conditions.model_copy(update=update), excluded))
+    def without(name, value, *, also=(), **update):
+        steps.append((name, value, conditions.model_copy(update=update), excluded, also))
 
     if conditions.theater:
         without("theater", conditions.theater, theater=None)
@@ -176,7 +186,9 @@ def _relaxations(conditions: PickConditions, excluded):
     if conditions.tags:
         without("tags", list(conditions.tags), tags=[])
     if conditions.signal_kind:
-        without("signal_kind", conditions.signal_kind, signal_kind=None, sort="evidence_date")
+        # sort=rank needs a kind: it goes too, and the step says so.
+        also = ("sort",) if conditions.sort == "rank" else ()
+        without("signal_kind", conditions.signal_kind, also=also, signal_kind=None, sort="evidence_date")
     if conditions.sort == "rank":
         without("sort", "rank", sort="evidence_date")
     if conditions.hot_only:
@@ -187,8 +199,17 @@ def _relaxations(conditions: PickConditions, excluded):
         without("posted_account", conditions.posted_account, posted_account=None)
     if excluded:
         # Personal selections and 换一批's previous items together: the stored result keeps only their union.
-        steps.append(("excluded", len(excluded), conditions, frozenset()))
+        steps.append(("excluded", len(excluded), conditions, frozenset(), ()))
     return steps
+
+
+def _relaxed_count(rows, relaxed: PickConditions, excluded) -> dict:
+    """One step's count. Taking a condition away can reach rows the query never checked for publication records (the
+    query stopped at the title): that step cannot be counted, and must not turn the query's own zero into a refusal."""
+    try:
+        return {"matched_total": len(_filtered(rows, relaxed, excluded))}
+    except PostedDataUnavailable:
+        return {"matched_total": None, "unavailable": "去掉这一项后会碰到没有发布记录的剧，数不出来"}
 
 
 def zero_diagnosis(rows, conditions: PickConditions, excluded) -> dict:
@@ -198,10 +219,11 @@ def zero_diagnosis(rows, conditions: PickConditions, excluded) -> dict:
         "catalog_rows": len(rows),
         "delisted_rows": sum(1 for row in rows if row["availability"] == "delisted"),
         "without_each": [
-            {"condition": name, "value": value, "matched_total": len(_filtered(rows, relaxed, relaxed_excluded))}
-            for name, value, relaxed, relaxed_excluded in _relaxations(conditions, excluded)
+            {"condition": name, "value": value, **({"also_removed": list(also)} if also else {}), **_relaxed_count(rows, relaxed, rest)}
+            for name, value, relaxed, rest, also in _relaxations(conditions, excluded)
         ],
-        "note": "结果为0。matched_total是只去掉这一项、其余条件不变时的部数；每项都是0说明要同时放宽几项。已下架的剧始终不计入。",
+        "note": "结果为0。matched_total是去掉这一项（连同also_removed列出的项）、其余条件不变时的部数；"
+        "每项都是0说明要同时放宽几项。excluded是个人已选与换一批排除的剧合计。已下架的剧始终不计入。",
     }
 
 
