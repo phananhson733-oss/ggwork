@@ -101,6 +101,8 @@ function board(patch: Partial<BannerBoard> = {}): BannerBoard {
       agentCatalogBatchId: "b-cat",
       agentKnowledgeBatchId: "b-kn",
     },
+    freshness: null,
+    postedImportedAt: null,
     warnings: [],
     requestedV: 7,
     pinned: false,

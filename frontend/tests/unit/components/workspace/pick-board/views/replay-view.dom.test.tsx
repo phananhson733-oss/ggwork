@@ -231,7 +231,7 @@ describe("the list", () => {
     expect(screen.getByText(/第 3 页不存在/)).toBeTruthy();
   });
 
-  it("links leave the replay without its result, except the pager's", () => {
+  it("explicit navigation leaves the replay; details and pagination preserve it", () => {
     const { data, req } = rowsData(answer(), {
       conditions: {
         ...CASES.conditions,
@@ -245,11 +245,12 @@ describe("the list", () => {
     expect(internal.length).toBeGreaterThan(5);
     for (const href of internal) {
       expect(href).toMatch(/^\/workspace\/pick-data\?(?:.*&)?v=7(?:&|$)/);
-      if (href.includes("result=")) expect(href).not.toContain("tab=");
+      if (href.includes("result=") && href.includes("tab="))
+        expect(href).toContain("tab=row");
     }
     const rowLinks = internal.filter((h) => h.includes("tab=row"));
     expect(rowLinks.length).toBeGreaterThan(0);
-    for (const href of rowLinks) expect(href).not.toContain("result=");
+    for (const href of rowLinks) expect(href).toContain("result=");
     for (const link of Array.from(root.querySelectorAll("[data-prefetch]")))
       expect(link.getAttribute("data-prefetch")).toBe("false");
   });

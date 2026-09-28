@@ -54,7 +54,7 @@ function controlQuery(lookup: number) {
      SELECT through, trimmed_before FROM pick_mirror.series_state WHERE id = 1) s) AS series_state`;
 }
 
-const META_QUERY = sql`SELECT key, value FROM meta WHERE key IN ('rules', 'sources')`;
+const META_QUERY = sql`SELECT key, value FROM meta WHERE key IN ('rules', 'sources', 'control')`;
 
 const versionRow = {
   id: z.number().int().positive(),
@@ -122,6 +122,8 @@ export type ReadyBoard<R> = Readonly<{
   warnings: readonly VersionWarning[];
   /** meta.sources, verbatim; null when the version has none. */
   sources: unknown;
+  /** 运营发布记录自己的导入时间，不能拿剧单或镜像采集时间代替。 */
+  postedImportedAt: string | null;
   series: SeriesState | null;
   /** The v of the URL, as given. */
   requestedV: number | null;
@@ -298,6 +300,7 @@ async function resolveOnce<R>(
   const { row, flags } = choose({ ...control, current }, v);
   const meta = await readMeta(readers.versionDb(row.schema_name));
   const rules = buildOrMisconfigured(buildRules, meta.get("rules"), row.id);
+  const postedAt = record(record(meta.get("control"))?.postedStats)?.importedAt;
   return Object.freeze({
     state: "ready",
     scope: {
@@ -311,6 +314,7 @@ async function resolveOnce<R>(
     freshness: record(row.freshness),
     warnings: warningsOf(row.warnings),
     sources: meta.get("sources") ?? null,
+    postedImportedAt: typeof postedAt === "string" ? postedAt : null,
     series: seriesOf(control),
     requestedV: v,
     ...flags,

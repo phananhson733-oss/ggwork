@@ -17,6 +17,21 @@ const RULES = { platformRules: { reelshort: { doc: "/admin/pick?tab=rank" } } };
 const SOURCES = { bill: { source: "bill", status: "success" } };
 const SERIES = { through: "2026-09-23", trimmed_before: "2026-06-25" };
 
+it("reads the posted import time from the chosen version, independent of catalog freshness", async () => {
+  const { deps } = readers([control(currentRow())], () => [
+    { key: "rules", value: RULES },
+    {
+      key: "control",
+      value: { postedStats: { importedAt: "2026-09-20T02:00:00Z" } },
+    },
+  ]);
+  const result = await resolveVersion(null, (raw) => raw, deps);
+  expect(result).toMatchObject({
+    state: "ready",
+    postedImportedAt: "2026-09-20T02:00:00Z",
+  });
+});
+
 function schemaOf(id: number): string {
   return `pickm_v${String(id).padStart(6, "0")}`;
 }

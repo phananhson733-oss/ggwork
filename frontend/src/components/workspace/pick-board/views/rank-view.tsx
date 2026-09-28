@@ -11,7 +11,7 @@ import {
 } from "@/components/workspace/pick-board/toolbar";
 import type { GrowthEmptyReason } from "@/core/pick-board/growth-diagnosis";
 import type { Sort as RsSort } from "@/core/pick-board/metrics";
-import type { PickRequest } from "@/core/pick-board/request";
+import { isDailyRank, type PickRequest } from "@/core/pick-board/request";
 import type { BoardRules } from "@/core/pick-board/rules";
 import type { GrowthDiagnosis, RankMeta } from "@/server/pick-board";
 
@@ -106,9 +106,27 @@ function GrowthEmpty({
 
 function TheaterRank({ board, meta, req, ctx }: Props<Theater>) {
   const { rows, total, hasMore } = board.page;
+  const latest = isDailyRank(board.rank)
+    ? meta.days[0]
+    : board.rank === "kw"
+      ? meta.weeks[0]?.start
+      : undefined;
+  const days = board.rank === "kw" ? 14 : 2;
+  const stale =
+    latest &&
+    ctx.asOf.getTime() - Date.parse(`${latest}T00:00:00Z`) > days * 86400_000;
   return (
     <>
       <RankFilters req={req} meta={meta} rules={ctx.rules} />
+      {stale ? (
+        <p
+          role="alert"
+          className="border-warning-line bg-warning-surface text-warning-ink mb-3 rounded-md border px-3 py-2 text-sm"
+        >
+          本版本最新榜期为 {latest}，采集时已超过 {days}{" "}
+          天。请按历史榜参考，不能作为当前热门依据；镜像同步不会刷新上游榜单。
+        </p>
+      ) : null}
       <p className={NOTE}>
         {rankNote(board.rank, meta)} 榜单 tab
         一律含已下架的行（行上标「下架」）：那一天的榜是历史事实。

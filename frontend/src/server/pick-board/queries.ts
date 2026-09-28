@@ -15,6 +15,7 @@ import {
   PLATFORMS,
   reelshortId,
   RS_ROW_PREFIX,
+  UNKNOWN_LANGUAGE,
   type Basis,
   type PickRequest,
   type Platform,
@@ -121,7 +122,8 @@ function filtersFor(
   if (poolOnly) f.push(sql`rows.has_signal`);
   if (!req.withOff) f.push(sql`rows.off_on IS NULL`);
   if (skip !== "platform") f.push(...platformFilter(req));
-  if (req.lang && skip !== "lang") f.push(sql`rows.lang = ${req.lang}`);
+  if (req.lang && skip !== "lang")
+    f.push(sql`rows.lang = ${req.lang === UNKNOWN_LANGUAGE ? "" : req.lang}`);
   if (req.basis && skip !== "basis") f.push(basisFilter(req.basis));
   if (req.posted && skip !== "posted") f.push(POSTED_WHERE[req.posted]);
   if (req.youtubeOk) f.push(youtubeFilter());
