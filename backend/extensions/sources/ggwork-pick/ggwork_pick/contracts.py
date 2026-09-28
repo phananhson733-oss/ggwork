@@ -3,9 +3,9 @@
 import json
 import re
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_serializer, model_validator
 from pydantic_core import PydanticCustomError
 
 # NUL and lone surrogates. PostgreSQL text refuses NUL; asyncpg, psycopg and sqlite3 encode strictly and cannot
@@ -120,8 +120,14 @@ class DramaInput(StrictInput):
 
 
 class PickConditions(StrictInput):
-    theater: str | None = Field(default=None, max_length=100)
-    language: str | None = Field(default=None, max_length=40)
+    theater: str | None = Field(
+        default=None, max_length=100, description="剧场名，如ReelShort、ShortMax、KalosTV；不是地区或国家。剧库里没有的剧场会被拒绝并列出可选剧场。"
+    )
+    language: str | None = Field(
+        default=None,
+        max_length=40,
+        description="语种代码，如en、ko、ja。剧库没有地区字段：用户说美国/US/北美等地区时按语种近似（美国=en），回答里说明是按语种近似。",
+    )
     channel: Literal["youtube", "tiktok", "facebook"] | None = None
     query: str | None = Field(default=None, max_length=200)
     tags: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=20)
@@ -135,6 +141,31 @@ class PickConditions(StrictInput):
     )
     exclude_posted: bool = Field(default=False, description="排除团队发布记录里已发过（post_count>0）的剧。用户说账号/团队没发过时使用。")
     posted_account: str | None = Field(default=None, max_length=200, description="排除发布记录里该账号发过的剧，账号名原样传入。")
+    hot_only: bool = Field(
+        default=False,
+        description="只要带热门依据的剧：剧场侧的榜单、评级、剧单或运营备注（kd/kw/qc/qr/sm/smd/mg/fh/sh/gh/gn/ghh/dbn）。"
+        "ReelShort本站行为（clk出站、bill预估订单、gsc搜索）不算。用户要“热门/上过榜”但没指定哪张榜时用它；指定某张榜用signal_kind。",
+    )
+
+    # Added after cards were stored: kept out of conditions_json while at their default, so a card that does not use
+    # them has the shape it always had (the frontend parses conditions strictly) and so does a repeated call's hash.
+    OMIT_AT_DEFAULT: ClassVar[tuple[str, ...]] = ("hot_only",)
+
+    @model_serializer(mode="wrap")
+    def _omit_new_fields_at_default(self, handler):
+        dumped = handler(self)
+        if isinstance(dumped, dict):
+            for name in self.OMIT_AT_DEFAULT:
+                if name in dumped and getattr(self, name) == type(self).model_fields[name].get_default(call_default_factory=True):
+                    del dumped[name]
+        return dumped
+
+    def requested(self) -> dict:
+        """The fields the caller set, to merge over a bound card's conditions for 换一批. model_dump leaves out an
+        OMIT_AT_DEFAULT field at its default even when set, which would lose an explicit hot_only=false meant to lift a
+        hot parent's filter; the stored form still leaves it out."""
+        explicit = {name: getattr(self, name) for name in self.OMIT_AT_DEFAULT if name in self.model_fields_set}
+        return {**self.model_dump(exclude_unset=True), **explicit}
 
     @property
     def filters_posted(self) -> bool:

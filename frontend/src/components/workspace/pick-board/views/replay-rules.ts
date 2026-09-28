@@ -247,6 +247,8 @@ const AGENT_ONLY_LABELS: Readonly<Record<string, string>> = {
   query: "搜索词（智能体搜剧名加标签，本页搜剧名或精确的行键）",
   exclude_selected: "排除个人清单里已保存的剧",
   exclude_previous: "换一批：排除上一批展示过的",
+  hot_only:
+    "只要热门依据（剧场榜单、评级、剧单或备注；ReelShort 的出站、订单、搜索不算）",
   // The seven observation fields (plan TR-16, contract TR-33): only the agent filters by them.
   ...OBS_CONDITION_LABELS,
 };
@@ -294,6 +296,7 @@ export function agentOnlyConditions(c: PickConditions): string[] {
     ["query", Boolean(c.query)],
     ["exclude_selected", c.exclude_selected],
     ["exclude_previous", c.exclude_previous === true],
+    ["hot_only", c.hot_only === true],
     // UNMAPPABLE_OBS_ORDER, each when truthy (unmappable_cases.json)
     ...OBS_CONDITION_FIELDS.map((name): [string, boolean] => [
       name,

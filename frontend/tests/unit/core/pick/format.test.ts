@@ -83,6 +83,17 @@ describe("pick display lines", () => {
       ),
     ).toBeNull();
   });
+  it("names hot_only between the board and the posted filters", () => {
+    expect(
+      conditionsLine({
+        limit: 5,
+        exclude_selected: false,
+        language: "en",
+        hot_only: true,
+        exclude_posted: true,
+      }),
+    ).toBe("全部剧场 · en · 包含我的已选 · 只要热门依据 · 排除团队已发");
+  });
   it("spells out posted and rank filters", () => {
     expect(
       conditionsLine({

@@ -248,6 +248,34 @@ async def test_replay_of_conditions_this_code_refuses_is_a_conflict(app_client):
 
 
 @pytest.mark.asyncio
+async def test_replay_of_a_value_a_later_check_refuses_reruns_instead_of_conflicting(app_client):
+    """09-28's theater="US" results were stored before theaters were checked: they replay to their zero, not a 409."""
+    client, service = app_client
+    await _import(service, _catalog(3))
+    result = await _query(service, {}, "c1")
+    stored = (await _alice(service).result(result["id"]))["conditions_json"]
+    for call_id, value in (("c2", {"theater": "US"}), ("c3", {"language": "USA"}), ("c4", {"tags": ["美国"]}), ("c5", {"query": "US"})):
+        with pytest.raises(ValueError):
+            await _query(service, value, call_id)
+        await _set(service, result["id"], conditions_json={**stored, **value}, ordered_items_json=[])
+        response = await _replay(client, result["id"])
+        assert response.status_code == 200 and response.json()["total"] == 0, value
+
+
+@pytest.mark.asyncio
+async def test_replay_of_a_hot_only_result_is_its_query(app_client):
+    client, service = app_client
+    rows = json.loads(_catalog(4))
+    rows[0]["signals"] = [{"kind": "clk", "source_ref": "ref:clk", "observed_at": "2026-09-28"}]
+    await _import(service, json.dumps(rows, ensure_ascii=False).encode())
+    result = await _query(service, {"hot_only": True, "limit": 2}, "c1")
+    body = (await _replay(client, result["id"])).json()
+    assert body["total"] == result["matched_total"] == 3 and body["ranking_reproducible"] is True
+    assert body["shown"] == [item["identity"] for item in result["items"]]
+    assert body["unmappable"] == ["exclude_selected", "hot_only"]
+
+
+@pytest.mark.asyncio
 async def test_replay_code_bugs_stay_errors_not_a_not_found(app_client, monkeypatch):
     from ggwork_pick import selection
 
