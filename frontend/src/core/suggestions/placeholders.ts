@@ -5,9 +5,11 @@
  * defined in the i18n locale files (e.g., zh-CN.ts, en-US.ts).
  *
  * Update this pattern whenever new placeholder tokens are added to templates.
+ * A token that is the text of a Markdown link, inline "[t](https://…)" or
+ * reference "[t][ref]", is not a placeholder; a bare "(" after it still is.
  */
 export const SUGGESTION_TEMPLATE_PLACEHOLDER_PATTERN =
-  /\[(?:主题|来源|topic|source)\]/i;
+  /\[(?:剧场|账号名|剧名|theater|account|drama title)\](?!\((?:https?:|mailto:|\/|#)[^\s)]*\)|\[[^\]\s]+\])/i;
 
 /**
  * Locates an unreplaced suggestion template placeholder in the given text.

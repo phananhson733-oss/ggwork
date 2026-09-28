@@ -2,11 +2,11 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
-  CalendarDaysIcon,
+  CalculatorIcon,
+  CalendarRangeIcon,
   CopyIcon,
-  FlameIcon,
-  NewspaperIcon,
-  TagIcon,
+  ListChecksIcon,
+  ListOrderedIcon,
   TriangleAlertIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -71,10 +71,10 @@ import { cn } from "@/lib/utils";
 const NONE = "—";
 
 const RECIPE_ICONS: Record<RecipeTitleKey, LucideIcon> = {
-  trending: FlameIcon,
-  news: NewspaperIcon,
-  issues: TagIcon,
-  weekly: CalendarDaysIcon,
+  dailyCandidates: ListChecksIcon,
+  kdDaily: ListOrderedIcon,
+  kwWeekly: CalendarRangeIcon,
+  poolWeekly: CalculatorIcon,
 };
 
 function RecipeIcon({ titleKey }: { titleKey: RecipeTitleKey }) {

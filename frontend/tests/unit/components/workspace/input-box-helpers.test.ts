@@ -506,12 +506,14 @@ describe("goal request lifecycle", () => {
 });
 
 describe("findSuggestionTemplatePlaceholder", () => {
-  it("locates a topic/source placeholder", () => {
-    const found = findSuggestionTemplatePlaceholder("Research [topic] deeply");
+  it("locates a theater placeholder", () => {
+    const found = findSuggestionTemplatePlaceholder(
+      "Find dramas from [theater] only",
+    );
     expect(found).not.toBeNull();
     expect(
-      found && "Research [topic] deeply".slice(found.start, found.end),
-    ).toBe("[topic]");
+      found && "Find dramas from [theater] only".slice(found.start, found.end),
+    ).toBe("[theater]");
   });
 
   it("returns null when no placeholder is present", () => {

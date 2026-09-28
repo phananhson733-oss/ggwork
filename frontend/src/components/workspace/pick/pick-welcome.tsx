@@ -2,16 +2,11 @@
 
 import Link from "next/link";
 
-import { usePromptInputController } from "@/components/ai-elements/prompt-input";
 import { Eyebrow } from "@/components/brand/eyebrow";
 
-const SUGGESTIONS = [
-  "找5部英语剧，排除我已经选过的",
-  "看看DramaBox的英语剧",
-] as const;
-
+// The pick quick actions live in the composer's suggestion row
+// (inputBox.suggestions), so this header carries none of its own.
 export function PickWelcome() {
-  const { textInput } = usePromptInputController();
   return (
     // Anchored above the welcome composer and grows upward, so no bottom
     // padding: the composer header already leaves the 28px gap.
@@ -23,18 +18,6 @@ export function PickWelcome() {
       <p className="text-muted-foreground text-sm leading-[1.65]">
         结合你的剧库和规则，找到有依据的候选，继续追问，再保存到个人清单。
       </p>
-      <div className="flex flex-wrap justify-center gap-2">
-        {SUGGESTIONS.map((text) => (
-          <button
-            key={text}
-            type="button"
-            onClick={() => textInput.setInput(text)}
-            className="border-line bg-surface text-ink-2 hover:bg-hover focus-visible:border-link focus-visible:ring-brand-soft rounded-full border px-3 py-1.5 text-[12.5px] transition-colors outline-none focus-visible:ring-[3px]"
-          >
-            {text}
-          </button>
-        ))}
-      </div>
       <Link
         href="/workspace/pick-data?tab=imports"
         className="text-link inline-block text-xs hover:underline"

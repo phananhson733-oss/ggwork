@@ -5,12 +5,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ChatStatus } from "ai";
 import {
   CheckIcon,
+  EllipsisIcon,
   GraduationCapIcon,
   LightbulbIcon,
   Loader2Icon,
   MicIcon,
   PaperclipIcon,
-  PlusIcon,
   RocketIcon,
   SparklesIcon,
   SquareIcon,
@@ -3032,13 +3032,12 @@ function SuggestionList({
     },
     [textInput, onSelectPlaceholder],
   );
+  // Radix returns focus to the More trigger once the menu has closed, which
+  // would pull it off the placeholder the composer just selected. Skip that
+  // only when an item was chosen; Escape still returns focus to the trigger.
+  const moreItemChosenRef = useRef(false);
   return (
     <Suggestions className="min-h-16 w-full max-w-full justify-center px-4 sm:w-fit sm:px-0">
-      <Suggestion
-        icon={SparklesIcon}
-        suggestion={t.inputBox.surpriseMe}
-        onClick={() => handleSuggestionClick(t.inputBox.surpriseMePrompt)}
-      />
       {t.inputBox.suggestions.map((suggestion) => (
         <Suggestion
           key={suggestion.suggestion}
@@ -3049,18 +3048,32 @@ function SuggestionList({
       ))}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Suggestion icon={PlusIcon} suggestion={t.common.create} />
+          <Suggestion
+            icon={EllipsisIcon}
+            suggestion={t.inputBox.suggestionsMoreLabel}
+          />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
+        <DropdownMenuContent
+          align="start"
+          onCloseAutoFocus={(event) => {
+            if (moreItemChosenRef.current) {
+              moreItemChosenRef.current = false;
+              event.preventDefault();
+            }
+          }}
+        >
           <DropdownMenuGroup>
-            {t.inputBox.suggestionsCreate.map((suggestion, index) =>
+            {t.inputBox.suggestionsMore.map((suggestion, index) =>
               "type" in suggestion && suggestion.type === "separator" ? (
                 <DropdownMenuSeparator key={index} />
               ) : (
                 !("type" in suggestion) && (
                   <DropdownMenuItem
                     key={suggestion.suggestion}
-                    onClick={() => handleSuggestionClick(suggestion.prompt)}
+                    onClick={() => {
+                      moreItemChosenRef.current = true;
+                      handleSuggestionClick(suggestion.prompt);
+                    }}
                   >
                     {suggestion.icon && <suggestion.icon className="size-4" />}
                     {suggestion.suggestion}

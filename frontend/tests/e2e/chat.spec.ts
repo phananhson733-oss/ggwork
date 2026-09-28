@@ -1037,9 +1037,9 @@ test.describe("Chat workspace", () => {
     const textarea = page.getByPlaceholder(/how can i assist you/i);
     await expect(textarea).toBeVisible({ timeout: 15_000 });
 
-    await page.getByRole("button", { name: /research/i }).click();
+    await page.getByRole("button", { name: "By theater", exact: true }).click();
     await expect(textarea).toHaveValue(
-      "Conduct a deep dive research on [topic], and summarize the findings.",
+      "Find 5 English (en) dramas from [theater], excluding ones I have already picked; if the catalog has no such theater, list the available theaters instead of switching to another",
     );
 
     await textarea.press("Enter");
@@ -1047,7 +1047,7 @@ test.describe("Chat workspace", () => {
 
     expect(streamCalled).toBe(false);
     await expect(textarea).toHaveValue(
-      "Conduct a deep dive research on [topic], and summarize the findings.",
+      "Find 5 English (en) dramas from [theater], excluding ones I have already picked; if the catalog has no such theater, list the available theaters instead of switching to another",
     );
     await expect
       .poll(
@@ -1058,11 +1058,11 @@ test.describe("Chat workspace", () => {
           }),
         { timeout: 5_000 },
       )
-      .toBe("[topic]");
+      .toBe("[theater]");
 
-    await textarea.pressSequentially("AI agents");
+    await textarea.pressSequentially("DramaBox");
     await expect(textarea).toHaveValue(
-      "Conduct a deep dive research on AI agents, and summarize the findings.",
+      "Find 5 English (en) dramas from DramaBox, excluding ones I have already picked; if the catalog has no such theater, list the available theaters instead of switching to another",
     );
 
     await textarea.press("Enter");
@@ -1071,8 +1071,70 @@ test.describe("Chat workspace", () => {
     await expect
       .poll(() => submittedText, { timeout: 10_000 })
       .toBe(
-        "Conduct a deep dive research on AI agents, and summarize the findings.",
+        "Find 5 English (en) dramas from DramaBox, excluding ones I have already picked; if the catalog has no such theater, list the available theaters instead of switching to another",
       );
+  });
+
+  test("offers drama-picking quick actions instead of the upstream ones", async ({
+    page,
+  }) => {
+    await page.goto("/workspace/chats/new");
+
+    const textarea = page.getByPlaceholder(/how can i assist you/i);
+    await expect(textarea).toBeVisible({ timeout: 15_000 });
+
+    const suggestions = page.locator("[data-slot='suggestions-list']");
+    await expect(suggestions).toHaveCount(1);
+    for (const name of [
+      "Find candidates",
+      "By theater",
+      "KalosTV daily",
+      "Exclude by account",
+      "More",
+    ]) {
+      await expect(
+        suggestions.getByRole("button", { name, exact: true }),
+      ).toBeVisible();
+    }
+    for (const retired of ["Surprise", "Research", "Create"]) {
+      await expect(
+        suggestions.getByRole("button", { name: retired, exact: true }),
+      ).toHaveCount(0);
+    }
+
+    const more = suggestions.getByRole("button", { name: "More", exact: true });
+    // Closing without a choice still returns focus to the trigger.
+    await more.click();
+    await expect(page.getByRole("menuitem")).toHaveCount(4);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(more).toBeFocused();
+
+    await more.click();
+    await page.getByRole("menuitem", { name: "Look up a drama" }).click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(textarea).toHaveValue(
+      "Look up 《[drama title]》 in the candidate pool and list its evidence; for posting records, state as recorded whether it matched and its post count; do not exclude ones I have already picked",
+    );
+    // The menu hands focus back to its trigger when it closes unless an item
+    // was chosen; the placeholder must stay selected in a focused textarea.
+    await expect(textarea).toBeFocused();
+    await expect
+      .poll(
+        () =>
+          textarea.evaluate((element) => {
+            const input = element as HTMLTextAreaElement;
+            return input.value.slice(input.selectionStart, input.selectionEnd);
+          }),
+        { timeout: 5_000 },
+      )
+      .toBe("[drama title]");
+    // page.keyboard types into whatever has focus, so this fails if the
+    // trigger took focus back.
+    await page.keyboard.type("Moonlight Vendetta");
+    await expect(textarea).toHaveValue(
+      "Look up 《Moonlight Vendetta》 in the candidate pool and list its evidence; for posting records, state as recorded whether it matched and its post count; do not exclude ones I have already picked",
+    );
   });
 
   test("slash skill command is submitted as normal chat text", async ({
