@@ -507,9 +507,10 @@ export default function AgentChatPage() {
                     </div>
                   )}
                   {isWelcomeMode && !hasGoal && !hasTodos && (
-                    // The margin matches the composer's welcome-mode lift
-                    // below, so the block still sits flush on the composer.
-                    <div className="mb-2 sm:mb-4">
+                    // The margin is the composer's welcome-mode lift below
+                    // plus the gap InputBox's extraHeader slot leaves
+                    // (pb-4 sm:pb-7), keeping the original spacing.
+                    <div className="mb-6 sm:mb-11">
                       <AgentWelcome agent={agent} agentName={agent_name} />
                     </div>
                   )}
