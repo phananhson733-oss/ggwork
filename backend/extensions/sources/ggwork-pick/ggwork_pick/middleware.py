@@ -106,7 +106,7 @@ async def _record_checks(response, task, request) -> None:
     if text is None or last.tool_calls:
         return
     known = task.known_titles | _user_titles(request.messages)
-    notes = check_answer(text, known_titles=known, posted_checked=task.posted_checked)
+    notes = check_answer(text, known_titles=known, posted_checked=task.posted_checked, posted_seen=task.posted_seen)
     if not notes:
         return
     repo = await task.repository(request.runtime)

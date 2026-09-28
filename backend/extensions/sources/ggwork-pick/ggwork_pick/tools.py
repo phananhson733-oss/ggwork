@@ -7,8 +7,10 @@ from deerflow.tools.types import Runtime
 from langchain.tools import tool
 from pydantic import Field
 
+from ggwork_pick.answer_check import with_posted
 from ggwork_pick.context import task_from_runtime
 from ggwork_pick.contracts import PickConditions
+from ggwork_pick.knowledge_excerpts import excerpt_spans
 from ggwork_pick.selection import PostedDataUnavailable, SelectionService
 
 
@@ -99,6 +101,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
         )
         task.produced_result_ids.add(result["id"])
         task.known_titles.update(item["title"] for item in result["items"])
+        task.posted_seen = with_posted(task.posted_seen, result["items"])
         if PickConditions.model_validate(result["conditions"]).filters_posted:
             task.posted_checked = True
         # What the result froze, also on a repeated call after a later publish rewrote its batch (P2-8a, U51); with the
@@ -155,6 +158,7 @@ async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) 
         task, repo, record = await _owned_result(runtime, result_id)
         detail = await SelectionService(repo).detail(result_id, item_id)
         task.known_titles.add(detail["item"]["title"])
+        task.posted_seen = with_posted(task.posted_seen, [detail["item"]])
         data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
         return json.dumps({**detail, "data_as_of": data_as_of}, ensure_ascii=False)
 
@@ -212,9 +216,7 @@ async def search_knowledge_tool(query: str, runtime: Runtime) -> str:
         score = sum(word in haystack for word in words)
         if words and not score:
             continue
-        positions = [doc["text"].casefold().find(word) for word in words if word in doc["text"].casefold()]
-        start = max(0, min(positions, default=0) - 100)
-        matches.append(
+        matches.extend(
             (
                 score,
                 dict(
@@ -225,9 +227,10 @@ async def search_knowledge_tool(query: str, runtime: Runtime) -> str:
                     source_ref=doc["source_ref"],
                     content_hash=doc["content_hash"],
                     line_start=doc["text"].count("\n", 0, start) + 1,
-                    excerpt=doc["text"][start : start + 1600],
+                    excerpt=doc["text"][start:end],
                 ),
             )
+            for start, end in excerpt_spans(doc["text"], words)
         )
     matches.sort(key=lambda pair: (-pair[0], pair[1]["document_id"]))
     if not matches:
