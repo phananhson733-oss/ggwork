@@ -73,7 +73,8 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
     默认排除已选和已下架；渠道明确可发要求规则允许。
     只要有某类依据：signal_kind=种类(如kd)；按名次看某张榜再加sort=rank(只有kd/qc/qr有名次)。要“热门/上过榜”但没指定哪张榜：hot_only=true。
     团队没发过：exclude_posted=true；某账号没发过：posted_account=账号名。
-    exclude_previous=true表示换一批：沿用绑定候选的条件和数据版本，排除它已给出的剧。use_latest=true仅用于用户明确要求最新资料。
+    exclude_previous=true表示换一批：沿用绑定候选的条件和数据版本，排除它已给出的剧；要去掉沿用的条件时，可空字段传null、
+    tags传[]、开关传false、sort传evidence_date。use_latest=true仅用于用户明确要求最新资料。
     返回持久化的result_id、有序items、matched_total(符合条件总数)、依据、data_as_of(数据时点)；不可自行重排编号。
     matched_total为0时另有zero_diagnosis：去掉每一项条件后各有多少部，据此说明是哪个条件筛空的，不自行推测原因。
     hot_only时另有hot_scope：算作热门依据的信号种类与未算的种类。
