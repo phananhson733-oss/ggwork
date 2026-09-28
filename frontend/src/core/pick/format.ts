@@ -76,6 +76,7 @@ export function conditionsLine(conditions: PickConditions): string {
     parts.push(
       `${conditions.sort === "rank" ? "按榜单名次" : "只看榜单"} ${conditions.signal_kind}`,
     );
+  if (conditions.hot_only) parts.push("只要热门依据");
   if (conditions.exclude_posted) parts.push("排除团队已发");
   if (conditions.posted_account?.trim())
     parts.push(`排除账号 ${conditions.posted_account} 已发`);

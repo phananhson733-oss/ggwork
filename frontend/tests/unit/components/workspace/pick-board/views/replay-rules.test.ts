@@ -566,6 +566,24 @@ describe("observation conditions in the near filter (TR-16)", () => {
     },
   );
 
+  it("lists hot_only after exclude_previous with its label (2026-09-28)", () => {
+    const stored = conditions({
+      exclude_selected: false,
+      exclude_previous: true,
+      hot_only: true,
+    });
+    expect(agentOnlyConditions(stored)).toEqual([
+      "exclude_previous",
+      "hot_only",
+    ]);
+    const near = nearFilter(stored, rules, 7, agentOnlyConditions(stored));
+    expect(near.unmapped.map((u) => u.key)).toEqual([
+      "exclude_previous",
+      "hot_only",
+    ]);
+    expect(near.unmapped[1]?.label).toContain("只要热门依据");
+  });
+
   it("keeps the existing seven first, in the backend's order", () => {
     const all = agentOnlyConditions({
       ...conditions(),
