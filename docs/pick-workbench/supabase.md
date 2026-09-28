@@ -544,7 +544,13 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 | 连接峰值 | 对话、保存与同步期间 `deerflow_app` 10 个，所有角色合计 25 个（`max_connections=60`） |
 | 整库大小 | 26 MB |
 
-**观测角色（observer-role.md，趋势雷达 S2、S4）：** 未执行。执行后在这里记下 `bootstrap-observer.out` 是否与 observer-role.md 逐行一致、留档检查的结果、S4 的 `regrant --check` 前后输出，以及影子运行期间 `pick_observer` 的连接峰值实测。
+**观测角色（observer-role.md，趋势雷达 S2、S4）：**
+- S2 于 2026-09-26 03:46 UTC 执行。执行前只读核对：`pick_observer` 不存在，两个旧角色与迁移头表都在，还没有 `pick_obs`，迁移头 0006，已发布镜像版本 4 个。
+- `bootstrap-observer.sql` 以 postgres 经 session pooler 执行：退出码 0，WARNING 0 行，输出与 observer-role.md 的 14 行逐行一致。
+- 口令用 `openssl rand -hex 32` 生成，只进本机 600 文件。设置时和 `\password` 一样，只把在本机算出的 SCRAM-SHA-256 校验值（libpq 的 PQencryptPasswordConn）发给库，明文不进 SQL。
+- 以观测角色登录：`search_path` 为 `deerflow`，连接走 SSL，读得到迁移头 0006。
+- 留档检查：`rolcanlogin=t`、`rolinherit=f`、`rolconnlimit=20`，rolconfig 为 `{search_path=deerflow,TimeZone=UTC,idle_in_transaction_session_timeout=1min,statement_timeout=2min}`；`\dn+` 里 `deerflow` 与 `pick_mirror` 各多一行 `pick_observer=U/deerflow_app`；observer_deerflow、observer_mirror、observer_head 为 t，observer_batches、observer_create 为 f。
+- S4 的 `regrant --check` 前后输出，以及影子运行期间 `pick_observer` 的连接峰值，待记。
 
 **每周容量（第 6 节）：** 切换后开始记录。
 

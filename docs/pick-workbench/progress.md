@@ -177,3 +177,16 @@
 - **TR-33 或 G 节点（合同）**
   - （G3 已定）`CorrespondenceConfirm.platform` 至少 1 个字，不放宽：平台为空的 Trends 行确认不了，只能停在 unconfirmed。合同文档已写明；页面怎么提示见 decisions.md（TR-24、TR-25 不要给这种行确认按钮）。
   - 合同的 `MAX_ROW_ID` 是 2^63−1，0007 的 id 列却是 Integer（PG 上是 int4）。`read_decisions` 已改为按 bigint 绑定 `upto_id`；其他拿决定里的 `alias_id`、`alert_id` 去比 int4 列的查询，也要按 bigint 绑定或先限幅，否则超过 2^31−1 的值会让 asyncpg 抛 DataError，报错里还带着这个值。
+
+## 趋势雷达上线（S0 起，2026-09-26）
+
+按计划第 10 节的 S0–S13 推进，守卫用法见 [observe-runbook/deploy-guard.md](observe-runbook/deploy-guard.md)。下面每个目标的守卫记录行照守卫打印的原样追加，守卫部署前会读这里核对祖先关系。
+
+- **S0（2026-09-26）**：`feat/trends-radar` 先 `--no-ff` 合入当时的 main a2c7b8d（品牌 PR #1，与本分支改的文件交集为 0），在合并提交 9f78127 上重跑前端全套、typecheck、lint、format 与后端补充用例后，03:44 UTC 快进推进 main。那次 CI 上 Pick Workbench Tests 有 2 条失败：CI 的 PG 对所有角色都校验密码，几个替身项目没设密码就迁移，本机集群除测试超级用户外都是 trust，测不出来；另外 job 超过 15 分钟被取消。aebde4e（04:16 UTC）补了密码，角色快照改为排序后比较，job 超时改为 30 分钟，全套 CI 绿。另一会话「移除 Deerflow 元素替换 GGWork 资源」确认 S0 到 S4 期间冻结 gateway 部署，S1 之后前端只经守卫从 main 发布。
+- **S2（2026-09-26 03:46 UTC）**：以 postgres 执行 `bootstrap-observer.sql`，结果见 [supabase.md](supabase.md) 第 12 节「观测角色」。以观测角色经守卫的读取器读到生产状态：角色 `pick_observer`，迁移头 0006，还没有观测表。
+- **S1（2026-09-28 12:49 UTC）**：前端 aebde4e 经守卫（首次记录）从 `git archive` 导出目录发布，部署 `dpl_7QdeWTyWX7PNzzEbcj7de5YnmKG2`，生产别名 ggwork-deerflow.vercel.app 指向它。
+  - 四格：F1 分别读旧卡、新卡、混合会话、存量快照，4 格都通过；合同夹具 12 条通过；typecheck 通过。
+  - 上传的 1161 个源文件都是 aebde4e 的跟踪文件，未跟踪的为 0。
+  - 未登录访问 `/workspace` 与 `/workspace/pick-data` 都被 307 到 `/login`；带 `RSC: 1` 的请求只返回到 `/login` 的重定向。
+  - 登录后的核对（旧卡展开、我的选剧、资料页各 tab）待用户在浏览器里做。
+- `pick-deploy-guard target=frontend commit=aebde4e5237a7f4095f167bf56fd7761aec5917e at=2026-09-28T12:48:11Z`
