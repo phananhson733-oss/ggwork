@@ -9,6 +9,7 @@ from pydantic import Field
 
 from ggwork_pick.context import task_from_runtime
 from ggwork_pick.contracts import PickConditions
+from ggwork_pick.knowledge_excerpts import excerpt_spans
 from ggwork_pick.selection import PostedDataUnavailable, SelectionService
 
 
@@ -212,9 +213,7 @@ async def search_knowledge_tool(query: str, runtime: Runtime) -> str:
         score = sum(word in haystack for word in words)
         if words and not score:
             continue
-        positions = [doc["text"].casefold().find(word) for word in words if word in doc["text"].casefold()]
-        start = max(0, min(positions, default=0) - 100)
-        matches.append(
+        matches.extend(
             (
                 score,
                 dict(
@@ -225,9 +224,10 @@ async def search_knowledge_tool(query: str, runtime: Runtime) -> str:
                     source_ref=doc["source_ref"],
                     content_hash=doc["content_hash"],
                     line_start=doc["text"].count("\n", 0, start) + 1,
-                    excerpt=doc["text"][start : start + 1600],
+                    excerpt=doc["text"][start:end],
                 ),
             )
+            for start, end in excerpt_spans(doc["text"], words)
         )
     matches.sort(key=lambda pair: (-pair[0], pair[1]["document_id"]))
     if not matches:
