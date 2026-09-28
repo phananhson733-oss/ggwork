@@ -10,7 +10,8 @@ name: Pick Workbench Tests
 # compare the backend's answers with.
 # The pick-obs crons' Railway configs (deploy/pick-obs/**), the gateway's railway.toml, .dockerignore, the ignore files
 # at every level (hatchling in the image and `railway up` apply them) and the observe runbook are read by
-# tests/observe/test_railway_config.py; scripts/pick-deploy-guard.py and its readers module by tests/test_deploy_guard.py.
+# tests/observe/test_railway_config.py; scripts/pick-deploy-guard.py and its readers module by tests/test_deploy_guard.py;
+# scripts/pick-railway-settings.py by tests/observe/test_railway_settings.py and test_cron_deploy_procedure.py.
 on:
   push:
     branches: [ 'main' ]
@@ -49,6 +50,7 @@ on:
       - 'frontend/tests/unit/core/pick/api.test.ts'
       - 'scripts/pick-deploy-guard.py'
       - 'scripts/_pick_deploy_guard_readers.py'
+      - 'scripts/pick-railway-settings.py'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -86,6 +88,7 @@ on:
       - 'frontend/tests/unit/core/pick/api.test.ts'
       - 'scripts/pick-deploy-guard.py'
       - 'scripts/_pick_deploy_guard_readers.py'
+      - 'scripts/pick-railway-settings.py'
   workflow_dispatch:
 
 concurrency:
@@ -140,12 +143,12 @@ jobs:
           backend/.venv/bin/ruff check customizations/pick-workbench
           backend/.venv/bin/ruff format --check customizations/pick-workbench
 
-      - name: Lint pick deploy guard
-        # The guard's two scripts (TR-34), with ruff's defaults (no ruff config above scripts/). A script renamed or
-        # gone fails this step.
+      - name: Lint pick deploy scripts
+        # The guard's two scripts (TR-34) and the Railway settings script (TR-15), with ruff's defaults (no ruff config
+        # above scripts/). A script renamed or gone fails this step.
         run: |
-          backend/.venv/bin/ruff check scripts/pick-deploy-guard.py scripts/_pick_deploy_guard_readers.py
-          backend/.venv/bin/ruff format --check scripts/pick-deploy-guard.py scripts/_pick_deploy_guard_readers.py
+          backend/.venv/bin/ruff check scripts/pick-deploy-guard.py scripts/_pick_deploy_guard_readers.py scripts/pick-railway-settings.py
+          backend/.venv/bin/ruff format --check scripts/pick-deploy-guard.py scripts/_pick_deploy_guard_readers.py scripts/pick-railway-settings.py
 
       - name: Run pick workbench tests (SQLite and PostgreSQL)
         env:

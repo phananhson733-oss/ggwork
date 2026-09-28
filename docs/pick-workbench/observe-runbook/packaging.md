@@ -1,6 +1,6 @@
 # Trends cron 的打包、Railway 配置与部署验证（TR-15）
 
-配置：`deploy/pick-obs/trends/railway.toml`（cron 本身）、`deploy/pick-obs/trends/selfcheck/railway.toml`（S6 一次性自检，同一次运行接着做 S6a 的预检）。测试：`customizations/pick-workbench/tests/observe/test_railway_config.py`、`test_cron_deploy_procedure.py`，共用的辅助函数在同目录的 `railway_helpers.py`。设计 3.1、6.3；计划 TR-15、D5、D6、D21，第 9 节，第 10 节 S5、S6、S6a；反例 15。
+配置：`deploy/pick-obs/trends/railway.toml`（cron 本身）、`deploy/pick-obs/trends/selfcheck/railway.toml`（S6 一次性自检，同一次运行接着做 S6a 的预检），由 `scripts/pick-railway-settings.py` 写进服务设置（第 3.3 节）。测试：`customizations/pick-workbench/tests/observe/test_railway_config.py`、`test_cron_deploy_procedure.py`、`test_railway_settings.py`，共用的辅助函数在同目录的 `railway_helpers.py`。设计 3.1、6.3；计划 TR-15、D5、D6、D21，第 9 节，第 10 节 S5、S6、S6a；反例 15。
 
 启动顺序、自检各项与退出码见 `lease-and-selfcheck.md`；会话本身（命令、模式、环境变量的含义）见 `trends-session.md`；部署前的核对见 `deploy-guard.md`。本页讲代码怎样进镜像、服务怎样配、部署后怎样验。gsc 的服务配置随入口在 TR-21 里做，写在 TR-21 自己的手册页（第 10 节）。
 
@@ -50,7 +50,7 @@
 | `cronSchedule` | `*/30 17-23,0-1 * * *`（UTC） | 见下表 |
 | 不写 `healthcheckPath` | | cron 不监听端口；写了就会一直等不到健康而判失败 |
 
-服务设置里的配置路径必须填绝对路径 `/deploy/pick-obs/trends/railway.toml`。不填，Railway 读的是根目录的 `railway.toml`，即 gateway 的配置：健康检查 `/health/ready`、`ON_FAILURE` 重启、没有 cron（设计 3.1）。根目录的 `railway.toml` 与 Dockerfile 的 `CMD` 都不改（`test_root_railway_untouched`、`test_dockerfile_cmd_untouched`）。
+Railway 已经不读服务的 `railway.toml`：Config as Code 已弃用，2026-09-28 在 S5 实测，给服务设配置路径被 API 拒绝；gateway 的部署清单也显示根目录的 `railway.toml` 从没生效（没有健康检查、重启重试 10 次，Dockerfile 来自服务变量 `RAILWAY_DOCKERFILE_PATH`）。所以这份文件不再是 Railway 读的配置，而是 cron 该怎样跑的唯一陈述：由 `scripts/pick-railway-settings.py` 把它写进服务自己的设置，并对着它核对服务设置与每次部署实际用的清单（第 3.3 节）。不在控制台里手改这几项。根目录的 `railway.toml` 与 Dockerfile 的 `CMD` 都不改（`test_root_railway_untouched`、`test_dockerfile_cmd_untouched`）。
 
 **触发时刻**（UTC，每晚 18 次；02:00 UTC 是北京 10:00 的目标发布时刻，D23 的 target_date 是这次发布的日期）：
 
@@ -85,9 +85,24 @@
 
 这次部署的退出码：自检不过，就是自检的码（2 或 3），日志里没有 `preflight` 那一行；自检通过，就是 `preflight` 的码：0 表示当晚是一个合格的金丝雀夜晚，2 表示会被拒跑（原因在那一行的 `reasons`、`refused_by` 里）。第 6 节逐行讲怎么读。
 
-为什么要单独一份：cron 配置的启动命令固定是 `run`，白天触发时它在起跑时刻之前就退出了，根本不做自检；Railway 以配置文件为准，控制台里改的启动命令会被配置文件覆盖。所以 S6 要在镜像里、带着服务自己的变量跑一次 `--selfcheck-only`，就临时把服务的配置路径指向这份文件（第 5、6 节）。预检放在同一次运行里，也是因为只有这里既是同一个镜像、又带着同一套服务变量：cron 服务平时没有在跑的容器，`railway ssh` 进不去；在本机 `railway run` 要把 `PICK_OBS_STATE_KEY` 带到本机（入口在读库之前就加载状态密钥），不这样做。`test_selfcheck_config_pinned` 钉住这条命令，`test_trends_entrypoint_argv_selfcheck_only` 与 `test_selfcheck_config_exits_2_when_tonight_is_not_a_canary` 从这份文件读出命令，经真的 `/bin/sh` 与真实的 `__main__` 在两种库上跑（第 9 节）。
+为什么要单独一份：cron 配置的启动命令固定是 `run`，白天触发时它在起跑时刻之前就退出了，根本不做自检。所以 S6 要在镜像里、带着服务自己的变量跑一次 `--selfcheck-only`，就临时把这份文件写进服务设置（第 3.3 节，第 5、6 节），核对完再写回 cron 配置。预检放在同一次运行里，也是因为只有这里既是同一个镜像、又带着同一套服务变量：cron 服务平时没有在跑的容器，`railway ssh` 进不去；在本机 `railway run` 要把 `PICK_OBS_STATE_KEY` 带到本机（入口在读库之前就加载状态密钥），不这样做。`test_selfcheck_config_pinned` 钉住这条命令，`test_trends_entrypoint_argv_selfcheck_only` 与 `test_selfcheck_config_exits_2_when_tonight_is_not_a_canary` 从这份文件读出命令，经真的 `/bin/sh` 与真实的 `__main__` 在两种库上跑（第 9 节）。
 
-这里用到的三条 Railway 行为（配置文件里写了的字段覆盖控制台设置；没有 cron 计划的部署立即运行一次；`NEVER` 退出后不重启）是按 Railway 的配置与 cron 文档写的，本任务没有实测（不运行 railway 命令）。S5 第一次部署时核对，与此不符就改本页与这份配置。
+这里用到的两条 Railway 行为（没有 cron 计划的部署立即运行一次；`NEVER` 退出后不重启）是按 Railway 的 cron 文档写的。S5 第一次部署时核对，与此不符就改本页与这份配置。原先的第三条（配置文件里写了的字段覆盖控制台设置）已不成立，见第 3.1 节末与第 3.3 节。
+
+### 3.3 写进服务设置：`scripts/pick-railway-settings.py`
+
+```sh
+<主目录>/backend/.venv/bin/python scripts/pick-railway-settings.py plan  <toml>
+<主目录>/backend/.venv/bin/python scripts/pick-railway-settings.py apply <toml> -p <项目> -e production -s pick-obs-trends
+<主目录>/backend/.venv/bin/python scripts/pick-railway-settings.py check <toml> -p <项目> -e production -s pick-obs-trends [--deployment <部署 ID>]
+```
+
+- `<toml>` 是上面两份文件之一，可以照本页写成 `/deploy/...`（按脚本所在检出解析）。`plan` 不连 Railway，只打印会写的内容。
+- `apply` 用 `serviceInstanceUpdate` 写 `startCommand`、`restartPolicyType`、`cronSchedule`，并把 `healthcheckPath` 清空；四项每次都写全，所以从 cron 配置换到自检配置时 `cronSchedule` 被写成空，不会残留。构建用的 Dockerfile 写成服务变量 `RAILWAY_DOCKERFILE_PATH`（gateway 也是这样拿到 Dockerfile 的），带 `--skip-deploys`。`apply` 本身不部署，写完接着做一次 `check`。
+- `check` 比对服务设置与 `RAILWAY_DOCKERFILE_PATH`；带 `--deployment` 时再比对那次部署实际用的清单（`serviceManifest` 的 `build.builder`、`build.dockerfilePath` 与上面四项）。部署 ID 用 `railway deployment list -p <项目> -e production -s pick-obs-trends --limit 1 --json` 取。
+- 退出码：0 一致；1 有差异（逐项打印 `期望/实际`）；2 用法错、文件有脚本写不了的键、服务找不到、railway 调用失败或答复不合预期（项目或部署 ID 写错、登录过期、答复不是 JSON），只打一行原因，不打调用栈。`apply` 写完服务设置而 Dockerfile 变量没写成时，报错会说明是哪一半没写，重跑 `apply` 即可（两步都是整值覆盖）。文件只能有 `[build]` 的 `builder`（必须是 `DOCKERFILE`）、`dockerfilePath` 与 `[deploy]` 的 `startCommand`、`restartPolicyType`、`cronSchedule`：以后要加字段（例如健康检查），先改脚本与测试，否则 `apply` 以 2 拒写，不会只写一半。
+- 目标一律显式给 `-p/-e/-s`，不 `railway link`。脚本读变量时只留 `RAILWAY_DOCKERFILE_PATH` 一项，其余值（含机密）不留、不打印；railway 调用失败时只转述 stderr 的第一行，不转述 stdout，`variable list` 失败时连这一行也不转述。`RAILWAY_DOCKERFILE_PATH` 不在第 5 节的变量表里：它是构建设置，入口不读，也不触发「这个服务不读」的警告（只查 `PICK_OBS_` 前缀）。
+- `test_railway_settings.py` 用假的 railway CLI 钉住两份文件怎样映射成这些调用、比对哪些项、不打印变量值、失败时的退出码（第 9 节）。
 
 ## 4. S5 之前
 
@@ -102,7 +117,7 @@
 每一步都是对外操作，逐项经用户同意（计划第 10 节、U11）。
 
 1. **建服务** `pick-obs-trends`：与 gateway 同一个 Railway 项目、同一个环境。不接 GitHub 的推送自动部署（接了源仓库也要把自动部署关掉），只从守卫推荐的干净检出 `railway up`。
-2. **配置路径**：先填 `/deploy/pick-obs/trends/selfcheck/railway.toml`（第一次部署就是 S6 的自检）。
+2. **服务设置**：不在控制台手填。第 4 步的代码块先用 `scripts/pick-railway-settings.py apply` 写自检配置 `/deploy/pick-obs/trends/selfcheck/railway.toml`（第一次部署就是 S6 的自检），核对通过后再写 cron 配置（第 3.3 节）。
 3. **变量**（下表只写名字与来历；机密由用户直接填进 Railway，不经对话、不进 progress.md 与任何日志）：
 
 | 变量 | 值 | 谁填 | 说明 |
@@ -136,30 +151,31 @@
 4. **部署，自检与预检，切回 cron（S5、S6、S6a 连着做）**：按下面的顺序执行，每一行 `railway up` 与推送都是对外操作，逐项经用户同意；中间那次核对的细节在第 6 节。
 
    ```sh
-   # 在守卫推荐的干净检出 <检出> 的根目录；<主目录> 是主仓库。以后每次部署（第 7 节）去掉 --first-record
+   # 在守卫推荐的干净检出 <检出> 的根目录；<主目录> 是主仓库，<项目> 是 Railway 项目 ID。以后每次部署（第 7 节）去掉 --first-record
    <主目录>/backend/.venv/bin/python scripts/pick-deploy-guard.py cron trends --first-record
-   # Railway 控制台：服务 pick-obs-trends 的配置路径填 /deploy/pick-obs/trends/selfcheck/railway.toml
+   <主目录>/backend/.venv/bin/python scripts/pick-railway-settings.py apply /deploy/pick-obs/trends/selfcheck/railway.toml -p <项目> -e production -s pick-obs-trends
    cd <检出> && railway up --detach --service pick-obs-trends
-   # 等这次运行结束，按第 6 节第 1-4 步读日志里的 selfcheck ok 与 preflight 两行、逐项核对；任何一行不过就停在这里
-   # Railway 控制台：配置路径改回 /deploy/pick-obs/trends/railway.toml
+   # 等这次运行结束，按第 6 节第 1-4 步读日志里的 selfcheck ok 与 preflight 两行、逐项核对，再对这次部署跑 check --deployment（第 6 节第 1 步）；任何一项不过就停在这里
+   <主目录>/backend/.venv/bin/python scripts/pick-railway-settings.py apply /deploy/pick-obs/trends/railway.toml -p <项目> -e production -s pick-obs-trends
    cd <检出> && railway up --detach --service pick-obs-trends
-   # 按第 6 节第 5 步核对服务设置；然后把守卫打印的记录行追加进 docs/pick-workbench/progress.md，提交，经用户同意推到 ggwork/main
+   # 按第 6 节第 5 步核对这次部署；然后把守卫打印的记录行追加进 docs/pick-workbench/progress.md，提交，经用户同意推到 ggwork/main
    ```
 
-   - **守卫只在开头跑一次**。两次 `railway up` 都从这个检出、这个提交执行，中间不提交、不 pull、不改文件（配置路径是 Railway 的服务设置，改它不动检出）。所以两次部署构建自同一个提交，第 6 节核对过的包摘要就是 cron 之后跑的那一份。
+   - **守卫只在开头跑一次**。两次 `railway up` 都从这个检出、这个提交执行，中间不提交、不 pull、不改文件（`apply` 只写 Railway 的服务设置，不动检出）。所以两次部署构建自同一个提交，第 6 节核对过的包摘要就是 cron 之后跑的那一份。
+   - **`railway up` 那一行照守卫打印的写**（`test_cron_deploy_procedure.py` 钉住）。检出没有 `railway link`（不 link 是规矩）时，执行时补上 `-p <项目> -e production`：来源与提交不变，只是补齐目标；不补时未链接的目录会进交互或新建项目。
    - **预检不过就不切回 cron 配置**：自检通过而 `preflight` 退出 2（第 6 节第 3 步），服务就留在自检配置上（没有 cron 计划，当晚不会跑），按原因补齐之后在控制台对这次部署点 Redeploy（还是这次上传的代码），重读两行，两行都过了才往下走。
    - **`--first-record` 只用这一次**：progress.md 里还没有 `cron:trends` 的守卫记录时（S5 这一轮）才带，以后每次部署都不带。带错了守卫会拒（没有记录时不带，或已有记录时带），不要为了过守卫改这个参数。
    - **记录行只记一次，放在最后**：两次部署都核对完，把守卫这一轮最后一次通过时打印的那一行（`pick-deploy-guard target=cron:trends commit=…`）追加进 progress.md，提交，经用户同意推到 `ggwork/main`（`deploy-guard.md`「progress.md 里的守卫记录」）。两次部署之间不要提交它：提交之后 HEAD 就不再等于 `ggwork/main`（守卫的检查 5），只写不提交则工作区不干净（检查 2），这一轮再跑守卫都会被拒。
    - **中间拖久了**（`deploy-guard.md`「通过之后立即部署」），就在第二次 `railway up` 之前重跑守卫，命令与这一轮开头那次一字不差：记录还没推，首次仍要带 `--first-record`。重跑被拒（通常是 `ggwork/main` 前进了），就不要从这个检出继续：在最新 main 的干净检出里从头走这一套，因为提交变了，包摘要要重新核。
    - 只在 UTC 02:00–17:00 之间做这一套（第 7 节）。
 
-   `test_cron_deploy_procedure.py` 把上面的代码块逐行交给 TR-34 的守卫重放（假 git、假库）：首次照写执行、以后去掉 `--first-record` 执行、第二次部署之前按原样重跑守卫，都必须通过，而且每一行 `railway up` 都与守卫打印的下一步一字不差。TR-34 的守卫不在树里时（TR-15 分支单独时）它跳过，集成之后生效。
+   `test_cron_deploy_procedure.py` 把上面的代码块逐行交给 TR-34 的守卫重放（假 git、假库）：首次照写执行、以后去掉 `--first-record` 执行、第二次部署之前按原样重跑守卫，都必须通过，而且每一行 `railway up` 都与守卫打印的下一步一字不差；每一行 `apply` 都要能按脚本自己的参数解析成对 `pick-obs-trends` 的 `apply`，先自检配置、后 cron 配置。TR-34 的守卫不在树里时（TR-15 分支单独时）它跳过，集成之后生效。
 
-5. **核对服务设置**：第一次部署（自检配置）的详情里，健康检查为空、重启策略 Never、Cron Schedule 为空。任何一项不对，先查配置路径是不是填成了别的文件。
+5. **核对服务设置**：`apply` 已经核过一次服务设置；每次部署之后，再对这次部署跑 `check --deployment`（第 3.3 节），确认它实际用的清单与文件一致：自检配置那次健康检查为空、重启 `NEVER`、`cronSchedule` 为空。退出 1 就按打印的差异重新 `apply` 那份文件、再部署，不在控制台手改。
 
 ## 6. 部署验证（S6、S6a）
 
-1. 自检配置的部署会立即运行一次并退出（第 3.2 节：先自检，通过了再预检）。在控制台读这次部署的 Deploy Logs。都通过时退出码 0，标准输出是这两行，先后不变（stderr 的日志会带时间戳把它们再打一次）：
+1. 自检配置的部署会立即运行一次并退出（第 3.2 节：先自检，通过了再预检）。先对这次部署跑 `pick-railway-settings.py check /deploy/pick-obs/trends/selfcheck/railway.toml … --deployment <部署 ID>`，退出 0 才说明这次运行用的就是自检配置；再读这次部署的 Deploy Logs。都通过时退出码 0，标准输出是这两行，先后不变（stderr 的日志会带时间戳把它们再打一次）：
 
    ```
    [pick-obs] selfcheck ok: collector=obs-collector-v1 head=<生产迁移头> role=pick_observer package=sha256:<摘要> at=/app/backend/.venv/lib/python3.12/site-packages/ggwork_pick
@@ -209,24 +225,24 @@
 | 退出 3，不带 SQLSTATE | 连不上：查 DSN、`PGSSLMODE`、Supavisor 端口是否是 5432 |
 | 包摘要不符 | 见上一步；不要带着不符的镜像进 S7 |
 
-5. **切回 cron 配置**：两行都通过后，走第 5 节第 4 步顺序的后半段：把服务的配置路径改成 `/deploy/pick-obs/trends/railway.toml`，从同一个检出再 `railway up --detach --service pick-obs-trends` 一次。不重跑守卫：同一个提交，守卫刚核过（拖久了按第 5 节第 4 步的规则重跑）。再核一遍服务设置：健康检查为空、重启 Never、Cron Schedule 是 `*/30 17-23,0-1 * * *`。都对了，才把守卫的记录行追加进 progress.md，提交，经用户同意推送。
+5. **切回 cron 配置**：两行都通过后，走第 5 节第 4 步顺序的后半段：`apply /deploy/pick-obs/trends/railway.toml`，从同一个检出再 `railway up --detach --service pick-obs-trends` 一次。不重跑守卫：同一个提交，守卫刚核过（拖久了按第 5 节第 4 步的规则重跑）。再对这次部署跑 `check /deploy/pick-obs/trends/railway.toml … --deployment <部署 ID>`：健康检查为空、重启 `NEVER`、`cronSchedule` 是 `*/30 17-23,0-1 * * *`，Dockerfile 是 gateway 那一份。退出 0 了，才把守卫的记录行追加进 progress.md，提交，经用户同意推送。
 6. **第一晚（S7）**：17:00 那次触发的日志应当是「还没到 canary1 的起跑时刻 21:00 UTC，什么都不做」；21:00 起会话开头的自检照样打出同一行 `selfcheck ok`，其中的 `package=` 应与 S6 相同（两次部署构建自同一个提交）。之后按 `trends-session.md` 与 TR-30 监控。
 
 ## 7. 之后的部署、回滚与停用
 
 - **什么时候部署**：只在 UTC 02:00–17:00 之间部署 cron 服务，重做 S6 的整套也一样。17:00 起有触发，17:30 起 stable 会话开跑，会话最晚到 01:45 截止后收尾退出：窗口里重新部署会终止正在跑的会话，当晚少一截数据；切到自检配置的那段时间服务没有 cron 计划，赶上窗口就漏掉触发。`test_cron_schedule_fits_the_session_modes` 钉住这段时间里没有触发、也没有会话。
-- **每次部署 cron** 都先跑守卫，不带 `--first-record`。推荐每次都按第 5 节第 4 步的顺序重做 S6（配置路径指向自检配置、部署、核对两行，再切回 cron 配置部署，最后记一次记录行），这样每个上线的镜像在第一次发请求之前都被人看过包摘要，也顺带看过当晚的预检行（退出 2 按第 6 节第 3 步处理）。金丝雀期间想在某一晚之前再看一次预检，也是重做这一套：在部署时段里把配置路径指向自检配置、部署、读两行、切回，不另找地方跑 `preflight`（第 3.2 节）。不重做时，配置路径保持 cron 配置：守卫通过后 `railway up` 一次，核对服务设置，再记记录行；然后在部署后的第一晚，读窗口内第一次触发打出的那行 `selfcheck ok`，按第 6 节核对 `package=`。采集合同、迁移头、角色三项在窗口内的每次触发（会话开始或续跑）都会在取租约之前自动比对，不符就在任何请求之前以 2 退出；窗口外的空转触发（如 17:00 那次）只校验配置，不做自检。只有包摘要要靠人看。
+- **每次部署 cron** 都先跑守卫，不带 `--first-record`。推荐每次都按第 5 节第 4 步的顺序重做 S6（`apply` 自检配置、部署、核对两行，再 `apply` cron 配置、部署，最后记一次记录行），这样每个上线的镜像在第一次发请求之前都被人看过包摘要，也顺带看过当晚的预检行（退出 2 按第 6 节第 3 步处理）。金丝雀期间想在某一晚之前再看一次预检，也是重做这一套：在部署时段里 `apply` 自检配置、部署、读两行、`apply` 回 cron 配置并部署，不另找地方跑 `preflight`（第 3.2 节）。不重做时，服务设置保持 cron 配置：守卫通过后 `railway up` 一次，对这次部署跑 `check --deployment`，再记记录行；然后在部署后的第一晚，读窗口内第一次触发打出的那行 `selfcheck ok`，按第 6 节核对 `package=`。采集合同、迁移头、角色三项在窗口内的每次触发（会话开始或续跑）都会在取租约之前自动比对，不符就在任何请求之前以 2 退出；窗口外的空转触发（如 17:00 那次）只校验配置，不做自检。只有包摘要要靠人看。
 - **新迁移上生产之后**，先 gateway、后两个 cron，都从最新 main 经守卫重部署（D5；守卫的 cron 模式要求生产迁移头等于本检出的链头）。cron 的镜像认不出生产的迁移头时，每次触发都以 2 退出，数据页会亮 `run_missed`。
 - **回滚**只用 main 上的 revert 提交，而且回滚后的代码必须认识生产的迁移头（计划第 10 节回滚规则）。守卫拒绝从旧检出部署。
 - **改变量**：Railway 改变量会重新部署服务；对 cron 来说，新值从下一次触发起生效。改模式（`canary1` → `canary2` → `stable`）在白天改，不要在会话进行中改；改了模式，起跑时刻与 `window_end` 跟着变（`trends-session.md`「换起跑时刻的第一天」）。
-- **停用**：按计划第 10 节的顺序关 `PICK_OBS_AGENT`、关 `PICK_OBS_PUBLISH`、再停 cron。停 cron 用控制台暂停服务，或提交一个去掉 `cronSchedule` 的改动；不回退镜像。暂停前确认控制台里这个服务没有正在运行的实例。
+- **停用**：按计划第 10 节的顺序关 `PICK_OBS_AGENT`、关 `PICK_OBS_PUBLISH`、再停 cron。停 cron 用控制台暂停服务，或 `apply` 自检配置再部署一次（没有 cron 计划的部署只跑一次自检与预检就退出，之后不再触发）；不回退镜像。暂停前确认控制台里这个服务没有正在运行的实例。
 - **会话中途被强停**（暂停服务、重新部署、容器被杀，都不做收尾）：已提交状态保留、预算不退；未提交的响应、最新 cookie、熔断事件可能丢失；续跑可能重做未完成单元；五分钟是租约失效上界，不是恢复时间，通常要等下一次半小时触发。当晚的数据因此可能少一截；续跑的 `window_end` 与任务清单不变（D23）。
 
 ## 8. CI
 
-`.github/workflows/pick-workbench-tests.yml` 的 push 与 pull_request 触发路径加了：`deploy/pick-obs/**`、根目录的 `railway.toml`、`.dockerignore`、任何一级的 `.gitignore` 与 `.railwayignore`（`**/.gitignore`、`**/.railwayignore`：镜像里的 hatchling 按 `backend/.gitignore` 排除文件，`railway up` 读各级 `.gitignore` 与 `.railwayignore`，第 1 节的两个测试依赖它们）、`docs/pick-workbench/observe-runbook/**`（本页的测试会读这些文件），以及 TR-34 的 `scripts/pick-deploy-guard.py`、`scripts/_pick_deploy_guard_readers.py`（守卫的测试在 `customizations/pick-workbench/tests/test_deploy_guard.py`），还有 G3 文档对齐加的本计划 `docs/plans/2026-09-25-trends-radar-impl-plan.md` 与 `frontend/tests/unit/core/pick/api.test.ts`（`tests/observe/test_rollout_plan.py` 读它们，`test_ci_runs_on_the_files_these_tests_read` 钉住）。
+`.github/workflows/pick-workbench-tests.yml` 的 push 与 pull_request 触发路径加了：`deploy/pick-obs/**`、根目录的 `railway.toml`、`.dockerignore`、任何一级的 `.gitignore` 与 `.railwayignore`（`**/.gitignore`、`**/.railwayignore`：镜像里的 hatchling 按 `backend/.gitignore` 排除文件，`railway up` 读各级 `.gitignore` 与 `.railwayignore`，第 1 节的两个测试依赖它们）、`docs/pick-workbench/observe-runbook/**`（本页的测试会读这些文件），以及 TR-34 的 `scripts/pick-deploy-guard.py`、`scripts/_pick_deploy_guard_readers.py`（守卫的测试在 `customizations/pick-workbench/tests/test_deploy_guard.py`）与 `scripts/pick-railway-settings.py`（第 3.3 节，测试在 `tests/observe/test_railway_settings.py`），还有 G3 文档对齐加的本计划 `docs/plans/2026-09-25-trends-radar-impl-plan.md` 与 `frontend/tests/unit/core/pick/api.test.ts`（`tests/observe/test_rollout_plan.py` 读它们，`test_ci_runs_on_the_files_these_tests_read` 钉住）。
 
-新增的「Lint pick deploy guard」步骤对守卫的两个脚本跑 `ruff check` 与 `ruff format --check`，用 ruff 的默认配置（仓库根没有 ruff 配置，88 列；两个脚本按这个配置写成）。两个脚本名写死在步骤里，改名或删掉任何一个，这一步就失败。TR-15 分支单独不含这两个脚本（它们在 TR-34 的分支里），TR-15 只经已含 TR-34 的 `feat/trends-radar` 进 main，所以步骤里不留「文件不在就跳过」的分支。`test_ci_runs_on_the_deploy_files` 钉住触发路径与这一步。
+「Lint pick deploy scripts」步骤（原名 Lint pick deploy guard）对守卫的两个脚本与 `pick-railway-settings.py` 跑 `ruff check` 与 `ruff format --check`，用 ruff 的默认配置（仓库根没有 ruff 配置，88 列；三个脚本按这个配置写成）。脚本名写死在步骤里，改名或删掉任何一个，这一步就失败。TR-15 分支单独不含这两个脚本（它们在 TR-34 的分支里），TR-15 只经已含 TR-34 的 `feat/trends-radar` 进 main，所以步骤里不留「文件不在就跳过」的分支。`test_ci_runs_on_the_deploy_files` 钉住触发路径与这一步。
 
 ## 9. 测试
 
@@ -254,10 +270,12 @@
 
 | 测试 | 钉住什么 |
 |---|---|
-| `test_block_deploys_the_selfcheck_then_the_cron` | 第 5 节第 4 步的代码块：守卫在前、首次带 `--first-record`；先部署自检配置，再部署 cron 配置，两份配置都存在；记录行只有一次，在最后 |
+| `test_block_deploys_the_selfcheck_then_the_cron` | 第 5 节第 4 步的代码块：守卫在前、首次带 `--first-record`；先 `apply` 自检配置并部署，再 `apply` cron 配置并部署，两份配置都存在，每行 `apply` 都能按脚本的参数解析；记录行只有一次，在最后 |
 | `test_first_deploy_passes_the_guard` | 在没有 `cron:trends` 记录的 progress.md 上照写执行：两次部署都是守卫通过的那个提交，记录行记的也是它 |
 | `test_later_deploys_pass_the_guard` | 第一条记录推到 main 之后，去掉 `--first-record` 从更新的 main 再走一遍（第 7 节） |
 | `test_a_rerun_before_the_record_passes` | 第二次部署之前按原样重跑守卫，首次与以后都通过 |
+
+`customizations/pick-workbench/tests/observe/test_railway_settings.py`：两份配置读成期望值（多出的键、不是 `DOCKERFILE` 的构建方式、缺字段都以 2 拒绝）；`apply` 写全四项（`healthcheckPath` 清空、自检配置写空的 `cronSchedule`）并以 `--skip-deploys` 设 Dockerfile 变量，不部署；`check` 逐项点出差异且不打印任何变量值；`--deployment` 比对部署清单；railway 调用都带 `-p/-e/-s`；railway 失败、服务找不到、文件不在、用法错都以 2 退出；`railway_cli` 失败时只转述 stderr、超时或找不到命令也归为 railway 失败；`variable list` 失败时不转述它说的任何话；答复不是 JSON、为空、项目或部署为 null、GraphQL 报错、`serviceInstanceUpdate` 不是 true 都以 2 退出而不打调用栈；`apply` 写了一半时报错点名没写成的 Dockerfile 变量。
 
 通用的辅助函数（读配置、把启动命令拆成各步、解析 cron 字段、`.dockerignore` 与 git 的 ignore 规则、像 Railway 那样经 `/bin/sh` 跑启动命令而每一步在新解释器里经真实的 `__main__` 运行、解析 `selfcheck ok` 行）在 `tests/observe/railway_helpers.py`，TR-21 的 gsc 测试复用。
 
@@ -265,6 +283,6 @@
 
 - **TR-05**：`observe/trends/canary_controls.json` 归 TR-05，本任务不建也不改；测试用自己的夹具副本（子进程里把 `canary.DEFAULT_CONTROLS_PATH` 指向副本）。第 4 节的前提（包里的清单每个 geo 都有市场序列）由 TR-14 的 `test_trends_units.py::test_packaged_controls_file_when_present` 钉住：清单缺序列时它是红的，S6 的自检也会以 2 退出。
 - **TR-21**：gsc 的 `deploy/pick-obs/gsc/railway.toml`（每 3 小时第 25 分，10 分钟硬截止）、它的部署验证与变量表写进 TR-21 自己的手册页，不写进本页：本页第 5 节的变量表由 `test_runbook_variables_are_the_ones_the_service_reads` 按 trends 服务读的变量核对，gsc 的变量写进来会让它失败。`test_gsc_railway_config_pinned`、`test_gsc_entrypoint_argv` 可以复用 `tests/observe/railway_helpers.py`（`railway_toml`、`module_argv`、`start_steps`、`cron_field`、`dockerignore_rules`、`docker_excluded`、`git_ignored`、`run_start_command`、`selfcheck_report`）。要不要同样配一份自检配置由 TR-21 定；配了的话，部署顺序照第 5 节第 4 步写。CI 的 `deploy/pick-obs/**` 已经覆盖。
-- **TR-34**：守卫的 cron 模式要求 `deploy/pick-obs/<服务>/railway.toml` 在 main 上；守卫脚本的触发路径与 lint 由本任务加（第 8 节）。第 5 节第 4 步的顺序按守卫的记录规则写（`--first-record` 只在没有记录时带、记录行推送之前 HEAD 不动），`test_cron_deploy_procedure.py` 用守卫本身重放它：守卫的规则变了，那个测试先红。`deploy-guard.md`「各模式通过之后」的 cron 一条原写「部署后以 `--selfcheck-only` 手动触发一次（S6）」，与本页的做法（第 3.2 节：临时把配置路径指向自检配置）不一致，已由 G3 文档对齐改成指向本页第 5 节第 4 步与第 6 节（本页不改别的任务的手册）。
+- **TR-34**：守卫的 cron 模式要求 `deploy/pick-obs/<服务>/railway.toml` 在 main 上；守卫脚本的触发路径与 lint 由本任务加（第 8 节）。第 5 节第 4 步的顺序按守卫的记录规则写（`--first-record` 只在没有记录时带、记录行推送之前 HEAD 不动），`test_cron_deploy_procedure.py` 用守卫本身重放它：守卫的规则变了，那个测试先红。`deploy-guard.md`「各模式通过之后」的 cron 一条原写「部署后以 `--selfcheck-only` 手动触发一次（S6）」，与本页的做法（第 3.2 节：临时换成自检配置）不一致，已由 G3 文档对齐改成指向本页第 5 节第 4 步与第 6 节。2026-09-28 Railway 不再读配置路径之后，那一条的「配置路径」措辞随本页一起改成「用 `pick-railway-settings.py apply` 写服务设置」。
 - **计划**：第 10 节 S5、S6、S6a 已由 G3 文档对齐按本页改写，S6 与 S6a 里预检随自检部署一起跑的写法由 G3 集成补齐（先部署自检配置、读自检与预检两行，再切回 cron 配置；第 3.2 节的理由），命令、运行方式与判据以本页与 `trends-session.md` 为准。
 - **TR-29**：目录页 `README.md` 里本页的状态由 TR-29 更新（D35，本任务不改目录页）。
