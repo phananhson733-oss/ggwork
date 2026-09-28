@@ -8,9 +8,20 @@
 
 模型配置名azure-pick，真实deployment从AZURE_OPENAI_DEPLOYMENT读取；唯一活动模型不再包含Ollama。五个业务工具（2026-09-23 新增计数工具 pick_count_candidates）、保存确认、身份隔离及120秒执行期限保留。API密钥只配置在后端，不进入前端环境变量或Git。
 
-Vercel的RealShort生产环境确有AZURE_OPENAI_ENDPOINT/API_KEY/DEPLOYMENT，类型为sensitive不能回读。本次依用户授权复用RealShort本地同名环境配置；没有修改RealShort环境或密钥。真实部署名称为gpt-5.6-luna-2。
+Vercel的RealShort生产环境确有AZURE_OPENAI_ENDPOINT/API_KEY/DEPLOYMENT，类型为sensitive不能回读。接入时依用户授权复用RealShort本地同名环境配置，两边用的是同一个Foundry资源（joyocloud05-9398）和同一把资源key。部署名称起初为gpt-5.6-luna-2，2026-09-28起改为gpt-6-sol，见下节。
 
-本机系统DNS对该Azure域名解析异常；使用公开DNS结果和原域名TLS验证的真实请求已返回200/completed。常规本机连接尚不能据此宣称恢复，云部署仍需验证默认DNS链路。
+本机系统DNS对该Azure域名解析异常（2026-09-28仍如此）；使用公开DNS结果和原域名TLS验证的真实请求曾返回200/completed。Railway容器内的默认DNS正常，对Azure的冒烟改在容器里做（`railway ssh -s gateway -e production`）。
+
+## 当前部署与换模型
+
+2026-09-28起：资源joyocloud05-9398（Foundry项目同名），部署gpt-6-sol（版本2026-09-22，全局标准）。ggwork的Railway gateway与RealShort的Vercel生产环境共用这个部署和同一把资源key。
+
+- 只换模型时，改Railway gateway服务的`AZURE_OPENAI_DEPLOYMENT`，base URL和key不动。改变量会自动用同一镜像重新部署，不必重建。
+- 切换前先在容器里用与线上同形状的请求冒烟，通过再改变量。要覆盖这几项：reasoning.effort取low与high；strict函数工具加`parallel_tool_calls=false`；`store=false`加`include: [reasoning.encrypted_content]`；把上一轮的输出连同加密推理和函数结果回传后再作答。401说明key失效，404说明部署名不存在，400 `unsupported_parameter`说明模型不收该参数。
+- gpt-6-luna对`reasoning.effort`返回400 `unsupported_parameter`。本配置每次请求都带reasoning，所以不能用它，尽管Azure文档写着支持。能力以实测为准。
+- 回滚就是把变量改回上一个仍然存在的部署名。换模型期间不要删旧部署：2026-09-28删掉gpt-5.6-luna-2后，回滚目标落空，RealShort的问答也跟着中断，直到它改用gpt-6-sol才恢复。
+- RealShort改用同一部署的做法：`vercel env update AZURE_OPENAI_DEPLOYMENT production`（值从文件重定向），再对当前生产部署`vercel redeploy`同一提交。RealShort的请求比这里多带`web_search`与`max_tool_calls`，2026-09-28在gpt-6-sol上实测正常。
+- 这把key曾于2026-09-22~23随Vercel CLI部署源码上传过（项目团队只有一人，那四个部署已于2026-09-28删除）。计划改为ggwork用KEY2、RealShort用KEY1，并轮换被上传过的那一把。轮换前先确认两边各自用的是哪一把。
 
 ## 部署结构
 
