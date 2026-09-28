@@ -1,6 +1,7 @@
 """Condition values checked against the batch before filtering: a value the batch does not contain is a mistake to
 report, not a filter that silently matches nothing (2026-09-28: 「US 地区」 sent as theater, zero results three times)."""
 
+import re
 from collections import Counter
 
 from ggwork_pick.contracts import PickConditions
@@ -15,7 +16,7 @@ _HOT = frozenset(HOT_SIGNAL_KINDS)
 # The catalog has no region field, only language. A region written where a theater, language, tag or title word goes
 # is refused with the language to use instead. Keys are casefolded; a hint list, not a filter.
 REGION_LANGUAGES = {
-    **dict.fromkeys(("us", "usa", "u.s.", "u.s.a.", "america", "united states", "美国", "美國", "北美", "北美洲"), "en"),
+    **dict.fromkeys(("us", "usa", "u.s.", "u.s.a.", "america", "united states", "north america", "美国", "美國", "北美", "北美洲"), "en"),
     **dict.fromkeys(("uk", "united kingdom", "britain", "英国", "英國", "欧美", "歐美", "英美"), "en"),
     **dict.fromkeys(("korea", "south korea", "韩国", "韓國"), "ko"),
     **dict.fromkeys(("japan", "日本"), "ja"),
@@ -28,8 +29,18 @@ REGION_LANGUAGES = {
     **dict.fromkeys(("taiwan", "hong kong", "台湾", "台灣", "香港", "港台"), "zh-hant"),
     **dict.fromkeys(("middle east", "saudi arabia", "中东", "中東", "沙特"), "ar"),
 }
+# Words that only restate a filter. A query made of nothing but a region and these ("US 热门", "美国热门短剧") is a
+# region and a hotness ask put in the title field; a query with anything else ("美國總裁") stays a title search.
+FILTER_WORDS = (
+    *("热门", "熱門", "爆款", "榜单", "榜單", "上榜", "地区", "地區", "市场", "市場", "最近", "最新", "短剧", "短劇", "剧", "劇", "的"),
+    *("hot", "trending", "popular", "top", "drama", "dramas", "short", "shorts", "market", "region", "recent", "latest"),
+    *("in", "the", "of", "for", "from", "and"),
+)
 # How many choices an error lists; the rest are summarised by count.
 CHOICES_SHOWN = 30
+# 换一批 merges the bound card's conditions under this call's: leaving a field out keeps the parent's value, so a
+# refusal says how to clear the field it names.
+_CLEAR = "要去掉这一项时显式传{field}:{empty}（换一批会沿用绑定候选的条件，省略不等于去掉）。"
 
 
 def is_hot_kind(kind: str) -> bool:
@@ -40,8 +51,32 @@ def region_language(value: str) -> str | None:
     return REGION_LANGUAGES.get(value.strip().casefold())
 
 
+def _word_pattern(word: str) -> str:
+    # ASCII words must stand alone ("us" is not in "Husband"); CJK has no word boundaries to wait for.
+    return rf"(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])" if word.isascii() else re.escape(word)
+
+
+def _strip_words(text: str, words) -> tuple[str, str | None]:
+    first = None
+    for word in sorted(words, key=len, reverse=True):
+        pattern = _word_pattern(word)
+        if re.search(pattern, text):
+            first = first or word
+            text = re.sub(pattern, " ", text)
+    return text, first
+
+
+def query_region(value: str) -> str | None:
+    """The language for a query made only of region and filter words, else None."""
+    text, region = _strip_words(value.casefold(), REGION_LANGUAGES)
+    if region is None:
+        return None
+    text, _ = _strip_words(text, FILTER_WORDS)
+    return None if re.sub(r"[\W_]+", "", text) else REGION_LANGUAGES[region]
+
+
 def _region_hint(value: str) -> str:
-    language = region_language(value)
+    language = region_language(value) or query_region(value)
     if language:
         return f"「{value}」是地区；剧库没有地区字段，请改用language={language}（按语种近似，回答里说明）。"
     return "剧库没有地区字段；按地区找剧请用语种代码（如美国/US用en）。"
@@ -55,25 +90,34 @@ def _choices(counts: Counter) -> str:
     return shown if len(names) <= CHOICES_SHOWN else f"{shown}等{len(names)}个"
 
 
+def _clear(field: str, empty: str = "null") -> str:
+    return _CLEAR.format(field=field, empty=empty)
+
+
 def _check_theater(rows, theater: str) -> None:
     counts = Counter(row["theater"] for row in rows)
     if not any(name.casefold() == theater.casefold() for name in counts):
-        raise ValueError(f"剧库里没有剧场「{theater}」；theater只填剧场名，可选：{_choices(counts)}。{_region_hint(theater)}")
+        raise ValueError(f"剧库里没有剧场「{theater}」；theater只填剧场名，可选：{_choices(counts)}。{_region_hint(theater)}{_clear('theater')}")
 
 
 def _check_language(rows, language: str) -> None:
     counts = Counter(row["language"] for row in rows)
     if not any(code.casefold() == language.casefold() for code in counts):
-        raise ValueError(f"剧库里没有语种「{language}」；language填语种代码，可选：{_choices(counts)}。{_region_hint(language)}")
+        raise ValueError(f"剧库里没有语种「{language}」；language填语种代码，可选：{_choices(counts)}。{_region_hint(language)}{_clear('language')}")
 
 
 def _check_tags(rows, tags: list[str]) -> None:
-    known = {tag for row in rows for tag in row["tags"]}
-    missing = [tag for tag in tags if tag not in known]
+    counts = Counter(tag for row in rows for tag in row["tags"])
+    missing = [tag for tag in tags if tag not in counts]
     if missing:
         regions = [tag for tag in missing if region_language(tag)]
-        hint = _region_hint(regions[0]) if regions else "标签要与剧库原文一致；不确定时改用query搜剧名或标签。"
-        raise ValueError(f"剧库里没有标签「{'、'.join(missing)}」。{hint}")
+        if regions:
+            hint = _region_hint(regions[0])
+        elif counts:
+            hint = f"标签要与剧库原文完全一致，可选：{_choices(counts)}。query是剧名或标签原文的子串搜索，不做翻译。"
+        else:
+            hint = "当前批次的剧目都没有标签；query是剧名原文的子串搜索，不做翻译。"
+        raise ValueError(f"剧库里没有标签「{'、'.join(missing)}」。{hint}{_clear('tags', '[]')}")
 
 
 def check_references(rows, conditions: PickConditions) -> None:
@@ -86,8 +130,8 @@ def check_references(rows, conditions: PickConditions) -> None:
         _check_language(rows, conditions.language)
     if conditions.tags:
         _check_tags(rows, conditions.tags)
-    if conditions.query and region_language(conditions.query):
-        raise ValueError(f"query是剧名或标签里的词，不是地区。{_region_hint(conditions.query)}")
+    if conditions.query and (region_language(conditions.query) or query_region(conditions.query)):
+        raise ValueError(f"query是剧名或标签里的词，不是地区或热门条件。{_region_hint(conditions.query)}要热门依据用hot_only。{_clear('query')}")
     if conditions.signal_kind and not any(s["kind"] == conditions.signal_kind for row in rows for s in row["signals"]):
         raise ValueError(f"剧库里没有 {conditions.signal_kind} 这类信号；信号种类代码见知识资料")
     if conditions.hot_only and not any(is_hot_kind(s["kind"]) for row in rows for s in row["signals"]):

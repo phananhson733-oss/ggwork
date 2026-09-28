@@ -127,10 +127,20 @@ async def test_unknown_tags_are_refused_but_a_known_tag_combination_may_match_no
 @pytest.mark.asyncio
 async def test_a_region_as_the_title_word_is_refused_instead_of_matching_inside_titles(repo):
     # "us" is a substring of many English titles ("Husband", "Business"): it must not pass as a region filter.
-    for call_id, word in enumerate(("US", " 美国 ", "North America".replace("North ", ""))):
+    # A region alone, or a region with nothing but filter words (09-28's ask as a title word), is refused.
+    for call_id, word in enumerate(("US", " 美国 ", "North America", "美国地区", "US 美国", "US 热门", "美国热门短剧", "hot dramas in the US")):
         with pytest.raises(ValueError, match="不是地区"):
             await query(repo, {"query": word}, call_id=f"c{call_id}")
-    assert (await query(repo, {"query": "Guard 3"}, call_id="ok"))["matched_total"] == 1
+    # Anything else stays a title search, including titles holding a region word or "us" inside a word.
+    for call_id, word in enumerate(("Guard 3", "Husband", "美國總裁", "Made in USA")):
+        await query(repo, {"query": word}, call_id=f"ok{call_id}")
+    assert (await query(repo, {"query": "Guard 3"}, call_id="ok9"))["matched_total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_unknown_tag_lists_the_batch_tags_or_says_there_are_none(repo, pick_db_url, tmp_path):
+    with pytest.raises(ValueError, match="可选：复仇"):
+        await query(repo, {"tags": ["Revenge"]})
 
 
 @pytest.mark.asyncio
@@ -146,6 +156,8 @@ async def test_hot_only_on_a_batch_without_hot_evidence_is_refused(pick_db_url, 
     await Importer(repo, svc.data_dir).catalog(json.dumps(CATALOG[:2]).encode(), "json")
     with pytest.raises(ValueError, match="没有热门依据"):
         await query(repo, {"hot_only": True})
+    with pytest.raises(ValueError, match="都没有标签"):
+        await query(repo, {"tags": ["复仇"]}, call_id="c2")
     await engine.dispose()
 
 
@@ -193,6 +205,39 @@ async def test_zero_diagnosis_covers_channel_eligibility_rank_boards_and_exclusi
     steps = [(d["condition"], d["matched_total"]) for d in (await service.explain(await repo.result(more["id"])))["zero_diagnosis"]["without_each"]]
     # Without signal_kind the sort goes with it; without sort only the latest-board limit goes (and 8 is delisted).
     assert steps == [("signal_kind", 5), ("sort", 0), ("exclude_posted", 1), ("excluded", 1)]
+
+
+@pytest.mark.asyncio
+async def test_the_signal_kind_step_says_it_took_the_rank_sort_with_it(repo):
+    from ggwork_pick.selection import SelectionService
+
+    counted = await SelectionService(repo).count({"language": "ko", "signal_kind": "kd", "sort": "rank"})
+    steps = {d["condition"]: d for d in counted["zero_diagnosis"]["without_each"]}
+    assert steps["signal_kind"]["also_removed"] == ["sort"] and steps["signal_kind"]["matched_total"] == 1
+    assert "also_removed" not in steps["sort"] and "also_removed" not in steps["language"]
+    assert "also_removed" in counted["zero_diagnosis"]["note"]
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_on_an_old_card_says_how_to_clear_the_inherited_field(repo):
+    """An old theater="US" card: 换一批 keeps the parent's theater unless it is sent as null, as the notice says."""
+    from sqlalchemy import update
+
+    from ggwork_pick.models import candidate_sets
+
+    parent = await query(repo, {"exclude_posted": True, "limit": 1}, call_id="p")
+    stored = (await repo.result(parent["id"]))["conditions_json"]
+    async with repo.session_factory() as session, session.begin():
+        await session.execute(update(candidate_sets).where(candidate_sets.c.id == parent["id"]).values(conditions_json={**stored, "theater": "US"}))
+    for call_id, filters in (("m1", {"exclude_previous": True}), ("m2", {"exclude_previous": True, "language": "en"})):
+        with pytest.raises(ValueError, match="theater:null"):
+            await query(repo, filters, call_id=call_id, parent_result_id=parent["id"])
+    recovered = await query(repo, {"exclude_previous": True, "language": "en", "theater": None}, call_id="m3", parent_result_id=parent["id"])
+    assert recovered["conditions"]["theater"] is None and recovered["matched_total"] == 4
+    with pytest.raises(ValueError, match=r"tags:\[\]"):
+        await query(repo, {"tags": ["霸总"]}, call_id="t")
+    with pytest.raises(ValueError, match="query:null"):
+        await query(repo, {"query": "US"}, call_id="q")
 
 
 @pytest.mark.asyncio
@@ -264,6 +309,92 @@ async def test_hot_only_is_stored_only_when_set_so_old_card_shapes_and_hashes_st
     parent = await query(repo, {"hot_only": True, "limit": 1}, call_id="p")
     more = await query(repo, {"exclude_previous": True}, call_id="m", parent_result_id=parent["id"])
     assert more["conditions"]["hot_only"] is True and more["matched_total"] == parent["matched_total"] - 1
+
+
+@pytest.mark.asyncio
+async def test_an_explicit_hot_only_false_lifts_a_hot_parent_through_the_tools(tmp_path):
+    """换一批 on a hot card with hot_only=false must drop the filter: the tools pass the explicit false on to the merge."""
+    from deerflow_extension_api import ExtensionData, TaskInfo
+    from deerflow_extension_api.runtime_bridge import EXTENSION_TASK_STORE_KEY
+
+    from ggwork_pick.context import PickLifecycle
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import count_candidates_tool, query_candidates_tool
+
+    assert PickConditions.model_validate({"exclude_previous": True, "hot_only": False}).requested() == {"exclude_previous": True, "hot_only": False}
+    assert PickConditions.model_validate({"exclude_previous": True}).requested() == {"exclude_previous": True}
+    engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db'}")
+    service = PickService(tmp_path / "files")
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    repo = PickRepository(service.session_factory, "alice")
+    await Importer(repo, service.data_dir).catalog(json.dumps(CATALOG).encode(), "json")
+    parent = await SelectionService(repo).query({"language": "en", "hot_only": True, "limit": 1}, thread_id="t", run_id="r0", call_id="c0")
+    store = ExtensionData("task")
+    await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task", "r1", "t", "lead"))
+    context = {"user_id": "alice", "pick_reference": {"result_id": parent["id"]}, EXTENSION_TASK_STORE_KEY: store}
+    runtime = SimpleNamespace(context=context, tool_call_id="q1")
+    lifted = json.loads(await query_candidates_tool.coroutine(filters={"exclude_previous": True, "hot_only": False, "limit": 10}, runtime=runtime))
+    assert "hot_only" not in lifted["conditions"] and lifted["ranking_version"] == "evidence-date-v1"
+    # en and listed: 1-6 without the parent's item (3); drama 1 and 2 have only clk/bill and come back.
+    assert lifted["matched_total"] == 5 and {"Guard 1", "Guard 2"} <= {i["title"] for i in lifted["items"]}
+    counted = json.loads(await count_candidates_tool.coroutine(filters={"exclude_previous": True, "hot_only": False}, runtime=runtime))
+    assert counted["total"] == 5 and "hot_only" not in counted["conditions"]
+    runtime.tool_call_id = "q2"
+    kept = json.loads(await query_candidates_tool.coroutine(filters={"exclude_previous": True}, runtime=runtime))
+    assert kept["conditions"]["hot_only"] is True and kept["matched_total"] == parent["matched_total"] - 1
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_a_step_that_reaches_rows_without_publication_records_is_uncountable_not_a_refusal(pick_db_url, tmp_path):
+    """The query stops at the title and never checks publication records; taking the title away would. Its zero stands."""
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+    from ggwork_pick.service import PickService
+
+    engine = host_engine(pick_db_url)
+    svc = PickService(tmp_path / "files")
+    await svc.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    repo = PickRepository(svc.session_factory, "alice")
+    legacy = {key: value for key, value in drama(1, signals=[signal("kd", "2026-09-28", 1)]).items() if key != "posted"}
+    await Importer(repo, svc.data_dir).catalog(json.dumps([legacy]).encode(), "json")
+    result = await query(repo, {"query": "missing title", "exclude_posted": True})
+    assert result["matched_total"] == 0
+    steps = (await SelectionService(repo).explain(await repo.result(result["id"])))["zero_diagnosis"]["without_each"]
+    assert steps[0]["condition"] == "query" and steps[0]["matched_total"] is None and "发布记录" in steps[0]["unavailable"]
+    assert steps[1] == {"condition": "exclude_posted", "value": True, "matched_total": 0}
+    counted = await SelectionService(repo).count({"query": "missing title", "exclude_posted": True})
+    assert counted["total"] == 0 and counted["zero_diagnosis"]["without_each"][0]["matched_total"] is None
+    await engine.dispose()
+
+
+def test_every_condition_field_is_classified_for_the_diagnosis():
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.selection import DIAGNOSED_FIELDS, UNDIAGNOSED_FIELDS, _relaxations
+
+    assert set(DIAGNOSED_FIELDS) | UNDIAGNOSED_FIELDS == set(PickConditions.model_fields)
+    assert not set(DIAGNOSED_FIELDS) & UNDIAGNOSED_FIELDS
+    every = PickConditions(
+        theater="t", language="en", channel="youtube", query="q", tags=["x"], signal_kind="kd", sort="rank", hot_only=True,
+        exclude_posted=True, posted_account="a",
+    )  # fmt: skip
+    # The list says what _relaxations really takes away, in its order, and the exclusions come as one extra step.
+    assert [name for name, *_ in _relaxations(every, frozenset({"id"}))] == [*DIAGNOSED_FIELDS, "excluded"]
+
+
+def test_omitted_defaults_compare_against_a_factory_default():
+    from ggwork_pick.contracts import PickConditions
+
+    class WithList(PickConditions):
+        OMIT_AT_DEFAULT = (*PickConditions.OMIT_AT_DEFAULT, "tags")
+
+    assert "tags" not in WithList().model_dump() and WithList(tags=["x"]).model_dump()["tags"] == ["x"]
+    assert WithList.model_validate({"tags": []}).requested()["tags"] == []
 
 
 def test_hot_kinds_are_the_data_page_theater_bases():
