@@ -28,6 +28,8 @@ class PickTask:
     produced_result_ids: set[str] = field(default_factory=set)
     known_titles: set[str] = field(default_factory=set)
     posted_checked: bool = False
+    # Normalized title -> what the posted summary of an item a tool returned says (answer_check.with_posted).
+    posted_seen: dict[str, str] = field(default_factory=dict)
     versions_refreshed: bool = False
     execution_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     initialized: bool = False
