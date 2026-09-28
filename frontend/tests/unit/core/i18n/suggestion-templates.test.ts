@@ -2,7 +2,7 @@ import { describe, expect, it } from "@rstest/core";
 
 import type { Translations } from "@/core/i18n/locales/types";
 import { loadTranslations } from "@/core/i18n/translations";
-import { SUGGESTION_TEMPLATE_PLACEHOLDER_PATTERN } from "@/core/suggestions/placeholders";
+import { findSuggestionTemplatePlaceholder } from "@/core/suggestions/placeholders";
 
 type Template = Translations["inputBox"]["suggestions"][number];
 
@@ -15,13 +15,16 @@ function templates(t: Translations): Template[] {
 
 // The composer only runs the pick agent: it has the pick tools and nothing
 // else, so the templates must not reach for upstream DeerFlow skills or
-// promise saving, publishing or a "never posted" verdict.
+// promise saving, publishing or a "never posted" verdict. This is a lexical
+// guard on the wording; the per-template pins below carry the tool semantics.
 const FORBIDDEN = [
   "保存",
   "飞书",
   "定时",
   "从未",
   "没发过",
+  "发布到",
+  "发布至",
   "播放量",
   "save",
   "feishu",
@@ -31,6 +34,54 @@ const FORBIDDEN = [
   "{{",
 ];
 
+// Phrases each template must keep, because PICK_INSTRUCTIONS and the tool
+// descriptions map them to specific filters (and 《》 marks a user-typed title
+// for the answer check). `absent` guards a wrong mapping, e.g. kw has no ranks.
+const PINS: Record<
+  "en-US" | "zh-CN",
+  Record<string, { present: string[]; absent?: string[] }>
+> = {
+  "en-US": {
+    "Find candidates": {
+      present: ["(en)", "already picked", "posting records"],
+    },
+    "By theater": { present: ["[theater]", "already picked"] },
+    "KalosTV daily": { present: ["(kd)", "by rank", "already picked"] },
+    "Exclude by account": {
+      present: ["[account]", "posting records", "already picked"],
+    },
+    "KalosTV weekly hot": {
+      present: ["(kw)", "already picked"],
+      absent: ["rank"],
+    },
+    "Skip YouTube bans": {
+      present: ["explicitly banned", "confirmed eligibility not required"],
+    },
+    "Look up a drama": {
+      present: [
+        "《[drama title]》",
+        "do not exclude ones I have already picked",
+      ],
+    },
+    "Pool count": {
+      present: ["How many", "Do not exclude ones I have already picked"],
+    },
+  },
+  "zh-CN": {
+    找候选: { present: ["英语剧", "我已经选过的", "发布记录里发过的"] },
+    按剧场: { present: ["[剧场]", "我已经选过的"] },
+    KalosTV日榜: { present: ["（kd）", "按名次", "我已经选过的"] },
+    按账号排除: { present: ["[账号名]", "发布记录里发过的", "我已经选过的"] },
+    KalosTV周热门: {
+      present: ["（kw）", "依据", "我已经选过的"],
+      absent: ["名次"],
+    },
+    排除YouTube禁用: { present: ["只排除明确禁用", "不要求确认可发"] },
+    查一部剧: { present: ["《[剧名]》", "不排除我已经选过的"] },
+    盘点候选池: { present: ["一共多少部", "不排除我已经选过的"] },
+  },
+};
+
 describe("pick quick-action templates", () => {
   it("keep the same shape, order and icons in both locales", async () => {
     const [english, chinese] = await Promise.all([
@@ -39,7 +90,7 @@ describe("pick quick-action templates", () => {
     ]);
     for (const t of [english, chinese]) {
       expect(t.inputBox.suggestions).toHaveLength(4);
-      expect(t.inputBox.suggestionsMore).toHaveLength(6);
+      expect(t.inputBox.suggestionsMore).toHaveLength(5);
       expect(
         t.inputBox.suggestionsMore.filter((item) => "type" in item),
       ).toHaveLength(1);
@@ -59,10 +110,33 @@ describe("pick quick-action templates", () => {
       for (const { prompt } of templates(t)) {
         const tokens = prompt.match(/\[[^\]]+\]/g) ?? [];
         expect(tokens.length).toBeLessThanOrEqual(1);
-        for (const token of tokens) {
-          expect(SUGGESTION_TEMPLATE_PLACEHOLDER_PATTERN.test(token)).toBe(
-            true,
-          );
+        if (tokens.length === 0) {
+          continue;
+        }
+        // Run the composer's own check on the whole prompt, so the text after
+        // the token (which decides the Markdown-link exception) counts too.
+        const found = findSuggestionTemplatePlaceholder(prompt);
+        expect(found && prompt.slice(found.start, found.end)).toBe(tokens[0]);
+      }
+    }
+  });
+
+  it("keep the phrases that select each template's filters", async () => {
+    for (const locale of ["en-US", "zh-CN"] as const) {
+      const t = await loadTranslations(locale);
+      const byLabel = new Map(
+        templates(t).map((item) => [item.suggestion, item.prompt]),
+      );
+      expect([...byLabel.keys()].sort()).toEqual(
+        Object.keys(PINS[locale]).sort(),
+      );
+      for (const [label, pin] of Object.entries(PINS[locale])) {
+        const prompt = byLabel.get(label) ?? "";
+        for (const phrase of pin.present) {
+          expect(prompt).toContain(phrase);
+        }
+        for (const phrase of pin.absent ?? []) {
+          expect(prompt).not.toContain(phrase);
         }
       }
     }

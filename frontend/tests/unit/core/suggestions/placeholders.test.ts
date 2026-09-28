@@ -47,13 +47,29 @@ describe("findSuggestionTemplatePlaceholder", () => {
     expect(findSuggestionTemplatePlaceholder("Collect [source]")).toBeNull();
   });
 
-  test("ignores Markdown link text that happens to match a token", () => {
+  test("ignores the text of a complete Markdown link", () => {
     expect(
       findSuggestionTemplatePlaceholder("see [account](https://example.com)"),
     ).toBeNull();
     expect(
-      findSuggestionTemplatePlaceholder("[drama title](https://example.com)"),
+      findSuggestionTemplatePlaceholder("[drama title](/workspace/picks)"),
     ).toBeNull();
+    expect(
+      findSuggestionTemplatePlaceholder(
+        "参见 [account][profile]\n\n[profile]: https://example.com",
+      ),
+    ).toBeNull();
+  });
+
+  test("still blocks a placeholder followed by a bare parenthesis", () => {
+    expect(selected("找5部[剧场](仅限英语，排除已选")).toBe("[剧场]");
+    expect(selected("from [theater] (any language)")).toBe("[theater]");
+  });
+
+  test("finds a real placeholder after a Markdown link", () => {
+    expect(selected("see [account](https://example.com), then [剧场]")).toBe(
+      "[剧场]",
+    );
   });
 
   test("returns null for normal text without brackets", () => {

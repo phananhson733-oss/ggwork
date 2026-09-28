@@ -6,7 +6,16 @@ import { RECIPES } from "@/core/scheduled-tasks/recipes";
 
 // Scheduled runs are unattended, so these prompts must be complete, carry no
 // placeholders, and never promise what the pick tools cannot do.
-const FORBIDDEN = ["{{", "[", "web_search", "保存", "飞书", "从未", "发布到"];
+const FORBIDDEN = [
+  "{{",
+  "[",
+  "web_search",
+  "保存",
+  "飞书",
+  "从未",
+  "发布到",
+  "发布至",
+];
 
 describe("pick scheduled-task recipes", () => {
   it("have unique ids that match their title keys", () => {
@@ -56,12 +65,22 @@ describe("pick scheduled-task recipes", () => {
 
   it("pin the tool arguments each recipe depends on", () => {
     const byId = Object.fromEntries(RECIPES.map((r) => [r.id, r.prompt]));
+    // An unattended run must not drop the posting filter and then read the
+    // result as "not posted".
+    const KEEP_POSTED = "发布记录不可用时如实说明，不要去掉这个条件重查";
+    expect(byId.dailyCandidates).toContain("exclude_selected=true");
     expect(byId.dailyCandidates).toContain("exclude_posted=true");
+    expect(byId.dailyCandidates).toContain(KEEP_POSTED);
     expect(byId.kdDaily).toContain("signal_kind=kd");
     expect(byId.kdDaily).toContain("sort=rank");
+    // A board snapshot keeps its ranks contiguous.
+    expect(byId.kdDaily).toContain("exclude_selected=false");
     // kw has no ranks; the server rejects sort=rank for it.
     expect(byId.kwWeekly).toContain("signal_kind=kw");
     expect(byId.kwWeekly).not.toContain("sort=rank");
+    expect(byId.kwWeekly).toContain("exclude_selected=true");
+    expect(byId.kwWeekly).toContain("exclude_posted=true");
+    expect(byId.kwWeekly).toContain(KEEP_POSTED);
     expect(byId.poolWeekly).toContain("pick_count_candidates");
     expect(byId.poolWeekly).toContain("exclude_selected=false");
   });

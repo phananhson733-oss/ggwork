@@ -1102,14 +1102,23 @@ test.describe("Chat workspace", () => {
       ).toHaveCount(0);
     }
 
-    await suggestions
-      .getByRole("button", { name: "More", exact: true })
-      .click();
-    await expect(page.getByRole("menuitem")).toHaveCount(5);
+    const more = suggestions.getByRole("button", { name: "More", exact: true });
+    // Closing without a choice still returns focus to the trigger.
+    await more.click();
+    await expect(page.getByRole("menuitem")).toHaveCount(4);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(more).toBeFocused();
+
+    await more.click();
     await page.getByRole("menuitem", { name: "Look up a drama" }).click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
     await expect(textarea).toHaveValue(
-      "Look up 《[drama title]》 in the candidate pool and show its evidence and posting records; do not exclude ones I have already picked",
+      "Look up 《[drama title]》 in the candidate pool and list its evidence; for posting records, state as recorded whether it matched and its post count; do not exclude ones I have already picked",
     );
+    // The menu hands focus back to its trigger when it closes unless an item
+    // was chosen; the placeholder must stay selected in a focused textarea.
+    await expect(textarea).toBeFocused();
     await expect
       .poll(
         () =>
@@ -1120,6 +1129,12 @@ test.describe("Chat workspace", () => {
         { timeout: 5_000 },
       )
       .toBe("[drama title]");
+    // page.keyboard types into whatever has focus, so this fails if the
+    // trigger took focus back.
+    await page.keyboard.type("Moonlight Vendetta");
+    await expect(textarea).toHaveValue(
+      "Look up 《Moonlight Vendetta》 in the candidate pool and list its evidence; for posting records, state as recorded whether it matched and its post count; do not exclude ones I have already picked",
+    );
   });
 
   test("slash skill command is submitted as normal chat text", async ({

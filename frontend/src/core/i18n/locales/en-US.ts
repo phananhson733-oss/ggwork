@@ -4,7 +4,6 @@ import {
   ClapperboardIcon,
   ListFilterIcon,
   ListOrderedIcon,
-  ScrollTextIcon,
   SearchIcon,
   ShieldBanIcon,
   UserXIcon,
@@ -433,14 +432,8 @@ export const enUS: Translations = {
       {
         suggestion: "Look up a drama",
         prompt:
-          "Look up 《[drama title]》 in the candidate pool and show its evidence and posting records; do not exclude ones I have already picked",
+          "Look up 《[drama title]》 in the candidate pool and list its evidence; for posting records, state as recorded whether it matched and its post count; do not exclude ones I have already picked",
         icon: SearchIcon,
-      },
-      {
-        suggestion: "Theater rules",
-        prompt:
-          "What are the theater rules for [theater]? List the YouTube, filing (报备) and required-tag rules with the rule source and check date; mark anything missing from the knowledge base as unknown",
-        icon: ScrollTextIcon,
       },
       {
         suggestion: "Pool count",
