@@ -178,12 +178,24 @@ async function expectGroupIndicesAscending(page: Page) {
   expect(indices).toEqual(sorted);
 }
 
+/**
+ * Open the outline menu, reusing it when it is already open. Selecting a
+ * chapter deliberately keeps the menu open so readers can hop between
+ * chapters, and the trigger toggles: clicking it again would start closing
+ * the menu, leaving any item click to race the exit animation.
+ */
+async function openOutline(page: Page) {
+  const trigger = page.getByTestId("conversation-outline-trigger");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  return page.getByTestId("conversation-outline-menu");
+}
+
 async function jumpToChapter(page: Page, title: string | RegExp) {
-  await page.getByTestId("conversation-outline-trigger").click();
-  // The menu sits above a smoothly-scrolling virtual list; late chapters need
-  // an in-menu scroll, which can starve actionability checks. The item is
-  // resolved and attached, so click through.
-  await page.getByRole("menuitem", { name: title }).click({ force: true });
+  const outline = await openOutline(page);
+  await outline.getByRole("menuitem", { name: title }).click();
 }
 
 async function loadAllHistoryPages(page: Page) {
@@ -192,11 +204,11 @@ async function loadAllHistoryPages(page: Page) {
   // near-top sentinel may already have auto-loaded a page, so the button is
   // not guaranteed to be there on every pass.
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    // Clicking a menu item closes the dropdown, so each pass starts from a
-    // closed menu: open it, read the earliest loaded chapter, then jump to it
-    // with the same click.
-    await page.getByTestId("conversation-outline-trigger").click();
-    const firstItem = page.getByRole("menuitem").first();
+    // Read the earliest loaded chapter, then jump to it with the same click.
+    // The menu stays open after that selection until the Load more click
+    // below dismisses it, so a pass can start with the menu open or closed.
+    const outline = await openOutline(page);
+    const firstItem = outline.getByRole("menuitem").first();
     const firstTitle = (await firstItem.textContent()) ?? "";
     await firstItem.click();
     if (firstTitle.includes("turn-0 question")) {
