@@ -140,7 +140,7 @@ class RunCreateRequest(BaseModel):
         if not is_supported:
             raise PydanticCustomError(
                 "unsupported_run_option",
-                "Run option '{option}' is not supported by DeerFlow",
+                "Run option '{option}' is not supported by GGWork",
                 {"option": info.field_name},
             )
         return value
@@ -155,7 +155,7 @@ class RunCreateRequest(BaseModel):
             return value
         raise PydanticCustomError(
             "unsupported_run_option",
-            "Run option '{option}' is not supported by DeerFlow",
+            "Run option '{option}' is not supported by GGWork",
             {"option": "stream_resumable"},
         )
 

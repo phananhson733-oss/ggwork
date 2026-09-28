@@ -667,7 +667,7 @@ def _make_background_submit_tool(
     status_tool: str,
     cancel_tool: str,
 ) -> BaseTool:
-    background_contract = f"Submitted as durable background task {task_name!r}; returns a DeerFlow task ID immediately and status polling is handled automatically."
+    background_contract = f"Submitted as durable background task {task_name!r}; returns a GGWork task ID immediately and status polling is handled automatically."
 
     async def submit_in_background(
         runtime: Runtime | None = None,

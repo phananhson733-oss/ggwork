@@ -832,7 +832,7 @@ class DingTalkChannel(Channel):
             conversation_type,
             sender_staff_id,
             conversation_id,
-            "DingTalk connected to DeerFlow.",
+            "DingTalk connected to GGWork.",
         )
         return True
 
@@ -960,7 +960,7 @@ class DingTalkChannel(Channel):
                 headers=self._api_headers(token),
                 json={
                     "msgKey": "sampleMarkdown",
-                    "msgParam": json.dumps({"title": "DeerFlow", "text": text}),
+                    "msgParam": json.dumps({"title": "GGWork", "text": text}),
                     "robotCode": robot_code,
                     "userIds": [user_id],
                 },
@@ -991,7 +991,7 @@ class DingTalkChannel(Channel):
                 headers=self._api_headers(token),
                 json={
                     "msgKey": "sampleMarkdown",
-                    "msgParam": json.dumps({"title": "DeerFlow", "text": text}),
+                    "msgParam": json.dumps({"title": "GGWork", "text": text}),
                     "robotCode": robot_code,
                     "openConversationId": conversation_id,
                 },

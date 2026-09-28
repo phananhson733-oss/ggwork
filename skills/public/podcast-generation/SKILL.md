@@ -75,7 +75,7 @@ The script JSON file must follow this structure:
   "title": "The History of Artificial Intelligence",
   "locale": "en",
   "lines": [
-    {"speaker": "male", "paragraph": "Hello Deer! Welcome back to another episode."},
+    {"speaker": "male", "paragraph": "Hello everyone, and welcome back to the GGWork podcast!"},
     {"speaker": "female", "paragraph": "Hey everyone! Today we have an exciting topic to discuss."},
     {"speaker": "male", "paragraph": "That's right! We're going to talk about..."}
   ]
@@ -96,7 +96,7 @@ When creating the script JSON, follow these guidelines:
 ### Format Requirements
 - Only two hosts: male and female, alternating naturally
 - Target runtime: approximately 10 minutes of dialogue (around 40-60 lines)
-- Start with the male host saying a greeting that includes "Hello Deer"
+- Start with the male host greeting listeners and welcoming them to "the GGWork podcast"
 
 ### Tone & Style
 - Natural, conversational dialogue - like two friends chatting
@@ -123,7 +123,7 @@ Step 1: Create script file `/mnt/user-data/workspace/ai-history-script.json`:
   "title": "The History of Artificial Intelligence",
   "locale": "en",
   "lines": [
-    {"speaker": "male", "paragraph": "Hello Deer! Welcome back to another fascinating episode. Today we're diving into something that's literally shaping our future - the history of artificial intelligence."},
+    {"speaker": "male", "paragraph": "Hello everyone, and welcome back to another fascinating episode of the GGWork podcast! Today we're diving into something that's literally shaping our future - the history of artificial intelligence."},
     {"speaker": "female", "paragraph": "Oh, I love this topic! You know, AI feels so modern, but it actually has roots going back over seventy years."},
     {"speaker": "male", "paragraph": "Exactly! It all started back in the 1950s. The term artificial intelligence was actually coined by John McCarthy in 1956 at a famous conference at Dartmouth."},
     {"speaker": "female", "paragraph": "Wait, so they were already thinking about machines that could think back then? That's incredible!"},
@@ -154,10 +154,10 @@ Read the following template file only when matching the user request.
 
 ## Output Format
 
-The generated podcast follows the "Hello Deer" format:
+The generated podcast follows the GGWork podcast format:
 - Two hosts: one male, one female
 - Natural conversational dialogue
-- Starts with "Hello Deer" greeting
+- Starts with a "welcome to the GGWork podcast" greeting
 - Target duration: approximately 10 minutes
 - Alternating speakers for engaging flow
 
