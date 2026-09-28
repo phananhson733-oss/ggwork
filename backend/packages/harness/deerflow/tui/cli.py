@@ -48,7 +48,7 @@ def _positive_int(value: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="deerflow",
-        description="DeerFlow terminal workbench — a TUI over the embedded DeerFlow harness.",
+        description="GGWork terminal workbench — a TUI over the embedded GGWork harness.",
         epilog="Extension management: deerflow extensions --help",
         add_help=True,
     )
@@ -194,7 +194,7 @@ def plan_launch(
 # --------------------------------------------------------------------------- #
 
 _HEADLESS_HELP = """\
-deerflow — DeerFlow terminal workbench
+deerflow — GGWork terminal workbench
 
   deerflow                      launch the terminal UI (TTY required)
   deerflow --tui                force the terminal UI

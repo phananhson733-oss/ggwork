@@ -2819,9 +2819,9 @@ def _append_deerflow_lark_shared_guidance(root: Path) -> None:
 
 {_DEERFLOW_LARK_SHARED_GUIDANCE_MARKER}
 
-## DeerFlow 授权入口
+## GGWork 授权入口
 
-在 DeerFlow 中，如果 `lark-cli auth status` 或业务命令提示未配置、未登录、token 过期或缺少用户授权：
+在 GGWork 中，如果 `lark-cli auth status` 或业务命令提示未配置、未登录、token 过期或缺少用户授权：
 
 1. 不要要求用户在终端执行 `lark-cli config init`、`lark-cli auth login` 或 `lark-cli auth login --device-code`。
 2. 回复用户这个可点击链接：[打开飞书授权设置](/workspace/capabilities?tab=plugins&plugin=lark)。

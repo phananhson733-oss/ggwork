@@ -708,11 +708,11 @@ def create_app() -> FastAPI:
     openapi_url = "/openapi.json" if config.enable_docs else None
 
     app = FastAPI(
-        title="DeerFlow API Gateway",
+        title="GGWork API Gateway",
         description="""
-## DeerFlow API Gateway
+## GGWork API Gateway
 
-API Gateway for DeerFlow - A LangGraph-based AI agent backend with sandbox execution capabilities.
+API Gateway for GGWork - A LangGraph-based AI agent backend with sandbox execution capabilities.
 
 ### Features
 
