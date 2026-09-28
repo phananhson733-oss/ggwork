@@ -8,12 +8,15 @@ from uuid import uuid4
 
 from ggwork_pick.contracts import PickConditions
 from ggwork_pick.pin import Pin, as_pin
+from ggwork_pick.references import check_references, hot_scope, is_hot_kind
 from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of, with_mirror_version
 
 RULE_VERSION = "pick-rules-v1"
 RANKING_VERSION = "evidence-date-v1"
 RANK_RANKING_VERSION = "signal-rank-v1"
-RANKING_VERSIONS = frozenset({RANKING_VERSION, RANK_RANKING_VERSION})
+# hot_only by date: the newest hot evidence, not the newest signal (clk is dated today on almost every ReelShort row).
+HOT_RANKING_VERSION = "hot-evidence-date-v1"
+RANKING_VERSIONS = frozenset({RANKING_VERSION, RANK_RANKING_VERSION, HOT_RANKING_VERSION})
 # The replay's ordered identity list stops here; total and truncated say how many there were (plan:1620).
 REPLAY_LIMIT = 2000
 
@@ -31,7 +34,9 @@ class ReplayUnrunnable(Exception):
 
 
 def ranking_version_for(conditions: PickConditions) -> str:
-    return RANK_RANKING_VERSION if conditions.sort == "rank" else RANKING_VERSION
+    if conditions.sort == "rank":
+        return RANK_RANKING_VERSION
+    return HOT_RANKING_VERSION if conditions.hot_only else RANKING_VERSION
 
 
 def _matched_total(record: dict) -> int | None:
@@ -58,6 +63,10 @@ def _latest_date(row) -> str:
     return max((s["observed_at"][:10] for s in row["signals"] if s["observed_at"]), default="")
 
 
+def _latest_hot_date(row) -> str:
+    return max((s["observed_at"][:10] for s in row["signals"] if s["observed_at"] and is_hot_kind(s["kind"])), default="")
+
+
 def _kind_signal(row, kind):
     """The newest signal of one kind, a ranked one first on the same day; ranks never mix kinds or sources."""
     signals = [s for s in row["signals"] if s["kind"] == kind]
@@ -65,9 +74,8 @@ def _kind_signal(row, kind):
 
 
 def _check_references(rows, conditions: PickConditions) -> None:
-    """A kind or account the batch does not contain is a typo, not a filter that silently matches nothing or everything."""
-    if conditions.signal_kind and not any(s["kind"] == conditions.signal_kind for row in rows for s in row["signals"]):
-        raise ValueError(f"剧库里没有 {conditions.signal_kind} 这类信号；信号种类代码见知识资料")
+    """A value the batch does not contain is a typo, not a filter that silently matches nothing or everything."""
+    check_references(rows, conditions)
     if conditions.posted_account:
         if any(row.get("posted") is None for row in rows):
             raise PostedDataUnavailable("当前剧库批次没有发布记录，无法核对是否发过")
@@ -101,6 +109,8 @@ def _row_matches(row, conditions: PickConditions, excluded: set[str]) -> bool:
         return False
     if conditions.signal_kind and _kind_signal(row, conditions.signal_kind) is None:
         return False
+    if conditions.hot_only and not any(is_hot_kind(s["kind"]) for s in row["signals"]):
+        return False
     if conditions.channel:
         permission = row["channel_rules"].get(conditions.channel, "unknown")
         if permission == "denied" or (conditions.confirmed_eligible_only and (permission != "allowed" or row["availability"] != "active")):
@@ -110,10 +120,8 @@ def _row_matches(row, conditions: PickConditions, excluded: set[str]) -> bool:
     return True
 
 
-def matching_rows(rows, conditions: PickConditions, excluded: set[str]):
-    if conditions.sort == "rank" and not conditions.signal_kind:
-        raise ValueError("按名次排序必须指定 signal_kind（同一类榜单内才能比较名次）")
-    _check_references(rows, conditions)
+def _filtered(rows, conditions: PickConditions, excluded) -> list:
+    """The rows the conditions keep, unordered: the row filter, then with sort=rank the kind's latest board only."""
     matches = [row for row in rows if _row_matches(row, conditions, excluded)]
     if conditions.sort == "rank":
         # One board at a time, like RealShort's rank tab: ranks from different days are not comparable.
@@ -123,6 +131,17 @@ def matching_rows(rows, conditions: PickConditions, excluded: set[str]):
         board = max((s["observed_at"] for s in kind_signals if s["observed_at"]), default=None)
         if board is not None:
             matches = [row for row in matches if _kind_signal(row, conditions.signal_kind)["observed_at"] == board]
+    return matches
+
+
+def matching_rows(rows, conditions: PickConditions, excluded: set[str], *, check: bool = True):
+    """The ordered matches. check=False only replays a stored result on its own batch: the values it names passed
+    the reference checks of their day there, and a check added later must not turn its replay into a refusal."""
+    if conditions.sort == "rank" and not conditions.signal_kind:
+        raise ValueError("按名次排序必须指定 signal_kind（同一类榜单内才能比较名次）")
+    if check:
+        _check_references(rows, conditions)
+    matches = _filtered(rows, conditions, excluded)
     matches.sort(key=lambda row: row["identity"])
     if conditions.sort == "rank":
 
@@ -133,8 +152,57 @@ def matching_rows(rows, conditions: PickConditions, excluded: set[str]):
         matches.sort(key=rank_key)
     else:
         # Date-only ordering is intentionally not a cross-source performance score.
-        matches.sort(key=_latest_date, reverse=True)
+        matches.sort(key=_latest_hot_date if conditions.hot_only else _latest_date, reverse=True)
     return matches
+
+
+def _relaxations(conditions: PickConditions, excluded):
+    """(condition, value, conditions without it, exclusions without it) for each narrowing condition, fixed order."""
+    steps = []
+
+    def without(name, value, **update):
+        steps.append((name, value, conditions.model_copy(update=update), excluded))
+
+    if conditions.theater:
+        without("theater", conditions.theater, theater=None)
+    if conditions.language:
+        without("language", conditions.language, language=None)
+    if conditions.channel:
+        without("channel", conditions.channel, channel=None)
+        if conditions.confirmed_eligible_only:
+            without("confirmed_eligible_only", True, confirmed_eligible_only=False)
+    if conditions.query:
+        without("query", conditions.query, query=None)
+    if conditions.tags:
+        without("tags", list(conditions.tags), tags=[])
+    if conditions.signal_kind:
+        without("signal_kind", conditions.signal_kind, signal_kind=None, sort="evidence_date")
+    if conditions.sort == "rank":
+        without("sort", "rank", sort="evidence_date")
+    if conditions.hot_only:
+        without("hot_only", True, hot_only=False)
+    if conditions.exclude_posted:
+        without("exclude_posted", True, exclude_posted=False)
+    if conditions.posted_account:
+        without("posted_account", conditions.posted_account, posted_account=None)
+    if excluded:
+        # Personal selections and 换一批's previous items together: the stored result keeps only their union.
+        steps.append(("excluded", len(excluded), conditions, frozenset()))
+    return steps
+
+
+def zero_diagnosis(rows, conditions: PickConditions, excluded) -> dict:
+    """Why a query matched nothing, for the model to relay instead of guessing: how many rows would match with each
+    one condition taken away and the others kept. Pure and CPU-bound: run it off the loop."""
+    return {
+        "catalog_rows": len(rows),
+        "delisted_rows": sum(1 for row in rows if row["availability"] == "delisted"),
+        "without_each": [
+            {"condition": name, "value": value, "matched_total": len(_filtered(rows, relaxed, relaxed_excluded))}
+            for name, value, relaxed, relaxed_excluded in _relaxations(conditions, excluded)
+        ],
+        "note": "结果为0。matched_total是只去掉这一项、其余条件不变时的部数；每项都是0说明要同时放宽几项。已下架的剧始终不计入。",
+    }
 
 
 def unmappable_conditions(conditions: PickConditions) -> list[str]:
@@ -151,6 +219,7 @@ def unmappable_conditions(conditions: PickConditions) -> list[str]:
         ("query", bool(conditions.query)),
         ("exclude_selected", conditions.exclude_selected),
         ("exclude_previous", conditions.exclude_previous),
+        ("hot_only", conditions.hot_only),
     )
     return [name for name, active in present if active]
 
@@ -163,7 +232,7 @@ def replay_view(record: dict, rows) -> dict:
     """
     conditions = PickConditions.model_validate(record["conditions_json"])
     excluded = record.get("excluded_json")
-    identities = [row["identity"] for row in matching_rows(rows, conditions, frozenset(excluded or ()))]
+    identities = [row["identity"] for row in matching_rows(rows, conditions, frozenset(excluded or ()), check=False)]
     return {
         "result_id": record["id"],
         "catalog_batch_id": record["catalog_batch_id"],
@@ -207,6 +276,9 @@ def candidate_item(row, conditions, matched_total: int | None = None):
         warnings.append("部分依据日期未知")
     warnings.extend(_posted_warnings(row, conditions))
     reason = f"符合本次筛选条件；有{len(row['signals'])}条来源信号。"
+    if conditions.hot_only:
+        hot = sum(1 for s in row["signals"] if is_hot_kind(s["kind"]))
+        reason = f"符合本次筛选条件；有{len(row['signals'])}条来源信号，其中{hot}条是热门依据。"
     if conditions.sort == "rank" and conditions.signal_kind:
         signal = _kind_signal(row, conditions.signal_kind)
         if signal and signal.get("rank") is not None:
@@ -230,6 +302,15 @@ def candidate_item(row, conditions, matched_total: int | None = None):
     if matched_total is not None:
         item["matched_total"] = matched_total
     return item
+
+
+async def _explanations(rows, conditions: PickConditions, excluded, *, matched: int | None) -> dict:
+    extra = {}
+    if matched == 0:
+        extra["zero_diagnosis"] = await asyncio.to_thread(zero_diagnosis, rows, conditions, excluded)
+    if conditions.hot_only:
+        extra["hot_scope"] = hot_scope(rows)
+    return extra
 
 
 def _request_hash(conditions: PickConditions, parent_result_id: str | None, use_latest: bool) -> str:
@@ -368,12 +449,13 @@ class SelectionService:
         it carries the pin's mirror version as well: the parent's for a derived count, this run's otherwise.
         """
         conditions, pin, excluded = await self._scope(filters, parent, use_latest=False, pinned_versions=pinned_versions)
-        matches = matching_rows(await self.repository.catalog_rows(pin.catalog_id), conditions, excluded)
+        rows = await self.repository.catalog_rows(pin.catalog_id)
+        matches = matching_rows(rows, conditions, excluded)
         by_theater, by_language = {}, {}
         for row in matches:
             by_theater[row["theater"]] = by_theater.get(row["theater"], 0) + 1
             by_language[row["language"]] = by_language.get(row["language"], 0) + 1
-        return {
+        counted = {
             "catalog_batch_id": pin.catalog_id,
             "conditions": conditions.model_dump(),
             "total": len(matches),
@@ -381,6 +463,17 @@ class SelectionService:
             "by_language": dict(sorted(by_language.items(), key=lambda kv: (-kv[1], kv[0]))),
             "data_as_of": with_mirror_version(await self._pin_data_as_of(pin), pin.mirror_version, emit=emit_mirror_version),
         }
+        return {**counted, **await _explanations(rows, conditions, excluded, matched=len(matches))}
+
+    async def explain(self, record: dict) -> dict:
+        """What the query tool adds beside a stored result for the model: zero_diagnosis when nothing matched, and
+        hot_scope under hot_only. Read from the result's own batch and exclusions, so a repeated call gets the same."""
+        conditions = PickConditions.model_validate(record["conditions_json"])
+        matched = _matched_total(record)
+        if matched != 0 and not conditions.hot_only:
+            return {}
+        rows = await self.repository.catalog_rows(record["catalog_batch_id"])
+        return await _explanations(rows, conditions, frozenset(record.get("excluded_json") or ()), matched=matched)
 
     async def _pin_data_as_of(self, pin: Pin) -> dict | None:
         return pin.data_as_of if pin.data_as_of is not None else await self.repository.data_as_of(pin.catalog_id)

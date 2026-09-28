@@ -1,7 +1,7 @@
 {
   "about": [
     "selection.unmappable_conditions with the observation fields (plan TR-33, TR-27; frontend agentOnlyConditions, TR-16).",
-    "The seven existing names keep their order; the observation fields follow in OBS_CONDITION_FIELDS order, each present when truthy.",
+    "The seven existing names keep their order, then hot_only (2026-09-28, when true); the observation fields follow in OBS_CONDITION_FIELDS order, each present when truthy.",
     "labels are the data page's texts for the new names (AGENT_ONLY_LABELS); no text says zero (premise 1)."
   ],
   "labels": {
@@ -55,6 +55,11 @@
       "name": "falsy_obs_fields_absent",
       "conditions": {"limit": 5, "exclude_selected": false, "trend_include_first": false, "trend_geos": [], "gsc_state": null},
       "expected": []
+    },
+    {
+      "name": "hot_only_before_the_observation_fields",
+      "conditions": {"limit": 5, "exclude_selected": false, "exclude_previous": true, "hot_only": true, "trend_state": "rising"},
+      "expected": ["exclude_previous", "hot_only", "trend_state"]
     },
     {
       "name": "gsc_and_link_only",

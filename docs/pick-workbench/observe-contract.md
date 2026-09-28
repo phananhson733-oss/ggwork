@@ -54,7 +54,7 @@ TR-27 用 `PickConditionsObs(PickConditions, ObsConditionFields)` 把七个字�
 - **写入规则**：`conditions_json` 与请求哈希用同一口径，值为假的观测字段（null、空列表、false）一律不写。不带观测条件的结果与改动前逐字相同。
 - **排序（D19）**：带观测条件且没指定 sort 时，有效排序是 `obs`（排序版本 `obs-v1`）；指定 `sort=obs` 却没有观测条件，拒绝。
 - **由 TR-27 在查询时拒绝的组合**：`rank_push` 只作全站证据，配了不含 `ALL` 的国家列表时拒绝；钉住的是个人批次时拒绝。
-- **`unmappable_conditions` 的顺序**：现有七项（tags、posted_account、channel、confirmed_eligible_only、query、exclude_selected、exclude_previous）不变，观测字段按 `UNMAPPABLE_OBS_ORDER`（与上表同序）接在后面，值为真时才列出。资料页的文字见 `OBS_CONDITION_LABELS`，用例见 `unmappable_cases.json`。
+- **`unmappable_conditions` 的顺序**：现有七项（tags、posted_account、channel、confirmed_eligible_only、query、exclude_selected、exclude_previous）不变，其后是 2026-09-28 加的 `hot_only`（为真时列出），观测字段按 `UNMAPPABLE_OBS_ORDER`（与上表同序）接在后面，值为真时才列出。资料页的文字见 `OBS_CONDITION_LABELS`，用例见 `unmappable_cases.json`。
 
 #### 枚举 `TREND_STATES`
 取值：`rising`、`emerging`
