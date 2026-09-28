@@ -8,6 +8,7 @@ never rewritten.
 """
 
 import re
+from bisect import bisect_right
 
 _TITLE = re.compile(r"《([^《》\n]{1,500})》")
 _WHO = r"(为你|帮你|给你)?(成功)?"
@@ -21,6 +22,8 @@ _SAVE_CLAIM = re.compile(
 _NOT_POSTED = re.compile(r"(?<!排期)(从来没有?|从没|没有?|未曾?)(被)?(发布|发(?!布))(过)?(?!现|生|展|放|起|出|送|给|挥|记录)")
 # A claim quoted inside a disclaimer ("不能声称没发过") is not a claim; a comma ends the disclaimer.
 _NEGATING_PREFIX = re.compile(r"(不能|无法|不代表|不等于|不能声称|不能断言|不能确认|不会|才会|是否|请勿|不要)[^。！？，,；;\n]{0,6}$")
+# Longer than any disclaimer _NEGATING_PREFIX reads, so a claim looks back this far instead of through the whole answer.
+_PREFIX_WINDOW = 16
 _CLAUSE_MARK = re.compile(r"[。！？!?；;，,\n]")
 _BLANK_LINE = re.compile(r"\n[ \t]*\n")
 # What a returned item's posted summary says about "没发过": only a matched record without posts backs it.
@@ -33,7 +36,7 @@ def _norm(title: str) -> str:
 
 
 def _claim_starts(pattern: re.Pattern, text: str) -> list[int]:
-    return [match.start() for match in pattern.finditer(text) if not _NEGATING_PREFIX.search(text[: match.start()])]
+    return [match.start() for match in pattern.finditer(text) if not _NEGATING_PREFIX.search(text, max(0, match.start() - _PREFIX_WINDOW), match.start())]
 
 
 def _claims(pattern: re.Pattern, text: str) -> bool:
@@ -64,16 +67,23 @@ def with_posted(seen: dict[str, str], items) -> dict[str, str]:
     return merged
 
 
-def _subject_titles(text: str, masked: str, position: int) -> list[str]:
-    """The titles a claim at position is about: its own clause's, else the nearest earlier clause's in its paragraph."""
-    paragraph = max((match.end() for match in _BLANK_LINE.finditer(masked, 0, position)), default=0)
-    after = _CLAUSE_MARK.search(masked, position)
-    cuts = [paragraph, *(match.end() for match in _CLAUSE_MARK.finditer(masked, paragraph, position)), after.start() if after else len(masked)]
-    for left, right in reversed(list(zip(cuts, cuts[1:]))):
-        titles = [match.group(1).strip() for match in _TITLE.finditer(text[left:right]) if match.group(1).strip()]
-        if titles:
-            return list(dict.fromkeys(titles))
-    return []
+def _clause_subjects(text: str, masked: str) -> tuple[list[int], list[list[str]]]:
+    """Each clause's start and the titles a claim in it is about, in one pass.
+
+    A clause's own titles, else those of the nearest earlier clause with titles in its paragraph (a list item's title
+    on the line above its verdict). A title named without 《》 is not seen, so its claim borrows the clause before.
+    """
+    paragraphs = [0, *(match.end() for match in _BLANK_LINE.finditer(masked))]
+    starts = [0, *(match.end() for match in _CLAUSE_MARK.finditer(masked))]
+    subjects: list[list[str]] = []
+    previous, previous_paragraph = [], -1
+    for left, right in zip(starts, [*starts[1:], len(masked)]):
+        paragraph = bisect_right(paragraphs, left)
+        own = list(dict.fromkeys(match.group(1).strip() for match in _TITLE.finditer(text, left, right) if match.group(1).strip()))
+        previous = own or (previous if paragraph == previous_paragraph else [])
+        previous_paragraph = paragraph
+        subjects.append(previous)
+    return starts, subjects
 
 
 def _listed(titles: dict[str, str]) -> str:
@@ -89,9 +99,10 @@ def _not_posted_notes(text: str, posted_checked: bool, seen: dict[str, str]) -> 
     """
     # A title's inside is blanked out (same length): its words are no claim, and its punctuation ends no clause.
     masked = _TITLE.sub(lambda match: "《" + "_" * len(match.group(1)) + "》", text)
+    starts, subjects = _clause_subjects(text, masked)
     unmatched, posted, unfiltered = {}, {}, False
     for start in _claim_starts(_NOT_POSTED, masked):
-        titles = _subject_titles(text, masked, start)
+        titles = subjects[bisect_right(starts, start) - 1]
         statuses = {title: seen.get(_norm(title), UNKNOWN) for title in titles}
         unmatched |= {_norm(title): title for title, status in statuses.items() if status == UNMATCHED}
         posted |= {_norm(title): title for title, status in statuses.items() if status == POSTED}

@@ -152,6 +152,16 @@ def test_titles_without_a_single_clear_record_back_nothing():
     assert check_answer("《Twin》没发过。", known_titles={"Twin"}, posted_checked=True, posted_seen=seen) == []
 
 
+def test_a_long_list_answer_is_judged_item_by_item():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    items = [_item(f"Drama {index}", matched=index != 1_500) for index in range(2_000)]
+    seen = with_posted({}, items)
+    lines = "\n".join(f"{index + 1}. 《Drama {index}》\n   发布记录已对上，帖子数0，团队还没发过" for index in range(2_000))
+    notes = check_answer(lines, known_titles={item["title"] for item in items}, posted_checked=False, posted_seen=seen)
+    assert notes == ["《Drama 1500》的发布记录没有对上，只能说“发布记录里没有”，不能说没发过。"]
+
+
 @pytest_asyncio.fixture
 async def workbench(tmp_path):
     """A catalog with one matched record without posts and one unmatched record, and a way to start a run on it."""

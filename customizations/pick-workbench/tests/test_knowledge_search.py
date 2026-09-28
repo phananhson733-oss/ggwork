@@ -122,3 +122,27 @@ def test_the_innermost_named_section_wins_and_a_long_one_is_cut():
     assert excerpt_spans(text, ["rules"]) == [(0, EXCERPT_CHARS)]
     other = text.index("## Other")
     assert excerpt_spans(text, ["other"]) == [(other, len(text.rstrip()))]
+
+
+def test_nested_sections_end_at_the_next_heading_of_their_level_or_above():
+    from ggwork_pick.knowledge_excerpts import excerpt_spans
+
+    pad = "p" * 5_000
+    text = f"# Top\n{pad}\n## Alpha\na1\n### Alpha Deep\nd1\n#### Alpha Deeper\nd2\n## Beta\nb1\n# Next\nn1"
+    spans = {word: [text[start:end] for start, end in excerpt_spans(text, [word])] for word in ("alpha", "deep", "beta", "next")}
+    assert spans["alpha"] == ["#### Alpha Deeper\nd2"]
+    assert spans["deep"] == ["#### Alpha Deeper\nd2"]
+    assert spans["beta"] == ["## Beta\nb1"]
+    assert spans["next"] == ["# Next\nn1"]
+    # Closing hashes and trailing spaces do not hide a heading.
+    closed = pad + "\n## Gamma ##  \ng1"
+    assert [closed[start:end] for start, end in excerpt_spans(closed, ["gamma"])] == ["## Gamma ##  \ng1"]
+
+
+def test_a_document_with_many_named_headings_returns_a_bounded_number_of_excerpts():
+    from ggwork_pick.knowledge_excerpts import MAX_EXCERPTS, excerpt_spans
+
+    text = "".join(f"## Theater {index}\nrule {index}\n\n" for index in range(50_000))
+    spans = excerpt_spans(text, ["theater"])
+    assert len(spans) == MAX_EXCERPTS
+    assert [text[start:end] for start, end in spans] == [f"## Theater {index}\nrule {index}" for index in range(MAX_EXCERPTS)]
