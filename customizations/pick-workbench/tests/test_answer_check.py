@@ -160,8 +160,13 @@ def test_a_claim_borrows_titles_only_within_its_sentence_or_list_item():
         (only_heir, "《Lost Heir》和 Big Boss 都没发过。", generic),
     ):
         assert check_answer(text, known_titles=known, posted_checked=False, posted_seen=seen) == expected, text
-    # Platform names and language codes are not drama names.
-    assert check_answer("《Lost Heir》已对上，在 YouTube 上还没发过。", known_titles=known, posted_checked=False, posted_seen=only_heir) == []
+    # Platform and theater names, language codes: one Latin word is not taken for a drama name.
+    for text in (
+        "《Lost Heir》已对上，在 YouTube 上还没发过。",
+        "《Lost Heir》是 DramaBox 的剧，已对上，团队还没发过。",
+        "《Lost Heir》（ReelShort，en）已对上，还没发过。",
+    ):
+        assert check_answer(text, known_titles=known, posted_checked=False, posted_seen=only_heir) == [], text
 
 
 def test_an_account_query_backs_a_claim_about_that_account_only():
@@ -175,9 +180,29 @@ def test_an_account_query_backs_a_claim_about_that_account_only():
     assert check_answer("《Big Boss》：A 账号，还没发过。", known_titles=known, posted_checked=True, posted_seen=seen) == []
     for text in ("《Big Boss》没发过。", "《Big Boss》团队还没发过。", "《Big Boss》在 B 账号没发过。"):
         assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
+    # "这个账号" is the account queried; naming the team, even in a clause that goes on from A's, is about every account.
+    for text in ("《Big Boss》这个账号还没发过。", "这几部在该账号都没发过。"):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == [], text
+    for text in ("《Big Boss》在 A 账号没发过，团队也没发过。", "《Big Boss》在 A 账号没发过。团队也没发过。", "《Big Boss》在 A 账号和团队都没发过。"):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
     # An account the records name as posting it is never cleared by another query.
     both = with_posted(seen, [_item("Big Boss", matched=True, posts=3, accounts=["A", "B"])])
     assert check_answer("《Big Boss》在 A 账号没发过。", known_titles=known, posted_checked=True, posted_seen=both) == posted
+
+
+def test_after_a_posted_filter_a_claim_naming_nothing_stands_on_every_record_returned():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Lost Heir", matched=True), _item("Big Boss", matched=True, posts=3)])
+    known = {"Lost Heir", "Big Boss"}
+    posted = ["发布记录显示《Big Boss》发过，不能说没发过。"]
+    for text in ("团队还没发过。", "还没发过。", "以下是团队还没发过的剧："):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
+        # Without the filter nothing backs it at all, whichever record it is about.
+        assert check_answer(text, known_titles=known, posted_checked=False, posted_seen=seen) == ["本轮查询没有按发布记录过滤，不能据此断言没发过。"], text
+    fine = with_posted({}, [_item("Lost Heir", matched=True)])
+    assert check_answer("团队还没发过。", known_titles=known, posted_checked=True, posted_seen=fine) == []
+    assert check_answer("团队还没发过。", known_titles=known, posted_checked=True, posted_seen={}) == []
 
 
 def test_a_title_is_neither_split_by_its_punctuation_nor_read_as_a_claim():

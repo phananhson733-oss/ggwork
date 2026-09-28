@@ -29,9 +29,15 @@ _CLAUSE_MARK = re.compile(r"[。！？!?；;，,\n]")
 _INDENT = re.compile(r"[ \t]*")
 # "都没发过" / "这三部" speak for every item returned, not for the title named last ("第2部" is one item).
 _SUMMARY = re.compile(r"都|均|全部|其余|其他|以上|这些|这几|它们|(?<![第0-9一二两三四五六七八九十])[0-9一二两三四五六七八九十]+部")
-# A Latin word the check cannot place is taken for a drama named without 《》: nothing returned speaks for it.
-_LATIN = re.compile(r"[a-z][a-z0-9'’&]*")
-_NOT_NAMES = frozenset({"youtube", "tiktok", "facebook", "instagram", "fb", "ig", "yt", "us", "en", "ko", "ja", "es", "pt", "th", "zh"})
+# Two Latin words in a row the check cannot place are taken for a drama named without 《》: nothing returned speaks for
+# it. One word is a theater, platform or language far more often than a drama (DramaBox, YouTube, en).
+_LATIN_NAME = re.compile(r"[a-z][a-z0-9'’&]*(?:[ \t]+[a-z][a-z0-9'’&]*)+")
+_NOT_NAME = re.compile(r"(?<![0-9a-z])(?:youtube|tiktok|facebook|instagram|fb|ig|yt|us|en|ko|ja|es|pt|th|zh)(?![0-9a-z'’&])")
+# A clause about the whole team is not about the account a posted_account query cleared, even going on from one that is.
+_TEAM_WORDS = re.compile(r"团队|全队|所有账号|任何账号|各个?账号|全部账号|哪个账号")
+_TEAM = "\x00team"
+# "这个账号" is the account a posted_account query asked about.
+_THIS_ACCOUNT = re.compile(r"(?:该|这个|此|本)(?:账号|账户)")
 # What a returned item's posted summary says about "没发过": only a matched record without posts backs it.
 UNPOSTED, UNKNOWN, UNMATCHED, POSTED = "unposted", "unknown", "unmatched", "posted"
 # Merging keeps the answer that refutes most: a title returned once without posts and once with posts was posted.
@@ -98,11 +104,25 @@ def with_posted(seen: dict[str, Seen], items, *, account: str | None = None) -> 
     return merged
 
 
-def _account_pattern(seen: dict[str, Seen]) -> re.Pattern | None:
-    names = sorted({name for entry in seen.values() for name in entry.posters | entry.clear if name}, key=len, reverse=True)
-    if not names:
-        return None
-    return re.compile(r"(?<![0-9a-z])(?:" + "|".join(map(re.escape, names)) + r")(?![0-9a-z])")
+class _Accounts:
+    """The accounts this run's records name, and which of them a clause is about."""
+
+    def __init__(self, seen: dict[str, Seen]) -> None:
+        names = sorted({name for entry in seen.values() for name in entry.posters | entry.clear if name}, key=len, reverse=True)
+        self.pattern = re.compile(r"(?<![0-9a-z])(?:" + "|".join(map(re.escape, names)) + r")(?![0-9a-z])") if names else None
+        self.queried = frozenset(name for entry in seen.values() for name in entry.clear)
+
+    def named(self, clause: str) -> tuple[frozenset[str], str]:
+        """The accounts the clause names (_TEAM for the whole team), and its casefolded text with them blanked out."""
+        folded, named = clause.casefold(), set()
+        if self.pattern is not None:
+            named.update(self.pattern.findall(folded))
+            folded = self.pattern.sub("|", folded)
+        if _THIS_ACCOUNT.search(clause):
+            named |= self.queried
+        if _TEAM_WORDS.search(clause):
+            named.add(_TEAM)
+        return frozenset(named), folded
 
 
 class _Subject(NamedTuple):
@@ -116,18 +136,15 @@ class _Subject(NamedTuple):
     indent: int
 
 
-def _own_subject(text: str, masked: str, accounts: re.Pattern | None, left: int, right: int, indent: int) -> tuple[_Subject, frozenset[str]]:
-    """The clause's own subject, and the known accounts it names."""
+def _own_subject(text: str, masked: str, accounts: _Accounts, left: int, right: int, indent: int) -> tuple[_Subject, frozenset[str]]:
+    """The clause's own subject, and the accounts it names."""
     titles = tuple(dict.fromkeys(match.group(1).strip() for match in _TITLE.finditer(text, left, right) if match.group(1).strip()))
-    words, named = masked[left:right].casefold(), frozenset()
-    if accounts is not None:
-        named = frozenset(accounts.findall(words))
-        words = accounts.sub(" ", words)
-    unknown = any(word not in _NOT_NAMES for word in _LATIN.findall(words))
+    named, words = accounts.named(masked[left:right])
+    unknown = _LATIN_NAME.search(_NOT_NAME.sub("|", words)) is not None
     return _Subject(titles, unknown, _SUMMARY.search(masked, left, right) is not None, left, indent), named
 
 
-def _subjects(text: str, masked: str, accounts: re.Pattern | None) -> tuple[list[int], list[_Subject], list[frozenset[str]]]:
+def _subjects(text: str, masked: str, accounts: _Accounts) -> tuple[list[int], list[_Subject], list[frozenset[str]]]:
     """Each clause's start, its subject, and the accounts named from where that subject starts through the clause.
 
     A clause naming nothing that continues the one before takes that one's subject. A comma continues the clause before,
@@ -158,7 +175,10 @@ def _listed(titles: dict[str, str]) -> str:
 
 
 def _effective(entry: Seen, mentioned: frozenset[str]) -> str:
-    """A claim naming only accounts a posted_account query cleared, and the records never name, is about those accounts."""
+    """A claim naming only accounts a posted_account query cleared, and the records never name, is about those accounts.
+
+    _TEAM is in no clear set: a claim that also names the team stays refuted by the team's posts.
+    """
     if entry.status == POSTED and mentioned and mentioned <= entry.clear - entry.posters:
         return UNPOSTED
     return entry.status
@@ -195,12 +215,12 @@ def _not_posted_notes(text: str, posted_checked: bool, seen: dict[str, Seen]) ->
 
     A claim naming titles stands on their returned records, and one summing up ("都没发过") on every record returned:
     matched without posts backs it, unmatched or posted refutes it, and a title no tool returned needs the posted
-    filter. A claim naming nothing needs the filter, or every item this run returned to be matched without posts.
+    filter. A claim naming nothing needs the filter, and then every record returned must not refute it; without the
+    filter, every item this run returned must be matched without posts.
     """
     # A title's inside is blanked out (same length): its words are no claim, and its punctuation ends no clause.
     masked = _TITLE.sub(lambda match: "《" + "_" * len(match.group(1)) + "》", text)
-    accounts = _account_pattern(seen)
-    starts, subjects, mentions = _subjects(text, masked, accounts)
+    starts, subjects, mentions = _subjects(text, masked, _Accounts(seen))
     findings, everything, judged = _Findings(), {}, set()
     for start in _claim_starts(_NOT_POSTED, masked):
         index = bisect_right(starts, start) - 1
@@ -218,7 +238,7 @@ def _not_posted_notes(text: str, posted_checked: bool, seen: dict[str, Seen]) ->
         if mentioned not in everything:
             everything[mentioned] = [(entry.title, _effective(entry, mentioned)) for entry in seen.values()]
         entries = everything[mentioned]
-        if subject.summary and entries:
+        if entries and (subject.summary or posted_checked):
             findings.judge(entries, unknown=subject.unknown, posted_checked=posted_checked)
         elif not posted_checked and (subject.unknown or not entries or any(status != UNPOSTED for _, status in entries)):
             findings.unfiltered = True
