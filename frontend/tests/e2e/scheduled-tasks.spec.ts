@@ -154,6 +154,60 @@ test("duplicate fills the create form without creating a task", async ({
   expect(createRequests).toBe(0);
 });
 
+test("quick create fills a drama-picking recipe without creating a task", async ({
+  page,
+}) => {
+  let createRequests = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname.endsWith("/api/scheduled-tasks")
+    ) {
+      createRequests += 1;
+    }
+  });
+  mockLangGraphAPI(page, { threads: [], scheduledTasks: [] });
+
+  await page.goto("/workspace/scheduled-tasks");
+  const createForm = page.getByTestId("scheduled-task-create-form");
+  const recipes = createForm.getByTestId("schedule-recipes");
+  for (const retired of ["GitHub Trending daily", "Weekly report"]) {
+    await expect(
+      recipes.getByRole("button", { name: retired, exact: true }),
+    ).toHaveCount(0);
+  }
+
+  await recipes
+    .getByRole("button", { name: "Daily candidates", exact: true })
+    .click();
+  await expect(createForm.getByPlaceholder("Task title")).toHaveValue(
+    "Daily candidates",
+  );
+  await expect(createForm.getByPlaceholder("Prompt")).toHaveValue(
+    /^找10部英语剧（language=en，limit=10）/,
+  );
+  await expect(createForm.getByTestId("schedule-timezone")).toContainText(
+    "Asia/Shanghai",
+  );
+  await expect(createForm.getByTestId("schedule-preview")).toContainText(
+    "12:00",
+  );
+
+  await recipes
+    .getByRole("button", { name: "Weekly pool count", exact: true })
+    .click();
+  await expect(createForm.getByPlaceholder("Task title")).toHaveValue(
+    "Weekly pool count",
+  );
+  await expect(createForm.getByPlaceholder("Prompt")).toHaveValue(
+    /pick_count_candidates/,
+  );
+  await expect(createForm.getByTestId("schedule-preview")).toContainText(
+    "12:30",
+  );
+  expect(createRequests).toBe(0);
+});
+
 test("reuse-thread tasks explain their context and busy-thread queue behavior", async ({
   page,
 }) => {

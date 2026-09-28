@@ -28,12 +28,6 @@ rs.mock("@/core/pick/api", () => ({
   importPickData: async () => null,
 }));
 
-rs.mock("@/components/ai-elements/prompt-input", () => ({
-  usePromptInputController: () => ({
-    textInput: { setInput: () => undefined },
-  }),
-}));
-
 rs.mock("next/link", () => ({
   default: ({ href, children }: { href: string; children: ReactNode }) => (
     <a href={href}>{children}</a>
@@ -185,5 +179,10 @@ describe("the imports panel inside the pick data page", () => {
     expect(
       screen.getByText("第一次使用？先导入剧库与知识资料").getAttribute("href"),
     ).toBe("/workspace/pick-data?tab=imports");
+  });
+
+  it("the welcome screen leaves the quick actions to the composer", () => {
+    render(<PickWelcome />);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 });

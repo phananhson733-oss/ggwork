@@ -1037,9 +1037,9 @@ test.describe("Chat workspace", () => {
     const textarea = page.getByPlaceholder(/how can i assist you/i);
     await expect(textarea).toBeVisible({ timeout: 15_000 });
 
-    await page.getByRole("button", { name: /research/i }).click();
+    await page.getByRole("button", { name: "By theater", exact: true }).click();
     await expect(textarea).toHaveValue(
-      "Conduct a deep dive research on [topic], and summarize the findings.",
+      "Find 5 English (en) dramas from [theater], excluding ones I have already picked",
     );
 
     await textarea.press("Enter");
@@ -1047,7 +1047,7 @@ test.describe("Chat workspace", () => {
 
     expect(streamCalled).toBe(false);
     await expect(textarea).toHaveValue(
-      "Conduct a deep dive research on [topic], and summarize the findings.",
+      "Find 5 English (en) dramas from [theater], excluding ones I have already picked",
     );
     await expect
       .poll(
@@ -1058,11 +1058,11 @@ test.describe("Chat workspace", () => {
           }),
         { timeout: 5_000 },
       )
-      .toBe("[topic]");
+      .toBe("[theater]");
 
-    await textarea.pressSequentially("AI agents");
+    await textarea.pressSequentially("DramaBox");
     await expect(textarea).toHaveValue(
-      "Conduct a deep dive research on AI agents, and summarize the findings.",
+      "Find 5 English (en) dramas from DramaBox, excluding ones I have already picked",
     );
 
     await textarea.press("Enter");
@@ -1071,8 +1071,55 @@ test.describe("Chat workspace", () => {
     await expect
       .poll(() => submittedText, { timeout: 10_000 })
       .toBe(
-        "Conduct a deep dive research on AI agents, and summarize the findings.",
+        "Find 5 English (en) dramas from DramaBox, excluding ones I have already picked",
       );
+  });
+
+  test("offers drama-picking quick actions instead of the upstream ones", async ({
+    page,
+  }) => {
+    await page.goto("/workspace/chats/new");
+
+    const textarea = page.getByPlaceholder(/how can i assist you/i);
+    await expect(textarea).toBeVisible({ timeout: 15_000 });
+
+    const suggestions = page.locator("[data-slot='suggestions-list']");
+    await expect(suggestions).toHaveCount(1);
+    for (const name of [
+      "Find candidates",
+      "By theater",
+      "KalosTV daily",
+      "Exclude by account",
+      "More",
+    ]) {
+      await expect(
+        suggestions.getByRole("button", { name, exact: true }),
+      ).toBeVisible();
+    }
+    for (const retired of ["Surprise", "Research", "Create"]) {
+      await expect(
+        suggestions.getByRole("button", { name: retired, exact: true }),
+      ).toHaveCount(0);
+    }
+
+    await suggestions
+      .getByRole("button", { name: "More", exact: true })
+      .click();
+    await expect(page.getByRole("menuitem")).toHaveCount(5);
+    await page.getByRole("menuitem", { name: "Look up a drama" }).click();
+    await expect(textarea).toHaveValue(
+      "Look up 《[drama title]》 in the candidate pool and show its evidence and posting records; do not exclude ones I have already picked",
+    );
+    await expect
+      .poll(
+        () =>
+          textarea.evaluate((element) => {
+            const input = element as HTMLTextAreaElement;
+            return input.value.slice(input.selectionStart, input.selectionEnd);
+          }),
+        { timeout: 5_000 },
+      )
+      .toBe("[drama title]");
   });
 
   test("slash skill command is submitted as normal chat text", async ({

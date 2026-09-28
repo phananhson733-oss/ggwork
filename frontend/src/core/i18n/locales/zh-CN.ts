@@ -1,12 +1,13 @@
 import {
-  CompassIcon,
-  GraduationCapIcon,
-  ImageIcon,
-  MicroscopeIcon,
-  PenLineIcon,
-  ShapesIcon,
-  SparklesIcon,
-  VideoIcon,
+  CalculatorIcon,
+  CalendarRangeIcon,
+  ClapperboardIcon,
+  ListFilterIcon,
+  ListOrderedIcon,
+  ScrollTextIcon,
+  SearchIcon,
+  ShieldBanIcon,
+  UserXIcon,
 } from "lucide-react";
 
 import type { Translations } from "./types";
@@ -336,8 +337,6 @@ export const zhCN: Translations = {
     reasoningEffortMediumDescription: "多层逻辑分析 + 基础验证",
     reasoningEffortHigh: "高",
     reasoningEffortHighDescription: "全维度逻辑推演 + 多路径验证 + 反推校验",
-    surpriseMe: "小惊喜",
-    surpriseMePrompt: "给我一个小惊喜吧",
     followupLoading: "正在生成可能的后续问题...",
     followupConfirmTitle: "发送建议问题？",
     followupConfirmDescription: "当前输入框已有内容，选择发送方式。",
@@ -363,50 +362,61 @@ export const zhCN: Translations = {
     compactFailed: "上下文压缩失败。",
     suggestions: [
       {
-        suggestion: "写作",
-        prompt: "撰写一篇关于[主题]的博客文章",
-        icon: PenLineIcon,
+        suggestion: "找候选",
+        prompt: "找5部英语剧，排除我已经选过的和团队发布记录里发过的",
+        icon: ListFilterIcon,
       },
       {
-        suggestion: "研究",
-        prompt: "深入浅出的研究一下[主题]，并总结发现。",
-        icon: MicroscopeIcon,
+        suggestion: "按剧场",
+        prompt: "找5部[剧场]的英语剧，排除我已经选过的",
+        icon: ClapperboardIcon,
       },
       {
-        suggestion: "收集",
-        prompt: "从[来源]收集数据并创建报告。",
-        icon: ShapesIcon,
+        suggestion: "KalosTV日榜",
+        prompt:
+          "KalosTV日榜（kd）最新一期，按名次列出前5部英语剧，排除我已经选过的",
+        icon: ListOrderedIcon,
       },
       {
-        suggestion: "学习",
-        prompt: "学习关于[主题]并创建教程。",
-        icon: GraduationCapIcon,
+        suggestion: "按账号排除",
+        prompt:
+          "找5部英语剧，排除账号[账号名]在发布记录里发过的，也排除我已经选过的",
+        icon: UserXIcon,
       },
     ],
-    suggestionsCreate: [
+    suggestionsMoreLabel: "更多",
+    suggestionsMore: [
       {
-        suggestion: "网页",
-        prompt: "生成一个关于[主题]的网页",
-        icon: CompassIcon,
+        suggestion: "KalosTV周热门",
+        prompt: "找5部有KalosTV周热门（kw）依据的英语剧，排除我已经选过的",
+        icon: CalendarRangeIcon,
       },
       {
-        suggestion: "图片",
-        prompt: "生成一个关于[主题]的图片",
-        icon: ImageIcon,
-      },
-      {
-        suggestion: "视频",
-        prompt: "生成一个关于[主题]的视频",
-        icon: VideoIcon,
+        suggestion: "排除YouTube禁用",
+        prompt:
+          "找5部英语剧，渠道YouTube，只排除明确禁用YouTube的（不要求确认可发），也排除我已经选过的",
+        icon: ShieldBanIcon,
       },
       {
         type: "separator",
       },
       {
-        suggestion: "技能",
+        suggestion: "查一部剧",
         prompt:
-          "我们一起用 skill-creator 技能来创建一个技能吧。先问问我希望这个技能能做什么。",
-        icon: SparklesIcon,
+          "在候选池里查《[剧名]》，列出依据和发布记录，不排除我已经选过的",
+        icon: SearchIcon,
+      },
+      {
+        suggestion: "剧场规则",
+        prompt:
+          "[剧场]的剧场规则是什么？列出YouTube、报备和必带标签要求，以及规则来源和核对日期；知识资料里没有的写未知",
+        icon: ScrollTextIcon,
+      },
+      {
+        suggestion: "盘点候选池",
+        prompt:
+          "候选池里一共多少部剧？按剧场和语种分别列出数量，不排除我已经选过的",
+        icon: CalculatorIcon,
       },
     ],
     pleaseWaitStreaming: "请等待当前响应完成。",
@@ -783,22 +793,10 @@ export const zhCN: Translations = {
     },
     recipes: {
       label: "快速创建",
-      trending: {
-        title: "GitHub Trending 日榜",
-        desc: "总结今日 Trending 前十仓库",
-      },
-      news: {
-        title: "每日科技新闻摘要",
-        desc: "收集并总结当日科技要闻",
-      },
-      issues: {
-        title: "GitHub Issue 分诊",
-        desc: "分诊某仓库的 open issues（填入 {{repo}}）",
-      },
-      weekly: {
-        title: "每周周报",
-        desc: "每周一汇总一周工作",
-      },
+      dailyCandidates: { title: "每日候选" },
+      kdDaily: { title: "KalosTV日榜前10" },
+      kwWeekly: { title: "KalosTV周热门候选" },
+      poolWeekly: { title: "候选池每周盘点" },
     },
   },
 

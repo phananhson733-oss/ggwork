@@ -304,8 +304,6 @@ export interface Translations {
     reasoningEffortMediumDescription: string;
     reasoningEffortHigh: string;
     reasoningEffortHighDescription: string;
-    surpriseMe: string;
-    surpriseMePrompt: string;
     followupLoading: string;
     followupConfirmTitle: string;
     followupConfirmDescription: string;
@@ -332,7 +330,8 @@ export interface Translations {
       prompt: string;
       icon: LucideIcon;
     }[];
-    suggestionsCreate: (
+    suggestionsMoreLabel: string;
+    suggestionsMore: (
       | {
           suggestion: string;
           prompt: string;
@@ -701,10 +700,10 @@ export interface Translations {
     };
     recipes: {
       label: string;
-      trending: { title: string; desc: string };
-      news: { title: string; desc: string };
-      issues: { title: string; desc: string };
-      weekly: { title: string; desc: string };
+      dailyCandidates: { title: string };
+      kdDaily: { title: string };
+      kwWeekly: { title: string };
+      poolWeekly: { title: string };
     };
   };
 

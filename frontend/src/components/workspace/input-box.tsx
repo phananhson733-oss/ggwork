@@ -5,12 +5,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ChatStatus } from "ai";
 import {
   CheckIcon,
+  EllipsisIcon,
   GraduationCapIcon,
   LightbulbIcon,
   Loader2Icon,
   MicIcon,
   PaperclipIcon,
-  PlusIcon,
   RocketIcon,
   SparklesIcon,
   SquareIcon,
@@ -3034,11 +3034,6 @@ function SuggestionList({
   );
   return (
     <Suggestions className="min-h-16 w-full max-w-full justify-center px-4 sm:w-fit sm:px-0">
-      <Suggestion
-        icon={SparklesIcon}
-        suggestion={t.inputBox.surpriseMe}
-        onClick={() => handleSuggestionClick(t.inputBox.surpriseMePrompt)}
-      />
       {t.inputBox.suggestions.map((suggestion) => (
         <Suggestion
           key={suggestion.suggestion}
@@ -3049,11 +3044,14 @@ function SuggestionList({
       ))}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Suggestion icon={PlusIcon} suggestion={t.common.create} />
+          <Suggestion
+            icon={EllipsisIcon}
+            suggestion={t.inputBox.suggestionsMoreLabel}
+          />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
           <DropdownMenuGroup>
-            {t.inputBox.suggestionsCreate.map((suggestion, index) =>
+            {t.inputBox.suggestionsMore.map((suggestion, index) =>
               "type" in suggestion && suggestion.type === "separator" ? (
                 <DropdownMenuSeparator key={index} />
               ) : (

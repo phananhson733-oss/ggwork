@@ -1,12 +1,13 @@
 import {
-  CompassIcon,
-  GraduationCapIcon,
-  ImageIcon,
-  MicroscopeIcon,
-  PenLineIcon,
-  ShapesIcon,
-  SparklesIcon,
-  VideoIcon,
+  CalculatorIcon,
+  CalendarRangeIcon,
+  ClapperboardIcon,
+  ListFilterIcon,
+  ListOrderedIcon,
+  ScrollTextIcon,
+  SearchIcon,
+  ShieldBanIcon,
+  UserXIcon,
 } from "lucide-react";
 
 import type { Translations } from "./types";
@@ -360,8 +361,6 @@ export const enUS: Translations = {
     reasoningEffortHigh: "High",
     reasoningEffortHighDescription:
       "Full-dimensional Logic Deduction + Multi-path Verification + Backward Check",
-    surpriseMe: "Surprise",
-    surpriseMePrompt: "Surprise me",
     followupLoading: "Generating follow-up questions...",
     followupConfirmTitle: "Send suggestion?",
     followupConfirmDescription:
@@ -390,51 +389,64 @@ export const enUS: Translations = {
     compactFailed: "Context compaction failed.",
     suggestions: [
       {
-        suggestion: "Write",
-        prompt: "Write a blog post about the latest trends on [topic]",
-        icon: PenLineIcon,
-      },
-      {
-        suggestion: "Research",
+        suggestion: "Find candidates",
         prompt:
-          "Conduct a deep dive research on [topic], and summarize the findings.",
-        icon: MicroscopeIcon,
+          "Find 5 English (en) dramas, excluding ones I have already picked and ones the team's posting records show as posted",
+        icon: ListFilterIcon,
       },
       {
-        suggestion: "Collect",
-        prompt: "Collect data from [source] and create a report.",
-        icon: ShapesIcon,
+        suggestion: "By theater",
+        prompt:
+          "Find 5 English (en) dramas from [theater], excluding ones I have already picked",
+        icon: ClapperboardIcon,
       },
       {
-        suggestion: "Learn",
-        prompt: "Learn about [topic] and create a tutorial.",
-        icon: GraduationCapIcon,
+        suggestion: "KalosTV daily",
+        prompt:
+          "Top 5 English (en) dramas by rank on the latest KalosTV daily board (kd), excluding ones I have already picked",
+        icon: ListOrderedIcon,
+      },
+      {
+        suggestion: "Exclude by account",
+        prompt:
+          "Find 5 English (en) dramas, excluding ones account [account] has posted according to the posting records, and ones I have already picked",
+        icon: UserXIcon,
       },
     ],
-    suggestionsCreate: [
+    suggestionsMoreLabel: "More",
+    suggestionsMore: [
       {
-        suggestion: "Webpage",
-        prompt: "Create a webpage about [topic]",
-        icon: CompassIcon,
+        suggestion: "KalosTV weekly hot",
+        prompt:
+          "Find 5 English (en) dramas with KalosTV weekly hot (kw) evidence, excluding ones I have already picked",
+        icon: CalendarRangeIcon,
       },
       {
-        suggestion: "Image",
-        prompt: "Create an image about [topic]",
-        icon: ImageIcon,
-      },
-      {
-        suggestion: "Video",
-        prompt: "Create a video about [topic]",
-        icon: VideoIcon,
+        suggestion: "Skip YouTube bans",
+        prompt:
+          "Find 5 English (en) dramas for YouTube, excluding only titles explicitly banned on YouTube (confirmed eligibility not required), and ones I have already picked",
+        icon: ShieldBanIcon,
       },
       {
         type: "separator",
       },
       {
-        suggestion: "Skill",
+        suggestion: "Look up a drama",
         prompt:
-          "We're going to build a new skill step by step with `skill-creator`. To start, what do you want this skill to do?",
-        icon: SparklesIcon,
+          "Look up 《[drama title]》 in the candidate pool and show its evidence and posting records; do not exclude ones I have already picked",
+        icon: SearchIcon,
+      },
+      {
+        suggestion: "Theater rules",
+        prompt:
+          "What are the theater rules for [theater]? List the YouTube, filing (报备) and required-tag rules with the rule source and check date; mark anything missing from the knowledge base as unknown",
+        icon: ScrollTextIcon,
+      },
+      {
+        suggestion: "Pool count",
+        prompt:
+          "How many dramas are in the candidate pool, by theater and by language? Do not exclude ones I have already picked",
+        icon: CalculatorIcon,
       },
     ],
     pleaseWaitStreaming: "Please wait for the current response to finish.",
@@ -835,22 +847,10 @@ export const enUS: Translations = {
     },
     recipes: {
       label: "Quick create",
-      trending: {
-        title: "GitHub Trending daily",
-        desc: "Summarize today's top 10 trending repos",
-      },
-      news: {
-        title: "Daily tech news digest",
-        desc: "Collect and summarize the day's top tech news",
-      },
-      issues: {
-        title: "GitHub Issue triage",
-        desc: "Triage a repo's open issues (fill in {{repo}})",
-      },
-      weekly: {
-        title: "Weekly report",
-        desc: "Compile a weekly summary, every Monday",
-      },
+      dailyCandidates: { title: "Daily candidates" },
+      kdDaily: { title: "KalosTV daily top 10" },
+      kwWeekly: { title: "KalosTV weekly picks" },
+      poolWeekly: { title: "Weekly pool count" },
     },
   },
 
