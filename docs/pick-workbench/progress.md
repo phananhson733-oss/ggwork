@@ -246,7 +246,7 @@
 - gateway 从干净检出 `railway up`，部署 `04c5e4dd-330f-4922-9ee4-ac55d3ee4dd8`，SUCCESS；迁移头仍是 0007，本次没有新迁移。
   - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`，没有 Traceback 与 `service start() failed`；
   - 容器里 `ggwork_pick.references.query_languages` 存在，`PickConditions` 有 `hot_only`。
-  - 此前 15:28Z、15:32Z、15:45Z 有三次 reason=redeploy 的 gateway 部署，重放的是旧镜像，来源未核实；本次部署已替换它们。
+  - 此前 15:28Z、15:32Z、15:45Z 有三次 reason=redeploy 的 gateway 部署（56b15ef3、039874a8、4faae063）：模型迁移改 `AZURE_OPENAI_DEPLOYMENT` 触发，依次是 gpt-6-luna、改回 gpt-5.6-luna-2（gpt-6-luna 不支持 `reasoning.effort`）、gpt-6-sol。三次都是 e15f3f3 的同一镜像（含 0007），没有回退迁移。本次部署替换了它们，继承的模型变量是 `gpt-6-sol`。
 - 部署后在容器里只读核对最新批次 8bcf785a（15:42Z 发布，12,384 部）：
   - 原事故条件 `theater=US` 被拒绝，提示改用 `language=en`、清空写法 `theater:null`；`query="US 热门"` 同样被拒；
   - `language=en, hot_only, exclude_posted` 1,450 部；`language=en, exclude_posted` 2,952 部；
