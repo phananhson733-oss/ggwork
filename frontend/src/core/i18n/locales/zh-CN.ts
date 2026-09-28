@@ -4,6 +4,7 @@ import {
   ClapperboardIcon,
   ListFilterIcon,
   ListOrderedIcon,
+  ScrollTextIcon,
   SearchIcon,
   ShieldBanIcon,
   UserXIcon,
@@ -405,6 +406,12 @@ export const zhCN: Translations = {
         prompt:
           "在候选池里查《[剧名]》，列出依据；发布记录按原样写是否对上和发帖数；不排除我已经选过的",
         icon: SearchIcon,
+      },
+      {
+        suggestion: "剧场规则",
+        prompt:
+          "[剧场]的剧场规则是什么？列出YouTube、报备和必带标签要求，以及规则来源和核对日期；知识资料里没有的写未知",
+        icon: ScrollTextIcon,
       },
       {
         suggestion: "盘点候选池",
