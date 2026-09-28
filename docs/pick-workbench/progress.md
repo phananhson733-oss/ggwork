@@ -255,3 +255,34 @@
   - 在工作台里复问原问题，待用户核对。
 - `pick-deploy-guard target=frontend commit=ff296f5fcb815d726b3373ffdcee339efec7d650 at=2026-09-28T15:25:39Z`
 - `pick-deploy-guard target=gateway commit=ff296f5fcb815d726b3373ffdcee339efec7d650 prod_head=0007 chain_head=0007 at=2026-09-28T15:47:22Z`
+
+
+## 选剧快捷模板（PR #9，2026-09-28）
+
+- PR #9 把新对话输入框下的快捷入口和定时任务的快速创建，从上游示例换成选剧模板：
+  - 新对话：找候选、按剧场、KalosTV 日榜、按账号排除，外加「更多」菜单（KalosTV 周热门、排除 YouTube 禁用、查一部剧、盘点候选池）。
+  - 定时任务：每日候选、KalosTV 日榜前 10、KalosTV 周热门候选、候选池每周盘点。
+- 其他改动：
+  - 占位符白名单换成剧场、账号名、剧名三种。
+  - 修复「更多」菜单选中后焦点被还给触发按钮的问题。
+  - 按 PR #8 的新拒绝规则，给按剧场、按账号排除两个模板加了护栏。
+- 合并为 `d062471d8857028d1fd12791e7c93d081d07110e`，在 #8 的前端与 gateway 上线之后。
+- 发布：
+  - 经守卫从 `git archive` 导出的目录发布，部署 `dpl_CYgYFs9VffxTSRvE2H8NvfzcsUHR`，生产别名 ggwork-deerflow.vercel.app 指向它。
+  - 上传 1,026 个文件，另外只放了 `.vercel/project.json`。构建带 `NEXT_PUBLIC_APP_VERSION=20260928-d062471`。
+  - 只改前端，gateway 没有动。
+- 部署前，在守卫检出里验证：
+  - 回滚矩阵 5/5，含热门卡；
+  - 合同夹具 12/12；
+  - 前端全套 2,759 条；
+  - typecheck 通过，检出干净。
+- 另在 PR 分支（ff296f5 之上）验证：e2e 277 条、e2e-auth 6 条、lint、prettier 通过。GitHub Actions 因账户付款问题没有启动，远端 CI 未跑。
+- 部署后核对：
+  - `/` 307 到 `/workspace`，未登录的 `/workspace/chats/new` 与 `/workspace/scheduled-tasks` 307 到 `/login`；
+  - 带 `RSC: 1` 的请求只返回到 `/login` 的重定向，没有页面内容；
+  - 全站带 `X-Robots-Tag: noindex, nofollow`。
+- 待办与已知问题：
+  - 登录后的界面核对待用户做：快捷入口与「更多」菜单的中英文案，以及各模板实际调用的工具参数。
+  - 生产 `scheduler.enabled=false`，定时任务只能手动「立即触发」。
+  - 「剧场规则」模板等知识摘录修复上线后再加回。
+- `pick-deploy-guard target=frontend commit=d062471d8857028d1fd12791e7c93d081d07110e at=2026-09-28T15:56:49Z`
