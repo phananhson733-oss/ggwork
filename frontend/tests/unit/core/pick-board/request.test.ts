@@ -129,7 +129,7 @@ test("合法参数原样进来；页码封顶；对象形态的 searchParams 也
     posted: "no",
     off: "1",
     sig: "1",
-    page: ["999999", "2"],
+    page: [String(Number.MAX_SAFE_INTEGER), "2"],
     size: "200",
     lang: "繁体中文",
     q: "  dragon\u0000 contract  ",

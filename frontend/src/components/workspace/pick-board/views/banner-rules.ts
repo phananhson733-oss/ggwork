@@ -40,6 +40,8 @@ export type BannerBoard = Pick<
   | "pruned"
   | "ignoredV"
   | "unreadable"
+  | "freshness"
+  | "postedImportedAt"
 >;
 
 export type BannerInput = Readonly<{
@@ -210,12 +212,48 @@ function driftBanner({ board }: BannerInput): Banner[] {
   ];
 }
 
+/** 每日采集允许 36 小时；历史版本只判断它采集时的来源年龄，避免把正常回放误报成停更。 */
+function sourceFreshnessBanners({ board, now }: BannerInput): Banner[] {
+  const reference =
+    board.scope.versionId === board.current.id
+      ? now.getTime()
+      : Date.parse(board.scope.asOf);
+  const sources = [
+    {
+      key: "catalog-stale",
+      label: "剧场剧单",
+      at: board.freshness?.importedAt,
+      consequence: "新剧、下架状态与榜单信号可能滞后",
+    },
+    {
+      key: "posted-stale",
+      label: "运营发布记录",
+      at: board.postedImportedAt,
+      consequence: "没有匹配记录不能据此认定未发布",
+    },
+  ];
+  return sources.flatMap(({ key, label, at, consequence }): Banner[] => {
+    if (typeof at !== "string") return [];
+    const captured = Date.parse(at);
+    if (!Number.isFinite(captured) || reference - captured <= 36 * 3600_000)
+      return [];
+    return [
+      {
+        key,
+        role: "alert",
+        text: `本版本的${label}导入于 ${formatObservedAt(at)}，已超过 36 小时：${consequence}。请先刷新上游资料；工作台「立即同步」只复制上游已有数据。`,
+      },
+    ];
+  });
+}
+
 /** 横幅表：版本三条 → gateway 几条 → 14 小时 → 版本告警 → 规则漂移 */
 export function bannersFor(input: BannerInput): Banner[] {
   const head = [...versionBanners(input), ...gatewayBanners(input)];
   return [
     ...head,
     ...staleBanner(input, head),
+    ...sourceFreshnessBanners(input),
     ...warningBanners(input),
     ...driftBanner(input),
   ];

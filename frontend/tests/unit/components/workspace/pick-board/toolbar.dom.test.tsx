@@ -157,7 +157,7 @@ describe("the search word across tabs", () => {
     const root = render(<Tabs req={request({ q: "bride" })} />).container;
     expect(tabHref(root, "选剧").get("q")).toBe("bride");
     expect(tabHref(root, "全部剧库").get("q")).toBe("bride");
-    expect(tabHref(root, "榜单").get("q")).toBe("bride");
+    expect(tabHref(root, "榜单").has("q")).toBe(false);
     expect(tabHref(root, "发布记录").has("q")).toBe(false);
     expect(tabHref(root, "剧场规则").has("q")).toBe(false);
     expect(tabHref(root, "同步与导入").has("q")).toBe(false);

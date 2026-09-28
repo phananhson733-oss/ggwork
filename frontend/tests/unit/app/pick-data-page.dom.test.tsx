@@ -119,6 +119,22 @@ describe("generateMetadata", () => {
 });
 
 describe("each tab takes its branch", () => {
+  it("warns when the latest available daily ranking is old even though the mirror is current", async () => {
+    state.loaders.loadRankMeta = () => ({
+      counts: { qc: 1 },
+      days: ["2026-09-20"],
+      day: "2026-09-20",
+      dayResolution: "latest",
+      weeks: [],
+      week: "",
+      weekResolution: "latest",
+      grades: [],
+      grade: "",
+    });
+    await renderPage({ tab: "rank", rk: "qc" });
+    expect(screen.getByText(/最新榜期为 2026-09-20/)).toBeTruthy();
+    expect(screen.getByText(/不能作为当前热门依据/)).toBeTruthy();
+  });
   it("pick and all read rows and facets", async () => {
     for (const tab of ["pick", "all"]) {
       state.calls = [];
@@ -230,6 +246,23 @@ describe("each tab takes its branch", () => {
       (a) => a.getAttribute("href") ?? "",
     );
     expect(hrefs.some((h) => h.includes("result="))).toBe(false);
+  });
+
+  it("a replay detail keeps its result on the return link through server rendering", async () => {
+    await renderPage({
+      tab: "row",
+      row: "kalos-demo-1",
+      from: "pick",
+      result: RESULT,
+      page: "2",
+      v: "7",
+    });
+    const href = screen.getByText("← 返回选剧").getAttribute("href")!;
+    const query = new URLSearchParams(href.split("?")[1]);
+    expect(query.get("result")).toBe(RESULT);
+    expect(query.get("page")).toBe("2");
+    expect(query.get("v")).toBe("7");
+    expect(dataCalls()).not.toContain("loadReplay");
   });
 
   it("imports: tabs without badges, the imports panel, no mirror and no gateway", async () => {

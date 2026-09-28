@@ -2166,4 +2166,6 @@ Your unwavering commitment and expertise have been the driving force behind Deer
 
 ## Personal pick-workbench customization (in progress)
 
+The selection-data board supports the full catalog's pagination, all available languages (including unspecified language), historical daily rankings, and returning from evidence pages to the same candidate replay. It separately warns when theater catalogs or publishing records are more than 36 hours old; daily/weekly ranking warnings use two/fourteen days at capture time. “Sync now” copies upstream data and does not refresh the original Feishu or Queyu sources.
+
 This checkout adds a personal drama-selection workspace on the pinned DeerFlow baseline. The personal import, candidate-query, historical-reference, and selection APIs and pages are implemented and under integration testing. Live local-model, real-data, and full browser acceptance are still in progress. See the [implementation plan](docs/plans/2026-09-21-pick-workbench-mvp-plan.md), [local run guide](docs/pick-workbench/local-run.md), and [verified progress](docs/pick-workbench/progress.md). The isolated Compose profile is `docker/docker-compose.pick.yaml`.

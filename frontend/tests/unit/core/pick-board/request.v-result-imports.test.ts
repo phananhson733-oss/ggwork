@@ -59,18 +59,19 @@ test("pickQuery：v 非空时每个 tab 都写，且写在最后", () => {
   assert.equal(pickQuery(base, { v: null }), "", "v 为 null 时不写");
 });
 
-test("pickQuery：result 只在 tab=pick 时写，别的 tab 丢掉它", () => {
+test("pickQuery：result 保留在选剧与来自选剧的证据页，其他 tab 丢掉", () => {
   const base = { ...parse(""), result: RESULT };
   assert.equal(pickQuery(base), `?result=${RESULT}`);
   assert.equal(pickQuery({ ...base, v: 3 }), `?v=3&result=${RESULT}`);
-  for (const tab of [
-    "all",
-    "row",
-    "rank",
-    "posted",
-    "rules",
-    "imports",
-  ] as const)
+  assert.match(
+    pickQuery(base, { tab: "row", rowKey: "k-1", from: "pick" }),
+    /result=/,
+  );
+  assert.doesNotMatch(
+    pickQuery(base, { tab: "row", rowKey: "k-1", from: "all" }),
+    /result=/,
+  );
+  for (const tab of ["all", "rank", "posted", "rules", "imports"] as const)
     assert.doesNotMatch(
       pickQuery(base, { tab, rowKey: "k-1" }),
       /result=/,

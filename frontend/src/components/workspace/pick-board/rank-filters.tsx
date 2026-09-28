@@ -3,6 +3,8 @@
 // 订单对账的标签由 buildBoardRules 固定成「ReelShort 订单对账」）；「更早…」表单的 action 改成 /workspace/pick-data
 // 并带隐藏的 v；ReelShort 与剧场榜两排 chips、rs 榜的排序 / 语种 / 上线筛选、「更早…」的隐藏字段拆成小组件（函数 <50 行）。
 // GGWork 样式：「更早…」下拉聚焦用 link 边框加 brand-soft 光圈，「查看」按钮白底、悬停加深边框，chip 行间距 8。
+import Link from "next/link";
+
 import { LOCALE_CODES, localeFromCode } from "@/core/pick-board/lang";
 import { BUCKETS, bucketLabel } from "@/core/pick-board/metrics";
 import {
@@ -13,6 +15,7 @@ import {
   RS_RANKS,
   RS_SORTS,
   THEATER_BASES,
+  isDailyRank,
   isRsRank,
   weekText,
   type PickRequest,
@@ -155,7 +158,7 @@ function RankChips({
 
 function PeriodFilters({ req, meta }: { req: PickRequest; meta: RankMeta }) {
   const kind = req.rank;
-  if (kind === "kd")
+  if (isDailyRank(kind))
     return (
       <DateChips
         label="日期"
@@ -211,6 +214,21 @@ export function RankFilters({
   const kind = req.rank;
   return (
     <div className="mb-3.5 flex flex-col gap-2.5">
+      {req.q ? (
+        <p className="text-helper text-sm">
+          {isRsRank(kind) && kind !== "rs_ledger"
+            ? "当前搜索"
+            : "此榜不使用搜索条件"}
+          ：{req.q}{" "}
+          <Link
+            prefetch={false}
+            href={pickHref(req, { q: "" })}
+            className="text-link hover:underline"
+          >
+            清除搜索
+          </Link>
+        </p>
+      ) : null}
       <RankChips req={req} meta={meta} rules={rules} />
       {isRsRank(kind) && kind !== "rs_ledger" ? (
         <RsFilters req={req} kind={kind} rules={rules} />

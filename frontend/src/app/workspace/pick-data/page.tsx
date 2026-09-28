@@ -260,7 +260,11 @@ async function boardPage(
   sync: GatewayResult<PickSyncStatus>,
 ): Promise<ReactElement> {
   setBoardScope(board.scope);
-  const req: PickRequest = { ...req0, v: board.scope.versionId, result: "" };
+  const req: PickRequest = {
+    ...req0,
+    v: board.scope.versionId,
+    result: req0.tab === "row" && req0.from === "pick" ? req0.result : "",
+  };
   const ctx = contextOf(board);
   const loaded = await guarded(() =>
     Promise.all([loadCandidatePool(), loadTab(req)]),
