@@ -190,3 +190,9 @@
   - 未登录访问 `/workspace` 与 `/workspace/pick-data` 都被 307 到 `/login`；带 `RSC: 1` 的请求只返回到 `/login` 的重定向。
   - 登录后的核对（旧卡展开、我的选剧、资料页各 tab）待用户在浏览器里做。
 - `pick-deploy-guard target=frontend commit=aebde4e5237a7f4095f167bf56fd7761aec5917e at=2026-09-28T12:48:11Z`
+- **S3（2026-09-28 14:19 UTC）**：gateway e15f3f3 经守卫（首次记录）从干净检出 `railway up`，部署 `c9f3b4d8-9805-4f26-97d1-3728298dff5e`，生产迁移头 0006 → 0007。S0 之后 main 上又合了 PR #3（后端与 harness 的 GGWork 文案，不碰扩展、迁移、依赖与 docker），这次一起上线。
+  - 部署前：在 e15f3f3 上用全 scram 的 PG 17 跑扩展全套（3539 通过、21 跳过）、后端四格 35 条（PG 15 条）、入口与 JSON 清洗等后端用例 85 条；CI 16 项全绿。另在本机按生产目录重建的结构上彩排 0006 → 0007：1.25 秒，无 WARNING，授权与 regrant 的结果与预期一致。
+  - 部署后：新部署 SUCCESS，启动日志有 `Extensions loaded: 1/1 (ggwork_pick…)`、`Running upgrade 0006 -> 0007`、`Extension routers mounted`、`Application startup complete`，没有 `service start() failed`、跳过观测授权的告警和 Traceback；以观测角色读到迁移头 0007、观测表已建。上线后的真实请求 39 个全部 200（含已登录用户的 `/api/pick/sync`、结果、导入与回答核对）。
+  - 从此 gateway 不能回到不含 0007 的镜像：不在控制台 Rollback 到 09-24 的部署，不从旧检出 `railway up`。
+- `pick-deploy-guard target=gateway commit=e15f3f3606ce9d3b042092900837b9806b6aeb5a prod_head=0006 chain_head=0007 at=2026-09-28T14:19:06Z`
+- **S4（2026-09-28 14:25 UTC）**：容器里 `ggwork_pick.observe.selfcheck`、`grants` 能导入；`regrant --check` 列出 0007 之前发布的 4 个镜像版本的 schema USAGE 与 rs_ids SELECT 共 8 项，`regrant` 补齐后 `--check` 为授权齐全（schema 6、表 30、列 4、序列 12，版本 pickm_v000001、v000009、v000010、v000011）。以观测角色只读核对 20 项全过：当前版本 v000011 的 rs_ids 35,263 行；共享剧库批次 12,383 部，其中带 v1 gsc 信号的 1 部。未登录访问 `/api/pick/sync` 为 401。
