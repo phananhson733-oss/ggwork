@@ -9,6 +9,7 @@ never rewritten.
 
 import re
 from bisect import bisect_right
+from typing import NamedTuple
 
 _TITLE = re.compile(r"《([^《》\n]{1,500})》")
 _WHO = r"(为你|帮你|给你)?(成功)?"
@@ -25,14 +26,35 @@ _NEGATING_PREFIX = re.compile(r"(不能|无法|不代表|不等于|不能声称|
 # Longer than any disclaimer _NEGATING_PREFIX reads, so a claim looks back this far instead of through the whole answer.
 _PREFIX_WINDOW = 16
 _CLAUSE_MARK = re.compile(r"[。！？!?；;，,\n]")
-_BLANK_LINE = re.compile(r"\n[ \t]*\n")
+_INDENT = re.compile(r"[ \t]*")
+# "都没发过" / "这三部" speak for every item returned, not for the title named last ("第2部" is one item).
+_SUMMARY = re.compile(r"都|均|全部|其余|其他|以上|这些|这几|它们|(?<![第0-9一二两三四五六七八九十])[0-9一二两三四五六七八九十]+部")
+# A Latin word the check cannot place is taken for a drama named without 《》: nothing returned speaks for it.
+_LATIN = re.compile(r"[a-z][a-z0-9'’&]*")
+_NOT_NAMES = frozenset({"youtube", "tiktok", "facebook", "instagram", "fb", "ig", "yt", "us", "en", "ko", "ja", "es", "pt", "th", "zh"})
 # What a returned item's posted summary says about "没发过": only a matched record without posts backs it.
-UNPOSTED, POSTED, UNMATCHED, UNKNOWN = "unposted", "posted", "unmatched", "unknown"
+UNPOSTED, UNKNOWN, UNMATCHED, POSTED = "unposted", "unknown", "unmatched", "posted"
+# Merging keeps the answer that refutes most: a title returned once without posts and once with posts was posted.
+_SEVERITY = {UNPOSTED: 0, UNKNOWN: 1, UNMATCHED: 2, POSTED: 3}
 _UNFILTERED = "本轮查询没有按发布记录过滤，不能据此断言没发过。"
+
+
+class Seen(NamedTuple):
+    """What the items returned with one normalized title say about "没发过"; accounts are casefolded."""
+
+    title: str
+    status: str
+    # Accounts the records name as posting it, and accounts a posted_account query returned it for.
+    posters: frozenset[str] = frozenset()
+    clear: frozenset[str] = frozenset()
 
 
 def _norm(title: str) -> str:
     return " ".join(title.casefold().split())
+
+
+def _account(name) -> str:
+    return str(name).strip().casefold()
 
 
 def _claim_starts(pattern: re.Pattern, text: str) -> list[int]:
@@ -55,73 +77,155 @@ def _posted_status(posted) -> str:
     return UNPOSTED if posted.get("post_count") == 0 else POSTED
 
 
-def with_posted(seen: dict[str, str], items) -> dict[str, str]:
+def with_posted(seen: dict[str, Seen], items, *, account: str | None = None) -> dict[str, Seen]:
     """seen plus what these returned items' posted summaries say, by normalized title.
 
-    A title returned with two different answers (two languages, say) backs nothing.
+    account is the query's posted_account: every item it returned was not posted from that account. A title returned
+    with different answers (two languages, say) keeps the one that refutes "没发过" most.
     """
     merged = dict(seen)
+    cleared = frozenset({_account(account)}) if account and _account(account) else frozenset()
     for item in items:
-        title, status = _norm(item["title"]), _posted_status(item.get("posted"))
-        merged[title] = status if merged.get(title, status) == status else UNKNOWN
+        key, posted = _norm(item["title"]), item.get("posted")
+        status = _posted_status(posted)
+        posters = frozenset(_account(name) for name in posted.get("accounts") or ()) if isinstance(posted, dict) else frozenset()
+        before = merged.get(key)
+        if before is None:
+            merged[key] = Seen(item["title"], status, posters, cleared)
+        else:
+            worse = max(before.status, status, key=_SEVERITY.__getitem__)
+            merged[key] = Seen(before.title, worse, before.posters | posters, before.clear | cleared)
     return merged
 
 
-def _clause_subjects(text: str, masked: str) -> tuple[list[int], list[list[str]]]:
-    """Each clause's start and the titles a claim in it is about, in one pass.
+def _account_pattern(seen: dict[str, Seen]) -> re.Pattern | None:
+    names = sorted({name for entry in seen.values() for name in entry.posters | entry.clear if name}, key=len, reverse=True)
+    if not names:
+        return None
+    return re.compile(r"(?<![0-9a-z])(?:" + "|".join(map(re.escape, names)) + r")(?![0-9a-z])")
 
-    A clause's own titles, else those of the nearest earlier clause with titles in its paragraph (a list item's title
-    on the line above its verdict). A title named without 《》 is not seen, so its claim borrows the clause before.
+
+class _Subject(NamedTuple):
+    """What a claim is about: the titles named, whether an unplaced name is, whether it sums up all items; and from where."""
+
+    titles: tuple[str, ...]
+    unknown: bool
+    summary: bool
+    start: int
+    # The indent of the line it starts on: a deeper line below is a detail of it.
+    indent: int
+
+
+def _own_subject(text: str, masked: str, accounts: re.Pattern | None, left: int, right: int, indent: int) -> tuple[_Subject, frozenset[str]]:
+    """The clause's own subject, and the known accounts it names."""
+    titles = tuple(dict.fromkeys(match.group(1).strip() for match in _TITLE.finditer(text, left, right) if match.group(1).strip()))
+    words, named = masked[left:right].casefold(), frozenset()
+    if accounts is not None:
+        named = frozenset(accounts.findall(words))
+        words = accounts.sub(" ", words)
+    unknown = any(word not in _NOT_NAMES for word in _LATIN.findall(words))
+    return _Subject(titles, unknown, _SUMMARY.search(masked, left, right) is not None, left, indent), named
+
+
+def _subjects(text: str, masked: str, accounts: re.Pattern | None) -> tuple[list[int], list[_Subject], list[frozenset[str]]]:
+    """Each clause's start, its subject, and the accounts named from where that subject starts through the clause.
+
+    A clause naming nothing that continues the one before takes that one's subject. A comma continues the clause before,
+    and so does a line indented deeper than the line its subject starts on (a list item's details under its title). A
+    sentence end, a semicolon, a blank line or a line at the same depth never does.
     """
-    paragraphs = [0, *(match.end() for match in _BLANK_LINE.finditer(masked))]
-    starts = [0, *(match.end() for match in _CLAUSE_MARK.finditer(masked))]
-    subjects: list[list[str]] = []
-    previous, previous_paragraph = [], -1
-    for left, right in zip(starts, [*starts[1:], len(masked)]):
-        paragraph = bisect_right(paragraphs, left)
-        own = list(dict.fromkeys(match.group(1).strip() for match in _TITLE.finditer(text, left, right) if match.group(1).strip()))
-        previous = own or (previous if paragraph == previous_paragraph else [])
-        previous_paragraph = paragraph
-        subjects.append(previous)
-    return starts, subjects
+    starts, subjects, mentions = [], [], []
+    left, soft, indent = 0, False, _INDENT.match(masked).end()
+    for mark in (*_CLAUSE_MARK.finditer(masked), None):
+        own, named = _own_subject(text, masked, accounts, left, mark.start() if mark else len(masked), indent)
+        borrows = soft and not (own.titles or own.unknown or own.summary)
+        subjects.append(subjects[-1] if borrows else own)
+        mentions.append((mentions[-1] | named if named else mentions[-1]) if borrows else named)
+        starts.append(left)
+        if mark is None:
+            break
+        left = mark.end()
+        if mark.group() == "\n":
+            indent = _INDENT.match(masked, left).end() - left
+            soft = masked[left + indent : left + indent + 1] not in ("", "\n") and indent > subjects[-1].indent
+        else:
+            soft = mark.group() in "，,"
+    return starts, subjects, mentions
 
 
 def _listed(titles: dict[str, str]) -> str:
     return "、".join(f"《{title}》" for title in list(titles.values())[:5])
 
 
-def _not_posted_notes(text: str, posted_checked: bool, seen: dict[str, str]) -> list[str]:
+def _effective(entry: Seen, mentioned: frozenset[str]) -> str:
+    """A claim naming only accounts a posted_account query cleared, and the records never name, is about those accounts."""
+    if entry.status == POSTED and mentioned and mentioned <= entry.clear - entry.posters:
+        return UNPOSTED
+    return entry.status
+
+
+class _Findings:
+    """Across an answer's claims: the titles whose records refute one, and whether one stood on nothing."""
+
+    def __init__(self) -> None:
+        self.unmatched: dict[str, str] = {}
+        self.posted: dict[str, str] = {}
+        self.unfiltered = False
+
+    def judge(self, entries: list[tuple[str, str]], *, unknown: bool, posted_checked: bool) -> None:
+        """Unmatched and posted titles refute the claim; the rest back it only when all are matched without posts."""
+        self.unmatched |= {_norm(title): title for title, status in entries if status == UNMATCHED}
+        self.posted |= {_norm(title): title for title, status in entries if status == POSTED}
+        if not posted_checked and (unknown or any(status == UNKNOWN for _, status in entries)):
+            self.unfiltered = True
+
+    def notes(self) -> list[str]:
+        notes = []
+        if self.unmatched:
+            notes.append(_listed(self.unmatched) + "的发布记录没有对上，只能说“发布记录里没有”，不能说没发过。")
+        if self.posted:
+            notes.append("发布记录显示" + _listed(self.posted) + "发过，不能说没发过。")
+        if self.unfiltered:
+            notes.append(_UNFILTERED)
+        return notes
+
+
+def _not_posted_notes(text: str, posted_checked: bool, seen: dict[str, Seen]) -> list[str]:
     """Notes for "没发过" claims that nothing this run returned backs.
 
-    A claim naming titles stands on their returned records: matched without posts backs it, unmatched or posted
-    refutes it, and a title no tool returned needs the posted filter. A claim naming none needs the filter, or every
-    item this run returned to be matched without posts.
+    A claim naming titles stands on their returned records, and one summing up ("都没发过") on every record returned:
+    matched without posts backs it, unmatched or posted refutes it, and a title no tool returned needs the posted
+    filter. A claim naming nothing needs the filter, or every item this run returned to be matched without posts.
     """
     # A title's inside is blanked out (same length): its words are no claim, and its punctuation ends no clause.
     masked = _TITLE.sub(lambda match: "《" + "_" * len(match.group(1)) + "》", text)
-    starts, subjects = _clause_subjects(text, masked)
-    unmatched, posted, unfiltered = {}, {}, False
+    accounts = _account_pattern(seen)
+    starts, subjects, mentions = _subjects(text, masked, accounts)
+    findings, everything, judged = _Findings(), {}, set()
     for start in _claim_starts(_NOT_POSTED, masked):
-        titles = subjects[bisect_right(starts, start) - 1]
-        statuses = {title: seen.get(_norm(title), UNKNOWN) for title in titles}
-        unmatched |= {_norm(title): title for title, status in statuses.items() if status == UNMATCHED}
-        posted |= {_norm(title): title for title, status in statuses.items() if status == POSTED}
-        if posted_checked or {UNMATCHED, POSTED} & set(statuses.values()):
+        index = bisect_right(starts, start) - 1
+        subject, mentioned = subjects[index], mentions[index]
+        # A judgement depends only on what it reads: claims reading the same thing add nothing (and cost nothing).
+        key = (subject.start, mentioned) if subject.titles else (None, mentioned, subject.unknown, subject.summary)
+        if key in judged:
             continue
-        backing = list(statuses.values()) if titles else list(seen.values())
-        if not backing or any(status != UNPOSTED for status in backing):
-            unfiltered = True
-    notes = []
-    if unmatched:
-        notes.append(_listed(unmatched) + "的发布记录没有对上，只能说“发布记录里没有”，不能说没发过。")
-    if posted:
-        notes.append("发布记录显示" + _listed(posted) + "发过，不能说没发过。")
-    if unfiltered:
-        notes.append(_UNFILTERED)
-    return notes
+        judged.add(key)
+        if subject.titles:
+            missing = Seen("", UNKNOWN)
+            entries = [(title, _effective(seen.get(_norm(title), missing), mentioned)) for title in subject.titles]
+            findings.judge(entries, unknown=subject.unknown, posted_checked=posted_checked)
+            continue
+        if mentioned not in everything:
+            everything[mentioned] = [(entry.title, _effective(entry, mentioned)) for entry in seen.values()]
+        entries = everything[mentioned]
+        if subject.summary and entries:
+            findings.judge(entries, unknown=subject.unknown, posted_checked=posted_checked)
+        elif not posted_checked and (subject.unknown or not entries or any(status != UNPOSTED for _, status in entries)):
+            findings.unfiltered = True
+    return findings.notes()
 
 
-def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, posted_seen: dict[str, str] | None = None) -> list[str]:
+def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, posted_seen: dict[str, Seen] | None = None) -> list[str]:
     notes = []
     known = {_norm(title) for title in known_titles}
     unknown = []

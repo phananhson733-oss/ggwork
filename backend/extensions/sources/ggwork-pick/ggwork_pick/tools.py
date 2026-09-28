@@ -101,8 +101,9 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
         )
         task.produced_result_ids.add(result["id"])
         task.known_titles.update(item["title"] for item in result["items"])
-        task.posted_seen = with_posted(task.posted_seen, result["items"])
-        if PickConditions.model_validate(result["conditions"]).filters_posted:
+        conditions = PickConditions.model_validate(result["conditions"])
+        task.posted_seen = with_posted(task.posted_seen, result["items"], account=conditions.posted_account)
+        if conditions.filters_posted:
             task.posted_checked = True
         # What the result froze, also on a repeated call after a later publish rewrote its batch (P2-8a, U51); with the
         # P4-1 switch on, and the mirror version its row recorded.
@@ -158,7 +159,8 @@ async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) 
         task, repo, record = await _owned_result(runtime, result_id)
         detail = await SelectionService(repo).detail(result_id, item_id)
         task.known_titles.add(detail["item"]["title"])
-        task.posted_seen = with_posted(task.posted_seen, [detail["item"]])
+        account = PickConditions.model_validate(record["conditions_json"]).posted_account
+        task.posted_seen = with_posted(task.posted_seen, [detail["item"]], account=account)
         data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
         return json.dumps({**detail, "data_as_of": data_as_of}, ensure_ascii=False)
 
