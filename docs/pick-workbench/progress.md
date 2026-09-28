@@ -290,3 +290,32 @@
   - 生产 `scheduler.enabled=false`，定时任务只能手动「立即触发」。
   - 「剧场规则」模板等知识摘录修复上线后再加回。
 - `pick-deploy-guard target=frontend commit=d062471d8857028d1fd12791e7c93d081d07110e at=2026-09-28T15:56:49Z`
+
+
+## 知识检索与发布记录核对（PR #10，2026-09-28）
+
+- 起因：复核选剧快捷模板时发现两处缺陷，都已回放确认。
+  - `pick_search_knowledge` 只返回最早命中词前 100 字起的 1,600 字。`realshort-rules.md` 开头的「信号种类」列表已提到 DramaBox、MoboReels，查询结果因此拿不到 `## DramaBox`、`## MoboReels`、`## flareflow`、`## TouchShort` 的小节。
+  - 答案核对只认 exclude_posted / posted_account 这两个过滤；片名查询返回的条目已经带发布摘要，"已对上，帖子数0，团队还没发过"这类准确回答也被标注。
+- PR #10 合并为 `e2ac66a021c6afa2528ada7859b0500215b074f1`，基于 ff296f5（含 PR #8）。改动如下：
+  - 规则文档不超过 4,000 字时整篇返回；更长的文档按标题取剧场小节，每份最多 5 段，扫描是线性的。
+  - 查询和详情工具记下返回条目的发布摘要：已对上且帖子数为 0 的才算支持"没发过"。点名未对上的剧说没发过仍会被标注，按发布记录过滤过也一样。
+  - 没有新迁移，依赖和 `uv.lock` 不变；托管副本按 D21 用 uv 0.11.1 刷新。
+- GitHub Actions 因账户付款问题没有启动，合并依据本机等价检查。在 59a3bb3 上（树与合并结果一致）：
+  - ruff 全部通过；
+  - 扩展全套 3,667 通过、21 跳过，用的是全 scram 的 PG 17 和 SQLite，跳过的都是方言专属；
+  - 入口、JSON 净化、create_user 共 85 通过；
+  - 另有独立审查，指出的两处平方级扫描已在 PR 内修复。
+- gateway 从干净检出 `railway up`，部署 `ec3606b1-306f-40dd-8c65-5db62e176eec`，SUCCESS；迁移头仍是 0007。守卫在 c3ec87d 上通过；c3ec87d 与四格所测的 d062471 只差 progress.md 和一个前端 e2e 用例，进镜像的路径零改动。
+  - 部署前四格（d062471）：扩展全套 3,667 通过、21 跳过；gateway 列 35 条，两种库都有，0 跳过。
+  - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`，没有 Traceback 和 `service start() failed`。唯一的 WARNING 是 GitHub webhook 路由未挂载，上一个部署同样有。
+  - 容器里 `ggwork_pick.observe.selfcheck`、`grants`、`knowledge_excerpts` 都能导入，`PickTask` 有 `posted_seen`。
+  - `regrant --check` 授权齐全：schema 6、表 30、列 4、序列 12，版本 pickm_v000001、v000010、v000011、v000012。
+  - 生产规则文档只读核对（15:42Z 发布，2,786 字）：10 个剧场标题都在；DramaBox、MoboReels、flareflow YouTube、TouchShort 报备四个查询各返回 1 段，都含对应剧场小节。
+  - 答案核对：已对上且帖子数为 0 的回答不标注；未对上却说"从未发布"的仍标注。
+  - 上线后真实请求 124 个全部 200，含已登录用户的 `/api/pick/results` 与 `answer-checks`；未登录访问 `/api/pick/sync` 为 401，`/health` 为 200。
+- 待办：
+  - 待用户核对：在工作台里问一次剧场规则，再对一部已对上、未发过的剧做片名查询，确认回答旁边没有多余的核对标注。
+  - 「剧场规则」前端模板由「移除 Deerflow 元素替换 GGWork 资源」会话加回。
+  - 账号拒绝要列出可选账号并附 `_clear('posted_account')`，另开 PR 处理。
+- `pick-deploy-guard target=gateway commit=c3ec87df89e3d0ac98b5766b7d5c9a66920fcafe prod_head=0007 chain_head=0007 at=2026-09-28T16:11:02Z`
