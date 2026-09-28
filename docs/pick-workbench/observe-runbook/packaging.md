@@ -101,7 +101,7 @@ Railway 已经不读服务的 `railway.toml`：Config as Code 已弃用，2026-0
 - `apply` 用 `serviceInstanceUpdate` 写 `startCommand`、`restartPolicyType`、`cronSchedule`，并把 `healthcheckPath` 清空；四项每次都写全，所以从 cron 配置换到自检配置时 `cronSchedule` 被写成空，不会残留。构建用的 Dockerfile 写成服务变量 `RAILWAY_DOCKERFILE_PATH`（gateway 也是这样拿到 Dockerfile 的），带 `--skip-deploys`。`apply` 本身不部署，写完接着做一次 `check`。
 - `check` 比对服务设置与 `RAILWAY_DOCKERFILE_PATH`；带 `--deployment` 时再比对那次部署实际用的清单（`serviceManifest` 的 `build.builder`、`build.dockerfilePath` 与上面四项）。部署 ID 用 `railway deployment list -p <项目> -e production -s pick-obs-trends --limit 1 --json` 取。
 - 退出码：0 一致；1 有差异（逐项打印 `期望/实际`）；2 用法错、文件有脚本写不了的键、服务找不到、railway 调用失败或答复不合预期（项目或部署 ID 写错、登录过期、答复不是 JSON），只打一行原因，不打调用栈。`apply` 写完服务设置而 Dockerfile 变量没写成时，报错会说明是哪一半没写，重跑 `apply` 即可（两步都是整值覆盖）。文件只能有 `[build]` 的 `builder`（必须是 `DOCKERFILE`）、`dockerfilePath` 与 `[deploy]` 的 `startCommand`、`restartPolicyType`、`cronSchedule`：以后要加字段（例如健康检查），先改脚本与测试，否则 `apply` 以 2 拒写，不会只写一半。
-- 目标一律显式给 `-p/-e/-s`，不 `railway link`。脚本读变量时只留 `RAILWAY_DOCKERFILE_PATH` 一项，其余值（含机密）不留、不打印；railway 调用失败时只转述 stderr 的第一行，不转述 stdout，`variable list` 失败时连这一行也不转述。`RAILWAY_DOCKERFILE_PATH` 不在第 5 节的变量表里：它是构建设置，入口不读，也不触发「这个服务不读」的警告（只查 `PICK_OBS_` 前缀）。
+- 目标一律显式给 `-p/-e/-s`，不 `railway link`。`-e` 照 CLI 的习惯写环境名（`production`）即可：GraphQL 只认环境 ID（2026-09-28 S5 实测，传名字得到 `Not Authorized`），脚本先按名字查出 ID 再调 API；railway 的 GraphQL 报错（它写在 stdout）会随错误信息转述，api 的答复里没有变量值。脚本读变量时只留 `RAILWAY_DOCKERFILE_PATH` 一项，其余值（含机密）不留、不打印；railway 调用失败时只转述 stderr 的第一行，不转述 stdout，`variable list` 失败时连这一行也不转述。`RAILWAY_DOCKERFILE_PATH` 不在第 5 节的变量表里：它是构建设置，入口不读，也不触发「这个服务不读」的警告（只查 `PICK_OBS_` 前缀）。
 - `test_railway_settings.py` 用假的 railway CLI 钉住两份文件怎样映射成这些调用、比对哪些项、不打印变量值、失败时的退出码（第 9 节）。
 
 ## 4. S5 之前

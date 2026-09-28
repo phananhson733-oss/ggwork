@@ -39,6 +39,7 @@ RAILWAY_TIMEOUT_SECONDS = 60
 SERVICES = (
     "query($pid:String!){ project(id:$pid){ services{ edges{ node{ id name } } } } }"
 )
+ENVIRONMENTS = "query($pid:String!){ project(id:$pid){ environments{ edges{ node{ id name } } } } }"
 INSTANCE = (
     "query($sid:String!,$eid:String!){ serviceInstance(serviceId:$sid, environmentId:$eid)"
     "{ startCommand restartPolicyType cronSchedule healthcheckPath } }"
@@ -154,6 +155,23 @@ def _dig(answer: object, keys: Sequence[str]) -> object:
     return value
 
 
+def _messages(errors: object) -> str:
+    listed = errors if isinstance(errors, list) else [errors] if errors else []
+    return "; ".join(
+        str(error.get("message", "") if isinstance(error, dict) else error)
+        for error in listed
+    )
+
+
+def _graphql_messages(stdout: str) -> str:
+    """railway api exits 1 on a GraphQL error and prints the errors on stdout; an api answer carries no variable
+    value (this script queries none), so their messages may be passed on."""
+    try:
+        return _messages(json.loads(stdout).get("errors"))
+    except (json.JSONDecodeError, AttributeError):
+        return ""
+
+
 def railway_cli(argv: Sequence[str]) -> str:
     try:
         done = subprocess.run(
@@ -168,9 +186,11 @@ def railway_cli(argv: Sequence[str]) -> str:
     if done.returncode != 0:
         # stderr only: a listing that failed part way may have written every variable to stdout.
         first = (done.stderr or "").strip().splitlines()[:1]
+        detail = _graphql_messages(done.stdout) if argv[0] == "api" else ""
         raise RailwayError(
             f"railway {argv[0]} exited {done.returncode}: "
             + (first[0][:200] if first else "(nothing on stderr)")
+            + (f" ({detail[:300]})" if detail else "")
         )
     return done.stdout
 
@@ -192,38 +212,41 @@ class Railway:
             raise RailwayError("railway api: the answer is not JSON") from None
         if not isinstance(answer, dict):
             raise RailwayError("railway api: unexpected answer")
-        errors = answer.get("errors")
-        if errors:
-            listed = errors if isinstance(errors, list) else [errors]
-            raise RailwayError(
-                "railway api: "
-                + "; ".join(
-                    str(error.get("message", "") if isinstance(error, dict) else error)
-                    for error in listed
-                )
-            )
+        if answer.get("errors"):
+            raise RailwayError("railway api: " + _messages(answer["errors"]))
         return _dig(answer, ("data", *path))
 
     def _target(self) -> tuple[str, ...]:
         return ("-p", self.project, "-e", self.environment, "-s", self.service)
 
-    def service_id(self) -> str:
-        edges = self._api(
-            SERVICES, {"pid": self.project}, ("project", "services", "edges")
-        )
+    def _one_id(self, document: str, kind: str, wanted: str) -> str:
+        """The id of the project's one <kind> named (or with the id) wanted."""
+        path = ("project", kind, "edges")
+        edges = self._api(document, {"pid": self.project}, path)
         if not isinstance(edges, list):
-            raise RailwayError("railway api: project.services.edges is not a list")
+            raise RailwayError(f"railway api: {'.'.join(path)} is not a list")
         nodes = [edge.get("node") or {} for edge in edges if isinstance(edge, dict)]
-        ids = [node.get("id") for node in nodes if node.get("name") == self.service]
+        ids = [
+            node.get("id")
+            for node in nodes
+            if wanted in (node.get("name"), node.get("id"))
+        ]
         if len(ids) != 1 or not ids[0]:
             raise SettingsError(
-                f"no single service named {self.service} in project {self.project}"
+                f"no single {kind[:-1]} named {wanted} in project {self.project}"
             )
         return ids[0]
 
-    def instance(self, service_id: str) -> dict:
+    def service_id(self) -> str:
+        return self._one_id(SERVICES, "services", self.service)
+
+    def environment_id(self) -> str:
+        """The API takes only the id; -e may be the name, as the CLI takes it (the runbook passes production)."""
+        return self._one_id(ENVIRONMENTS, "environments", self.environment)
+
+    def instance(self, service_id: str, environment_id: str) -> dict:
         found = self._api(
-            INSTANCE, {"sid": service_id, "eid": self.environment}, ("serviceInstance",)
+            INSTANCE, {"sid": service_id, "eid": environment_id}, ("serviceInstance",)
         )
         if not isinstance(found, dict):
             raise RailwayError("railway api: serviceInstance is not an object")
@@ -254,12 +277,12 @@ class Railway:
         meta = (found.get("meta") if isinstance(found, dict) else None) or {}
         return meta.get("serviceManifest") or {}
 
-    def write(self, service_id: str, expected: Expected) -> None:
+    def write(self, service_id: str, environment_id: str, expected: Expected) -> None:
         written = self._api(
             UPDATE,
             {
                 "sid": service_id,
-                "eid": self.environment,
+                "eid": environment_id,
                 "input": update_input(expected),
             },
             ("serviceInstanceUpdate",),
@@ -285,7 +308,7 @@ class Railway:
 
 def _check(
     railway: Railway,
-    service_id: str,
+    ids: tuple[str, str],
     expected: Expected,
     path: Path,
     deployment: str | None,
@@ -293,7 +316,7 @@ def _check(
 ) -> int:
     manifest = railway.manifest(deployment) if deployment else None
     found = differences(
-        expected, railway.instance(service_id), railway.dockerfile_variable(), manifest
+        expected, railway.instance(*ids), railway.dockerfile_variable(), manifest
     )
     for line in found:
         print(line, file=out)
@@ -349,11 +372,11 @@ def main(
             )
             return 0
         railway = Railway(run, args.project, args.environment, args.service)
-        service_id = railway.service_id()
+        ids = (railway.service_id(), railway.environment_id())
         if args.command == "apply":
-            railway.write(service_id, expected)
+            railway.write(*ids, expected)
         return _check(
-            railway, service_id, expected, path, getattr(args, "deployment", None), out
+            railway, ids, expected, path, getattr(args, "deployment", None), out
         )
     except (SettingsError, RailwayError) as exc:
         print(f"pick-railway-settings: {exc}", file=err)

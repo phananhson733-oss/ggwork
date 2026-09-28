@@ -28,6 +28,7 @@ CRON = ROOT / "deploy/pick-obs/trends/railway.toml"
 SELFCHECK = ROOT / "deploy/pick-obs/trends/selfcheck/railway.toml"
 DOCKERFILE = "docker/Dockerfile.pick-gateway"
 PROJECT, ENVIRONMENT, SERVICE, SERVICE_ID = "proj-1", "env-1", "pick-obs-trends", "svc-9"
+ENVIRONMENT_NAME = "production"  # what the runbook passes to -e; the API wants ENVIRONMENT, its id
 SECRET = "postgresql://pick_observer.x:do-not-print@host:5432/postgres"
 ARGS = ("-p", PROJECT, "-e", ENVIRONMENT, "-s", SERVICE)
 
@@ -63,6 +64,9 @@ class Recorder:
         if argv[:2] == ("variable", "set"):
             return ""
         document = argv[argv.index("api") + 1] if "api" in argv else ""
+        if "environments" in document:
+            nodes = [{"node": {"id": ENVIRONMENT, "name": ENVIRONMENT_NAME}}, {"node": {"id": "env-2", "name": "staging"}}]
+            return json.dumps({"data": {"project": {"environments": {"edges": nodes}}}})
         if "project(" in document:
             return json.dumps({"data": {"project": {"services": {"edges": [{"node": {"id": SERVICE_ID, "name": SERVICE}}]}}}})
         if "serviceInstanceUpdate" in document:
@@ -332,3 +336,39 @@ def test_a_half_written_apply_says_so():
     code, _, err = _run(("apply", str(SELFCHECK), *ARGS), recorder)
     assert code == 2 and "were written" in err and settings.DOCKERFILE_VARIABLE in err and "apply again" in err
     assert any("serviceInstanceUpdate" in " ".join(call) for call in recorder.calls)
+
+
+@pytest.mark.parametrize("given", [ENVIRONMENT, ENVIRONMENT_NAME])
+def test_the_environment_may_be_named_or_given_by_id(given):
+    """The runbook passes -e production, as the CLI takes it; the API takes only the id (2026-09-28: a name got
+    "Not Authorized"). Queries and the update carry the id; the CLI calls keep what was given."""
+    expected = settings.load(SELFCHECK)
+    recorder = Recorder(_instance(expected), {settings.DOCKERFILE_VARIABLE: DOCKERFILE})
+    code, _, err = _run(("apply", str(SELFCHECK), "-p", PROJECT, "-e", given, "-s", SERVICE), recorder)
+    assert code == 0, err
+    for call in recorder.calls:
+        if call[0] == "api" and "$eid" in call[1]:
+            assert json.loads(call[call.index("--variables") + 1])["eid"] == ENVIRONMENT
+        if call[0] == "variable":
+            assert call[call.index("-e") + 1] == given
+
+
+def test_an_unknown_environment_exits_2():
+    expected = settings.load(SELFCHECK)
+    recorder = Recorder(_instance(expected), {})
+    code, _, err = _run(("check", str(SELFCHECK), "-p", PROJECT, "-e", "prod", "-s", SERVICE), recorder)
+    assert code == 2 and "prod" in err
+    assert not any("$eid" in " ".join(call) for call in recorder.calls)
+
+
+def test_a_failed_api_call_names_the_graphql_errors(monkeypatch):
+    """railway api exits 1 on a GraphQL error and puts the errors on stdout; an api answer carries no variable value
+    (this script queries none), so their messages are passed on. Other commands still get stderr only."""
+    errors = json.dumps({"data": None, "errors": [{"message": "Not Authorized"}]})
+    monkeypatch.setattr(settings.subprocess, "run", lambda *a, **k: _completed(1, stdout=errors, stderr="Railway API returned 1 GraphQL error(s)"))
+    with pytest.raises(settings.RailwayError, match="Not Authorized"):
+        settings.railway_cli(("api", "q"))
+    monkeypatch.setattr(settings.subprocess, "run", lambda *a, **k: _completed(1, stdout=json.dumps({"errors": [{"message": SECRET}]})))
+    with pytest.raises(settings.RailwayError) as failed:
+        settings.railway_cli(("variable", "list", "--json"))
+    assert SECRET not in str(failed.value)
