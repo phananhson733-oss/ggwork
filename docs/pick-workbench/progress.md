@@ -228,3 +228,30 @@
   - `/login` 有 robots meta，没有「Back to home」。
   - 关于页的版本号要登录后才能看到，待用户核对。
 - `pick-deploy-guard target=frontend commit=2ee78b342c7c1894e897dc00bbdbb44f820a382b at=2026-09-28T14:54:37Z`
+
+
+## 查询条件校验、0 结果诊断与 hot_only（PR #8，2026-09-28）
+
+- 起因：生产测试「最近美国 US 地区热门、没上过的剧」，模型三次把 `US` 填进 `theater`，每次 0 部，又拿候选池范围当理由。PR #8 让剧场、语种、标签、query 按当前批次校验（没有的值拒绝并列出可选值，地区词提示改用语种），0 结果附 `zero_diagnosis`，新增 `hot_only`（白名单等于资料页 `THEATER_BASES`，clk/bill/gsc 不算）。gpt-6-astra 四路审计两轮：第一轮 2 条 P1 已修，第二轮全部 PASS、无 P1，所报 P2 一并修复。合并为 `ff296f5fcb815d726b3373ffdcee339efec7d650`。
+- GitHub Actions 因账户账单问题整批未启动（作业未运行，不是测试失败），合并依据本机等价检查：
+  - 扩展全套在 ff296f5 上（全 scram PG 17 与 SQLite）：3,646 通过、21 跳过，跳过均为方言专属；
+  - gateway 四格 35 条，两种库都有，0 跳过；
+  - PR 分支上：后端宿主全套 `make test-shard` 18,148 通过，前端全套 2,744 通过；
+  - 另有 typecheck、lint、format、pick-board 集成 45/45、skill-review、agent-guidance、`uv lock --check`、`make lint`。
+- 前端先发（旧前端的严格 schema 不认 `hot_only:true`）：
+  - 四格 5/5（含新增的热门卡一格），合同夹具 12/12，typecheck 通过；
+  - 从守卫导出的目录发布，部署 `dpl_BTQY5VfWSJo1p5Rv6cxaDTnRpKSY`，READY，生产别名指向它；构建带 `NEXT_PUBLIC_APP_VERSION=20260928-ff296f5`；
+  - 上传源码只有 `frontend/` 下的已跟踪文件；
+  - 未登录访问 `/` 307 到 `/workspace`，`/workspace`、`/workspace/pick-data` 307 到 `/login`。
+- gateway 从干净检出 `railway up`，部署 `04c5e4dd-330f-4922-9ee4-ac55d3ee4dd8`，SUCCESS；迁移头仍是 0007，本次没有新迁移。
+  - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`，没有 Traceback 与 `service start() failed`；
+  - 容器里 `ggwork_pick.references.query_languages` 存在，`PickConditions` 有 `hot_only`。
+  - 此前 15:28Z、15:32Z、15:45Z 有三次 reason=redeploy 的 gateway 部署，重放的是旧镜像，来源未核实；本次部署已替换它们。
+- 部署后在容器里只读核对最新批次 8bcf785a（15:42Z 发布，12,384 部）：
+  - 原事故条件 `theater=US` 被拒绝，提示改用 `language=en`、清空写法 `theater:null`；`query="US 热门"` 同样被拒；
+  - `language=en, hot_only, exclude_posted` 1,450 部；`language=en, exclude_posted` 2,952 部；
+  - `ReelShort + en + hot_only + exclude_posted` 为 0，诊断：去掉剧场 1,450、去掉热门 1,502；
+  - `en + youtube` 为 0，诊断：去掉渠道 3,017、去掉确认可发 3,007（上下架全部未知）。
+  - 在工作台里复问原问题，待用户核对。
+- `pick-deploy-guard target=frontend commit=ff296f5fcb815d726b3373ffdcee339efec7d650 at=2026-09-28T15:25:39Z`
+- `pick-deploy-guard target=gateway commit=ff296f5fcb815d726b3373ffdcee339efec7d650 prod_head=0007 chain_head=0007 at=2026-09-28T15:47:22Z`
