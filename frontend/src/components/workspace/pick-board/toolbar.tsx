@@ -16,6 +16,7 @@ import {
   POSTED_FILTERS,
   POSTED_LABELS,
   SORTS,
+  UNKNOWN_LANGUAGE,
   pickQuery,
   type ListTab,
   type PickRequest,
@@ -98,10 +99,13 @@ export interface TabCounts {
   posted?: number;
 }
 
-/** 搜索词在剧单三个 tab 之间带着走（选剧里没搜到就去全部剧库），进出发布记录、规则与同步 tab 时清掉：那边搜的是另一张表 */
+/** 搜索词在选剧与全部剧库之间保留；进出榜单时清掉，避免另一种查询口径的隐藏过滤。 */
 function tabQuery(req: PickRequest, dest: PickRequest["tab"]): string {
   const crossesPosted = (dest === "posted") !== (originTab(req) === "posted");
-  return crossesPosted || dest === "rules" || dest === "imports" ? "" : req.q;
+  const crossesRank = (dest === "rank") !== (originTab(req) === "rank");
+  return crossesPosted || crossesRank || dest === "rules" || dest === "imports"
+    ? ""
+    : req.q;
 }
 
 function TabLink({
@@ -414,6 +418,11 @@ function LangBasisChips({
   facets: PickFacets;
   rules: BoardRules;
 }) {
+  const selected = req.lang === UNKNOWN_LANGUAGE ? "" : req.lang;
+  const langs =
+    req.lang && !facets.langs.some((l) => l.lang === selected)
+      ? [...facets.langs, { lang: selected, n: 0 }]
+      : facets.langs;
   return (
     <>
       <Chips
@@ -421,8 +430,8 @@ function LangBasisChips({
         current={req.lang}
         items={[
           { value: "", text: "全部" },
-          ...facets.langs.slice(0, 14).map((l) => ({
-            value: l.lang,
+          ...langs.map((l) => ({
+            value: l.lang || UNKNOWN_LANGUAGE,
             text: l.lang || "未标语种",
             count: l.n,
           })),

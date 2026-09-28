@@ -1,6 +1,6 @@
 # S6's one-off self-check of the pick-obs-trends service, with S6a's preflight in the same run (trends radar plan
-# section 10 S6 and S6a, TR-15). Point the service's config path at /deploy/pick-obs/trends/selfcheck/railway.toml,
-# deploy, read the two lines in the log ("selfcheck ok", then {"preflight": ...}), then point it back at
+# section 10 S6 and S6a, TR-15). Write this file into the service's settings with scripts/pick-railway-settings.py
+# apply, deploy, read the two lines in the log ("selfcheck ok", then {"preflight": ...}), then apply
 # /deploy/pick-obs/trends/railway.toml and deploy again. No cronSchedule: the container runs once when deployed.
 # Runbook: docs/pick-workbench/observe-runbook/packaging.md.
 

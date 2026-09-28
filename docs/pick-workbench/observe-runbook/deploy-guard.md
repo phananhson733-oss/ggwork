@@ -131,7 +131,7 @@ RESET ROLE;
 ## 各模式通过之后
 
 - **gateway**：打印 `cd <检出> && railway up --detach`。`rollback-matrix.md` 四格验证的 gateway 一列（扩展完整套件）在同一提交上、跑守卫之前做完：守卫通过后要立即部署。部署后按计划第 10 节 S4 核对（日志里没有 `service start() failed`、能导入 `observe.selfcheck` 与 `observe.grants`、迁移头、`regrant --check` 与权限实读、认证后的 `/api/pick/sync`、一次选剧对话），再做四格的手工核对。提示了迁移头升级时，把记录行推到 main 之后，从最新的 main 经守卫重部署已经建好的 cron 服务。
-- **cron**：打印 `cd <检出> && railway up --detach --service pick-obs-<服务>`。第一次部署（S5、S6）与以后重做 S6 时，不是「部署后手动触发一次自检」，而是按 `packaging.md` 第 5 节第 4 步与第 6 节的双配置流程：服务的配置路径先指向自检配置 `/deploy/pick-obs/trends/selfcheck/railway.toml` 部署，核对自检日志里的包摘要、角色与迁移头，再从同一检出、同一提交切回 `/deploy/pick-obs/trends/railway.toml` 部署，最后才追加并推送守卫的记录行。守卫只在开头跑一次；期间 `ggwork/main` 前进或间隔过久，按 `packaging.md` 的规则原样重跑。gsc 服务是否也配自检配置由 TR-21 定，写在它自己的手册页。
+- **cron**：打印 `cd <检出> && railway up --detach --service pick-obs-<服务>`。第一次部署（S5、S6）与以后重做 S6 时，不是「部署后手动触发一次自检」，而是按 `packaging.md` 第 5 节第 4 步与第 6 节的双配置流程：先用 `scripts/pick-railway-settings.py apply` 把自检配置 `/deploy/pick-obs/trends/selfcheck/railway.toml` 写进服务设置再部署，核对自检日志里的包摘要、角色与迁移头，再从同一检出、同一提交 `apply` 回 `/deploy/pick-obs/trends/railway.toml` 并部署（Railway 已不读配置路径，`packaging.md` 第 3.3 节），最后才追加并推送守卫的记录行。守卫只在开头跑一次；期间 `ggwork/main` 前进或间隔过久，按 `packaging.md` 的规则原样重跑。gsc 服务是否也配自检配置由 TR-21 定，写在它自己的手册页。
 - **frontend**：守卫已把 `git archive <HEAD> frontend` 导出到新目录，里面只有已跟踪的文件。`rollback-matrix.md` 四格验证的前端命令在守卫所用的检出（同一提交）的 `frontend/` 下、跑守卫之前做完（导出目录里没有依赖，不在那里跑）。下一步：从已经 `vercel link` 的检出里只拷 `.vercel/project.json` 到导出目录的 `.vercel/`，再在导出目录执行 `vercel deploy --prod`。Vercel 项目的 Root Directory 是 `frontend`，所以在导出目录的根上部署。别的 gitignore 文件一个都不要拷进去。
 
 ## 与其他任务的接缝

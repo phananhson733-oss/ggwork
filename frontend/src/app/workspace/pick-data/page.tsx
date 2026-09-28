@@ -102,8 +102,8 @@ export const maxDuration = 60;
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 type Board = ReadyBoard<BoardRules>;
 
-// searchParams is optional: Nextra's docs page map calls generateMetadata({})
-// on every app page at build time (nextra/dist/server/page-map/index.js).
+// searchParams is optional so a caller without request context still gets a
+// title (the removed Nextra docs build called generateMetadata({})).
 export async function generateMetadata({
   searchParams,
 }: {
@@ -260,7 +260,11 @@ async function boardPage(
   sync: GatewayResult<PickSyncStatus>,
 ): Promise<ReactElement> {
   setBoardScope(board.scope);
-  const req: PickRequest = { ...req0, v: board.scope.versionId, result: "" };
+  const req: PickRequest = {
+    ...req0,
+    v: board.scope.versionId,
+    result: req0.tab === "row" && req0.from === "pick" ? req0.result : "",
+  };
   const ctx = contextOf(board);
   const loaded = await guarded(() =>
     Promise.all([loadCandidatePool(), loadTab(req)]),

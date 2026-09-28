@@ -286,6 +286,14 @@ describe("rs-queries: ReelShort rows from rs_rows", () => {
 });
 
 describe("queries: the rules come from the pinned version", () => {
+  it("unknown language binds the stored empty value instead of disabling the filter", async () => {
+    pin(scopeOf(rulesWith("ok")));
+    await loadPickRows(parsePickRequest({ tab: "all", lang: "__unknown__" }));
+    const page = only(/SELECT rows\.\*/);
+    expect(page.text).toMatch(/rows\.lang = \$/);
+    expect(page.values).toContain("");
+    expect(page.values).not.toContain("__unknown__");
+  });
   const boundFor = async (
     params: Record<string, string>,
     rules: BoardRules,

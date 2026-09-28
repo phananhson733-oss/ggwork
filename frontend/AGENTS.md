@@ -15,11 +15,10 @@ The GGWork frontend is a Next.js 16 web interface for an AI agent system. It com
 - **TanStack Query** (`@tanstack/react-query` ^5.90.17) — Server state management
 - **UI**: Shadcn UI and Vercel AI SDK elements (generated from registries — see Code Style), styled by the GGWork theme
 
-`pnpm-workspace.yaml` overrides vulnerable `@xmldom/xmldom` 0.9.x releases to
-0.9.12 for GHSA-965w-775f-mr7g. Nextra pulls it in through MathJax and
-`speech-rule-engine@4.1.2`, which pins 0.9.8. Keep the override until the
-upstream dependency chain resolves a patched version without it; regenerate
-`pnpm-lock.yaml` and verify the docs build when changing this constraint.
+`tests/unit/scripts/xmldom-security.test.ts` keeps `@xmldom/xmldom` releases
+affected by GHSA-965w-775f-mr7g out of `pnpm-lock.yaml`. Nothing depends on it
+since the Nextra docs were removed; if a new dependency brings a vulnerable 0.9.x
+back, add a `pnpm-workspace.yaml` override to 0.9.12 or later.
 
 ## Commands
 
@@ -64,20 +63,17 @@ The frontend is a stateful chat application. Users create **threads** (conversat
 
 ### Source Layout (`src/`)
 
-- **`app/`** — Next.js App Router. Routes include `/` (landing), `/showcase/[thread_id]` (allowlisted public read-only demos), `/workspace/chats/[thread_id]` (authenticated chat), `/workspace/agents/[agent_name]` and `/workspace/agents/new` (custom agents), `/artifacts/view` (chrome-free window that renders Markdown or CSV/TSV artifacts with the panel's own renderer), `/blog/…`, the `(auth)/{login,setup,auth/callback}` flow, `/[lang]/docs/…`, and `/api/…` route handlers (e.g. `/api/memory`).
+- **`app/`** — Next.js App Router. Routes include `/` (redirects to `/workspace`; there is no public landing page, docs or blog, and `next.config.js` sends `X-Robots-Tag: noindex, nofollow` on every response), `/workspace/chats/[thread_id]` (authenticated chat), `/workspace/agents/[agent_name]` and `/workspace/agents/new` (custom agents), `/artifacts/view` (chrome-free window that renders Markdown or CSV/TSV artifacts with the panel's own renderer), the `(auth)/{login,setup,auth/callback}` flow, and `/api/…` route handlers (e.g. `/api/memory`).
 - **`components/`** — React components:
   - `ui/` — Shadcn UI primitives (auto-generated, ESLint-ignored)
   - `ai-elements/` — Vercel AI SDK elements (auto-generated, ESLint-ignored)
   - `workspace/` — Chat page components (messages, artifacts, settings)
-  - `landing/` — Landing page sections
-  - `docs/` — Docs / MDX rendering components
-- **`core/`** — Business logic, the heart of the app. Domains include `threads/` (creation, streaming, state), `api/` (LangGraph client singleton), `agents/` (custom agents), `subagents/` (runtime worker catalog and administrator mutations), `auth/` (authentication), `artifacts/`, `channels/` (IM connections), `integrations/` (managed third-party integration status/install clients such as Lark CLI), `i18n/` (en-US, zh-CN), `settings/`, `memory/`, `skills/`, `messages/`, `mcp/`, `models/`, `input-polish/` (pre-send draft rewrite API), `voice-input/` (browser speech-recognition helpers), `suggestions/`, `tasks/`, `todos/`, `tools/`, `workspace-changes/` (run-scoped changed-file summaries and diff fetching), `config/`, `notification/`, `blog/`, plus rendering helpers (`rehype/`, `streamdown/`) and `utils/`.
+- **`core/`** — Business logic, the heart of the app. Domains include `threads/` (creation, streaming, state), `api/` (LangGraph client singleton), `agents/` (custom agents), `subagents/` (runtime worker catalog and administrator mutations), `auth/` (authentication), `artifacts/`, `channels/` (IM connections), `integrations/` (managed third-party integration status/install clients such as Lark CLI), `i18n/` (en-US, zh-CN), `settings/`, `memory/`, `skills/`, `messages/`, `mcp/`, `models/`, `input-polish/` (pre-send draft rewrite API), `voice-input/` (browser speech-recognition helpers), `suggestions/`, `tasks/`, `todos/`, `tools/`, `workspace-changes/` (run-scoped changed-file summaries and diff fetching), `config/`, `notification/`, plus rendering helpers (`rehype/`, `streamdown/`) and `utils/`.
 - **`hooks/`** — Shared React hooks
 - **`lib/`** — Utilities (`cn()` from clsx + tailwind-merge)
-- **`content/`** — MDX content (blog posts, docs) rendered by the app
 - **`styles/`** — `globals.css` (Tailwind v4) and `ggwork-theme.css` (theme tokens; see Theme and brand)
 - **`typings/`** — Ambient TypeScript declarations
-- Root files: `env.js` (env validation), `mdx-components.ts` (MDX component map)
+- Root files: `env.js` (env validation)
 
 More specific `AGENTS.md` files under `src/` contain the frontend sections split from this file.
 
@@ -150,11 +146,8 @@ and `public` into the output. In static mode, `core/api/static-response.ts`
 resolves Gateway REST reads with the bundled capability catalog and safe
 installation projections from existing same-origin `/mock/api` fixtures; writes
 and unknown API routes fail locally.
-The homepage client counter calls `/github-stars`, outside the Gateway proxy.
-That dynamic route reads the server-only `GITHUB_OAUTH_TOKEN` at runtime, caches
-GitHub data for one hour, and returns 204 when the count is unavailable. Start
-the standalone server from `frontend/` with `node --env-file=.env
-.next/standalone/server.js` to load the current credentials.
+Start the standalone server from `frontend/` with `node --env-file=.env
+.next/standalone/server.js`.
 
 To reach a dev server on anything other than localhost — a LAN address, or a proxied hostname — list the host in `DEER_FLOW_DEV_ALLOWED_ORIGINS` (comma-separated; a full URL is reduced to its host). It feeds Next's `allowedDevOrigins`, which gates `/_next/*`, fonts, and HMR. Without it those requests get a 403 and the page renders server-side but never hydrates, so nothing on it — including the login form — responds. Development only; production builds ignore it.
 
@@ -290,3 +283,5 @@ callbacks. Static demos and non-admin users must not query the management API.
 This checkout adds `/workspace/picks` and `/workspace/pick-data`, `core/pick/`, and `components/workspace/pick/`. Candidate JSON must pass the schema in `core/pick/types.ts`. The chat provider scopes visible state and stored references by authenticated user; submit captures the exact result and selected item IDs before awaiting other work. Do not select an arbitrary latest result during replay. All mutations use `core/api/fetcher` for existing credentials/CSRF handling. Save commands retain their request ID across network retries. See `docs/pick-workbench/progress.md` for verified versus pending integration work.
 
 `/workspace/pick-data` reads the workbench mirror (`pick_mirror`, one `pickm_vN` schema per version) as `pick_board_reader` through `src/server/pick-board/db.ts` only (server-only; CA-verified TLS; every query runs inside a version scope). Its queries are ported from RealShort at the commit in `src/server/pick-board/PORTED_FROM`; before a RealShort release run the parity and drift scripts per `docs/pick-workbench/pick-board-parity.md`. Deploy to Vercel from a clean `git archive` export, never from the working tree (the CLI uploads gitignored files such as `.env`).
+
+Pick-board pagination must round-trip every generated page without a fixed catalog-size cap. `__unknown__` is the URL-only empty-language filter; bind it as `''` in SQL. Explicit tab changes clear replay identity, but candidate → evidence → return preserves `result`, page and version through the server page. Catalog and posted freshness are separate: the latter comes from the chosen version's `meta.control.postedStats.importedAt`. Assess archived versions at their capture time, and never use a fresh mirror timestamp to claim fresh upstream data.

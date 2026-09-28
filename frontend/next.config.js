@@ -13,10 +13,6 @@ function getInternalServiceURL(envKey, fallbackURL) {
     ? configured.replace(/\/+$/, "")
     : fallbackURL;
 }
-import nextra from "nextra";
-
-const withNextra = nextra({});
-
 /** @type {import("next").NextConfig} */
 const config = {
   // Local model prefill can exceed Next's 30-second proxy default. Keep the
@@ -26,15 +22,21 @@ const config = {
     process.env.NEXT_CONFIG_BUILD_OUTPUT === "standalone"
       ? "standalone"
       : undefined,
-  i18n: {
-    locales: ["en", "zh"],
-    defaultLocale: "en",
-  },
   turbopack: {
     root: fileURLToPath(new URL(".", import.meta.url)),
   },
   devIndicators: false,
   allowedDevOrigins: getAllowedDevOrigins(),
+  async headers() {
+    return [
+      {
+        // GGWork is a private, login-only workbench. The header also covers
+        // files under public/ that page metadata cannot reach.
+        source: "/:path*",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      },
+    ];
+  },
   async rewrites() {
     const rewrites = [];
     const gatewayURL = getInternalServiceURL(
@@ -88,4 +90,4 @@ const config = {
   },
 };
 
-export default withNextra(config);
+export default config;

@@ -550,7 +550,8 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 - 口令用 `openssl rand -hex 32` 生成，只进本机 600 文件。设置时和 `\password` 一样，只把在本机算出的 SCRAM-SHA-256 校验值（libpq 的 PQencryptPasswordConn）发给库，明文不进 SQL。
 - 以观测角色登录：`search_path` 为 `deerflow`，连接走 SSL，读得到迁移头 0006。
 - 留档检查：`rolcanlogin=t`、`rolinherit=f`、`rolconnlimit=20`，rolconfig 为 `{search_path=deerflow,TimeZone=UTC,idle_in_transaction_session_timeout=1min,statement_timeout=2min}`；`\dn+` 里 `deerflow` 与 `pick_mirror` 各多一行 `pick_observer=U/deerflow_app`；observer_deerflow、observer_mirror、observer_head 为 t，observer_batches、observer_create 为 f。
-- S4 的 `regrant --check` 前后输出，以及影子运行期间 `pick_observer` 的连接峰值，待记。
+- S4 于 2026-09-28 14:25 UTC 在 gateway 容器里以 deerflow_app 执行：`regrant --check` 列出缺少授权 8 项（pickm_v000001、v000009、v000010、v000011 的 schema USAGE 与 rs_ids SELECT），退出码 1；`regrant` 打印「观测角色的授权已补齐：schema 6 个、表 30 张、列 4 个、序列 12 个，已发布镜像版本 4 个」，退出码 0；再次 `--check` 为「授权齐全」，退出码 0。没有出现「已发布但没有 rs_ids 的镜像版本」。
+- 影子运行期间 `pick_observer` 的连接峰值，待记。
 
 **每周容量（第 6 节）：** 切换后开始记录。
 

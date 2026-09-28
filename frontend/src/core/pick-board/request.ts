@@ -327,8 +327,11 @@ export const POSTED_LABELS: Record<PostedFilter, string> = {
 export const PAGE_SIZES = [20, 50, 100, 200] as const;
 export const PAGE_SIZE = 50;
 
-/** 页码上限。防的是 `?page=999999999` 变成一次巨大的 OFFSET 全表扫 */
-export const MAX_PAGE = 500;
+/** 只限制 OFFSET 的整数精度；不能把合法的全库页码静默改成第 500 页。查询仍受行数与数据库超时约束。 */
+export const MAX_PAGE = Math.floor(Number.MAX_SAFE_INTEGER / 200);
+
+/** URL 中的空语种选择，与空字符串（不限语种）分开。数据库仍保存原样空字符串。 */
+export const UNKNOWN_LANGUAGE = "__unknown__";
 
 /** 搜索词最长；再长的搜索词不是人打的 */
 export const MAX_QUERY = 80;
@@ -405,6 +408,7 @@ function pick<T extends string>(
  */
 function cleanLang(raw: string): string {
   const s = raw.trim();
+  if (s === UNKNOWN_LANGUAGE) return s;
   return /^[\p{L}]{1,8}$/u.test(s) ? s : "";
 }
 
@@ -551,9 +555,10 @@ export function pickQuery(
     if (r.postedState) p.set("pst", r.postedState);
     if (r.sd) p.set("sd", r.sd);
   }
-  /* 版本解析出来之后总写 v（深链钉住同一份数据）；回放只在选剧 tab 有意义 */
+  /* 回放的证据页也保留 result，让返回链接恢复原名单；显式切换 tab 由 TabLink 清掉它。 */
   if (r.v !== null) p.set("v", String(r.v));
-  if (r.tab === "pick" && r.result) p.set("result", r.result);
+  if ((r.tab === "pick" || (r.tab === "row" && r.from === "pick")) && r.result)
+    p.set("result", r.result);
   const s = p.toString();
   return s ? `?${s}` : "";
 }

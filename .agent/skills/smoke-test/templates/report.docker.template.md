@@ -88,12 +88,11 @@
 
 | Route | Status | Details |
 |-------|--------|---------|
-| Landing `/` | {{landing_status}} | {{landing_details}} |
+| Root redirect `/` | {{root_redirect_status}} | target {{root_redirect_target}} |
 | Workspace redirect `/workspace` | {{workspace_redirect_status}} | target {{workspace_redirect_target}} |
 | New chat `/workspace/chats/new` | {{new_chat_status}} | {{new_chat_details}} |
 | Chats list `/workspace/chats` | {{chats_list_status}} | {{chats_list_details}} |
 | Agents gallery `/workspace/agents` | {{agents_gallery_status}} | {{agents_gallery_details}} |
-| Docs `{{docs_path}}` | {{docs_status}} | {{docs_details}} |
 
 **Summary**: {{frontend_routes_summary}}
 

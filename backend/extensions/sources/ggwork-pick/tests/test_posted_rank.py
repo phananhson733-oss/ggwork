@@ -143,7 +143,8 @@ async def test_empty_result_reports_zero_matches(repo):
     from ggwork_pick.selection import SelectionService
 
     await load(repo, [row(1)])
-    result = await SelectionService(repo[0]).query({"language": "ko"}, thread_id="t", run_id="r", call_id="c")
+    # A language the batch lacks is refused now (test_query_guards); a query word that matches nothing is still a zero.
+    result = await SelectionService(repo[0]).query({"query": "no such drama"}, thread_id="t", run_id="r", call_id="c")
     assert result["items"] == [] and result["matched_total"] == 0
 
 

@@ -34,6 +34,8 @@ function board(patch: Partial<BannerBoard> = {}): BannerBoard {
       agentCatalogBatchId: "b-cat",
       agentKnowledgeBatchId: "b-kn",
     },
+    freshness: null,
+    postedImportedAt: null,
     warnings: [],
     requestedV: null,
     pinned: false,
@@ -97,6 +99,36 @@ const only = (i: BannerInput) => {
 };
 
 describe("bannersFor", () => {
+  it("warns about old catalog and posted imports even when the mirror is fresh and source markers are missing", () => {
+    const stale = {
+      ...board(),
+      freshness: { importedAt: "2026-09-20T01:00:00Z" },
+      postedImportedAt: "2026-09-20T02:00:00Z",
+    };
+    const banners = bannersFor(input({ board: stale }));
+    expect(banners.map((b) => b.key)).toEqual(
+      expect.arrayContaining(["catalog-stale", "posted-stale"]),
+    );
+    expect(banners.find((b) => b.key === "posted-stale")?.text).toContain(
+      "不能据此认定未发布",
+    );
+    expect(banners.find((b) => b.key === "catalog-stale")?.text).toContain(
+      "立即同步",
+    );
+  });
+
+  it("judges an archived version's imports at capture time, not today's clock", () => {
+    const historical = {
+      ...board({ pinned: true, current: { ...board().current, id: 8 } }),
+      freshness: { importedAt: "2026-09-24T01:00:00Z" },
+      postedImportedAt: "2026-09-24T02:00:00Z",
+    };
+    const banners = bannersFor(
+      input({ board: historical, now: new Date("2026-10-01T12:00:00Z") }),
+    );
+    expect(banners.map((b) => b.key)).not.toContain("catalog-stale");
+    expect(banners.map((b) => b.key)).not.toContain("posted-stale");
+  });
   it("shows nothing for the current version with a healthy mirror", () => {
     expect(bannersFor(input())).toEqual([]);
   });

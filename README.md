@@ -19,7 +19,6 @@ https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
 ## Official Website
 
 Learn more and see **real demos** on our [**official website**](https://deerflow.tech).
-The landing-page case studies open as allowlisted, read-only showcases without requiring a sign-in.
 
 ## Sister Projects
 
@@ -477,10 +476,7 @@ Gateway owns `/api/langgraph/*` and translates those public LangGraph-compatible
 For a read-only demo without the Gateway, run `make build-static` from `frontend/`,
 then `HOSTNAME=127.0.0.1 PORT=3000 node --env-file=.env .next/standalone/server.js`
 from the same directory. The build includes public demo assets and resolves
-supported demo API reads locally; writes are unavailable. To display the homepage
-GitHub star count, set `GITHUB_OAUTH_TOKEN` in `frontend/.env` before starting Node.
-The token stays on the server; missing credentials or GitHub failures hide the
-count. Restart Node after changing the token; no rebuild is needed.
+supported demo API reads locally; writes are unavailable.
 
 #### LangGraph Studio (Optional)
 
@@ -2165,5 +2161,7 @@ Your unwavering commitment and expertise have been the driving force behind Deer
 [![Star History Chart](https://star-history.dera.page/svg?repos=bytedance/deer-flow&type=Date)](https://star-history.dera.page/#bytedance/deer-flow&Date)
 
 ## Personal pick-workbench customization (in progress)
+
+The selection-data board supports the full catalog's pagination, all available languages (including unspecified language), historical daily rankings, and returning from evidence pages to the same candidate replay. It separately warns when theater catalogs or publishing records are more than 36 hours old; daily/weekly ranking warnings use two/fourteen days at capture time. “Sync now” copies upstream data and does not refresh the original Feishu or Queyu sources.
 
 This checkout adds a personal drama-selection workspace on the pinned DeerFlow baseline. The personal import, candidate-query, historical-reference, and selection APIs and pages are implemented and under integration testing. Live local-model, real-data, and full browser acceptance are still in progress. See the [implementation plan](docs/plans/2026-09-21-pick-workbench-mvp-plan.md), [local run guide](docs/pick-workbench/local-run.md), and [verified progress](docs/pick-workbench/progress.md). The isolated Compose profile is `docker/docker-compose.pick.yaml`.

@@ -348,12 +348,6 @@ export default function LoginPage() {
             </button>
           </div>
         )}
-
-        <div className="text-muted-foreground text-center text-xs">
-          <Link href="/" className="hover:underline">
-            {t.login.backToHome}
-          </Link>
-        </div>
       </div>
     </div>
   );

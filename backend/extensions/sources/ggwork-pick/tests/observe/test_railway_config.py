@@ -71,10 +71,12 @@ TRIGGER_INTERVAL = timedelta(minutes=30)
 DEPLOY_WINDOW = (time(2, 0), time(17, 0))
 
 GUARD_SCRIPTS = ("scripts/pick-deploy-guard.py", "scripts/_pick_deploy_guard_readers.py")  # TR-34's
+# The deploy scripts CI lints: the guard's two and the one that writes a cron's railway.toml into its service settings.
+DEPLOY_SCRIPTS = (*GUARD_SCRIPTS, "scripts/pick-railway-settings.py")
 # Every ignore file at every level: hatchling in the image drops what the first .gitignore above the managed copy
 # matches (backend/.gitignore), git check-ignore reads the whole stack, and `railway up` reads .railwayignore as well.
 IGNORE_FILES = ("**/.gitignore", "**/.railwayignore")
-CI_PATHS = ("deploy/pick-obs/**", "railway.toml", ".dockerignore", *IGNORE_FILES, "docs/pick-workbench/observe-runbook/**", *GUARD_SCRIPTS)
+CI_PATHS = ("deploy/pick-obs/**", "railway.toml", ".dockerignore", *IGNORE_FILES, "docs/pick-workbench/observe-runbook/**", *DEPLOY_SCRIPTS)
 
 # What the runbook's variable table may name: what the trends entry reads, the DSN, the TLS mode asyncpg reads, and
 # PICK_DB_SIZE_CAP_BYTES, which plan S5 lists for TR-20's check before publishing (nothing reads it before TR-20).
@@ -110,7 +112,7 @@ def test_selfcheck_config_pinned():
 
 
 def test_root_railway_untouched():
-    """The gateway's config (the file a service without its own config path reads) stays as it is."""
+    """The gateway's railway.toml stays as it is: the build every cron repeats (Railway no longer applies the file)."""
     assert tomllib.loads(ROOT_CONFIG.read_text(encoding="utf-8")) == {
         "build": BUILD,
         "deploy": {
@@ -205,17 +207,17 @@ def test_packaged_files_reach_the_image():
 
 
 def test_ci_runs_on_the_deploy_files():
-    """A change to any file these tests or TR-34's guard tests read runs the workflow, ignore files at any level
-    included, and the guard's scripts are linted with their own (default) ruff settings, before the tests. The step
-    names both scripts outright: one renamed or gone fails it (TR-15 lands only through feat/trends-radar, which has
-    TR-34's scripts)."""
+    """A change to any file these tests, TR-34's guard tests or the settings script's tests read runs the workflow,
+    ignore files at any level included, and the deploy scripts are linted with their own (default) ruff settings,
+    before the tests. The step names every script outright: one renamed or gone fails it (TR-15 lands only through
+    feat/trends-radar, which has TR-34's scripts)."""
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     triggers = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
     for event in ("push", "pull_request"):
         assert set(CI_PATHS) <= set(triggers[event]["paths"]), event
     steps = workflow["jobs"]["pick-workbench-tests"]["steps"]
-    lint = next(step for step in steps if step.get("name") == "Lint pick deploy guard")
-    scripts = " ".join(GUARD_SCRIPTS)
+    lint = next(step for step in steps if step.get("name") == "Lint pick deploy scripts")
+    scripts = " ".join(DEPLOY_SCRIPTS)
     assert lint["run"].splitlines() == [f"backend/.venv/bin/ruff check {scripts}", f"backend/.venv/bin/ruff format --check {scripts}"]
     tests = next(index for index, step in enumerate(steps) if step.get("name", "").startswith("Run pick workbench tests"))
     assert steps.index(lint) < tests

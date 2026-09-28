@@ -129,6 +129,21 @@ describe("rollback matrix: the new frontend reads every card it can meet", () =>
       false,
     ]);
   });
+  it("F1 x hot card: hot_only is stored only when true, and parses beside old cards (2026-09-28)", async () => {
+    const hot = {
+      ...oldPayload,
+      id: "hot-card",
+      ranking_version: "hot-evidence-date-v1",
+      conditions: { ...oldPayload.conditions, hot_only: true },
+    };
+    answer({ results: [oldPayload, hot] });
+    const results = await listPickResults("t1");
+    expect(results.map((r) => r.conditions.hot_only)).toEqual([
+      undefined,
+      true,
+    ]);
+    expect("hot_only" in oldPayload.conditions).toBe(false);
+  });
   it("F1 x stored snapshots: listSavedPicks parses items saved before and after", async () => {
     answer({
       selections: [

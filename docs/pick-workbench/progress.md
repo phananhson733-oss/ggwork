@@ -190,3 +190,41 @@
   - 未登录访问 `/workspace` 与 `/workspace/pick-data` 都被 307 到 `/login`；带 `RSC: 1` 的请求只返回到 `/login` 的重定向。
   - 登录后的核对（旧卡展开、我的选剧、资料页各 tab）待用户在浏览器里做。
 - `pick-deploy-guard target=frontend commit=aebde4e5237a7f4095f167bf56fd7761aec5917e at=2026-09-28T12:48:11Z`
+- **S3（2026-09-28 14:19 UTC）**：gateway e15f3f3 经守卫（首次记录）从干净检出 `railway up`，部署 `c9f3b4d8-9805-4f26-97d1-3728298dff5e`，生产迁移头 0006 → 0007。S0 之后 main 上又合了 PR #3（后端与 harness 的 GGWork 文案，不碰扩展、迁移、依赖与 docker），这次一起上线。
+  - 部署前：在 e15f3f3 上用全 scram 的 PG 17 跑扩展全套（3539 通过、21 跳过）、后端四格 35 条（PG 15 条）、入口与 JSON 清洗等后端用例 85 条；CI 16 项全绿。另在本机按生产目录重建的结构上彩排 0006 → 0007：1.25 秒，无 WARNING，授权与 regrant 的结果与预期一致。
+  - 部署后：新部署 SUCCESS，启动日志有 `Extensions loaded: 1/1 (ggwork_pick…)`、`Running upgrade 0006 -> 0007`、`Extension routers mounted`、`Application startup complete`，没有 `service start() failed`、跳过观测授权的告警和 Traceback；以观测角色读到迁移头 0007、观测表已建。上线后的真实请求 39 个全部 200（含已登录用户的 `/api/pick/sync`、结果、导入与回答核对）。
+  - 从此 gateway 不能回到不含 0007 的镜像：不在控制台 Rollback 到 09-24 的部署，不从旧检出 `railway up`。
+- `pick-deploy-guard target=gateway commit=e15f3f3606ce9d3b042092900837b9806b6aeb5a prod_head=0006 chain_head=0007 at=2026-09-28T14:19:06Z`
+- **S4（2026-09-28 14:25 UTC）**：容器里 `ggwork_pick.observe.selfcheck`、`grants` 能导入；`regrant --check` 列出 0007 之前发布的 4 个镜像版本的 schema USAGE 与 rs_ids SELECT 共 8 项，`regrant` 补齐后 `--check` 为授权齐全（schema 6、表 30、列 4、序列 12，版本 pickm_v000001、v000009、v000010、v000011）。以观测角色只读核对 20 项全过：当前版本 v000011 的 rs_ids 35,263 行；共享剧库批次 12,383 部，其中带 v1 gsc 信号的 1 部。未登录访问 `/api/pick/sync` 为 401。
+
+
+## 选剧资料审查修复与数据恢复（2026-09-28）
+
+- PR #4 合并为 `07c79814a5e743f8174cc8e5640eedf16b974549`：修复第 500 页截断、榜单隐藏搜索、语种入口与空语种过滤、鹊娱日榜日期入口、回放详情返回的结果身份；分别提示剧单/发布记录超过 36 小时，以及日榜/周榜最新一期超过 2/14 天。历史版本按采集时刻判断来源年龄。
+- 新增复现测试先失败后修复；合并树与已测提交 `6817322` 相同。本地前端 2,820 项通过、零跳过（包含独立 PostgreSQL 上 45 项集成测试）；四格兼容 4/4、合同夹具 12/12、TypeScript、相关 ESLint、独立审查和全部代码 CI 通过。
+- 前端按守卫从 `git archive` 导出，生产部署 `dpl_7auLFXkS7pwgMeitWEkeRFHSM5te` 已 READY，别名 `ggwork-deerflow.vercel.app` 指向它。69 个资料页相关源文件与合并提交 SHA1 全部一致；未登录的资料页和深分页都返回 307 到登录页。Chrome 发布后已核对：v10 末页为第 1,474/1,474 页、32 行；未标语种筛出 62 行；搜索切榜清 q，直接榜单搜索有清除入口；qc/qr 都有历史日期，9 月 24 日切换有效；已有候选回放第二页进详情再返回，20 行名单与顺序完全相同，result/v/page/size 都保留。旧 v10 分源与榜期过期警示、新 v11 无来源过期警示、正常 v1 回放无误报均通过，最新资料页截图已留证。本次修复未操作 gateway 发布。
+- 本机重新完整读取飞书剧单/发布记录，按 Base 分页 manifest 核验末页与 revision；Chrome 已登录的鹊娱页面取得 9 月 28 日两张榜，各 25 名，页面顺序与响应一致。保留生产已有 700 个历史榜点（9 月 11–24 日），仅追加今日 50 点；9 月 25–27 日缺口未编造。
+- RealShort 原四表做私有备份，既有导入脚本 dry-run 通过后执行一次，14:15:04 UTC 完成，`pick_catalog=success`。回读 42,395 剧单行、2,858 信号、239 部发布记录、19 个账号；发布指标到 9 月 28 日，Kalos 日榜到 9 月 27 日，鹊娱两榜到 9 月 28 日。
+- 手动触发一次工作台同步，14:18:44 UTC 成功发布镜像 v11，paired，八道门禁全部通过、漂移与清洗命中为 0、无告警；候选池 12,383 部。原 `v=10` 链接仍固定旧版，查看最新数据应去掉 `v`。
+- 后续自动采集尚未恢复：原 Mac mini 的保存连接当前断开，`.local` 名称无法解析；本机未安装原刷新 LaunchAgent。待用户确认继续原机器或迁到本机后核验运行器。本次只证明一次完整资料恢复，不证明定时链路已恢复。
+- 计数更正：v10 默认全部剧库为 73,682 行、1,474 页。审查初稿误将与 no/yes 重叠的 posted.pool 相加，旧数 73,838 已更正；分页缺陷与修复范围不变。
+- `pick-deploy-guard target=frontend commit=07c79814a5e743f8174cc8e5640eedf16b974549 at=2026-09-28T14:23:29Z`
+
+
+## 下线 DeerFlow 营销面（PR #2，2026-09-28）
+
+- PR #2 下线上游的落地页、文档、博客与 showcase，根路径改为服务端重定向到 `/workspace`，全站加 noindex。它在 S4 之后 rebase 到 6777dea，CI 全绿后合并为 `2ee78b342c7c1894e897dc00bbdbb44f820a382b`。
+- 发布：经守卫从 `git archive` 导出的目录发布，部署 `dpl_G4iDwezLP2Mk3h9CPQzCrsRBeg13`，生产别名 ggwork-deerflow.vercel.app 指向它。上传 1,024 个文件，均来自该提交的导出，另外只放了 `.vercel/project.json`。构建带 `NEXT_PUBLIC_APP_VERSION=20260928-2ee78b3`。#3、#4 此前已上线，这次只多了 #2 的前端改动；gateway 没有动。
+- 部署前在守卫检出里验证：
+  - 四格 4/4；
+  - 合同夹具 12/12；
+  - 前端全套 2,740 通过；
+  - typecheck 通过，检出干净。
+  - 另在 PR 分支上跑过 build、e2e 275 条、e2e-auth 6 条，均通过。
+- 部署后核对：
+  - `/` 307 到 `/workspace`；未登录访问 `/workspace` 307 到 `/login`。
+  - `/en/docs`、`/zh/docs`、`/blog/posts`、`/github-stars`、`/showcase/<id>` 均 404。
+  - 页面与 `public/` 静态文件都带 `X-Robots-Tag: noindex, nofollow`。
+  - `/login` 有 robots meta，没有「Back to home」。
+  - 关于页的版本号要登录后才能看到，待用户核对。
+- `pick-deploy-guard target=frontend commit=2ee78b342c7c1894e897dc00bbdbb44f820a382b at=2026-09-28T14:54:37Z`

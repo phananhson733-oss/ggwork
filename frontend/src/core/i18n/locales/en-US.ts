@@ -168,12 +168,6 @@ export const enUS: Translations = {
     separator: " ",
   },
 
-  // Home
-  home: {
-    docs: "Docs",
-    blog: "Blog",
-  },
-
   // Welcome
   welcome: {
     eyebrow: "GGWORK WORKBENCH",
@@ -1853,7 +1847,6 @@ export const enUS: Translations = {
     continueWith: (provider: string) => `Continue with ${provider}`,
     noAccountSignUp: "Don't have an account? Sign up",
     haveAccountSignIn: "Already have an account? Sign in",
-    backToHome: "← Back to home",
     networkError: "Network error. Please try again.",
     serviceUnavailableTitle: "Service temporarily unavailable",
     serviceUnavailableDescription:

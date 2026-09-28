@@ -95,6 +95,8 @@ export const pickConditionsSchema = z
     sort: z.enum(PICK_SORTS).optional(),
     exclude_posted: z.boolean().optional(),
     posted_account: z.string().max(200).nullable().optional(),
+    /** Only on cards that asked for it (2026-09-28): the gateway leaves it out while false. */
+    hot_only: z.boolean().optional(),
     // The seven observation fields (D31), stored only when set: an old card has none of them.
     trend_state: z.enum(TREND_STATES).nullable().optional(),
     trend_geos: z

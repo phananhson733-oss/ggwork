@@ -1,6 +1,5 @@
 pnpm-lock.yaml
 .omc/
-src/content/**/*.mdx
 playwright-report/
 test-results/
 # 由 customizations/pick-workbench/tests/test_frontend_contract.py 用 json.dumps 生成，排版以生成器为准
