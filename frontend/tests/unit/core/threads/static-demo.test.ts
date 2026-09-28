@@ -1,12 +1,10 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { describe, expect, it } from "@rstest/core";
 
 import {
   DEMO_THREAD_IDS,
-  isDemoThreadId,
-  pathOfPublicDemoThread,
   resolveStaticDemoArtifact,
   STATIC_DEMO_ARTIFACTS,
 } from "@/core/threads/static-demo";
@@ -36,6 +34,9 @@ describe("resolveStaticDemoArtifact", () => {
 
   it.each([
     ["unknown", ["mnt", "user-data", "outputs", "index.html"]],
+    ["constructor", ["mnt", "user-data", "outputs", "index.html"]],
+    ["__proto__", ["mnt", "user-data", "outputs", "index.html"]],
+    ["hasOwnProperty", ["mnt", "user-data", "outputs", "index.html"]],
     [threadId, ["mnt", "user-data", "outputs", "missing.txt"]],
     [threadId, ["mnt", "user-data", "outputs", "..", "thread.json"]],
     [threadId, ["mnt", "user-data", "outputs", "%2e%2e", "thread.json"]],
@@ -68,15 +69,25 @@ describe("resolveStaticDemoArtifact", () => {
   });
 });
 
-describe("public demo threads", () => {
-  it("recognizes only bundled demo thread IDs", () => {
-    expect(isDemoThreadId(DEMO_THREAD_IDS[0])).toBe(true);
-    expect(isDemoThreadId("not-a-demo-thread")).toBe(false);
-  });
-
-  it("builds an encoded public route in mock mode", () => {
-    expect(pathOfPublicDemoThread("thread/id?")).toBe(
-      "/showcase/thread%2Fid%3F",
+describe("demo fixtures", () => {
+  // Demo HTML is served from this origin under /demo, so a remote script would
+  // run with the workbench's storage and cookies when the file is opened
+  // directly. Keep every script in the fixtures local and reviewable.
+  it("load no remote scripts", () => {
+    const threadsRoot = join(
+      import.meta.dirname,
+      "../../../../public/demo/threads",
     );
+    const remoteScripts = listFiles(threadsRoot)
+      .filter((path) => path.endsWith(".html"))
+      .flatMap((path) =>
+        Array.from(
+          readFileSync(join(threadsRoot, path), "utf8").matchAll(
+            /<script\b[^>]*\bsrc\s*=\s*["']?(?:https?:)?\/\/[^"'\s>]+/gi,
+          ),
+          (match) => `${path}: ${match[0]}`,
+        ),
+      );
+    expect(remoteScripts).toEqual([]);
   });
 });

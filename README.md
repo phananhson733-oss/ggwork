@@ -19,7 +19,6 @@ https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
 ## Official Website
 
 Learn more and see **real demos** on our [**official website**](https://deerflow.tech).
-The landing-page case studies open as allowlisted, read-only showcases without requiring a sign-in.
 
 ## Sister Projects
 
@@ -477,10 +476,7 @@ Gateway owns `/api/langgraph/*` and translates those public LangGraph-compatible
 For a read-only demo without the Gateway, run `make build-static` from `frontend/`,
 then `HOSTNAME=127.0.0.1 PORT=3000 node --env-file=.env .next/standalone/server.js`
 from the same directory. The build includes public demo assets and resolves
-supported demo API reads locally; writes are unavailable. To display the homepage
-GitHub star count, set `GITHUB_OAUTH_TOKEN` in `frontend/.env` before starting Node.
-The token stays on the server; missing credentials or GitHub failures hide the
-count. Restart Node after changing the token; no rebuild is needed.
+supported demo API reads locally; writes are unavailable.
 
 #### LangGraph Studio (Optional)
 

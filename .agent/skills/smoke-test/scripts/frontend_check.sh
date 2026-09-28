@@ -7,7 +7,6 @@ echo "=========================================="
 echo ""
 
 BASE_URL="${BASE_URL:-http://localhost:2026}"
-DOC_PATH="${DOC_PATH:-/en/docs}"
 
 # When the gateway has authentication enabled (DEER_FLOW_AUTH_DISABLED != 1),
 # protected /workspace/* routes redirect anonymous requests to /login.
@@ -139,7 +138,8 @@ authenticate || exit 1
 
 echo ""
 echo "1. Checking entry pages..."
-check_status "Landing page" "${BASE_URL}/" "200"
+check_status "Root redirect" "${BASE_URL}/" "200"
+check_final_url "Root redirect" "${BASE_URL}/" "/workspace/chats/"
 check_status "Workspace redirect" "${BASE_URL}/workspace" "200|301|302|307|308"
 check_final_url "Workspace redirect" "${BASE_URL}/workspace" "/workspace/chats/"
 echo ""
@@ -151,10 +151,6 @@ check_status "Chats list page" "${BASE_URL}/workspace/chats" "200"
 check_final_url "Chats list page" "${BASE_URL}/workspace/chats" "/workspace/"
 check_status "Agents gallery page" "${BASE_URL}/workspace/agents" "200"
 check_final_url "Agents gallery page" "${BASE_URL}/workspace/agents" "/workspace/agents"
-echo ""
-
-echo "3. Checking docs route (optional)..."
-check_status "Docs page" "${BASE_URL}${DOC_PATH}" "200|404"
 echo ""
 
 echo "=========================================="

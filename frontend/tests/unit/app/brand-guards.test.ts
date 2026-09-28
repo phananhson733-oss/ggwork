@@ -18,13 +18,9 @@ import ts from "typescript";
 
 const FRONTEND_ROOT = path.resolve(__dirname, "../../..");
 
-// Docs and blog content, mock API payloads and the static demo fixture are
-// data, not UI. Public demo data (public/demo, plugin icons) is outside src.
-const EXCLUDED = [
-  /^src\/content\//,
-  /^src\/app\/mock\//,
-  /^src\/core\/threads\/static-demo\.ts$/,
-];
+// Mock API payloads and the static demo fixture are data, not UI. Public demo
+// data (public/demo, plugin icons) is outside src.
+const EXCLUDED = [/^src\/app\/mock\//, /^src\/core\/threads\/static-demo\.ts$/];
 
 const SCRIPT_KINDS: Readonly<Record<string, ts.ScriptKind>> = {
   ".ts": ts.ScriptKind.TS,
@@ -81,20 +77,8 @@ const OLD_PRODUCT_NAME: readonly Guard[] = [
   DEER_EMOJI,
 ];
 
-// App code whose copy must say GGWork. The marketing pages (landing, docs,
-// blog, showcase) keep their DeerFlow copy for now by owner decision.
-const APP_COPY_ROOTS = [
-  "src/app/(auth)",
-  "src/app/artifacts",
-  "src/app/workspace",
-  "src/components/ai-elements",
-  "src/components/auth",
-  "src/components/brand",
-  "src/components/ui",
-  "src/components/workspace",
-  "src/core",
-] as const;
-const APP_COPY_FILES = ["src/app/layout.tsx"] as const;
+// Every script under src must say GGWork: the DeerFlow landing page, docs,
+// blog and showcase were removed, so no public page keeps upstream copy.
 // The About page credits the upstream project (pinned by about-content.test);
 // the summarization middleware name is a backend graph node, not copy.
 const APP_COPY_ALLOWED = [
@@ -322,11 +306,8 @@ describe("GGWork brand guards", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("keeps the DeerFlow name out of workspace, auth and core copy", () => {
-    const offenders = [
-      ...APP_COPY_ROOTS.flatMap((root) => listSourceFiles(root)),
-      ...APP_COPY_FILES,
-    ]
+  it("keeps the DeerFlow name out of app copy", () => {
+    const offenders = listSourceFiles()
       .filter(
         (file) =>
           isScript(file) &&

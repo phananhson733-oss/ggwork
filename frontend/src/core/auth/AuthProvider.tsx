@@ -99,7 +99,7 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
    * Per RFC-001: Immediately clear local state, don't wait for server confirmation
    *
    * When the gateway is unreachable the fetch silently fails — the SPA
-   * router.push("/") would leave the user on "/" still holding stale
+   * router.push("/login") would leave the user on /login still holding stale
    * React state and any in-flight SSE / fetch / query subscriptions.
    * We therefore fall back to a hard navigation (window.location.href),
    * which discards all client state the same way the legacy form-POST
@@ -129,12 +129,12 @@ export function AuthProvider({ children, initialUser }: AuthProviderProps) {
     if (logoutFailed && typeof window !== "undefined") {
       // Hard navigation ensures every in-flight subscription is torn down,
       // matching the legacy form-POST logout behaviour during a gateway outage.
-      window.location.href = "/";
+      window.location.href = "/login";
       return;
     }
 
-    // Redirect to home page
-    router.push("/");
+    // GGWork has no public home page; "/" would only redirect back here.
+    router.push("/login");
   }, [staticMode, router]);
 
   /**

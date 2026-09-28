@@ -69,10 +69,11 @@ pnpm start
 ## Site Map
 
 ```
-├── /                    # Landing page
-├── /chats               # Chat list
-├── /chats/new           # New chat page
-└── /chats/[thread_id]   # A specific chat page
+├── /                              # Redirects to /workspace (no public landing page)
+├── /login                         # Sign-in (/workspace redirects here without a session)
+├── /workspace/chats               # Chat list
+├── /workspace/chats/new           # New chat page
+└── /workspace/chats/[thread_id]   # A specific chat page
 ```
 
 ## Configuration
@@ -97,13 +98,11 @@ tests/
 src/
 ├── app/                    # Next.js App Router pages
 │   ├── api/                # API routes
-│   ├── showcase/           # Allowlisted public read-only demos
 │   ├── workspace/          # Main workspace pages
 │   └── mock/               # Mock/demo pages
 ├── components/             # React components
 │   ├── ui/                 # Reusable UI components
 │   ├── workspace/          # Workspace-specific components
-│   ├── landing/            # Landing page components
 │   └── ai-elements/        # AI-related UI elements
 ├── core/                   # Core business logic
 │   ├── api/                # API client & data fetching

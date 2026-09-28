@@ -19,8 +19,6 @@ export const DEMO_THREAD_IDS = [
   "fe3f7974-1bcb-4a01-a950-79673baafefd",
 ] as const;
 
-export const SHOWCASE_ROUTE_PREFIX = "/showcase";
-
 export const STATIC_DEMO_ARTIFACTS: Readonly<
   Record<string, readonly string[]>
 > = {
@@ -89,18 +87,23 @@ export const STATIC_DEMO_ARTIFACTS: Readonly<
   ],
 };
 
-const STATIC_DEMO_ARTIFACT_SETS = Object.fromEntries(
+// A Map, not an object: thread ids come from the URL, and a plain object would
+// resolve "constructor" or "__proto__" to an inherited value.
+const STATIC_DEMO_ARTIFACT_SETS: ReadonlyMap<
+  string,
+  ReadonlySet<string>
+> = new Map(
   Object.entries(STATIC_DEMO_ARTIFACTS).map(([threadId, artifacts]) => [
     threadId,
     new Set(artifacts),
   ]),
-) as Readonly<Record<string, ReadonlySet<string>>>;
+);
 
 export function resolveStaticDemoArtifact(
   threadId: string,
   encodedSegments: readonly string[],
 ): string | null {
-  const allowedArtifacts = STATIC_DEMO_ARTIFACT_SETS[threadId];
+  const allowedArtifacts = STATIC_DEMO_ARTIFACT_SETS.get(threadId);
   if (!allowedArtifacts || encodedSegments[0] !== "mnt") return null;
 
   let segments: string[];
@@ -125,16 +128,6 @@ export function resolveStaticDemoArtifact(
   const artifactPath = segments.slice(1).join("/");
   if (!allowedArtifacts.has(artifactPath)) return null;
   return `/demo/threads/${threadId}/${artifactPath}`;
-}
-
-const DEMO_THREAD_ID_SET = new Set<string>(DEMO_THREAD_IDS);
-
-export function isDemoThreadId(threadId: string): boolean {
-  return DEMO_THREAD_ID_SET.has(threadId);
-}
-
-export function pathOfPublicDemoThread(threadId: string): string {
-  return `${SHOWCASE_ROUTE_PREFIX}/${encodeURIComponent(threadId)}`;
 }
 
 export type ThreadSearchParams = NonNullable<
