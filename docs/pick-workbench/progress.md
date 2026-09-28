@@ -319,3 +319,23 @@
   - 「剧场规则」前端模板由「移除 Deerflow 元素替换 GGWork 资源」会话加回。
   - 账号拒绝要列出可选账号并附 `_clear('posted_account')`，另开 PR 处理。
 - `pick-deploy-guard target=gateway commit=c3ec87df89e3d0ac98b5766b7d5c9a66920fcafe prod_head=0007 chain_head=0007 at=2026-09-28T16:11:02Z`
+
+
+## 加回「剧场规则」快捷模板（PR #11，2026-09-29）
+
+- PR #9 因为知识检索只截取 1,600 字的窗口，撤下了「剧场规则」模板：查 DramaBox、MoboReels 时会截到别的剧场的规则。
+- PR #10 的 gateway（c3ec87d）上线后，规则文档改为整篇返回，这个问题不再存在，于是把模板放回「更多」菜单。合并为 `1ab52e26a76b1f0707e8fb52a8ffdf245d69f2a4`，只改前端。
+- 发布：经守卫从 `git archive` 导出的目录发布，部署 `dpl_BJBD4neUwu58huYnmUm6BRXFanqf`，生产别名指向它。构建带 `NEXT_PUBLIC_APP_VERSION=20260929-1ab52e2`。
+- 部署前，在守卫检出里验证：
+  - 回滚矩阵 5/5；
+  - 合同夹具 12/12；
+  - 前端全套 2,759 条；
+  - typecheck 通过，检出干净。
+- 在 PR 分支上另外验证：e2e 277 条、e2e-auth 6 条、lint、prettier 都通过。
+- 部署后核对：
+  - `/` 307 到 `/workspace`；
+  - 未登录访问 `/workspace/chats/new` 307 到 `/login`；
+  - 带 `RSC: 1` 的请求只返回到 `/login` 的重定向；
+  - 全站带 noindex。
+- 登录后的界面核对还没做，由用户做。
+- `pick-deploy-guard target=frontend commit=1ab52e26a76b1f0707e8fb52a8ffdf245d69f2a4 at=2026-09-28T16:19:25Z`
