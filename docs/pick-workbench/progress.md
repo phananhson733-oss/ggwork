@@ -340,8 +340,34 @@
 - 登录后的界面核对还没做，由用户做。
 - `pick-deploy-guard target=frontend commit=1ab52e26a76b1f0707e8fb52a8ffdf245d69f2a4 at=2026-09-28T16:19:25Z`
 
-## 模型换 gpt-6-sol，档位改由 Railway 变量控制（2026-09-29，待上线）
+## 模型换 gpt-6-sol，档位改由 Railway 变量控制（PR #13，2026-09-29 上线）
 
 - 2026-09-28 23:45（+08）Railway gateway 的 `AZURE_OPENAI_DEPLOYMENT` 已切到 `gpt-6-sol`（重新部署 4faae063）。`gpt-6-luna` 不收 `reasoning.effort`，不要用，见 [azure-cloud-deployment.md](azure-cloud-deployment.md)。
 - 本分支把开思考/关思考的 effort、输出上限、请求与分块超时改成 `$PICK_LLM_*` 占位，由入口补默认值：开思考 high、关思考 low、32000 token、300 秒、300 秒。整轮上限 `PICK_RUN_TIMEOUT_SECONDS` 从 120 提到 600，扩展自己的截止时间也改读这个变量，之前硬编码的 120 秒不再生效。以后调档只改 Railway 变量。
-- 上线前：经守卫从含 e15f3f3 的 main 部署 gateway。上线后：开思考问 2～3 个需要多轮工具的真实问题，从 gateway 日志的 `LLM token usage` 行读每次调用的 reasoning/output token 和耗时，再在 Railway 上调变量。实测数字补在这里。
+- PR #13 合并为 `7179c7bad1d8d1112c8932f57ff9bcd45b68ae5e`，树与已测提交 01d8565 相同。GitHub Actions 停摆，合并依据本机等价检查：
+  - 扩展全套 3,680 通过、21 跳过（PG 17 一次性容器加 SQLite，跳过的都是方言专属），含 `test_managed_copy`；
+  - 入口、JSON 净化、create_user、ModelConfig、model factory、run deadline 共 242 通过；
+  - 后端全套 18,181 通过，1 条失败：`test_local_sandbox_provider_mounts.py::TestReadOnlyPath::test_bash_write_to_projected_copy_does_not_mutate_source`，在 ggwork/main 的干净检出上同样失败，与本 PR 无关；
+  - blocking-io 149 通过；ruff、agent guidance 通过；
+  - 独立审查：CRITICAL、HIGH 为 0。MEDIUM 一条（全角数字能过入口校验、pydantic 却拒绝）已修。
+- Railway 变量：生产上原有 `PICK_RUN_TIMEOUT_SECONDS=100`，来源没有记录。它会盖过默认的 600，而扩展的截止时间现在也读它，所以按用户定的约 600 改成 600。五个 `PICK_LLM_*` 也显式写进 Railway，取值同默认，控制台里看到的就是实际生效的值。都用 `--skip-deploys`，随下面这次部署一起生效。
+- gateway 从干净检出 `railway up`，部署 `5e8d3c35-8be1-4e13-af1a-f449d8623f8e`，SUCCESS；迁移头仍是 0007。
+  - 部署前四格（7179c7b）：gateway 列 35 条，两种库都有，0 跳过；扩展全套见上。
+  - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`，没有 `service start() failed`。
+  - 上线后 133 个请求全部 200/204。日志里仅有的两段 Traceback 都是 `本轮业务工具调用次数已达上限`（见下文实测），两轮仍以 success 结束。
+  - **没做**：容器内核对（运行时 yaml 只有占位、`observe.selfcheck`/`grants` 能导入、`regrant --check`）。本会话的 `railway ssh` 被 auto mode 拦下，待用户执行。
+  - 生产手工核对：旧卡会话（「找5部英语剧，排除我已经选过…」）卡片能展开，面板没有解析错误；「我的选剧」页正常加载，但这个账号没有保存条目，存量快照格没法核对；新卡、混合会话两格按 S13 之前的规则只靠测试。
+- 实测（开思考 high，2026-09-28 16:50–16:58 UTC，gateway 日志的 `LLM token usage` 行）：
+
+  | 问题 | 本轮耗时 | 模型调用 | 单次 reasoning 最大 / 合计 | 单次 output 最大 | 单次调用最长 |
+  |---|---|---|---|---|---|
+  | 热度高、没发过的英语剧按榜排序（先反问选榜） | 4 秒 + 10 秒 | 1 + 2 | 202 / 443 | 791 | 约 7 秒 |
+  | 剧场规则、计数、挑 3 部查详情（先反问范围） | 7 秒 + 66 秒 | 1 + 10 | 583 / 1,821 | 689 | 约 22 秒（最终回答） |
+  | 西语与葡语对比并给建议 | 52 秒 | 10 | 483 / 1,530 | 1,039 | 约 11 秒 |
+  | 同上，关思考（low）对照 | 37 秒 | 8 | 163 / 374 | 1,071 | 约 9 秒 |
+
+  - 同一题 high 的 reasoning 约是 low 的 4 倍，说明开思考确实用了 high。GPT-6 在这些问题上单次推理不超过 600 token，离 32000 的上限很远。
+  - 最长一轮 66 秒，最长单次调用约 22 秒。300 秒的请求与分块超时、600 秒的整轮上限都留有足够余量，这次**不调变量**。
+  - 流式最终回答那次调用，日志记的是 `input=0 output=0`，用量没进这一行，只能看前面几次调用。
+  - **新发现**：high 档工具调用更多，第 2、3 题都碰到了每轮 8 次的业务工具上限（`ggwork_pick/middleware.py` 的 `PickToolGate`），模型收到错误后照常作答；low 对照没碰到。上限是写死的（工具 8 次、模型 12 次），要不要也改成 Railway 变量，待用户决定。
+- `pick-deploy-guard target=gateway commit=7179c7bad1d8d1112c8932f57ff9bcd45b68ae5e prod_head=0007 chain_head=0007 at=2026-09-28T16:44:53Z`

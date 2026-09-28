@@ -37,7 +37,7 @@ Vercel的RealShort生产环境确有AZURE_OPENAI_ENDPOINT/API_KEY/DEPLOYMENT，�
 | `PICK_RUN_TIMEOUT_SECONDS` | `600` | 整轮上限：宿主watchdog与扩展自己的截止时间（`ggwork_pick/context.py`）读同一个变量 |
 
 - effort取值限`none`、`minimal`、`low`、`medium`、`high`、`xhigh`。在gpt-6-sol上只冒烟过low和high，改成其他值之前先按上节的清单冒烟。
-- GPT-6按题目难度自适应推理：简单问题上`reasoning_tokens=0`，不代表effort没生效。high档在真实多轮工具问题上的token与耗时要上线后实测再定。
+- GPT-6按题目难度自适应推理：简单问题上`reasoning_tokens=0`，不代表effort没生效。high档在真实多轮工具问题上的实测（2026-09-29，见[progress.md](progress.md)「模型换 gpt-6-sol」一节）：单次推理不超过600 token，约是low的4倍；最长一轮66秒，最长单次调用约22秒，所以默认值不改。high档工具调用更多，会碰到每轮8次的业务工具上限。
 - 数字必须是正数，`PICK_LLM_MAX_OUTPUT_TOKENS`必须是整数。`ModelConfig`把`max_tokens`、`request_timeout`声明成数字字段，占位解析出的字符串在加载时转成数字。langchain-openai会原样保留字符串形式的超时，结果每个请求都报连接错误。
 - 改法：`railway variable set PICK_LLM_MAX_OUTPUT_TOKENS=48000 --service gateway`。一次改好几个时，前面几个加`--skip-deploys`，最后一个触发部署。改变量会自动重新部署（见上节），不用改仓库，也不用重新`railway up`。卷上的yaml只含占位，不用动。要回到默认值，删掉那个变量（`railway variable delete <名字> --service gateway`）。不要为了回退在控制台Rollback：S3之后gateway只能经守卫部署，见[progress.md](progress.md)。
 - 观测：每次模型调用结束，gateway日志都有一行`LLM token usage: input=… output=… total=… output_token_details={'reasoning': N}`，用`railway logs --service gateway`过滤这一行即可。耗时看相邻两行的时间戳。
