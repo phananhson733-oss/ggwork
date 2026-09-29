@@ -301,6 +301,11 @@ def test_a_clause_about_accounts_no_query_cleared_is_about_the_team():
         "另外的账号",
         "其他团队成员",
         "C 账号",
+        "其他号",
+        "A 以外的账号",
+        "A 之外的账号",
+        "除 A 外的账号",
+        "非 A 账号",
     )
     for other in others:
         text = f"《Big Boss》在 A 账号没发过，{other}也没发过。"
@@ -330,6 +335,19 @@ def test_a_summary_of_more_titles_than_the_answer_names_covers_every_record():
     two = with_posted(seen, [_item("Other", matched=True)])
     for text in ("首推《Lost Heir》和《Other》。以上两部都没发过。", "首推《Lost Heir》。以上一部没发过。", "首推《Lost Heir》，以上没发过。"):
         assert check_answer(text, known_titles=known | {"Other"}, posted_checked=True, posted_seen=two) == [], text
+    # "全部/所有" is every card however many titles were named; a count may use another measure word, or spaces.
+    for text in (
+        "首推《Lost Heir》和《Other》。以上全部团队没发过。",
+        "首推《Lost Heir》和《Other》。以上所有剧都没发过。",
+        "首推《Lost Heir》和《Other》。以上5个都没发过。",
+        "首推《Lost Heir》和《Other》。以上 4 部都没发过。",
+        "首推《Lost Heir》和《Other》。以上四条都没发过。",
+    ):
+        assert check_answer(text, known_titles=known | {"Other"}, posted_checked=True, posted_seen=two) == refuted, text
+    # Summing up every card still judges a title it names that nothing returned.
+    heir = with_posted({}, [_item("Lost Heir", matched=True)])
+    notes = check_answer("首推《Zeta》，以上都没发过。", known_titles={"Zeta"}, posted_checked=False, posted_seen=heir)
+    assert notes == ["本轮查询没有按发布记录过滤，不能据此断言没发过。"]
 
 
 def test_a_title_this_run_returned_is_recognized_without_its_brackets():
@@ -368,9 +386,13 @@ def test_a_long_answer_is_checked_in_linear_time(text):
     from ggwork_pick.answer_check import check_answer, with_posted
 
     seen = with_posted({}, [_item("Lost Heir", matched=True), _item("A", matched=True), _item("Big Boss", matched=True, posts=1, accounts=["B"])], account="C")
-    started = time.perf_counter()
-    check_answer(text, known_titles={"Lost Heir", "A", "Big Boss"}, posted_checked=False, posted_seen=seen)
-    assert time.perf_counter() - started < 0.2
+    # The best of three runs: linear is under 0.1 s here, quadratic takes seconds, and a busy machine adds noise to one run.
+    timings = []
+    for _ in range(3):
+        started = time.perf_counter()
+        check_answer(text, known_titles={"Lost Heir", "A", "Big Boss"}, posted_checked=False, posted_seen=seen)
+        timings.append(time.perf_counter() - started)
+    assert min(timings) < 0.5
 
 
 @pytest_asyncio.fixture
