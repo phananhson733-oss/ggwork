@@ -281,6 +281,57 @@ def test_a_clause_naming_an_account_replaces_the_account_of_the_clause_before():
     assert check_answer("《Big Boss》在 A 账号没发过，在 B 账号也没发过。", known_titles=known, posted_checked=True, posted_seen=seen) == posted
 
 
+def test_a_clause_about_accounts_no_query_cleared_is_about_the_team():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    # posted_account=A returned Big Boss; account B posted it.
+    seen = with_posted({}, [_item("Big Boss", matched=True, posts=2, accounts=["B"])], account="A")
+    known = {"Big Boss"}
+    posted = ["发布记录显示《Big Boss》发过，不能说没发过。"]
+    # The other accounts, every account, or an account no query asked about, however worded, never go on with A's clause.
+    others = (
+        "其他账户",
+        "别的账户",
+        "所有账户",
+        "其他几个账号",
+        "其他三个账号",
+        "任意账号",
+        "每个账号",
+        "其他所有账号",
+        "另外的账号",
+        "其他团队成员",
+        "C 账号",
+    )
+    for other in others:
+        text = f"《Big Boss》在 A 账号没发过，{other}也没发过。"
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
+    assert check_answer("《Big Boss》在 A 账号和其他账户都没发过。", known_titles=known, posted_checked=True, posted_seen=seen) == posted
+    # A clause naming no account still goes on with A's.
+    assert check_answer("《Big Boss》在 A 账号没发过，之前也没发过。", known_titles=known, posted_checked=True, posted_seen=seen) == []
+
+
+def test_a_summary_of_more_titles_than_the_answer_names_covers_every_record():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Lost Heir", matched=True), _item("Big Boss", matched=True, posts=2), _item("No Match", matched=False)])
+    known = {"Lost Heir", "Big Boss", "No Match"}
+    refuted = ["《No Match》的发布记录没有对上，只能说“发布记录里没有”，不能说没发过。", "发布记录显示《Big Boss》发过，不能说没发过。"]
+    # "以上3部" or "以上全部" after naming one title sums up the cards the answer never named as well.
+    for text in (
+        "首推《Lost Heir》。以上3部团队都没发过。",
+        "首推《Lost Heir》。以上三部都没发过。",
+        "首推《Lost Heir》。上述3部都没发过。",
+        "首推《Lost Heir》。以上全部都没发过。",
+        "首推《Lost Heir》。以上所有剧目都没发过。",
+        "首推《Lost Heir》。以上都没发过。",
+    ):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == refuted, text
+    # Named as many titles as it sums up: only those.
+    two = with_posted(seen, [_item("Other", matched=True)])
+    for text in ("首推《Lost Heir》和《Other》。以上两部都没发过。", "首推《Lost Heir》。以上一部没发过。", "首推《Lost Heir》，以上没发过。"):
+        assert check_answer(text, known_titles=known | {"Other"}, posted_checked=True, posted_seen=two) == [], text
+
+
 def test_a_title_this_run_returned_is_recognized_without_its_brackets():
     from ggwork_pick.answer_check import check_answer, with_posted
 
