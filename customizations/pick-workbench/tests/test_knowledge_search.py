@@ -354,6 +354,41 @@ def test_the_window_starts_at_the_hit_when_casefolding_changes_lengths(wide):
     assert excerpt_spans(text, ["needle"]) == [(start, start + EXCERPT_CHARS)]
 
 
+def test_the_window_starts_at_the_earliest_hit_of_any_word():
+    from ggwork_pick.knowledge_excerpts import EXCERPT_CHARS, excerpt_spans
+
+    # "strasse" matches "Straße" only once casefolded; "needle" matches later as written.
+    text = "填充内容。\n" * 30 + "Straße 规则在这里。\n" + "填充内容。\n" * 1_500 + "needle\n" + "其余内容。\n" * 600
+    start = text.index("Straße") - 100
+    assert excerpt_spans(text, ["strasse", "needle"]) == [(start, start + EXCERPT_CHARS)]
+
+
+def test_absent_words_cost_about_one_casefolded_search_each():
+    import time
+
+    from ggwork_pick.knowledge_excerpts import _first_hit
+
+    def best_of_three(call):
+        times = []
+        for _ in range(3):
+            began = time.perf_counter()
+            call()
+            times.append(time.perf_counter() - began)
+        return min(times)
+
+    # Uploads reach 25MB and this runs on the event loop. Theater names share no first letter, so a case-insensitive
+    # alternation of them gets no literal prefix to skip ahead by and tries every word at every character.
+    text = "lorem ipsum dolor sit amet consectetur. " * 50_000
+    words = ["kalostv", "reelshort", "dramabox", "flickreels", "goodshort", "shortmax", "moboreels", "touchshort", "flareflow", "starshort"]
+
+    def casefolded_search():
+        folded = text.casefold()
+        return [folded.find(word) for word in words]
+
+    assert _first_hit(text, words) == 0
+    assert best_of_three(lambda: _first_hit(text, words)) < 3 * best_of_three(casefolded_search) + 0.01
+
+
 @pytest.mark.asyncio
 async def test_metadata_too_long_for_any_excerpt_gets_a_notice_not_a_silent_empty_result(searcher, monkeypatch):
     import ggwork_pick.tools as tools

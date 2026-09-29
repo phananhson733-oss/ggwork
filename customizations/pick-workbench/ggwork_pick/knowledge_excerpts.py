@@ -124,18 +124,15 @@ def _unfolded(text: str, offset: int) -> int:
 def _first_hit(text: str, words: list[str]) -> int:
     """Where the earliest query word starts in text.
 
-    One case-insensitive search of text itself finds it for almost every word: positions in text.casefold() lie further
-    on after each character that folds to two ("ß", "İ"). A word only casefolding matches ("strasse" for "Straße") is
-    found there instead, and its position mapped back.
+    The words are found in text.casefold(), as the headings match them ("strasse" for "Straße"). Every character folds
+    to at least one, so the positions are text's own unless some fold to more ("ß", "İ"); then the earliest is mapped
+    back. A case-insensitive regex of the words would try each at every character, several times slower on 25MB.
     """
-    if not words:
-        return 0
-    hit = re.search("|".join(map(re.escape, words)), text, re.IGNORECASE)
-    if hit is not None:
-        return hit.start()
     folded = text.casefold()
     offsets = [offset for offset in map(folded.find, words) if offset != -1]
-    return _unfolded(text, min(offsets)) if offsets else 0
+    if not offsets:
+        return 0
+    return min(offsets) if len(folded) == len(text) else _unfolded(text, min(offsets))
 
 
 def _excerpts(text: str, words: list[str], budget: int) -> tuple[list[tuple[int, int, bool]], int]:
