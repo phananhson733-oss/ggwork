@@ -216,6 +216,8 @@ test.describe("Agent chat", () => {
         agent_name: "researcher",
         thread_id: threadId,
       },
+      // Same disconnect contract as the regenerate and edit reruns below.
+      on_disconnect: "continue",
     });
   });
 
@@ -524,6 +526,8 @@ test.describe("Agent chat", () => {
         agent_name: "test-agent",
         thread_id: MOCK_THREAD_ID,
       },
+      // A proxy or edge disconnect must not cancel the regenerated run.
+      on_disconnect: "continue",
     });
   });
 
@@ -677,6 +681,8 @@ test.describe("Agent chat", () => {
         agent_name: "test-agent",
         thread_id: MOCK_THREAD_ID,
       },
+      // A proxy or edge disconnect must not cancel the edited rerun.
+      on_disconnect: "continue",
     });
     await expect(page.getByText("Edited agent question")).toBeVisible();
     await expect(page.getByText("Original agent question")).not.toBeVisible();

@@ -284,6 +284,29 @@ export function buildRunContext({
   };
 }
 
+/**
+ * Transport options for every run `useThreadStream` starts. Both submit paths
+ * (send, and the regenerate/edit replay) spread these so they cannot drift.
+ *
+ * `onDisconnect: "continue"` keeps the run going on the Gateway when the SSE
+ * connection drops (a Vercel rewrite or Railway edge disconnect); the
+ * Gateway's own default is `cancel`. SDK 1.6 happens to derive `continue`
+ * from `streamResumable`, but that is an SDK default, not this contract.
+ * `streamResumable` itself never reaches the Gateway (`core/api/stream-mode.ts`
+ * strips it). No `streamSubgraphs`: subtask progress arrives via
+ * root-namespace custom events, while subgraph frames would leak a delegated
+ * subagent's values/messages into the thread view (#4399).
+ */
+export function buildRunStreamOptions() {
+  return {
+    streamResumable: true,
+    onDisconnect: "continue",
+    config: {
+      recursion_limit: 1000,
+    },
+  } as const;
+}
+
 // Stable identity for "no optimistic messages" so the merged-messages memo
 // below is not invalidated by a fresh empty array on every render.
 const EMPTY_MESSAGES: Message[] = [];
@@ -2621,14 +2644,7 @@ export function useThreadStream({
           },
           {
             threadId: threadId,
-            // No streamSubgraphs: subtask progress arrives via root-namespace
-            // custom events, while subgraph frames would leak a delegated
-            // subagent's values/messages into the thread view (#4399).
-            streamResumable: true,
-            onDisconnect: "continue",
-            config: {
-              recursion_limit: 1000,
-            },
+            ...buildRunStreamOptions(),
             context: buildRunContext({
               settings: context,
               threadId,
@@ -2763,11 +2779,9 @@ export function useThreadStream({
           threadId,
           checkpoint: prepared.checkpoint,
           metadata: prepared.metadata,
-          // No streamSubgraphs — same contract as the main submit path (#4399).
-          streamResumable: true,
-          config: {
-            recursion_limit: 1000,
-          },
+          // Same transport contract as a send, including continuing on
+          // disconnect: a replay is as long as the turn it replaces.
+          ...buildRunStreamOptions(),
           // Replaying a turn never carries conversation references: the grant
           // is per send, so a regenerate or edit runs without them unless the
           // user attaches them again.
