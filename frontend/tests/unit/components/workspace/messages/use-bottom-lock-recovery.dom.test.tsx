@@ -235,6 +235,40 @@ describe("useBottomLockRecovery", () => {
     expect(scroller.scrollTop).toBe(MAX_SCROLL_TOP - 2);
   });
 
+  it("does not read a nudge up coalesced with the library's follow as a move down", async () => {
+    const { context, geometry, scroller } = renderConversation();
+    // The last dispatched scroll event saw the parked position.
+    await scrollTo(scroller, MAX_SCROLL_TOP - 1);
+    expect(context.state.isAtBottom).toBe(true);
+
+    // Streamed content grows and the library follows it by writing the
+    // offset; the browser has not dispatched a scroll event for that yet.
+    geometry.scrollHeight = SCROLL_HEIGHT + 100;
+    const followedTop = MAX_SCROLL_TOP + 100 - 1;
+    await act(async () => {
+      context.state.scrollTop = followedTop;
+    });
+
+    // The reader nudges up one pixel. The browser coalesces the follow and
+    // the nudge into a single scroll event, still within the tolerance and
+    // below the offset the last event saw.
+    await act(async () => {
+      scroller.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -1, bubbles: true }),
+      );
+    });
+    await scrollTo(scroller, followedTop - 1);
+    // Content keeps growing before any recovery would run.
+    geometry.scrollHeight = SCROLL_HEIGHT + 220;
+
+    await act(async () => {
+      await wait(50);
+    });
+
+    expect(context.state.isAtBottom).toBe(false);
+    expect(scroller.scrollTop).toBe(followedTop - 1);
+  });
+
   it("does not re-lock on an upward scroll that stays within the tolerance", async () => {
     const { context, geometry, scroller } = renderConversation();
     await scrollTo(scroller, MAX_SCROLL_TOP - 1);

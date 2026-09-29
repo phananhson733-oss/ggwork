@@ -25,13 +25,18 @@ function isScrolledToEnd(element: HTMLElement) {
   return distanceFromEnd(element) <= LATEST_MESSAGE_TOLERANCE_PX;
 }
 
-// Classifies each scroll against the previous one. Content shrinking below
-// clamps the offset without moving away from the end, so only a move that
-// also grows the distance to the end counts as upward.
+// Classifies each scroll against a baseline: the offset at the previous
+// scroll event, or at the latest `sync`. Content shrinking below clamps the
+// offset without moving away from the end, so only a move that also grows the
+// distance to the end counts as upward.
 function trackScrollDirection(element: HTMLElement) {
   let lastTop = element.scrollTop;
   let lastDistance = distanceFromEnd(element);
-  return (): ScrollDirection => {
+  const sync = () => {
+    lastTop = element.scrollTop;
+    lastDistance = distanceFromEnd(element);
+  };
+  const read = (): ScrollDirection => {
     const top = element.scrollTop;
     const distance = distanceFromEnd(element);
     const direction =
@@ -44,6 +49,7 @@ function trackScrollDirection(element: HTMLElement) {
     lastDistance = distance;
     return direction;
   };
+  return { read, sync };
 }
 
 function isEditable(target: EventTarget | null) {
@@ -176,7 +182,7 @@ function watchBottomLockRecovery(
   controls: LockControls,
 ) {
   const recovery = createLockRecovery(viewport, controls);
-  const readDirection = trackScrollDirection(viewport);
+  const direction = trackScrollDirection(viewport);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cancelRecovery = () => {
     clearTimeout(timer);
@@ -184,8 +190,8 @@ function watchBottomLockRecovery(
     recovery.cancel();
   };
   const handleScroll = () => {
-    const direction = readDirection();
-    if (direction === "none") {
+    const moved = direction.read();
+    if (moved === "none") {
       // Nothing moved (the browser's own event after a script scrolled and
       // dispatched one, or a clamp from content shrinking): keep whatever
       // decision the last real move made.
@@ -197,7 +203,7 @@ function watchBottomLockRecovery(
     // tolerance, is the reader leaving; and a scroll while the lock still
     // holds (the library's own follow) must never undo their escape.
     if (
-      direction === "up" ||
+      moved === "up" ||
       controls.state.isAtBottom ||
       !isScrolledToEnd(viewport)
     ) {
@@ -215,8 +221,15 @@ function watchBottomLockRecovery(
     }, LOCK_RECOVERY_DELAY_MS);
   };
   // The library escapes on an upward wheel before its scroll events arrive;
-  // any upward input likewise cancels a recovery that has not run yet.
-  const disposeUpwardInput = watchUpwardInput(viewport, cancelRecovery);
+  // any upward input likewise cancels a recovery that has not run yet. It
+  // also re-bases the direction on the offset the input starts from: the
+  // library's follow of streamed content may have written the offset since
+  // the last scroll event, and the browser can coalesce that write and the
+  // reader's nudge up into one event that would otherwise read as a move down.
+  const disposeUpwardInput = watchUpwardInput(viewport, () => {
+    direction.sync();
+    cancelRecovery();
+  });
 
   viewport.addEventListener("scroll", handleScroll, { passive: true });
   return () => {
