@@ -201,6 +201,14 @@
 - **S6、S6a（2026-09-28 16:10 UTC）**：`selfcheck ok: collector=obs-collector-v1 head=0007 role=pick_observer package=sha256:dcd93ed1a342f409be49fc1c13589d272b28c3d2813eb22ac347eda5b4b3b6de`，摘要等于检出里源码与托管副本算出的值，`at` 在镜像的 site-packages 下；没有「这个服务不读」的警告。预检：target_date 2026-09-29、`canary1`、`user` 节奏，`reasons` 与 `refused_by` 为空，计划请求 204（下限 176）、92 个单元，正对照匹配 10（下限 8），无熔断估算覆盖率 1。`check --deployment` 核对这次部署的清单与自检配置一致。共享剧库批次里找不到的对照（`missing_first`，只记 identity）5 个：
   - `realshort-pick` `ZmxhcmVmbG93LTY2NzkxNQ` en；`cmVlbHNob3J0LTZhOGQyZDc5ODdjOTM0M2M3YTA1YTc5OA` es；`cmVlbHNob3J0LTZhOGU3YzIyN2NmOTI1YzI0YTA1NDIzMw` pl；`cmVlbHNob3J0LTZhNmRhMmMwYmQ1ZDhlYmYxNzBmMTU4OQ` zh-hant；`cmVlbHNob3J0LTZhN2FjMjRmMTgxZjc3NTg0MzAwYTgyNw` es
 - **停在自检配置，不开 cron**：服务没有 cron 计划，今晚不跑。阶段 0 第二天 09-28 15:29 UTC 跑完，定稿报告的结论是闸门 A 小时级不过、日级未定（只观测到 7 部正对照），闸门 B 过，路线未定。等 G2 据此定 ROUTE、粒度与节奏，再按 packaging.md 第 5 节第 4 步从最新 main 重走一遍（守卫仍带首次记录参数），切到 cron 配置并核对之后才追加守卫记录行。
+- **切 cron 未完成（2026-09-29 15:46–16:24 UTC）**：G2 定了 `b_only`、`H`、`user`（计划第 8.1 节），按 packaging.md 第 5 节第 4 步重走，两轮都在第二次部署前重跑守卫时被拒，服务仍停在自检配置，没有 cron 计划，今晚 canary1 不跑，S7 没有开始。
+  - 变量：`PICK_OBS_TRENDS_ROUTE` 由暂定的 `both` 改为 `b_only`（`--skip-deploys`，随下面的部署生效）；`PICK_OBS_TRENDS_GRANULARITY=H` 显式保留；`PICK_OBS_TRENDS_PACE` 不设（即 `user`）；其余变量未动。
+  - 市场对照词表：用户没有批准小样本验证，按现有 `canary_controls.json` 冻结（计划第 14.3 节两路的 B），sha256 `c2689da2cf597699ca828596b3f238ae5a0ab5789b4a3ada9d64561539f96f64`，源码与托管副本相同。
+  - 第一轮：fbda69ff，守卫 15:46Z 通过（生产迁移头 0007，链头 0007），`apply` 自检配置，部署 `fb8a2cc4-f645-436a-afd4-4b582558e70b`，`check --deployment` 一致，自检与预检两行都过。之后重跑守卫被拒：`ggwork/main` 前进到 7d33058（本文件补记 gateway fbda69f 上线）。
+  - 第二轮：7d33058，守卫 16:09Z 通过，部署 `3acd3d97-29b2-414e-996d-8b97a5216e28`，`check --deployment` 一致，两行都过。之后重跑守卫又被拒：`ggwork/main` 前进到 98a683d（本文件补记前端 7d33058 上线）。离 17:00 只剩约 35 分钟，按第 7 节不再重走。
+  - 两轮的自检行相同：`selfcheck ok: collector=obs-collector-v1 head=0007 role=pick_observer package=sha256:811dafd9f45a20f49a5e9c7007b954e673abca5eddaaf8c83dbe01c7ab7b3e94`，摘要等于检出里源码与托管副本算出的值，`at` 在镜像的 site-packages 下，没有「这个服务不读」的警告。预检也相同：target_date 2026-09-30、`canary1`、`user` 节奏，`reasons` 与 `refused_by` 为空，计划请求 204（下限 176）、92 个单元，正对照匹配 9（下限 8，09-28 是 10），共享剧库批次 12,508 部、近期 227 部，无熔断估算覆盖率 1。`missing_first`（只记 identity）5 个：
+    - `realshort-pick` `ZmxhcmVmbG93LTY2NzkxNQ` en；`cmVlbHNob3J0LTZhOGQyZDc5ODdjOTM0M2M3YTA1YTc5OA` es；`cmVlbHNob3J0LTZhOGU3YzIyN2NmOTI1YzI0YTA1NDIzMw` pl；`cmVlbHNob3J0LTZhNzk0YjFkNGYwM2ZmNGM1YzA2OTk0OQ` es；`cmVlbHNob3J0LTZhNmRhMmMwYmQ1ZDhlYmYxNzBmMTU4OQ` zh-hant
+  - 下一步：在 UTC 02:00–17:00 内从最新 main 的干净检出重走一遍，守卫仍带首次记录参数；两次部署之间约 20 分钟，这段时间里别的会话推 main（哪怕只改本文件）都会让第二次部署前的守卫被拒，要先和在推 main 的会话约好这段时间不推。切到 cron 并核对之后才追加守卫记录行；这两轮守卫打印的记录行都不追加。
 
 
 ## 选剧资料审查修复与数据恢复（2026-09-28）
