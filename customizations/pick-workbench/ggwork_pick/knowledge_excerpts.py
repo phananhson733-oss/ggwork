@@ -28,6 +28,17 @@ def _escaped(text: str) -> int:
     return len(json.dumps(text, ensure_ascii=False)) - 2
 
 
+def fit(text: str, budget: int) -> str:
+    """text, or its longest start that with "…" takes at most budget characters once escaped."""
+    if _escaped(text) <= budget:
+        return text
+    low, high = 0, len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        low, high = (middle, high) if _escaped(text[:middle]) + 1 <= budget else (low, middle - 1)
+    return text[:low] + "…"
+
+
 def _cut(text: str, start: int, end: int, budget: int) -> tuple[int, int]:
     """start to at most end, at most EXCERPT_CHARS, and at most budget characters once escaped."""
     end = min(end, start + EXCERPT_CHARS)

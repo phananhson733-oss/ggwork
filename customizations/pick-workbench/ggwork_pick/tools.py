@@ -10,7 +10,7 @@ from pydantic import Field
 from ggwork_pick.answer_check import with_posted
 from ggwork_pick.context import task_from_runtime
 from ggwork_pick.contracts import PickConditions
-from ggwork_pick.knowledge_excerpts import MAX_EXCERPTS, choose_excerpts
+from ggwork_pick.knowledge_excerpts import MAX_EXCERPTS, choose_excerpts, fit
 from ggwork_pick.selection import PostedDataUnavailable, SelectionService
 
 
@@ -204,10 +204,17 @@ async def prepare_selection_tool(
 
 
 # The host externalizes a tool result over 12,000 characters (ToolOutputBudgetMiddleware), and the pick agent has no
-# read_file to open it; stay below with room for the JSON around the entries.
+# read_file to open it; the whole serialized result stays within this.
 _KNOWLEDGE_OUTPUT_CHARS = 10_000
 # The least the excerpts get when long entry fields cut the number of entries.
 _KNOWLEDGE_MIN_BUDGET = 1_000
+# What a title (500 characters at import) and a source ref (2,048) may take once JSON-escaped. Only control characters
+# escape past these (six characters each); such a field is cut, so an entry always leaves the excerpts room.
+_KNOWLEDGE_TITLE_CHARS = 1_000
+_KNOWLEDGE_SOURCE_CHARS = 4_096
+# '{"documents": [' and ']}' around the entries, and ', ' between two.
+_KNOWLEDGE_WRAPPER_CHARS = len(json.dumps({"documents": []}))
+_KNOWLEDGE_SEPARATOR_CHARS = len(", ")
 
 
 def _knowledge_entry(task, doc: dict, start: int, end: int) -> dict:
@@ -215,8 +222,8 @@ def _knowledge_entry(task, doc: dict, start: int, end: int) -> dict:
         document_id=doc["document_id"],
         citation_id=doc["document_id"] + ":" + str(start),
         batch_id=task.knowledge_id,
-        title=doc["title"],
-        source_ref=doc["source_ref"],
+        title=fit(doc["title"], _KNOWLEDGE_TITLE_CHARS),
+        source_ref=fit(doc["source_ref"], _KNOWLEDGE_SOURCE_CHARS),
         content_hash=doc["content_hash"],
         line_start=doc["text"].count("\n", 0, start) + 1,
         excerpt=doc["text"][start:end],
@@ -242,9 +249,15 @@ async def search_knowledge_tool(query: str, runtime: Runtime) -> str:
         return json.dumps(
             {"documents": [], "notice": "关键词没有命中，不代表没有这类资料；按剧场名或空格分开的短词（如“KalosTV 日榜”）重查。"}, ensure_ascii=False
         )
-    # An entry's fields besides its excerpt, at their longest. Titles (500) and source refs (2,048) near their limits
-    # leave room for fewer entries; the output left after the entries is the excerpts' budget.
-    entry_chars = max(len(json.dumps(_knowledge_entry(task, doc, len(doc["text"]), len(doc["text"])), ensure_ascii=False)) for doc in ranked)
-    limit = max(1, min(MAX_EXCERPTS, (_KNOWLEDGE_OUTPUT_CHARS - _KNOWLEDGE_MIN_BUDGET) // entry_chars))
-    chosen = choose_excerpts([doc["text"] for doc in ranked], words, _KNOWLEDGE_OUTPUT_CHARS - limit * entry_chars, limit)
+    # An entry's fields besides its excerpt, at their longest, with the separator before it. Titles (500) and source
+    # refs (2,048) near their limits leave room for fewer entries; the output left after the wrapper and the entries is
+    # the excerpts' budget (the first entry has no separator).
+    entry_chars = _KNOWLEDGE_SEPARATOR_CHARS + max(
+        len(json.dumps(_knowledge_entry(task, doc, len(doc["text"]), len(doc["text"])), ensure_ascii=False)) for doc in ranked
+    )
+    room = _KNOWLEDGE_OUTPUT_CHARS - _KNOWLEDGE_WRAPPER_CHARS + _KNOWLEDGE_SEPARATOR_CHARS
+    limit = min(MAX_EXCERPTS, (room - _KNOWLEDGE_MIN_BUDGET) // entry_chars)
+    if limit < 1:
+        return json.dumps({"documents": [], "notice": "命中的资料来源或标题过长，结果放不下原文片段；请换个关键词或检查资料的来源。"}, ensure_ascii=False)
+    chosen = choose_excerpts([doc["text"] for doc in ranked], words, room - limit * entry_chars, limit)
     return json.dumps({"documents": [_knowledge_entry(task, ranked[index], start, end) for index, start, end in chosen]}, ensure_ascii=False)

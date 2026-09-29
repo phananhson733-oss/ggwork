@@ -18,9 +18,10 @@ from engines import host_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 RULES = (Path(__file__).parent / "fixtures" / "realshort_rules.md").read_text(encoding="utf-8")
-# ToolOutputBudgetMiddleware's default externalize_min_chars: a longer result reaches the model as a head/tail preview,
-# and the pick agent has no read_file to open the rest.
-TOOL_OUTPUT_LIMIT = 12_000
+# ToolOutputBudgetMiddleware externalizes a result over 12,000 characters (its default externalize_min_chars): it reaches
+# the model as a head/tail preview, and the pick agent has no read_file to open the rest. The tool keeps its whole
+# serialized result within this, below the host's limit.
+RESULT_LIMIT = 10_000
 THEATERS = ("ReelShort", "KalosTV", "ShortMax", "FlickReels", "StarShort", "GoodShort", "DramaBox", "MoboReels", "flareflow", "TouchShort")
 
 
@@ -207,7 +208,7 @@ async def test_every_matching_document_gets_an_excerpt_before_one_gets_a_second(
     raw = await run("theater 规则")
     documents = json.loads(raw)["documents"]
     assert {doc["title"] for doc in documents} == {"long.md", "realshort-rules.md", "notes.md"}
-    assert len(documents) <= MAX_EXCERPTS and len(raw) < TOOL_OUTPUT_LIMIT
+    assert len(documents) <= MAX_EXCERPTS and len(raw) <= RESULT_LIMIT
 
 
 @pytest.mark.asyncio
@@ -217,7 +218,7 @@ async def test_documents_that_fit_whole_alone_are_cut_to_keep_the_result_under_t
     raw = await (await searcher(bundle))("规则")
     documents = json.loads(raw)["documents"]
     assert sorted(doc["title"] for doc in documents) == [f"doc{index}.md" for index in range(5)]
-    assert len(raw) < TOOL_OUTPUT_LIMIT
+    assert len(raw) <= RESULT_LIMIT
     for doc in documents:
         assert doc["excerpt"].startswith("# 规则 ")
 
@@ -227,5 +228,37 @@ async def test_titles_and_sources_at_their_limits_return_fewer_entries_under_the
     bundle = [(f"# 规则 {index}\n" + "规则说明。\n" * 600, f"{'长' * 495}{index}.md", f"upload:{'x' * 2_030}{index}") for index in range(5)]
     raw = await (await searcher(bundle))("规则")
     documents = json.loads(raw)["documents"]
-    assert 0 < len(documents) < 5 and len(raw) < TOOL_OUTPUT_LIMIT
+    assert 0 < len(documents) < 5 and len(raw) <= RESULT_LIMIT
     assert all(doc["excerpt"].startswith("# 规则 ") and len(doc["excerpt"]) > 100 for doc in documents)
+
+
+@pytest.mark.asyncio
+async def test_the_json_around_the_entries_counts_toward_the_result_limit(searcher):
+    # Quotes escape to two characters each; five documents that fill their shares leave no slack for the wrapper.
+    bundle = [('"' * 5_000, f"doc{index}.md", f"upload:doc{index}") for index in range(5)]
+    raw = await (await searcher(bundle))("")
+    assert len(json.loads(raw)["documents"]) == 5
+    assert len(raw) <= RESULT_LIMIT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["source_ref", "title"])
+async def test_metadata_that_escapes_past_the_limit_is_cut_instead_of_emptying_the_result(searcher, field):
+    control = chr(1)
+    title, source_ref = (f"{control * 495}.md", "upload:doc") if field == "title" else ("doc.md", control * 2_048)
+    raw = await (await searcher([("# doc\n规则内容。\n", title, source_ref)]))("doc")
+    assert len(raw) <= RESULT_LIMIT
+    (document,) = json.loads(raw)["documents"]
+    assert document["excerpt"] == "# doc\n规则内容。\n"
+    kept = document[field]
+    assert kept.startswith(control * 10) and kept.endswith("…") and len(json.dumps(kept)) < len(json.dumps(title if field == "title" else source_ref))
+
+
+@pytest.mark.asyncio
+async def test_metadata_too_long_for_any_excerpt_gets_a_notice_not_a_silent_empty_result(searcher, monkeypatch):
+    import ggwork_pick.tools as tools
+
+    monkeypatch.setattr(tools, "_KNOWLEDGE_SOURCE_CHARS", 20_000)
+    raw = await (await searcher([("# doc\n规则内容。\n", "doc.md", chr(1) * 2_048)]))("doc")
+    result = json.loads(raw)
+    assert result["documents"] == [] and "过长" in result["notice"]
