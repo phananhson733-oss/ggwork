@@ -9,7 +9,7 @@ The plan and the runbooks are what an operator follows at S0-S13; these tests ke
 - deploy-guard.md sends a cron deploy through packaging.md's two-config procedure;
 - the guard is written as a source check only, apart from the contract check, and S13 raises the floor to M1;
 - the rollback matrix carries the database dimension, in the plan and in rollback-matrix.md alike, and the four-cell
-  check's commands select exactly the tests it names;
+  check's commands select exactly the tests it names, while the output it asks for names every case they select;
 - section 14.3 disposes of every finding of both G3 reviews, names who does each, and its gates are prerequisites of
   the steps they gate;
 - the workflow runs on every file outside the package these tests read.
@@ -128,6 +128,17 @@ def _ids(record: dict[str, str]) -> set[str]:
 
 def _four_cells() -> str:
     return _between(_runbook("rollback-matrix.md"), "## 四格验证", "\n## ")
+
+
+def _selected_describe() -> str:
+    """The one describe in api.test.ts that the frontend command's -t selects, up to the next describe."""
+    (pattern,) = re.findall(r'-t "([^"]+)"', _four_cells())
+    cases = API_TEST.read_text(encoding="utf-8")
+    matching = [name for name in re.findall(r'^describe\("([^"]+)"', cases, re.MULTILINE) if pattern in name]
+    assert len(matching) == 1 and matching[0].startswith(pattern)
+    head = cases.index(f'describe("{matching[0]}"')
+    later = re.search(r"^describe\(", cases[head + 1 :], re.MULTILINE)
+    return cases[head : head + 1 + later.start()] if later else cases[head:]
 
 
 def _rollback_rules() -> str:
@@ -272,14 +283,19 @@ def test_four_cell_check_names_tests_that_exist():
 def test_four_cell_filter_selects_the_describe_holding_the_four_cases():
     """The frontend command's -t names the start of the one describe in api.test.ts that holds the four cases: renamed,
     it matches nothing, and rstest still exits 0 (the runbook says so), so CI has to catch it."""
-    (pattern,) = re.findall(r'-t "([^"]+)"', _four_cells())
-    cases = API_TEST.read_text(encoding="utf-8")
-    matching = [name for name in re.findall(r'^describe\("([^"]+)"', cases, re.MULTILINE) if pattern in name]
-    assert len(matching) == 1 and matching[0].startswith(pattern)
-    head = cases.index(f'describe("{matching[0]}"')
-    later = re.search(r"^describe\(", cases[head + 1 :], re.MULTILINE)
-    body = cases[head : head + 1 + later.start()] if later else cases[head:]
+    body = _selected_describe()
     assert [name for name in FOUR_CELLS if f'it("{name}:' not in body] == []
+
+
+def test_four_cell_output_names_every_case_the_filter_selects():
+    """-t selects the whole describe, so a case added beside the four cells (F1 x hot card, 2026-09-28) prints a row
+    too: the runbook names every row, in the order rstest prints them, and the summary it asks for counts them."""
+    cases = [name.partition(":")[0] for name in re.findall(r'^\s*it\("([^"]+)"', _selected_describe(), re.MULTILINE)]
+    (expected,) = [line for line in _four_cells().splitlines() if "✓" in line]
+    assert set(FOUR_CELLS) <= set(cases)
+    assert re.findall(r"`(F1 x [^`]+)`", expected) == cases
+    assert f"{len(cases)} 行 ✓" in expected
+    assert set(re.findall(r"`Tests (\d+) passed", expected)) == {str(len(cases))}
 
 
 def test_four_cell_gateway_command_shows_every_named_file():
