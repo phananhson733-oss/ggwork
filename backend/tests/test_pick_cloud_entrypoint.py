@@ -1,5 +1,6 @@
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -263,6 +264,29 @@ def test_main_fills_the_shared_defaults(environ, served, tmp_path):
         "DEER_FLOW_CONFIG_PATH": str(home / "pick-runtime.yaml"),
         "DEER_FLOW_EXTENSIONS_CONFIG_PATH": str(home / "extensions_config.json"),
     }
+
+
+def test_main_closes_the_home_to_other_users_when_lark_cli_runs_as_its_own_user(environ, served, tmp_path):
+    """lark-cli runs as an unprivileged user (docs/pick-workbench/lark-personal-auth.md): it must not reach /data."""
+    from app.gateway.pick_entrypoint import main
+
+    home = tmp_path / "home"
+    home.mkdir()
+    home.chmod(0o755)
+    environ.update(DEER_FLOW_HOME=str(home), PICK_DB_BACKEND="sqlite", DEER_FLOW_LARK_CLI_RUN_AS="larkrun")
+    main()
+    assert stat.S_IMODE(home.stat().st_mode) == 0o750
+
+
+def test_main_leaves_the_home_mode_alone_without_a_lark_user(environ, served, tmp_path):
+    from app.gateway.pick_entrypoint import main
+
+    home = tmp_path / "home"
+    home.mkdir()
+    home.chmod(0o755)
+    environ.update(DEER_FLOW_HOME=str(home), PICK_DB_BACKEND="sqlite")
+    main()
+    assert stat.S_IMODE(home.stat().st_mode) == 0o755
 
 
 @pytest.mark.parametrize("name", ["DEER_FLOW_CONFIG_PATH", "DEER_FLOW_EXTENSIONS_CONFIG_PATH"])
