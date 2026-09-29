@@ -25,6 +25,11 @@ import {
   reelshortDetail,
   rowDetail,
 } from "../components/workspace/pick-board/fixtures";
+import {
+  detailData,
+  searchData,
+  trendsData,
+} from "../components/workspace/pick-board/obs-fixtures";
 
 export type Loader = (...args: unknown[]) => unknown;
 
@@ -56,6 +61,7 @@ const LOADERS = [
   "loadReplay",
   "loadRowsByKeys",
   "loadMissingKeys",
+  "loadObsTab",
 ] as const;
 
 function recorded(state: PageState, name: string): Loader {
@@ -294,6 +300,13 @@ function rsRankLoader(_req: unknown, rank: unknown) {
       };
 }
 
+/** The radar's answer for a request: an identity's detail, else the tab's own data. */
+function obsAnswer(req: unknown) {
+  const { tab, oid } = req as { tab: "trends" | "search"; oid: string };
+  if (oid) return detailData({ tab, identity: oid });
+  return tab === "trends" ? trendsData() : searchData();
+}
+
 export function defaultLoaders(): Record<string, Loader> {
   return {
     loadCandidatePool: () => 42,
@@ -330,6 +343,7 @@ export function defaultLoaders(): Record<string, Loader> {
     }),
     loadRowsByKeys: () => [pickRow()],
     loadMissingKeys: () => [],
+    loadObsTab: (req: unknown) => obsAnswer(req),
   };
 }
 

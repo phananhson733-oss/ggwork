@@ -20,6 +20,10 @@ import "server-only";
  * The replay (P4-2): loadReplay asks the gateway for the agent's list and the
  * result's conditions; loadRowsByKeys and loadMissingKeys read that list's
  * rows from the pinned version.
+ *
+ * The radar (TR-24): loadObsTab reads the pick_obs views for the trends and
+ * search tabs and an identity's detail, with no mirror version; its failures
+ * are the Obs* errors.
  */
 
 export {
@@ -84,6 +88,15 @@ export {
   type ReelshortDetail,
 } from "./queries-reelshort";
 export { type ObserveSources, sourcesOf } from "./source-state";
+export {
+  loadObsTab,
+  type ObsChannelLoad,
+  type ObsDiscoveryPage,
+  type ObsPin,
+  type ObsRequest,
+  type ObsStatePage,
+  type ObsTabData,
+} from "./queries-obs";
 
 export { setBoardScope, type VersionScope } from "./db";
 export {
@@ -118,4 +131,10 @@ export {
   MirrorUnavailable,
   MirrorVersionGone,
   type MisconfiguredReason,
+  ObsError,
+  type ObsErrorCode,
+  ObsNotReady,
+  ObsRowInvalid,
+  ObsUnreadable,
+  type ObsViewName,
 } from "./errors";

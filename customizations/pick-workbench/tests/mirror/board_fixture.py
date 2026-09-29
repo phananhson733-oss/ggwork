@@ -12,7 +12,8 @@ Versions, in id order:
   v2        published and current: c-1 renamed, shortmax's platformRules yt from ok to no
   building  created, never finalized nor granted
   failed    created, then failed (its schema dropped)
-plus pick_mirror.series for one canonical drama (rs0001) and series_state through / trimmed_before.
+plus pick_mirror.series for one canonical drama (rs0001) and series_state through / trimmed_before, and the radar's
+rows behind the pick_obs views (board_obs.py: sets, states, links, discoveries and runs of both channels).
 
 The ReelShort side is gate_world's, with its d-N ids renamed to ids shaped like RealShort's book ids (request.ts
 reelshortId only takes [a-z0-9]{6,40}), and what the board's query tests (P3-3) need on top: metrics_valid of each kind,
@@ -452,7 +453,11 @@ def gateway_data_dir(arg: Path | None) -> Path:
 
 
 async def build_board(cluster, database: str, role: str, data_dir: Path) -> dict[str, int]:
-    """Migrate `database` and publish the versions into it; the reader role exists already."""
+    """Migrate `database`, publish the versions into it and write the radar's rows (board_obs); the reader role exists
+    already, so migration 0007 grants it the pick_obs views."""
+    from board_obs import insert_obs
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from ggwork_pick.mirror.connection import dsn_from_url, open_dedicated
 
     url = cluster.async_url(database)
@@ -462,6 +467,7 @@ async def build_board(cluster, database: str, role: str, data_dir: Path) -> dict
         try:
             ids = await _versions(conn, shared, importer)
             await _series(conn)
+            await insert_obs(async_sessionmaker(engine, expire_on_commit=False))
         finally:
             await conn.close()
             await engine.dispose()

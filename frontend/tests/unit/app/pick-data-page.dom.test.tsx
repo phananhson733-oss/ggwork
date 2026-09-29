@@ -279,6 +279,8 @@ describe("each tab takes its branch", () => {
       "全部剧库",
       "榜单",
       "发布记录",
+      "Google 趋势",
+      "搜索表现（GSC）",
       "剧场规则",
       "同步与导入",
     ]);
@@ -363,6 +365,8 @@ describe("the resolved version", () => {
       "全部剧库620",
       "榜单",
       "发布记录9",
+      "Google 趋势",
+      "搜索表现（GSC）",
       "剧场规则",
       "同步与导入",
     ]);
@@ -478,16 +482,20 @@ describe("banners", () => {
 });
 
 describe("when the mirror cannot answer", () => {
-  const onlyImportsLinks = (root: HTMLElement) =>
+  const mirrorlessLinks = (root: HTMLElement) =>
     tabLinks(root).map((a) => a.getAttribute("href"));
+  // The tabs that read no mirror version: the radar's two (TR-24) and imports.
+  const MIRRORLESS = [
+    "/workspace/pick-data?tab=trends",
+    "/workspace/pick-data?tab=search",
+    "/workspace/pick-data?tab=imports",
+  ];
 
-  it("no reader configured: a notice, and only imports is a link", async () => {
+  it("no reader configured: a notice, and only the tabs without a mirror are links", async () => {
     state.resolved = new errors.MirrorUnavailable();
     const root = await renderPage({ tab: "pick" });
     expect(screen.getByText(/此部署未连接镜像库/)).toBeTruthy();
-    expect(onlyImportsLinks(root)).toEqual([
-      "/workspace/pick-data?tab=imports",
-    ]);
+    expect(mirrorlessLinks(root)).toEqual(MIRRORLESS);
     expect(state.calls).not.toContain("setBoardScope");
     expect(dataCalls().filter((c) => c.startsWith("load"))).toEqual([]);
   });
@@ -496,9 +504,7 @@ describe("when the mirror cannot answer", () => {
     state.resolved = { state: "empty", requestedV: null, series: null };
     const root = await renderPage({ tab: "all" });
     expect(screen.getByText(/镜像还没有发布任何版本/)).toBeTruthy();
-    expect(onlyImportsLinks(root)).toEqual([
-      "/workspace/pick-data?tab=imports",
-    ]);
+    expect(mirrorlessLinks(root)).toEqual(MIRRORLESS);
   });
 
   it("a missing grant (42501) is a notice, not the error page (A2)", async () => {
@@ -615,5 +621,88 @@ describe("the visitor", () => {
       PickDataPage({ searchParams: Promise.resolve({ tab: "pick" }) }),
     ).rejects.toThrow("NEXT_REDIRECT");
     expect(state.calls).toEqual(["requireBoardUser"]);
+  });
+});
+
+describe("the radar's two tabs (TR-24, D9)", () => {
+  const IDENTITY =
+    '["realshort","UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ","en"]';
+
+  it("each opens after the visitor check alone: no version, no gateway, one radar read", async () => {
+    for (const tab of ["trends", "search"] as const) {
+      state.calls = [];
+      const root = await renderPage({ tab, v: "5" });
+      expect(state.calls).toEqual(["requireBoardUser", "loadObsTab"]);
+      expect(root.querySelector(`[data-obs-view="${tab}"]`)).toBeTruthy();
+      const active = tabLinks(root).find((a) => a.getAttribute("aria-current"));
+      expect(active?.textContent).toBe(
+        tab === "trends" ? "Google 趋势" : "搜索表现（GSC）",
+      );
+      cleanup();
+    }
+  });
+
+  it("passes the tab, the pinned set and the identity; the detail opens from either tab", async () => {
+    const obs = "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c";
+    const seen: unknown[] = [];
+    const answer = state.loaders.loadObsTab;
+    state.loaders.loadObsTab = (req: unknown) => {
+      seen.push(req);
+      return answer?.(req);
+    };
+    const root = await renderPage({ tab: "trends", obs, oid: IDENTITY });
+    expect(seen).toEqual([{ tab: "trends", obs, oid: IDENTITY }]);
+    expect(root.querySelector('[data-obs-view="detail"]')).toBeTruthy();
+  });
+
+  it("titles both tabs", async () => {
+    for (const [tab, title] of [
+      ["trends", "选剧资料 · Google 趋势"],
+      ["search", "选剧资料 · 搜索表现（GSC）"],
+    ]) {
+      const meta = await pageModule.generateMetadata({
+        searchParams: Promise.resolve({ tab: tab ?? "" }),
+      });
+      expect(meta.title).toBe(title);
+    }
+  });
+
+  it("still opens when the mirror cannot answer: the radar is not a mirror version", async () => {
+    state.resolved = new errors.MirrorMisconfigured("permission", "42501");
+    const root = await renderPage({ tab: "trends" });
+    expect(root.querySelector('[data-obs-view="trends"]')).toBeTruthy();
+    expect(dataCalls().some((call) => call.startsWith("resolveBoard"))).toBe(
+      false,
+    );
+  });
+
+  it("views missing, a grant missing or a row it cannot read are notices, not the error page", async () => {
+    const cases: [unknown, RegExp][] = [
+      [new errors.ObsNotReady("42P01"), /观测数据未就绪/],
+      [new errors.ObsUnreadable("42501"), /观测数据不可读（授权缺失）/],
+      [
+        new errors.ObsRowInvalid("states"),
+        /观测数据有一行本页读不懂（states）/,
+      ],
+      [new errors.MirrorBusy("57014"), /镜像库繁忙，请稍后刷新/],
+    ];
+    for (const [failure, text] of cases) {
+      state.loaders.loadObsTab = () => {
+        throw failure;
+      };
+      const root = await renderPage({ tab: "search" });
+      expect(screen.getByRole("alert").textContent).toMatch(text);
+      expect(tabLinks(root).length).toBe(8);
+      cleanup();
+    }
+  });
+
+  it("any other failure goes to the error page", async () => {
+    state.loaders.loadObsTab = () => {
+      throw new Error("boom");
+    };
+    await expect(
+      PickDataPage({ searchParams: Promise.resolve({ tab: "trends" }) }),
+    ).rejects.toThrow("boom");
   });
 });

@@ -277,6 +277,6 @@ describe("replay: tab=pick&result= (P4-2)", () => {
     const root = await renderPage({ result: RESULT });
     expect(screen.getByText(/镜像库繁忙，请稍后刷新/)).toBeTruthy();
     expect(screen.getByTestId("board-header")).toBeTruthy();
-    expect(tabLinks(root).length).toBe(6);
+    expect(tabLinks(root).length).toBe(8);
   });
 });

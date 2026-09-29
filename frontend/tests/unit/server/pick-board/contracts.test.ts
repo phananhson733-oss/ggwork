@@ -269,6 +269,15 @@ describe("component imports", () => {
       for (const { spec } of moduleSpecifiers(sourceFile(file)))
         expect(allowed.has(spec)).toBe(true);
   });
+
+  it("the radar's views add no client component (TR-24; TR-25b owns the registry)", () => {
+    const obsViews = componentFiles().filter((file) =>
+      /\/views\/obs-[^/]+\.tsx$/.test(file),
+    );
+    expect(obsViews.length).toBeGreaterThanOrEqual(6);
+    for (const file of obsViews)
+      expect(/["']use client["']/.test(read(file)), file).toBe(false);
+  });
 });
 
 const COLOR_CLASS =

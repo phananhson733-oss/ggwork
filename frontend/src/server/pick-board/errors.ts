@@ -158,3 +158,80 @@ export function translateMirrorError(error: unknown): unknown {
   if (isBusy(error, code)) return new MirrorBusy(code ?? "driver");
   return error;
 }
+
+// ---- the radar's pick_obs views (TR-24; D9) -------------------------------------------------------------------------
+
+export type ObsErrorCode =
+  | "obs_not_ready"
+  | "obs_unreadable"
+  | "obs_row_invalid";
+
+/**
+ * A failed read of the pick_obs views that the page shows as a notice of its
+ * own: they are not the mirror, so a missing view is not a pruned version.
+ * Fixed texts, like the mirror's; sourceCode is for logs only.
+ */
+export class ObsError extends Error {
+  readonly code: ObsErrorCode;
+  readonly sourceCode: string | undefined;
+
+  constructor(code: ObsErrorCode, message: string, sourceCode?: string) {
+    super(message);
+    this.code = code;
+    this.sourceCode = sourceCode;
+  }
+}
+
+/** The views are not there: migration 0007 has not reached this database. */
+export class ObsNotReady extends ObsError {
+  override readonly name = "ObsNotReady";
+
+  constructor(sourceCode?: string) {
+    super("obs_not_ready", "观测数据未就绪", sourceCode);
+  }
+}
+
+/** The views are there but the reader was not granted them (0007 ran before the role existed). */
+export class ObsUnreadable extends ObsError {
+  override readonly name = "ObsUnreadable";
+
+  constructor(sourceCode?: string) {
+    super("obs_unreadable", "观测数据不可读", sourceCode);
+  }
+}
+
+/** The pick_obs views the page reads (obs-rows.ts OBS_VIEW_SCHEMAS). */
+export type ObsViewName =
+  | "sets"
+  | "states"
+  | "links"
+  | "discoveries"
+  | "run_status";
+
+/**
+ * A row the page cannot read: a type, an enum or a rule of the contract it
+ * breaks, likely a contract version newer than this page (D29: refuse, never
+ * guess). Names the view only; the row's values never reach a message.
+ */
+export class ObsRowInvalid extends ObsError {
+  override readonly name = "ObsRowInvalid";
+  readonly view: ObsViewName;
+
+  constructor(view: ObsViewName) {
+    super("obs_row_invalid", `观测数据有一行本页读不懂（${view}）`);
+    this.view = view;
+  }
+}
+
+/**
+ * The typed error for a failed pick_obs read: a missing view or schema is
+ * ObsNotReady, a missing grant ObsUnreadable; busy, auth, TLS and the rest
+ * are the mirror's, since both read through the same reader pool.
+ */
+export function translateObsError(error: unknown): unknown {
+  if (error instanceof MirrorError || error instanceof ObsError) return error;
+  const code = errorCode(error);
+  if (code !== undefined && GONE.has(code)) return new ObsNotReady(code);
+  if (code === "42501") return new ObsUnreadable(code);
+  return translateMirrorError(error);
+}

@@ -1,5 +1,5 @@
 // PORTED_FROM: realshort@816ca2e src/lib/pick/request.ts
-// 本地改动：TABS 加 imports；PickRequest 加 v（钉住的镜像版本）与 result（回放的候选结果），解析与 pickQuery 同步；
+// 本地改动：TABS 加 imports，趋势雷达加 trends、search（TR-24）与只属于这两个 tab 的 obs、oid；PickRequest 加 v（钉住的镜像版本）与 result（回放的候选结果），解析与 pickQuery 同步；
 // RS_RANK_LABELS.rs_ledger 改叫「订单对账」；parsePickRequest 的取值闭包拆成 paramReader（函数 <50 行）；resolveWeek 的 hits[0] 改成先取再判（noUncheckedIndexedAccess）；
 // isRowKey / ROW_KEY_MAX 拆到 row-key.ts、QUEYU_INDEX / queyuHref 拆到 queyu.ts（client 组件不必带进本模块）。
 // 静态 IN_USE 只作类型参照：查询与组件一律用版本规则 rules.inUse（boundaries.test.ts 守住）。
@@ -31,7 +31,10 @@ export { ROW_KEY_MAX, isRowKey };
 export const GROWTH_SORTS: readonly RsSort[] = ["d1", "d7", "dp1", "dp7"];
 export { GROWTH_LIMIT };
 
-/** imports = 同步与导入（工作台新增，原来的 /workspace/pick-data 页挪进这个 tab） */
+/**
+ * imports = 同步与导入（工作台新增，原来的 /workspace/pick-data 页挪进这个 tab）；
+ * trends、search = 趋势雷达的 Google Trends 与 GSC 两个 tab（TR-24，设计 3.6）：读 pick_obs 视图，与镜像版本无关。
+ */
 export const TABS = [
   "pick",
   "all",
@@ -40,8 +43,18 @@ export const TABS = [
   "posted",
   "rules",
   "imports",
+  "trends",
+  "search",
 ] as const;
 export type Tab = (typeof TABS)[number];
+
+/** 趋势雷达的两个 tab：页面早分支进 obs-route，不钉镜像版本 */
+export const OBS_TABS = ["trends", "search"] as const;
+export type ObsTab = (typeof OBS_TABS)[number];
+
+export function isObsTab(tab: string): tab is ObsTab {
+  return (OBS_TABS as readonly string[]).includes(tab);
+}
 
 /** 证据页是从哪个列表 tab 进来的；「返回列表」与顶部 tab 按它回去，默认选剧 */
 export const LIST_TABS = ["pick", "all", "rank", "posted"] as const;
@@ -390,6 +403,10 @@ export interface PickRequest {
   v: number | null;
   /** 回放的候选结果 id（`result=`，uuid4().hex 的 32 位小写十六进制）；只在选剧 tab 有意义，空串 = 不回放 */
   result: string;
+  /** 观测 tab 钉住的集合（`obs=`，32 位小写十六进制的集合 id）；空串 = 当前集合 */
+  obs: string;
+  /** 观测 tab 的详情页要看的身份（`oid=`，工作台身份原样，最长 512）；空串 = 列表 */
+  oid: string;
 }
 
 function pick<T extends string>(
@@ -454,6 +471,19 @@ function cleanResult(raw: string): string {
   return /^[0-9a-f]{32}$/.test(raw) ? raw : "";
 }
 
+/** 观测集合 id：与结果 id 同形（32 位小写十六进制）；不像就当没传，回当前集合 */
+function cleanObsSet(raw: string): string {
+  return /^[0-9a-f]{32}$/.test(raw) ? raw : "";
+}
+
+/** 身份上限：与工作台 contracts.IDENTITY_MAX_LENGTH 相同 */
+export const IDENTITY_MAX = 512;
+
+/** 身份原样保留（它进的是参数化的 WHERE），只拒控制字符与超长 */
+function cleanIdentity(raw: string): string {
+  return raw.length <= IDENTITY_MAX && !CONTROL.test(raw) ? raw : "";
+}
+
 type PickParams =
   | URLSearchParams
   | Record<string, string | string[] | undefined>;
@@ -510,6 +540,8 @@ export function parsePickRequest(params: PickParams): PickRequest {
     sd: cleanSd(get("sd")),
     v: cleanVersion(get("v")),
     result: cleanResult(get("result")),
+    obs: cleanObsSet(get("obs")),
+    oid: cleanIdentity(get("oid")),
   };
 }
 
@@ -559,6 +591,11 @@ export function pickQuery(
   if (r.v !== null) p.set("v", String(r.v));
   if ((r.tab === "pick" || (r.tab === "row" && r.from === "pick")) && r.result)
     p.set("result", r.result);
+  /* 观测集合与详情身份只属于两个观测 tab */
+  if (isObsTab(r.tab)) {
+    if (r.obs) p.set("obs", r.obs);
+    if (r.oid) p.set("oid", r.oid);
+  }
   const s = p.toString();
   return s ? `?${s}` : "";
 }

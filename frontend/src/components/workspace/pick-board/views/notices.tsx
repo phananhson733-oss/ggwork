@@ -1,5 +1,7 @@
 // 工作台新建：资料页拿不到数据时的提示。访客不能看（AuthNotice）、镜像读不了（MirrorNotice）两类，都是 role="alert"，
 // 不进 error.tsx：它们是部署或数据状态，不是页面坏了。文案只说原因与去处，不带 SQL、参数或连接串。
+// 趋势雷达的两个 tab（TR-24）读 pick_obs 视图，同一个读连接：视图还不在（迁移 0007 没跑到）、没有授权、某一行本页
+// 读不懂（合同版本比页面新）是三种观测提示，与镜像的几种并列；连接没配、忙这些照用镜像的提示。
 import Link from "next/link";
 
 import { pickHref } from "@/components/workspace/pick-board/toolbar";
@@ -7,6 +9,7 @@ import type { PickRequest } from "@/core/pick-board/request";
 import type {
   BoardNoticeReason,
   MisconfiguredReason,
+  ObsViewName,
 } from "@/server/pick-board";
 
 import { IMPORTS_HREF } from "./banner-rules";
@@ -35,7 +38,10 @@ export type MirrorNoticeKind =
   | Readonly<{ kind: "empty" }>
   | Readonly<{ kind: "misconfigured"; reason: MisconfiguredReason }>
   | Readonly<{ kind: "busy" }>
-  | Readonly<{ kind: "gone" }>;
+  | Readonly<{ kind: "gone" }>
+  | Readonly<{ kind: "obs_not_ready" }>
+  | Readonly<{ kind: "obs_unreadable" }>
+  | Readonly<{ kind: "obs_row_invalid"; view: ObsViewName }>;
 
 function misconfiguredText(reason: MisconfiguredReason): string {
   switch (reason) {
@@ -65,6 +71,12 @@ function noticeText(notice: MirrorNoticeKind): string {
       return "镜像库繁忙，请稍后刷新。";
     case "gone":
       return "该版本刚被清理。";
+    case "obs_not_ready":
+      return "观测数据未就绪：这个库里还没有趋势雷达的视图（迁移 0007 没跑到），请联系管理员。";
+    case "obs_unreadable":
+      return "观测数据不可读（授权缺失），请联系管理员。";
+    case "obs_row_invalid":
+      return `观测数据有一行本页读不懂（${notice.view}），可能是采集端的合同比这个页面新；请联系管理员。`;
   }
 }
 
