@@ -873,7 +873,7 @@ withheld 指跑完但没有发布（例如 A 档覆盖率不足 80%，上一个�
 
 ## 12. 人工决定（D12、D24）
 
-`POST /api/pick/obs/decisions` 的请求体，按 `kind` 区分九种，写进追加式表 `ggwp_obs_decisions`（TR-25）。操作人来自认证，不在请求体里；缺失或为 default 就拒绝。TR-35 的 `effective(decisions, upto_id)` 按 id 顺序应用，后者覆盖前者。对应确认是否失效另由 Trends 集合冻结的 `lapsed_confirmations` 决定（第 5 节）；手动配对把旧身份的确认直接清掉，之后配回也不恢复，gsc 的别名刷新拒掉这次配对也不恢复。每种都带 `kind`、`request_id`（1 到 128 字）与可选的 `note`（最多 500 字）。
+`POST /api/pick/obs/decisions` 的请求体，按 `kind` 区分九种，写进追加式表 `ggwp_obs_decisions`（TR-25）。操作人来自认证，不在请求体里；缺失或为 default 就拒绝。TR-35 的 `effective(decisions, upto_id)` 按 id 顺序应用，后者覆盖前者。对应确认是否失效另由 Trends 集合冻结的 `lapsed_confirmations` 决定（第 5 节）；手动配对把旧身份的确认直接清掉，之后配回也不恢复，gsc 的别名刷新拒掉这次配对也不恢复。每种都带 `kind`、`request_id`（1 到 128 字）与可选的 `note`（最多 500 字）。`request_id` 按操作人区分：同一操作人重发同样的内容，回原来那一行，不再追加；内容不同就拒绝。路由的回答与错误码见 `observe-runbook/decisions.md`；回执还不是合同模型，等资料页的交互组件那一批再定（计划 TR-25 的 2026-09-30 说明）。
 
 #### `AliasConfirm`
 

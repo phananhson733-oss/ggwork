@@ -1,6 +1,18 @@
 # 人工决定（`ggwp_obs_decisions`）
 
-生效链的实现是 `ggwork_pick/observe/decisions_state.py`（TR-35，计划 D12、D24、D43）；写入路由 `POST /api/pick/obs/decisions` 归 TR-25。本页是运维主题文件（计划 D35），索引由 TR-29 收录。
+生效链的实现是 `ggwork_pick/observe/decisions_state.py`（TR-35，计划 D12、D24、D43）；写入路由 `POST /api/pick/obs/decisions` 在 `ggwork_pick/observe/decisions.py`（TR-25b）。本页是运维主题文件（计划 D35），索引由 TR-29 收录。
+
+## 写入接口
+
+- 请求体是合同第 12 节的九种决定之一。操作人取自登录身份，请求体里不能带；没登录、身份是 default 或共享身份都拒绝。
+- 回答：
+  - 201：新追加了一行，回 `{"id", "kind", "request_id", "created_at", "replayed": false}`。
+  - 200：同一操作人用同一 `request_id` 重发了同样的内容，回原来那一行，`replayed` 为真，不再追加。
+  - 401：没登录。
+  - 409：人工加入已满 50 条生效（消息说先撤回一条），或者这个 `request_id` 已经用于内容不同的决定。
+  - 422：请求体不合合同；回答里不重复请求的原文。
+  - 503：决定表里有读不了的行（见下文「决定表出现无法应用的行」），或选剧服务还没就绪。
+- 一条决定要等该通道的下一个集合才生效（见下一节）。`b_only` 下 Trends 不跑观察清单、不做逐剧判定，对应确认、暂停、人工加入写进去之后暂时没有采集服务读（计划 TR-25 的 2026-09-30 说明）；资料页也还没有这三种操作的按钮。
 
 ## 生效规则（值守时要知道的）
 
@@ -31,7 +43,7 @@
 
 **症状**
 - 两个 cron 在读决定这一步以退出码 3 退出，消息以「ggwp_obs_decisions 第 N 行」开头，只写行号和出错位置，不带内容。
-- 写决定的路由对所有决定都报错，包括用来纠正的撤销：写入前要先读出有效状态，读不下去就什么都写不进去。
+- 写决定的路由对所有决定都回 503，包括用来纠正的撤销：写入前要先读出有效状态，读不下去就什么都写不进去。回答只说去看本页，gateway 日志里有一行 `[pick-obs] a decision was not appended`，后面是同样的「ggwp_obs_decisions 第 N 行…」。
 
 **先只读地看一眼**（以 deerflow_app 或 pick_observer 执行，把 N 换成消息里的行号；`payload_json` 可能带备注原文，不要贴进工单或聊天）：
 

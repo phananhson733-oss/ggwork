@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from deerflow_extension_api.auth import resolve_principal
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
@@ -16,6 +16,9 @@ from pydantic import Field, ValidationError
 from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.mirror.status import mirror_status
+from ggwork_pick.observe.contract_api import Decision
+from ggwork_pick.observe.decisions import DecisionRefused, RequestIdReused, append_decision
+from ggwork_pick.observe.decisions_state import DecisionLogError
 from ggwork_pick.observe.status import obs_status
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import ReplayGone, ReplayUnrunnable, SelectionService, result_view
@@ -25,6 +28,8 @@ logger = logging.getLogger(__name__)
 MANUAL_SYNC_COOLDOWN = timedelta(minutes=5)
 # After a failure the button stays usable, but a broken source is not hammered by repeated clicks.
 FAILED_SYNC_BACKOFF = timedelta(minutes=1)
+# decisions_state.DecisionLogError: no decision can be appended, a revocation neither, until the row is dealt with.
+DECISION_LOG_UNREADABLE = "人工决定表里有本服务读不了的行，暂时写不进任何决定（撤销也写不进）：请值守按 observe-runbook/decisions.md 处置"
 
 
 async def mirror_view(service, shared: PickRepository) -> dict | None:
@@ -116,13 +121,17 @@ class StorableTextRoute(APIRoute):
 def build_router(service):
     router = APIRouter(prefix="/api/pick", tags=["pick-workbench"], route_class=StorableTextRoute)
 
-    def repository(request: Request):
+    def signed_in(request: Request) -> str:
         principal = resolve_principal(request)
         if principal is None or not principal.user_id.strip() or principal.user_id in ("default", SHARED_OWNER):
             raise HTTPException(401, "请先登录")
+        return principal.user_id
+
+    def repository(request: Request):
+        owner_id = signed_in(request)
         if service.session_factory is None:
             raise HTTPException(503, "选剧服务尚未就绪")
-        return PickRepository(service.session_factory, principal.user_id)
+        return PickRepository(service.session_factory, owner_id)
 
     async def status_view(record):
         # Only call after an owner-scoped repository read: the host reader is privileged.
@@ -276,5 +285,24 @@ def build_router(service):
             return await repository(request).update_selection(selection_id, body.request_id, body.expected_version, note=body.note, state=body.state)
         except (ValueError, LookupError) as exc:
             raise api_error(exc) from None
+
+    @router.post("/obs/decisions", status_code=201)
+    async def append_obs_decision(body: Decision, response: Response, owner_id: str = Depends(signed_in)):
+        """A human decision for the radar (TR-25b, D12): appended, never changed or removed. The signed-in user is the
+        operator (a dependency, so nobody signed out gets past it to the body rules). 201 for a new row; 200 answers the
+        row a repeated request_id wrote."""
+        if service.session_factory is None:
+            raise HTTPException(503, "选剧服务尚未就绪")
+        try:
+            appended = await append_decision(service.session_factory, owner_id, body, now=datetime.now(UTC))
+        except (DecisionRefused, RequestIdReused) as exc:
+            raise HTTPException(409, str(exc)) from None
+        except DecisionLogError as exc:
+            # Its message names the row and where it breaks the contract, never the row's content (decisions_state).
+            logger.error("[pick-obs] a decision was not appended: the log holds a row this gateway cannot apply: %s", exc)
+            raise HTTPException(503, DECISION_LOG_UNREADABLE) from None
+        if appended.replayed:
+            response.status_code = 200
+        return appended.as_dict()
 
     return router
