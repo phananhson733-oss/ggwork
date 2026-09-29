@@ -470,3 +470,44 @@
   - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定；
   - PR #16 合并后再经守卫部署一次 gateway。
 - `pick-deploy-guard target=gateway commit=fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5 prod_head=0007 chain_head=0007 at=2026-09-29T15:20:55Z`
+
+## 飞书个人授权（lark-cli）第一期：只读文档与消息（2026-09-29，未合并、未部署）
+
+- 起因：PR #20 把飞书 CLI 标成 `hidden`，个人授权单独做。设计见 [lark-personal-auth.md](lark-personal-auth.md)，定的是方案 A：gateway 内一个专用的只读 `lark_cli` 工具，第一期开放文档类与消息。
+- 分支 `feat/lark-personal-auth` 20:24 从 ggwork/main 6919eb5 切出，22:05 变基到 #20 合并后的 fbda69f，变基没有冲突。推送前又变基到 b5c9dd9，main 上只多了 #20 gateway 上线的记录。和 #20 的整合（插件放行规则、目录 `hidden`）放在变基之后补。写中间件的会话 22:06 留下两个未提交文件后就不在了，所以先把整个分支打包，再动历史。包里有一个 WIP 提交，还有变基前的原提交。包存在 `~/.gstack/projects/ggwork-deerflow/artifacts/lark-personal-auth-2026-09-29.bundle`。
+- 改动：
+  - 镜像：`Dockerfile.pick-gateway` 内置 lark-cli v1.0.96，版本和两种架构的 sha256 写死；新增无特权用户 `larkrun`。设置了 `DEER_FLOW_LARK_CLI_RUN_AS` 时，入口会去掉 `DEER_FLOW_HOME` 的其他用户权限（755→750）。
+  - 上游 `lark_cli.py` 加固定版本模式：不调 npm，不查 latest，技能用二进制内置的，子进程用精简环境。另加 `peek_lark_app_config`，只读不写。
+  - `lark_cli` 工具：argv 白名单，只放行 `Risk: read`，以 `larkrun` 身份运行，凭据只给副本。
+  - 选剧对话：
+    - 只有已在能力中心连接飞书的用户能看到 `lark_cli`，每轮单独 8 次；
+    - 调用过它就算本轮读过外部内容，按 #20 的读后拦截处理。lark-cli 自带的帮助、schema 和技能文本不算；
+    - 运行配置注册了 `lark_cli`，工具组 `lark`。
+  - 能力中心：飞书 / Lark 取消 `hidden`，文案改成第一期的只读范围。生产前端的目录从 gateway 读，所以这一项跟着 gateway 部署生效。
+- 独立审查：CRITICAL 0。
+  - HIGH 1，已修：值前加空白、`-q` 错位，这两种写法能让 lark-cli 读本地文件。审查用本机 lark-cli 1.0.93 复现过。现在值去掉首尾空白后再检查，jq 表达式只有写成 `--jq=` 一个参数时才豁免。
+  - MEDIUM 3，修了 1：连接检查原来在每次模型调用时都写一遍凭据目录，现在不写了。另外 2 条见「后续」。
+- 测试：
+  - 扩展全套：SQLite 加全 scram 的 PG 17，3,896 通过、21 跳过（跳过的都是方言专属），含 `test_managed_copy`；
+  - 入口、JSON 净化、create_user：SQLite 和 PG 共 108 通过；
+  - 后端全套：18,497 通过、81 跳过，1 条失败：`test_local_sandbox_provider_mounts.py::TestReadOnlyPath::test_bash_write_to_projected_copy_does_not_mutate_source`，ggwork/main 上原本就失败（见 PR #13 一节），本 PR 没碰沙箱；
+  - blocking-io 149 通过；ruff、`uv lock --check`、agent guidance 通过；
+  - 前端：
+    - format、lint、typecheck、build 通过；
+    - 单测 2,797 通过、45 跳过；
+    - e2e 默认套件 282 通过，auth 套件 6 通过。修复后重跑了能力中心、集成、插件图标三个文件，23/23。
+- 部署时要注意：
+  - 合并会让 Vercel 自动把前端推上 Production。这次前端只改了静态演示用的目录快照和测试。
+  - gateway 要经守卫部署才生效，时间由用户定。生产 gateway 已是 fbda69f（09-29 15:20Z 经守卫上线，含 #14、#20），这次部署只多出本 PR 的改动。和 #16 谁先部署由用户定。镜像构建时会从 GitHub 下载 lark-cli 发布包并校验 sha256，下载失败则构建失败，线上不受影响。
+  - 部署后先在能力中心看飞书 / Lark 是否显示「已安装版本：v1.0.96」。然后用自己的账号走一遍：连接、授权，再在对话里读一篇自己的文档。PersonalAgent 应用注册可能要租户管理员放行。
+- 后续：
+  - 排队与锁（审查 MEDIUM）：
+    - 排队中的飞书命令会各占默认线程池的一个线程，等全局锁，最长 75 秒；
+    - `run_for_user` 在持有全局槽时等用户凭据锁，这一步没有时限。所以某个用户正在授权时，其他人的飞书命令都会跟着等；
+  - LOW：
+    - 不可用时，返回给模型的说明里带着数据目录路径和权限；
+    - 输出先全部读进内存再截断；
+    - 执行层透传的代理变量缺小写形式；
+    - 锁文件出错时抛出原始异常；
+    - 以 `pick_` 开头的 MCP 工具会占选剧工具的额度（#20 起就这样）；
+  - 写操作放第二期。
