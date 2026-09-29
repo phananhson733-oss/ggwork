@@ -10,7 +10,7 @@
   - 200：同一操作人用同一 `request_id` 重发了同样的内容，回原来那一行，`replayed` 为真，不再追加。
   - 401：没登录。
   - 409：人工加入已满 50 条生效（消息说先撤回一条），或者这个 `request_id` 已经用于内容不同的决定。
-  - 422：请求体不合合同。回答是 `{"message", "problems"}`，`problems` 最多 5 条，每条写成「位置（错误类型）」，例如 `watch_add.geo（string_pattern_mismatch）`；多出来的键写成 `<extra>`，kind 不对写成 `kind（union_tag_invalid）`，不是 JSON 写成 `body（json_invalid）`。回答里不重复请求的任何原文。
+  - 422：请求体不合合同。回答是 `{"message", "problems"}`，`problems` 最多 5 条，每条写成「位置（错误类型）」，例如 `watch_add.geo（string_pattern_mismatch）`；多出来的键写成 `<extra>`，kind 不对写成 `kind（union_tag_invalid）`，不是 JSON 写成 `body（json_invalid）`，嵌套超过 4 层写成 `body（too_deep）`（一条决定只有一层）。回答里不重复请求的任何原文。
   - 413：请求体超过 16 KB（一条决定只有几百字节）。
   - 503：决定表里有读不了的行（见下文「决定表出现无法应用的行」），这时重发旧请求也是 503；或者选剧服务还没就绪。
 - 一条决定要等该通道的下一个集合才生效（见下一节）。`b_only` 下 Trends 不跑观察清单、不做逐剧判定，对应确认、暂停、人工加入写进去之后暂时没有采集服务读（计划 TR-25 的 2026-09-30 说明）；资料页也还没有这三种操作的按钮。

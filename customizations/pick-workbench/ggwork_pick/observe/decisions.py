@@ -32,6 +32,9 @@ from ggwork_pick.repository import SHARED_OWNER
 # A decision is a few hundred bytes (note <= 500 characters); the route stops reading well past any valid one.
 MAX_BODY_BYTES = 16384
 _MAX_PROBLEMS = 5
+# A decision is one flat object. Anything nesting deeper is refused before a recursive walk (the parser, StrictInput's
+# storable check) could run out of stack on it and turn a bad request into a 500.
+_MAX_DEPTH = 4
 _TAG_ERRORS = frozenset({"union_tag_invalid", "union_tag_not_found"})
 _DECISION = TypeAdapter(Decision)
 
@@ -83,12 +86,24 @@ def _location(problem: dict) -> str:
     return ".".join(str(part) for part in loc)
 
 
+def _too_deep(value: object) -> bool:
+    """Whether lists and objects nest more than _MAX_DEPTH levels, found level by level, without recursion."""
+    level = [value]
+    for _ in range(_MAX_DEPTH):
+        level = [child for item in level for child in (item.values() if isinstance(item, dict) else item if isinstance(item, list) else ())]
+    return any(isinstance(item, dict | list) for item in level)
+
+
 def parse_decision(raw: bytes) -> Decision:
     """The contract decision in a request body, or DecisionInvalid naming at most five problems as 'place（type）'."""
     try:
         payload = json.loads(raw)
+    except RecursionError:
+        raise DecisionInvalid(("body（too_deep）",)) from None
     except (UnicodeDecodeError, ValueError):
         raise DecisionInvalid(("body（json_invalid）",)) from None
+    if _too_deep(payload):
+        raise DecisionInvalid(("body（too_deep）",))
     try:
         return _DECISION.validate_python(payload)
     except ValidationError as error:

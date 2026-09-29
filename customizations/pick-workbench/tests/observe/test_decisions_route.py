@@ -137,6 +137,12 @@ async def test_a_body_outside_the_contract_is_refused_without_echoing_it(app_cli
     not_json = await client.post(ROUTE, headers={**ALICE, "content-type": "application/json"}, content=f'{{"{SENTINEL}'.encode())
     assert not_json.status_code == 422 and SENTINEL not in not_json.text
     assert not_json.json()["detail"]["problems"] == ["body（json_invalid）"]
+    # Nesting the parser or the validators would recurse through is refused as such, well under the size limit.
+    deep_list = b"[" * 8150 + b"0" + b"]" * 8150
+    deep_object = json.dumps({**body, "note": json.loads("[" * 2000 + "]" * 2000)}).encode()
+    for sent in (deep_list, deep_object):
+        response = await client.post(ROUTE, headers={**ALICE, "content-type": "application/json"}, content=sent)
+        assert (response.status_code, response.json()["detail"]["problems"]) == (422, ["body（too_deep）"])
     too_big = await client.post(ROUTE, headers=ALICE, json={**body, "note": "x" * (appender.MAX_BODY_BYTES + 1)})
     assert too_big.status_code == 413
     assert await _rows(service) == []
