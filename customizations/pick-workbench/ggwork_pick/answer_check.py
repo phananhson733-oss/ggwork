@@ -31,7 +31,13 @@ _INDENT = re.compile(r"[ \t]*")
 _SUMMARY = re.compile(r"都|均|全部|这些|这几|它们|(?<![第0-9一二两三四五六七八九十])[0-9一二两三四五六七八九十]+部")
 # "以上两部" sums up the titles named before it as well ("100集以上" is a count); "其余" every title but those.
 _ABOVE = re.compile(r"(?<![0-9一二两三四五六七八九十百千万%％集部岁分秒天周月年次条个])以上|上述")
-_REST = re.compile(r"(?:其余|其他|其它|剩下|剩余|余下)(?!的?(?:账号|账户))")
+# "以上3部" / "以上全部" after naming fewer titles than that sums up the cards the answer never named as well.
+_COUNT = re.compile(r"(?<![第0-9一二两三四五六七八九十])([0-9]{1,4}|[一二两三四五六七八九十]{1,3})部")
+_PLURAL = re.compile(r"都|均|全部|所有|这些|这几|它们")
+_NUMERALS = {numeral: value for value, numeral in enumerate("零一二三四五六七八九")} | {"两": 2}
+# Some accounts, however worded: "其他几个账号", "所有账户", "另外的账号".
+_SOME_ACCOUNTS = r"(?:的|几个|所有|[0-9一二两三四五六七八九十]+个)?(?:账号|账户)"
+_REST = re.compile(rf"(?:其余|其他|其它|剩下|剩余|余下)(?!{_SOME_ACCOUNTS}|团队)")
 # "除了《A》都没发过" / "《A》以外其余都没发过" sum up every title but the ones the clause names.
 _EXCEPT = re.compile(r"除了|除去|除开|》(?:以外|之外)")
 ALL, ABOVE, REST = "all", "above", "rest"
@@ -42,7 +48,9 @@ _LATIN_TOKEN = re.compile(r"[a-z0-9'’&]+")
 _LETTER = re.compile(r"[a-z]")
 _NOT_NAMES = frozenset({"youtube", "tiktok", "facebook", "instagram", "fb", "ig", "yt", "us", "en", "ko", "ja", "es", "pt", "th", "zh"})
 # A clause about the whole team, or the accounts besides one, is not about the account a posted_account query cleared.
-_TEAM_WORDS = re.compile(r"团队|全队|所有账号|任何账号|各个?账号|全部账号|哪个账号|(?:其他|其余|其它|别的)的?账号")
+_TEAM_WORDS = re.compile(rf"团队|全队|哪个账号|(?:所有|任何|任意|任一|每一?个|各个?|全部|其他|其余|其它|别的|另外){_SOME_ACCOUNTS}")
+# An account the records never name is one no query cleared: a clause about it is about the team.
+_ACCOUNT_WORD = re.compile(r"账号|账户")
 _TEAM = "\x00team"
 # "这个账号" is the account a posted_account query asked about.
 _THIS_ACCOUNT = re.compile(r"(?:该|这个|此|本)(?:账号|账户)")
@@ -121,14 +129,15 @@ class _Accounts:
         self.queried = frozenset(name for entry in seen.values() for name in entry.clear)
 
     def named(self, clause: str) -> tuple[frozenset[str], str]:
-        """The accounts the clause names (_TEAM for the whole team), and its casefolded text with them blanked out."""
+        """The accounts the clause names (_TEAM for the whole team or an account no record names), and its casefolded
+        text with them blanked out."""
         folded, named = clause.casefold(), set()
         if self.pattern is not None:
             named.update(self.pattern.findall(folded))
             folded = self.pattern.sub("|", folded)
         if _THIS_ACCOUNT.search(clause):
             named |= self.queried
-        if _TEAM_WORDS.search(clause):
+        if _TEAM_WORDS.search(clause) or (not named and _ACCOUNT_WORD.search(folded)):
             named.add(_TEAM)
         return frozenset(named), folded
 
@@ -194,6 +203,8 @@ class _Subject(NamedTuple):
     start: int
     # The indent of the line it starts on: a deeper line below is a detail of it.
     indent: int
+    # The fewest titles an ABOVE claim sums up: fewer named up to it, and it sums up every record returned.
+    least: int = 1
 
 
 def _summary(masked: str, left: int, right: int) -> str | None:
@@ -202,6 +213,27 @@ def _summary(masked: str, left: int, right: int) -> str | None:
     if _ABOVE.search(masked, left, right):
         return ABOVE
     return ALL if _SUMMARY.search(masked, left, right) else None
+
+
+def _number(word: str) -> int | None:
+    """An ASCII or Chinese count up to 99 ("3", "三", "十二", "二十"); None for anything else ("二三")."""
+    if word.isascii():
+        return int(word)
+    tens, ten, ones = word.partition("十")
+    if not ten:
+        return _NUMERALS.get(word) if len(word) == 1 else None
+    tens_value = _NUMERALS.get(tens) if tens else 1
+    ones_value = _NUMERALS.get(ones) if ones else 0
+    return None if tens_value is None or ones_value is None else tens_value * 10 + ones_value
+
+
+def _least(masked: str, left: int, right: int) -> int:
+    """The fewest titles an "以上" clause sums up: its count ("以上3部"), two for a plural ("以上全部", "以上都"), else one."""
+    count = _COUNT.search(masked, left, right)
+    number = _number(count.group(1)) if count else None
+    if number is not None:
+        return max(number, 1)
+    return 2 if _PLURAL.search(masked, left, right) else 1
 
 
 def _own_subject(
@@ -216,7 +248,8 @@ def _own_subject(
     summary = _summary(masked, left, right)
     if summary is not None and _EXCEPT.search(masked, left, right):
         return _Subject((), unknown, REST, left, indent), named, titles
-    return _Subject(titles, unknown, summary, left, indent), named, titles
+    least = _least(masked, left, right) if summary == ABOVE else 1
+    return _Subject(titles, unknown, summary, left, indent, least), named, titles
 
 
 class _Clauses(NamedTuple):
@@ -299,7 +332,8 @@ class _Findings:
 
 class _Judge:
     """Judges an answer's claims in order. Judging only adds, so a claim reading nothing new adds nothing (and costs
-    nothing): the first "其余" reads the most, and "以上" reads only the titles named since the last one."""
+    nothing): the first "其余" reads the most, and "以上" reads only the titles named since the last one, unless it sums
+    up more titles than were named (then every record returned)."""
 
     def __init__(self, seen: dict[str, Seen], posted_checked: bool, owns: list[tuple[str, ...]]) -> None:
         self.seen, self.posted_checked, self.owns = seen, posted_checked, owns
@@ -337,13 +371,13 @@ class _Judge:
             if key not in self.done:
                 self.done.add(key)
                 self._stand([(entry.title, _effective(entry, mentioned)) for norm, entry in self.seen.items() if norm not in self.named], subject)
-        elif subject.summary == ABOVE and self.order:
+        elif subject.summary == ABOVE and len(self.order) >= subject.least:
             key = (ABOVE, mentioned, subject.unknown)
             begin = self.above.get(key, 0)
             if begin < len(self.order):
                 self._stand(self._entries(self.order[begin:], mentioned), subject)
                 self.above[key] = len(self.order)
-        elif subject.titles:
+        elif subject.titles and subject.summary != ABOVE:
             key = (subject.start, mentioned)
             if key not in self.done:
                 self.done.add(key)
