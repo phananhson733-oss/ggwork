@@ -293,8 +293,11 @@ test.describe("Thread message ordering", () => {
   }) => {
     const messages = buildFixtureMessages();
     const rows = toFeedRows(messages);
+    // The mock serves /history and /state from this array, so the run below
+    // can advance it to the run's final checkpoint.
+    const checkpointMessages: FeedMessage[] = [...messages];
     mockLangGraphAPI(page, {
-      threads: [{ ...THREAD, messages: [...messages] }],
+      threads: [{ ...THREAD, messages: checkpointMessages }],
     });
     await mockPaginatedFeed(page, rows);
 
@@ -355,6 +358,17 @@ test.describe("Thread message ordering", () => {
         },
         { event: "end", data: {} },
       ];
+      // The real backend persists the final checkpoint before `end`, so the
+      // SDK's run-end /history read (and a later reload) sees the compacted
+      // state with the new turn rather than the pre-submit fixture.
+      checkpointMessages.splice(
+        0,
+        checkpointMessages.length,
+        summary3,
+        ...retainedTail,
+        serverHuman,
+        answer,
+      );
       // The persisted feed grows by the new turn so the finishing history
       // refetch observes it, mirroring the journal flush on the real backend.
       const base = rows.length;
@@ -407,28 +421,37 @@ test.describe("Thread message ordering", () => {
     });
     // DOM relative order, not viewport coordinates: stick-to-bottom smooth
     // scrolling makes two separate boundingBox reads race each other.
-    const questionBeforeAnswer = await page.evaluate(() => {
-      const list = document.querySelector('[data-testid="main-message-list"]');
-      if (!list) {
-        return null;
-      }
-      const leaf = (text: string) =>
-        [...list.querySelectorAll("div, p")].find(
-          (element) =>
-            element.children.length === 0 && element.textContent === text,
-        );
-      const question = leaf("final-turn question");
-      const answer = leaf("final-turn answer");
-      if (!question || !answer) {
-        return null;
-      }
-      return (
-        (question.compareDocumentPosition(answer) &
-          Node.DOCUMENT_POSITION_FOLLOWING) !==
-        0
-      );
-    });
-    expect(questionBeforeAnswer).toBe(true);
+    // Polled, because while the run finishes the answer renders as per-word
+    // animation spans, so the plain leaf this reads is not there yet.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const list = document.querySelector(
+              '[data-testid="main-message-list"]',
+            );
+            if (!list) {
+              return null;
+            }
+            const leaf = (text: string) =>
+              [...list.querySelectorAll("div, p")].find(
+                (element) =>
+                  element.children.length === 0 && element.textContent === text,
+              );
+            const question = leaf("final-turn question");
+            const answer = leaf("final-turn answer");
+            if (!question || !answer) {
+              return null;
+            }
+            return (
+              (question.compareDocumentPosition(answer) &
+                Node.DOCUMENT_POSITION_FOLLOWING) !==
+              0
+            );
+          }),
+        { message: "final-turn question renders before its settled answer" },
+      )
+      .toBe(true);
 
     // The finishing refetch observed the extended feed; the established
     // order — including the compacted head — is unchanged.
