@@ -12,6 +12,8 @@
  *   (src/styles/ggwork-theme.css).
  * - No relative /admin/pick link, no wall-clock `new Date()`, no static rule
  *   tables in components or queries.
+ * - The trends radar's client components are registered, each with a reason
+ *   (TR-25b); its data-board views stay server components.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -269,14 +271,122 @@ describe("component imports", () => {
       for (const { spec } of moduleSpecifiers(sourceFile(file)))
         expect(allowed.has(spec)).toBe(true);
   });
+});
 
-  it("the radar's views add no client component (TR-24; TR-25b owns the registry)", () => {
-    const obsViews = componentFiles().filter((file) =>
+const PICK_DIR = "src/components/workspace/pick";
+
+/**
+ * The radar's client components (plan TR-25; TR-25b keeps the registry): every "use client" file the radar adds is
+ * listed with why it has to run in the browser. The radar's components are the files named obs-* in the pick and
+ * pick-board component folders and everything under pick/obs/, where the interactive ones will go.
+ */
+const RADAR_CLIENT_COMPONENTS: Readonly<Record<string, string>> = {
+  [`${PICK_DIR}/obs-status-panel.tsx`]:
+    "TR-25：「同步与导入」tab 本身在浏览器里，雷达一栏与 SyncStatus 共用同一个 /sync 的 react-query 查询（useQuery、useAuth）",
+};
+
+const USE_CLIENT = /^\s*(\/\/[^\n]*\n\s*)*["']use client["']/;
+
+function isRadarComponent(file: string): boolean {
+  return (
+    file.startsWith(`${PICK_DIR}/obs/`) ||
+    new RegExp(`^(${PICK_DIR}|${COMPONENTS_DIR}/views)/obs-[^/]+\\.tsx?$`).test(
+      file,
+    )
+  );
+}
+
+/** What is wrong with a registry for these files: unlisted client components, stale entries, missing reasons. */
+function registryProblems(
+  files: readonly string[],
+  textOf: (file: string) => string,
+  registry: Readonly<Record<string, string>>,
+): string[] {
+  const clients = files.filter(
+    (file) => isRadarComponent(file) && USE_CLIENT.test(textOf(file)),
+  );
+  return [
+    ...clients
+      .filter((file) => !(file in registry))
+      .map((file) => `${file}: a client component the registry does not list`),
+    ...Object.keys(registry)
+      .filter((file) => !clients.includes(file))
+      .map((file) => `${file}: listed, but not a radar client component`),
+    ...Object.entries(registry)
+      .filter(([, why]) => why.trim().length < 10)
+      .map(([file]) => `${file}: no reason given`),
+  ];
+}
+
+/** The source file an import names, when it is one of ours: "@/…" or a relative path. */
+function resolveImport(from: string, spec: string): string | null {
+  const base = spec.startsWith("@/")
+    ? `src/${spec.slice(2)}`
+    : spec.startsWith(".")
+      ? path.posix.join(path.posix.dirname(from), spec)
+      : null;
+  if (base === null) return null;
+  const candidates = [`${base}.tsx`, `${base}.ts`, `${base}/index.tsx`];
+  return (
+    candidates.find((file) => {
+      try {
+        return statSync(path.join(FRONTEND_ROOT, file)).isFile();
+      } catch {
+        return false;
+      }
+    }) ?? null
+  );
+}
+
+describe("the radar's client components (TR-25b registry)", () => {
+  const radarFiles = () =>
+    [...walk(PICK_DIR), ...componentFiles()].filter(isRadarComponent);
+
+  it("each one is registered with a reason, and every entry is one", () => {
+    expect(radarFiles().length).toBeGreaterThanOrEqual(8);
+    expect(
+      registryProblems(radarFiles(), read, RADAR_CLIENT_COMPONENTS),
+    ).toEqual([]);
+  });
+
+  it("an unregistered client component turns the check red", () => {
+    const sources: Readonly<Record<string, string>> = {
+      [`${PICK_DIR}/obs/confirm-button.tsx`]: '"use client";\nexport {};',
+      [`${PICK_DIR}/obs-status-panel.tsx`]:
+        '// the panel\n"use client";\nexport {};',
+      [`${COMPONENTS_DIR}/views/obs-view.tsx`]: "export {};",
+      [`${PICK_DIR}/sync-status.tsx`]: '"use client";\nexport {};',
+    };
+    const registry = {
+      [`${PICK_DIR}/obs-status-panel.tsx`]: "shares the imports tab's query",
+      [`${PICK_DIR}/obs/gone.tsx`]: "was here once, then removed",
+      [`${COMPONENTS_DIR}/views/obs-view.tsx`]: "",
+    };
+    expect(
+      registryProblems(Object.keys(sources), (f) => sources[f] ?? "", registry),
+    ).toEqual([
+      `${PICK_DIR}/obs/confirm-button.tsx: a client component the registry does not list`,
+      `${PICK_DIR}/obs/gone.tsx: listed, but not a radar client component`,
+      `${COMPONENTS_DIR}/views/obs-view.tsx: listed, but not a radar client component`,
+      `${COMPONENTS_DIR}/views/obs-view.tsx: no reason given`,
+    ]);
+  });
+
+  it("the data board's radar views are server components that use only registered client components", () => {
+    const views = componentFiles().filter((file) =>
       /\/views\/obs-[^/]+\.tsx$/.test(file),
     );
-    expect(obsViews.length).toBeGreaterThanOrEqual(6);
-    for (const file of obsViews)
-      expect(/["']use client["']/.test(read(file)), file).toBe(false);
+    expect(views.length).toBeGreaterThanOrEqual(6);
+    const offenders = views.flatMap((file) => [
+      ...(USE_CLIENT.test(read(file)) ? [`${file}: "use client"`] : []),
+      ...moduleSpecifiers(sourceFile(file))
+        .map(({ spec }) => resolveImport(file, spec))
+        .filter((target): target is string => target !== null)
+        .filter((target) => USE_CLIENT.test(read(target)))
+        .filter((target) => !(target in RADAR_CLIENT_COMPONENTS))
+        .map((target) => `${file}: imports ${target}`),
+    ]);
+    expect(offenders).toEqual([]);
   });
 });
 
