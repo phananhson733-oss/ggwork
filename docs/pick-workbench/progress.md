@@ -446,7 +446,12 @@
   - ruff 通过；agent guidance 检查 0 错误；
   - 独立审查：CRITICAL、HIGH 为 0。MEDIUM 两条：插件放给所有登录用户，是用户的决定；飞书群通知可能被外部内容诱导发送，已用上面的读后拦截处理。
 - 上线：
-  - 前端：#20 合并为 `fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5` 后，Vercel Git 集成在 14:03Z 自动把前端推上 Production，没有经守卫，也就没有前端守卫记录行。此后到 gateway 上线前，前端领先 gateway：旧 gateway（部署 5e8d3c35，提交 7179c7b）上没有连接检测接口，已登录请求返回 404。
+  - 更正：这里原先写「#20 合并后 Vercel Git 集成在 14:03Z 自动把前端推上 Production」，不对。
+    - 那次 Git 集成的部署，去的是同一团队里另一个 Vercel 项目 `ggwork`，别名 ggwork-nine.vercel.app。这个站的 `/api` 转发到私有主机名（Vercel 报 `DNS_HOSTNAME_RESOLVED_PRIVATE`），没连生产 gateway。
+    - 生产站 ggwork-deerflow.vercel.app 一直是守卫发布的 7c73ac9c（`dpl_5XZsx8urqbnfYrfFx8xrJd8s75Dc`），直到下面的前端发布。
+    - 所以 gateway 上线后、前端发布前，是 gateway 领先前端：侧边栏仍是灰色「智能体」，能力中心仍是旧表单。
+    - 以后判断生产前端版本，看 `vercel inspect ggwork-deerflow.vercel.app`，不看 GitHub 上的 deployment 状态。
+    - #20 合并为 `fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5`。
   - gateway 经守卫后，从 `git archive` 导出的目录 `railway up`，部署 `8372055f-4d7a-4cc0-90c4-fb5db1eb0631`，SUCCESS。导出目录只有该提交的 3,845 个跟踪文件，链接到同一项目和服务。#14（账号条件被拒时列出可选账号、给出清空写法）的 gateway 改动也在这次上线。#14、#20 都没有新迁移，迁移头仍是 0007；依赖、`uv.lock` 与 Dockerfile 不变。
   - 部署前在守卫检出（fbda69ff）里验证：
     - 扩展全套 3,699 通过、21 跳过，用一次性 PG 17 加 SQLite，跳过的都是方言专属，含 `test_managed_copy`。部署后又在 fbda69ff 上用 `initdb --auth=scram-sha-256` 建的全 scram 集群重跑一遍，结果相同。这个集群的 pg_hba 里 local 与 127.0.0.1 都是 scram，没有 trust；
@@ -458,6 +463,22 @@
     - 以管理员登录后请求，GET `/api/capabilities/connections/check` 从 404 变为 405（`Allow: POST`），`/api/pick/sync` 返回 200。`/api/capabilities/catalog` 不再列出 lark、dingtalk、wecom、tencent-docs、notion、browser，新增 feishu-bot、feishu-docs、google-docs。
     - 跑了一轮选剧对话：模型先反问选榜，再按 KalosTV 日榜作答。两个 run 都 success，日志没有报错。
     - 容器内 `regrant --check`（用户执行，本会话的 `railway ssh` 被 auto mode 拦下）：授权齐全，schema 7、表 31、列 4、序列 12，已发布镜像版本 5 个（pickm_v000001、v000010、v000012、v000013、v000015）。比 PR #10 那次多一个版本，schema 和表因此各多一个。`observe.selfcheck` 能否导入没有在容器里单独核对，#14、#20 没有改它。
+  - 前端：经守卫从 `git archive` 导出的目录发布 7d330584（前端与 fbda69ff 相同），部署 `dpl_DdQ17qjH5Fro3jkoFhrB6QDwG2zR`，生产别名 ggwork-deerflow.vercel.app 指向它。导出目录里是 `frontend/` 的 1,033 个跟踪文件，另外只放了 `.vercel/project.json`。构建带 `NEXT_PUBLIC_APP_VERSION=20260930-7d33058`。gateway 这次没动。
+  - 部署前在守卫检出（7d330584）里验证：
+    - 四格 5/5，含 hot card 格；
+    - 合同夹具 12/12；
+    - 前端全套 2,797 通过、45 跳过；
+    - typecheck 通过，检出干净。
+  - 部署后核对：
+    - `/` 307 到 `/workspace`；
+    - 未登录访问 `/workspace/chats/new`、`/workspace/capabilities` 307 到 `/login`；
+    - 带 `RSC: 1` 的请求只返回到 `/login` 的 `NEXT_REDIRECT`；
+    - `/login` 带 `X-Robots-Tag: noindex, nofollow`。
+  - 以管理员登录后核对：
+    - 侧边栏不再显示「智能体」；
+    - 能力中心列出飞书群通知、飞书文档、Google Docs，网页搜索与网页读取显示已启用；
+    - GitHub 弹窗只有连接名称和个人访问令牌两项，令牌框没有被浏览器自动填充；
+    - 关于页的版本号是 20260930-7d33058。
 - 部署后由用户做：
   - 在能力中心填真实凭据，每填一项看一次检测结果：
     - GitHub：细粒度只读令牌；
@@ -468,5 +489,7 @@
 - 后续：
   - lark-cli 个人授权；
   - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定；
-  - PR #16 合并后再经守卫部署一次 gateway。
+  - PR #16 合并后再经守卫部署一次 gateway；它若改了前端，前端也要经守卫发布；
+  - Vercel 项目 `ggwork` 仍接着 Git 集成，每次推 main 都会给 ggwork-nine 构建一次 Production。要不要断开或删除，由用户定。
 - `pick-deploy-guard target=gateway commit=fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5 prod_head=0007 chain_head=0007 at=2026-09-29T15:20:55Z`
+- `pick-deploy-guard target=frontend commit=7d33058427c457446a8a676e317da391aa824144 at=2026-09-29T16:09:56Z`
