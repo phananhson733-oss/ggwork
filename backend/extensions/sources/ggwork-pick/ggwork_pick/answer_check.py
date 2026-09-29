@@ -28,13 +28,21 @@ _PREFIX_WINDOW = 16
 _CLAUSE_MARK = re.compile(r"[。！？!?；;，,\n]")
 _INDENT = re.compile(r"[ \t]*")
 # "都没发过" / "这三部" speak for every item returned, not for the title named last ("第2部" is one item).
-_SUMMARY = re.compile(r"都|均|全部|其余|其他|以上|这些|这几|它们|(?<![第0-9一二两三四五六七八九十])[0-9一二两三四五六七八九十]+部")
-# Two Latin words in a row the check cannot place are taken for a drama named without 《》: nothing returned speaks for
-# it. One word is a theater, platform or language far more often than a drama (DramaBox, YouTube, en).
-_LATIN_NAME = re.compile(r"[a-z][a-z0-9'’&]*(?:[ \t]+[a-z][a-z0-9'’&]*)+")
-_NOT_NAME = re.compile(r"(?<![0-9a-z])(?:youtube|tiktok|facebook|instagram|fb|ig|yt|us|en|ko|ja|es|pt|th|zh)(?![0-9a-z'’&])")
-# A clause about the whole team is not about the account a posted_account query cleared, even going on from one that is.
-_TEAM_WORDS = re.compile(r"团队|全队|所有账号|任何账号|各个?账号|全部账号|哪个账号")
+_SUMMARY = re.compile(r"都|均|全部|这些|这几|它们|(?<![第0-9一二两三四五六七八九十])[0-9一二两三四五六七八九十]+部")
+# "以上两部" sums up the titles named before it as well ("100集以上" is a count); "其余" every title but those.
+_ABOVE = re.compile(r"(?<![0-9一二两三四五六七八九十百千万%％集部岁分秒天周月年次条个])以上|上述")
+_REST = re.compile(r"(?:其余|其他|其它|剩下|剩余|余下)(?!的?(?:账号|账户))")
+# "除了《A》都没发过" / "《A》以外其余都没发过" sum up every title but the ones the clause names.
+_EXCEPT = re.compile(r"除了|除去|除开|》(?:以外|之外)")
+ALL, ABOVE, REST = "all", "above", "rest"
+# Latin words: a title this run returned may be written without 《》. Two other words in a row are taken for a drama
+# named without 《》 that nothing returned speaks for; one word is a theater, platform or language far more often than a
+# drama (DramaBox, YouTube, en). A run of words breaks at anything but spaces and tabs; one pass reads them all.
+_LATIN_TOKEN = re.compile(r"[a-z0-9'’&]+")
+_LETTER = re.compile(r"[a-z]")
+_NOT_NAMES = frozenset({"youtube", "tiktok", "facebook", "instagram", "fb", "ig", "yt", "us", "en", "ko", "ja", "es", "pt", "th", "zh"})
+# A clause about the whole team, or the accounts besides one, is not about the account a posted_account query cleared.
+_TEAM_WORDS = re.compile(r"团队|全队|所有账号|任何账号|各个?账号|全部账号|哪个账号|(?:其他|其余|其它|别的)的?账号")
 _TEAM = "\x00team"
 # "这个账号" is the account a posted_account query asked about.
 _THIS_ACCOUNT = re.compile(r"(?:该|这个|此|本)(?:账号|账户)")
@@ -125,49 +133,128 @@ class _Accounts:
         return frozenset(named), folded
 
 
+def _latin_runs(folded: str) -> list[list[str]]:
+    """The runs of Latin tokens (letters, digits, apostrophes, &) with nothing but spaces and tabs between them."""
+    runs: list[list[str]] = []
+    end = None
+    for match in _LATIN_TOKEN.finditer(folded):
+        if end is None or folded[end : match.start()].strip(" \t"):
+            runs.append([])
+        runs[-1].append(match.group())
+        end = match.end()
+    return runs
+
+
+class _BareTitles:
+    """The titles this run returned that are all Latin words, to find them written without 《》."""
+
+    def __init__(self, seen: dict[str, Seen]) -> None:
+        self.titles: dict[tuple[str, ...], str] = {}
+        # Each first word's title lengths, longest first: "lost heir 2" wins over "lost heir".
+        self.lengths: dict[str, list[int]] = {}
+        for key, entry in seen.items():
+            words = tuple(_LATIN_TOKEN.findall(key))
+            if words and " ".join(words) == key and words not in self.titles:
+                self.titles[words] = entry.title
+                self.lengths.setdefault(words[0], []).append(len(words))
+        for lengths in self.lengths.values():
+            lengths.sort(reverse=True)
+
+    def _title_at(self, run: list[str], index: int) -> tuple[str, int] | None:
+        for length in self.lengths.get(run[index], ()):
+            title = self.titles.get(tuple(run[index : index + length])) if index + length <= len(run) else None
+            if title is not None:
+                return title, length
+        return None
+
+    def scan(self, folded: str) -> tuple[list[str], bool]:
+        """The returned titles folded text names bare, and whether two other words in a row name something unplaced."""
+        found, unknown = [], False
+        for run in _latin_runs(folded):
+            index, word_before = 0, False
+            while index < len(run):
+                hit = self._title_at(run, index)
+                if hit is not None:
+                    found.append(hit[0])
+                    index, word_before = index + hit[1], False
+                    continue
+                word = run[index] not in _NOT_NAMES and _LETTER.search(run[index]) is not None
+                unknown = unknown or (word and word_before)
+                index, word_before = index + 1, word
+        return found, unknown
+
+
 class _Subject(NamedTuple):
-    """What a claim is about: the titles named, whether an unplaced name is, whether it sums up all items; and from where."""
+    """What a claim is about: the titles named, whether an unplaced name is, what it sums up (None, ALL, ABOVE, REST);
+    and from where."""
 
     titles: tuple[str, ...]
     unknown: bool
-    summary: bool
+    summary: str | None
     start: int
     # The indent of the line it starts on: a deeper line below is a detail of it.
     indent: int
 
 
-def _own_subject(text: str, masked: str, accounts: _Accounts, left: int, right: int, indent: int) -> tuple[_Subject, frozenset[str]]:
-    """The clause's own subject, and the accounts it names."""
-    titles = tuple(dict.fromkeys(match.group(1).strip() for match in _TITLE.finditer(text, left, right) if match.group(1).strip()))
+def _summary(masked: str, left: int, right: int) -> str | None:
+    if _REST.search(masked, left, right):
+        return REST
+    if _ABOVE.search(masked, left, right):
+        return ABOVE
+    return ALL if _SUMMARY.search(masked, left, right) else None
+
+
+def _own_subject(
+    text: str, masked: str, clause: tuple[_Accounts, _BareTitles], left: int, right: int, indent: int
+) -> tuple[_Subject, frozenset[str], tuple[str, ...]]:
+    """The clause's own subject, the accounts it names, and the titles it names."""
+    accounts, bare = clause
     named, words = accounts.named(masked[left:right])
-    unknown = _LATIN_NAME.search(_NOT_NAME.sub("|", words)) is not None
-    return _Subject(titles, unknown, _SUMMARY.search(masked, left, right) is not None, left, indent), named
+    found, unknown = bare.scan(words)
+    bracketed = (match.group(1).strip() for match in _TITLE.finditer(text, left, right))
+    titles = tuple(dict.fromkeys(title for title in (*bracketed, *found) if title))
+    summary = _summary(masked, left, right)
+    if summary is not None and _EXCEPT.search(masked, left, right):
+        return _Subject((), unknown, REST, left, indent), named, titles
+    return _Subject(titles, unknown, summary, left, indent), named, titles
 
 
-def _subjects(text: str, masked: str, accounts: _Accounts) -> tuple[list[int], list[_Subject], list[frozenset[str]]]:
-    """Each clause's start, its subject, and the accounts named from where that subject starts through the clause.
+class _Clauses(NamedTuple):
+    starts: list[int]
+    subjects: list[_Subject]
+    # The accounts a claim in the clause is about.
+    mentions: list[frozenset[str]]
+    # The titles each clause names itself, bracketed or bare.
+    owns: list[tuple[str, ...]]
+
+
+def _clauses(text: str, masked: str, seen: dict[str, Seen]) -> _Clauses:
+    """Each clause's start, its subject, the accounts it is about, and the titles it names itself.
 
     A clause naming nothing that continues the one before takes that one's subject. A comma continues the clause before,
     and so does a line indented deeper than the line its subject starts on (a list item's details under its title). A
-    sentence end, a semicolon, a blank line or a line at the same depth never does.
+    sentence end, a semicolon, a blank line or a line at the same depth never does. A clause naming an account is about
+    that account; one naming none that continues the one before is about the accounts that one is about.
     """
-    starts, subjects, mentions = [], [], []
+    found = _Clauses([], [], [], [])
+    reading = (_Accounts(seen), _BareTitles(seen))
     left, soft, indent = 0, False, _INDENT.match(masked).end()
     for mark in (*_CLAUSE_MARK.finditer(masked), None):
-        own, named = _own_subject(text, masked, accounts, left, mark.start() if mark else len(masked), indent)
+        own, named, titles = _own_subject(text, masked, reading, left, mark.start() if mark else len(masked), indent)
         borrows = soft and not (own.titles or own.unknown or own.summary)
-        subjects.append(subjects[-1] if borrows else own)
-        mentions.append((mentions[-1] | named if named else mentions[-1]) if borrows else named)
-        starts.append(left)
+        found.subjects.append(found.subjects[-1] if borrows else own)
+        found.mentions.append((named or found.mentions[-1]) if borrows else named)
+        found.owns.append(titles)
+        found.starts.append(left)
         if mark is None:
             break
         left = mark.end()
         if mark.group() == "\n":
             indent = _INDENT.match(masked, left).end() - left
-            soft = masked[left + indent : left + indent + 1] not in ("", "\n") and indent > subjects[-1].indent
+            soft = masked[left + indent : left + indent + 1] not in ("", "\n") and indent > found.subjects[-1].indent
         else:
             soft = mark.group() in "，,"
-    return starts, subjects, mentions
+    return found
 
 
 def _listed(titles: dict[str, str]) -> str:
@@ -210,39 +297,92 @@ class _Findings:
         return notes
 
 
+class _Judge:
+    """Judges an answer's claims in order. Judging only adds, so a claim reading nothing new adds nothing (and costs
+    nothing): the first "其余" reads the most, and "以上" reads only the titles named since the last one."""
+
+    def __init__(self, seen: dict[str, Seen], posted_checked: bool, owns: list[tuple[str, ...]]) -> None:
+        self.seen, self.posted_checked, self.owns = seen, posted_checked, owns
+        self.findings = _Findings()
+        # The titles named in the clauses before self.through, in order.
+        self.named: set[str] = set()
+        self.order: list[str] = []
+        self.through = 0
+        self.done: set[tuple] = set()
+        self.above: dict[tuple, int] = {}
+
+    def _name_through(self, index: int) -> None:
+        for titles in self.owns[self.through : index + 1]:
+            for title in titles:
+                if _norm(title) not in self.named:
+                    self.named.add(_norm(title))
+                    self.order.append(title)
+        self.through = max(self.through, index + 1)
+
+    def _entries(self, titles, mentioned: frozenset[str]) -> list[tuple[str, str]]:
+        missing = Seen("", UNKNOWN)
+        return [(title, _effective(self.seen.get(_norm(title), missing), mentioned)) for title in titles]
+
+    def _stand(self, entries: list[tuple[str, str]], subject: _Subject) -> None:
+        """A summing-up claim: the entries it sums up judge it; with none, only the posted filter backs it."""
+        if entries:
+            self.findings.judge(entries, unknown=subject.unknown, posted_checked=self.posted_checked)
+        elif not self.posted_checked:
+            self.findings.unfiltered = True
+
+    def claim(self, subject: _Subject, mentioned: frozenset[str], index: int) -> None:
+        self._name_through(index)
+        if subject.summary == REST and not subject.titles:
+            key = (REST, mentioned, subject.unknown)
+            if key not in self.done:
+                self.done.add(key)
+                self._stand([(entry.title, _effective(entry, mentioned)) for norm, entry in self.seen.items() if norm not in self.named], subject)
+        elif subject.summary == ABOVE and self.order:
+            key = (ABOVE, mentioned, subject.unknown)
+            begin = self.above.get(key, 0)
+            if begin < len(self.order):
+                self._stand(self._entries(self.order[begin:], mentioned), subject)
+                self.above[key] = len(self.order)
+        elif subject.titles:
+            key = (subject.start, mentioned)
+            if key not in self.done:
+                self.done.add(key)
+                self.findings.judge(self._entries(subject.titles, mentioned), unknown=subject.unknown, posted_checked=self.posted_checked)
+        else:
+            self._everything(subject, mentioned)
+
+    def _everything(self, subject: _Subject, mentioned: frozenset[str]) -> None:
+        key = (None, mentioned, subject.unknown, subject.summary is not None)
+        if key in self.done:
+            return
+        self.done.add(key)
+        entries = [(entry.title, _effective(entry, mentioned)) for entry in self.seen.values()]
+        if subject.summary is not None or self.posted_checked:
+            self._stand(entries, subject)
+        elif subject.unknown or not entries or any(status != UNPOSTED for _, status in entries):
+            self.findings.unfiltered = True
+
+
 def _not_posted_notes(text: str, posted_checked: bool, seen: dict[str, Seen]) -> list[str]:
     """Notes for "没发过" claims that nothing this run returned backs.
 
-    A claim naming titles stands on their returned records, and one summing up ("都没发过") on every record returned:
-    matched without posts backs it, unmatched or posted refutes it, and a title no tool returned needs the posted
-    filter. A claim naming nothing needs the filter, and then every record returned must not refute it; without the
+    A claim naming titles stands on their returned records: matched without posts backs it, unmatched or posted refutes
+    it, and a title no tool returned needs the posted filter. One summing up stands on the records it sums up: "以上"
+    on every title named up to it, "其余" on every record returned but those titles', "都没发过" on every record
+    returned. A claim naming nothing needs the filter, and then every record returned must not refute it; without the
     filter, every item this run returned must be matched without posts.
     """
     # A title's inside is blanked out (same length): its words are no claim, and its punctuation ends no clause.
     masked = _TITLE.sub(lambda match: "《" + "_" * len(match.group(1)) + "》", text)
-    starts, subjects, mentions = _subjects(text, masked, _Accounts(seen))
-    findings, everything, judged = _Findings(), {}, set()
-    for start in _claim_starts(_NOT_POSTED, masked):
-        index = bisect_right(starts, start) - 1
-        subject, mentioned = subjects[index], mentions[index]
-        # A judgement depends only on what it reads: claims reading the same thing add nothing (and cost nothing).
-        key = (subject.start, mentioned) if subject.titles else (None, mentioned, subject.unknown, subject.summary)
-        if key in judged:
-            continue
-        judged.add(key)
-        if subject.titles:
-            missing = Seen("", UNKNOWN)
-            entries = [(title, _effective(seen.get(_norm(title), missing), mentioned)) for title in subject.titles]
-            findings.judge(entries, unknown=subject.unknown, posted_checked=posted_checked)
-            continue
-        if mentioned not in everything:
-            everything[mentioned] = [(entry.title, _effective(entry, mentioned)) for entry in seen.values()]
-        entries = everything[mentioned]
-        if entries and (subject.summary or posted_checked):
-            findings.judge(entries, unknown=subject.unknown, posted_checked=posted_checked)
-        elif not posted_checked and (subject.unknown or not entries or any(status != UNPOSTED for _, status in entries)):
-            findings.unfiltered = True
-    return findings.notes()
+    claims = _claim_starts(_NOT_POSTED, masked)
+    if not claims:
+        return []
+    clauses = _clauses(text, masked, seen)
+    judge = _Judge(seen, posted_checked, clauses.owns)
+    for start in claims:
+        index = bisect_right(clauses.starts, start) - 1
+        judge.claim(clauses.subjects[index], clauses.mentions[index], index)
+    return judge.findings.notes()
 
 
 def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, posted_seen: dict[str, Seen] | None = None) -> list[str]:
