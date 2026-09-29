@@ -1896,8 +1896,17 @@ def _resolve_runtime_lark_cli_version() -> str:
 
 def read_lark_app_config(user_id: str) -> dict[str, str | bool | None]:
     ensure_lark_cli_credential_tree(user_id)
+    return peek_lark_app_config(user_id)
+
+
+def peek_lark_app_config(user_id: str) -> dict[str, str | bool | None]:
+    """``read_lark_app_config`` without creating, re-permissioning or walking the credential tree.
+
+    For callers that ask on every model call (the GGWork pick gate, docs/pick-workbench/lark-personal-auth.md):
+    nothing is written, and a config file that is a link counts as not configured.
+    """
     config_path = lark_cli_config_dir(user_id) / "config.json"
-    if not config_path.is_file():
+    if config_path.is_symlink() or not config_path.is_file():
         return {"configured": False, "app_id": None, "brand": None}
     try:
         data = json.loads(config_path.read_text(encoding="utf-8"))

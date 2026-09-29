@@ -63,7 +63,7 @@ def connections(monkeypatch):
         lookups.append(user_id)
         return {"configured": True, "app_id": "cli_x", "brand": "feishu"} if user_id in connected else NOT_CONFIGURED
 
-    monkeypatch.setattr(lark_cli, "read_lark_app_config", read)
+    monkeypatch.setattr(lark_cli, "peek_lark_app_config", read)
     return lookups
 
 
@@ -167,6 +167,35 @@ async def test_after_a_feishu_read_an_external_effect_plugin_waits_for_the_user(
     # Reading more is still fine.
     assert await gate.awrap_tool_call(call(github_search_code), handler) == "ok"
     assert handler.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("argv", [["skills", "read", "lark-doc"], ["docs", "--help"], ["schema", "docs.+fetch"]])
+async def test_lark_clis_own_guides_are_not_outside_content(argv):
+    """lark-cli's help and skill text come from the binary, not from Feishu: they do not hold back a group message."""
+    from ggwork_pick.middleware import PickToolGate
+
+    runtime, task = _runtime()
+    handler = AsyncMock(return_value="ok")
+    gate = PickToolGate()
+    guide = SimpleNamespace(runtime=runtime, tool_call={"name": "lark_cli", "args": {"argv": argv}}, tool=lark_cli_tool)
+    assert await gate.awrap_tool_call(guide, handler) == "ok"
+    assert task.plugin_read is False and task.lark_calls == 1
+    assert await gate.awrap_tool_call(SimpleNamespace(runtime=runtime, tool_call={"name": send_message.name}, tool=send_message), handler) == "ok"
+    read = SimpleNamespace(runtime=runtime, tool_call={"name": "lark_cli", "args": {"argv": ["docs", "+fetch", "--doc", "AbC"]}}, tool=lark_cli_tool)
+    assert await gate.awrap_tool_call(read, handler) == "ok"
+    assert task.plugin_read is True
+
+
+def test_asking_whether_a_user_connected_writes_nothing(monkeypatch, tmp_path):
+    from deerflow.config import paths as paths_module
+    from deerflow.config.paths import Paths
+
+    from ggwork_pick.lark_tool import lark_connected
+
+    monkeypatch.setattr(paths_module, "_paths", Paths(base_dir=tmp_path / "home"))
+    assert lark_connected("bob") is False
+    assert not (tmp_path / "home").exists()
 
 
 def test_runtime_config_registers_lark_cli_for_both_roles():

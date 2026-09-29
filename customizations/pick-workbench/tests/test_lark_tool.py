@@ -54,7 +54,7 @@ class Runner:
 @pytest.fixture
 def connected(monkeypatch):
     monkeypatch.setattr(
-        lark_cli, "read_lark_app_config", lambda user_id: CONNECTED if user_id == "alice" else {"configured": False, "app_id": None, "brand": None}
+        lark_cli, "peek_lark_app_config", lambda user_id: CONNECTED if user_id == "alice" else {"configured": False, "app_id": None, "brand": None}
     )
 
 
@@ -96,7 +96,7 @@ async def test_policy_refusals_run_nothing(monkeypatch, connected):
 @pytest.mark.asyncio
 async def test_guides_need_no_connection(monkeypatch):
     runner = Runner(result=Completed(0, "# lark-doc", "")).install(monkeypatch)
-    monkeypatch.setattr(lark_cli, "read_lark_app_config", lambda user_id: pytest.fail("a guide needs no credentials"))
+    monkeypatch.setattr(lark_cli, "peek_lark_app_config", lambda user_id: pytest.fail("a guide needs no credentials"))
 
     assert await _call(["skills", "read", "lark-doc"]) == "# lark-doc"
     assert runner.calls == [("guide", ("skills", "read", "lark-doc"))]
@@ -212,7 +212,7 @@ def test_connected_is_false_when_the_setup_cannot_be_read(monkeypatch):
     def broken(_user_id):
         raise ValueError("symlink")
 
-    monkeypatch.setattr(lark_cli, "read_lark_app_config", broken)
+    monkeypatch.setattr(lark_cli, "peek_lark_app_config", broken)
 
     assert not lark_tool.lark_connected("alice")
 

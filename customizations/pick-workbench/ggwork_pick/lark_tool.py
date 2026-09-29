@@ -32,9 +32,9 @@ FAILED_NOTICE = f"如果提示缺少权限或 scope，请用户到{_SETTINGS}重
 
 
 def lark_connected(user_id: str) -> bool:
-    """Whether the user finished the capability center's connect step (reads one small file)."""
+    """Whether the user finished the capability center's connect step (reads one small file, writes nothing)."""
     try:
-        return bool(lark_cli.read_lark_app_config(user_id)["configured"])
+        return bool(lark_cli.peek_lark_app_config(user_id)["configured"])
     except (OSError, ValueError):
         logger.warning("Could not read the Lark connection of user %s", user_id, exc_info=True)
         return False

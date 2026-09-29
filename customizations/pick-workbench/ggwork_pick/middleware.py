@@ -13,6 +13,7 @@ from langchain_core.tools import BaseTool
 
 from ggwork_pick.answer_check import check_answer, titles_in
 from ggwork_pick.context import task_from_runtime
+from ggwork_pick.lark_policy import LarkRefused, check_args
 from ggwork_pick.lark_tool import CONNECT_LINK, lark_connected
 from ggwork_pick.lark_tool import TOOL_NAME as LARK_TOOL
 
@@ -125,6 +126,14 @@ async def _lark_offer(request) -> bool | None:
     return await asyncio.to_thread(lark_connected, user_id)
 
 
+def lark_guide(args) -> bool:
+    """A lark_cli call that only reads lark-cli's own help, schema or skill text, never Feishu content."""
+    try:
+        return check_args(args.get("argv") if isinstance(args, dict) else None).guide
+    except LarkRefused:
+        return False
+
+
 def plugin_reads_only(tool: BaseTool) -> bool:
     """Web tools and MCP tools annotated read-only; an unannotated MCP tool counts as having external effects."""
     return tool.name in PLUGIN_NATIVE_TOOLS or (tool.metadata or {}).get("readOnlyHint") is True
@@ -184,7 +193,7 @@ class PickToolGate(AgentMiddleware):
                 raise ValueError("本轮飞书命令调用次数已达上限")
             task.lark_calls += 1
             # Feishu content may carry instructions too: an external-effect plugin then waits for the user.
-            task.plugin_read = True
+            task.plugin_read = task.plugin_read or not lark_guide(request.tool_call.get("args"))
         elif plugin:
             if task.plugin_calls >= PLUGIN_CALL_LIMIT:
                 raise ValueError("本轮插件工具调用次数已达上限")
