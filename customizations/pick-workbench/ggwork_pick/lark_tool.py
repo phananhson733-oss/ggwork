@@ -83,7 +83,7 @@ def render(completed: lark_runner.Completed) -> str:
     if completed.exit_code == 0:
         text = completed.stdout.strip() or completed.stderr.strip() or "（没有输出）"
         if completed.truncated:
-            text += f"\n…（输出已截断到 {lark_runner.MAX_OUTPUT_CHARS} 字符；用 --jq、分页参数或 --scope outline/section 缩小范围）"
+            text += f"\n…（输出已截断到 {lark_runner.MAX_OUTPUT_CHARS} 字符；用 --jq=<表达式>、分页参数或 --scope outline/section 缩小范围）"
         return text
     error = _error_of(completed)
     if error.get("type") in AUTH_ERROR_TYPES:

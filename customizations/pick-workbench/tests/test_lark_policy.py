@@ -109,15 +109,56 @@ def test_a_positional_file_reference_is_refused():
 
 
 @pytest.mark.parametrize("expression", [".data.items[] | @csv", "@json", ".a / .b", '.x | test("..")'])
-def test_jq_expressions_are_not_file_references(expression):
-    assert check_args(["im", "+chat-search", "--query", "ops", "--jq", expression]).path == ("im", "+chat-search")
-    assert check_args(["im", "+chat-search", "--query", "ops", "-q", expression]).path == ("im", "+chat-search")
-    assert check_args(["im", "+chat-search", "--query", "ops", f"--jq={expression}"]).path == ("im", "+chat-search")
+def test_an_attached_jq_expression_is_not_a_file_reference(expression):
+    for flag in ("--jq", "-q"):
+        assert check_args(["im", "+chat-search", "--query", "ops", f"{flag}={expression}"]).path == ("im", "+chat-search")
+
+
+@pytest.mark.parametrize("expression", [".data.items[] | @csv", ".a / .b", '.x | test("..")'])
+def test_a_separate_jq_expression_passes_the_ordinary_value_checks(expression):
+    for flag in ("--jq", "-q"):
+        assert check_args(["im", "+chat-search", "--query", "ops", flag, expression]).path == ("im", "+chat-search")
+
+
+def test_a_separate_jq_expression_that_looks_like_a_file_is_checked_and_told_to_attach():
+    # lark-cli may have taken `-q` as the previous flag's value, and then this token is not a jq expression at all.
+    for flag in ("--jq", "-q"):
+        with pytest.raises(LarkRefused, match="--jq=") as refused:
+            check_args(["im", "+chat-search", "--query", "ops", flag, "@json"])
+        assert "本地文件" in str(refused.value)
 
 
 def test_only_the_jq_value_is_exempt():
     with pytest.raises(LarkRefused, match="本地文件"):
-        check_args(["docs", "+fetch", "--jq", ".x", "--doc", "@/etc/passwd"])
+        check_args(["docs", "+fetch", "--jq=.x", "--doc", "@/etc/passwd"])
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        # 09-29 review: lark-cli took `-q` as --base-token's value, so the next token was a real flag it read a file for.
+        ["base", "+record-list", "--base-token", "-q", "--filter-json=@/abs/file"],
+        ["base", "+record-list", "--base-token", "--jq", "--filter-json=@/abs/file"],
+        ["docs", "+fetch", "--doc", "-q", "@/etc/passwd"],
+        ["base", "+record-list", "--base-token", "-q", "--yes"],
+    ],
+)
+def test_a_jq_flag_never_hides_the_token_after_it(args):
+    with pytest.raises(LarkRefused):
+        check_args(args)
+
+
+@pytest.mark.parametrize("pad", [" ", "\u00a0", "\u3000", "\u200b", "\ufeff", " \u3000"])
+@pytest.mark.parametrize("value", ["@/tmp/x", "/etc/passwd", "~/.ssh/id_rsa", "../x", "-"])
+def test_whitespace_around_a_file_reference_does_not_hide_it(pad, value):
+    """09-29 review: lark-cli trims Unicode whitespace before it treats a value as @file."""
+    with pytest.raises(LarkRefused, match="本地文件"):
+        check_args(["base", "+record-list", "--filter-json", pad + value])
+    with pytest.raises(LarkRefused, match="本地文件"):
+        check_args(["base", "+record-list", f"--filter-json={pad}{value}"])
+    # A trailing blank: `- ` is dash-led, so it is refused as neither a flag name nor a number.
+    with pytest.raises(LarkRefused):
+        check_args(["base", "+record-list", "--filter-json", value + pad])
 
 
 @pytest.mark.parametrize("value", ["https://example.feishu.cn/wiki/AbC?from=a/b", "a@b.com", '{"path": "/x"}', "-1", "10"])
