@@ -5,8 +5,8 @@ one command's heavy or broken imports never reach another, and nothing here pull
 declare the NAME its file name implies and a callable main(argv) returning the exit status (None counts as 0).
 
 The command files that exist today are cmd_gsc_export_urls.py, cmd_gsc_probe.py, cmd_regrant.py and
-cmd_reset_disable.py. cmd_import_legacy.py (`import-legacy`) is planned in TR-22 and not built; where that name still
-appears (command_name's docstring, the tests' throwaway package) it only illustrates the file-name rule.
+cmd_reset_disable.py. cmd_import_legacy.py (`import-legacy`) is planned in TR-22 and not built; the tests use that name
+in a throwaway package, only to exercise the file-name rule.
 
 Exit status: the command's own (0-255; anything else counts as 1, since the OS keeps only the low byte and 256 would
 read as success), or 2 for an unknown or malformed command (nothing ran), 1 for an unexpected error, 130 when
@@ -33,7 +33,7 @@ MAX_STATUS = 255  # POSIX keeps the low byte of an exit status
 
 
 def command_name(module_name: str) -> str:
-    """cmd_import_legacy -> import-legacy."""
+    """cmd_reset_disable -> reset-disable."""
     return module_name.removeprefix(PREFIX).replace("_", "-")
 
 

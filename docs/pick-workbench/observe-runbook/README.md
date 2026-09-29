@@ -16,7 +16,8 @@
 
 入口：`python -m ggwork_pick.observe.admin <命令> [参数…]`，`--help` 列出本镜像里已有的命令。在 Railway 容器里按 `cd /app/backend && python -m ggwork_pick.observe.admin …` 的写法执行。
 
-- 每条命令是 `ggwork_pick/observe/admin/` 下的一个模块 `cmd_<名字>.py`，命令名把下划线换成连字符（`cmd_import_legacy.py` 即 `import-legacy`）。模块导出同名的 `NAME` 与 `main(argv)`，后者返回退出码。
+- 每条命令是 `ggwork_pick/observe/admin/` 下的一个模块 `cmd_<名字>.py`，命令名把下划线换成连字符（`cmd_reset_disable.py` 即 `reset-disable`）。模块导出同名的 `NAME` 与 `main(argv)`，后者返回退出码。
+- 目前已有的命令文件是 `cmd_gsc_export_urls.py`、`cmd_gsc_probe.py`、`cmd_regrant.py`、`cmd_reset_disable.py`。`cmd_import_legacy.py`（`import-legacy`）属于计划 TR-22，尚未实现；下表里其余还没有对应文件的命令同样是计划项，随表中的任务实现。
 - 入口按文件名列出命令，只导入要执行的那一个；某条命令的依赖坏了，不影响其他命令。
 - 退出码（`ggwork_pick/observe/errors.py`）：0 完成或无事可做；1 中途失败；2 用法错误、缺配置或自检不过，什么都没做；3 持久状态或运行时行读不到，当天不跑；130 被中断，重跑是安全的。命令自己返回的退出码只认 0–255 的整数，其余一律按 1（系统只保留低 8 位，256 会变成 0，被当成成功）。
 - 出错时打印错误类名与 SQLSTATE，不打印数据库或 HTTP 的原文（可能带 DSN、cookie 或剧名）。本扩展自己抛的 `ObserveFailure` 及其子类（`Refused`、`StateUnavailable`）另外保留消息，这些消息按约定只写名字（变量名、表名、步骤），不写值。它们包着数据库错误抛出时（`raise StateUnavailable(...) from db_error`）照样带上底层的 SQLSTATE：退出码 3 带 `42501` 是缺授权，跑 `regrant`；不带 SQLSTATE 时看消息，是运行时行不存在，还是根本没连上库。
