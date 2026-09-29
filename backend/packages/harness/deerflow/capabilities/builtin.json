@@ -36,8 +36,7 @@
       "type": "object",
       "properties": {},
       "additionalProperties": false
-    },
-    "hidden": true
+    }
   },
   {
     "schema_version": 1,

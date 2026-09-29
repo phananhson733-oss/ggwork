@@ -19,8 +19,9 @@ def test_catalog_has_separate_transport_auth_and_contributions():
     assert github.config_schema["type"] == "object"
     assert set(github.config_schema["properties"]) == {"name", "token"}
     assert next(entry for entry in catalog if entry.id == "openviking").adapter == "mcp"
-    lark = next(entry for entry in load_catalog(include_hidden=True) if entry.id == "lark")
-    assert lark.adapter == "lark" and lark.hidden
+    # Listed again once the pick image bundles lark-cli (docs/pick-workbench/lark-personal-auth.md section 6).
+    lark = next(entry for entry in catalog if entry.id == "lark")
+    assert lark.adapter == "lark" and not lark.hidden
     assert all(entry.native_tools for entry in catalog if entry.adapter == "native")
 
 

@@ -153,7 +153,7 @@ test("catalog navigation, search, details, and migrated settings", async ({
   await expect(
     page.getByRole("heading", { name: "能力中心", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("article")).toHaveCount(15);
+  await expect(page.locator("article")).toHaveCount(16);
   await expect(page.locator("a[href='/workspace/capabilities']")).toBeVisible();
   await screenshot(page, "capability-center-plugins.png");
 
@@ -278,7 +278,7 @@ test("plugin filters remain usable after an MCP refetch fails", async ({
     return route.fallback();
   });
   await page.goto("/workspace/capabilities");
-  await expect(page.locator("article")).toHaveCount(15);
+  await expect(page.locator("article")).toHaveCount(16);
   const installed = page.getByRole("tab", { name: "Installed", exact: true });
   await installed.click();
   await expect(page.locator("article")).toHaveCount(5);
@@ -315,7 +315,7 @@ test("plugin categories, setup guides, and installed state remain distinct", asy
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/workspace/capabilities");
-  await expect(page.locator("article")).toHaveCount(15);
+  await expect(page.locator("article")).toHaveCount(16);
   for (const name of [
     "办公协作",
     "文档与知识",
@@ -329,7 +329,7 @@ test("plugin categories, setup guides, and installed state remain distinct", asy
   }
   await screenshot(page, "capability-catalog-zh.png");
   await page.getByRole("button", { name: "办公协作", exact: true }).click();
-  await expect(page.locator("article")).toHaveCount(1);
+  await expect(page.locator("article")).toHaveCount(2);
   await expect(
     page.locator("article").filter({ hasText: "GitHub" }),
   ).toHaveCount(0);
@@ -377,7 +377,7 @@ test("English plugin catalog preview", async ({ page }) => {
   await page.setViewportSize({ width: 1512, height: 1850 });
   await mockCatalog(page);
   await page.goto("/workspace/capabilities");
-  await expect(page.locator("article")).toHaveCount(15);
+  await expect(page.locator("article")).toHaveCount(16);
   await screenshot(page, "capability-catalog-en.png");
 });
 
@@ -521,9 +521,11 @@ test("hidden manifests stay out of discovery and deep links", async ({
 }) => {
   mockLangGraphAPI(page);
   await page.goto("/workspace/capabilities");
-  await expect(page.locator("article")).toHaveCount(12);
+  await expect(page.locator("article")).toHaveCount(13);
+  await expect(
+    page.locator("article").filter({ hasText: "Lark / Feishu" }),
+  ).toHaveCount(1);
   for (const name of [
-    "Lark / Feishu",
     "DingTalk",
     "WeCom",
     "Tencent Docs",
@@ -535,7 +537,7 @@ test("hidden manifests stay out of discovery and deep links", async ({
     );
   }
   await page.goto("/workspace/capabilities?plugin=dingtalk");
-  await expect(page.locator("article")).toHaveCount(12);
+  await expect(page.locator("article")).toHaveCount(13);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 

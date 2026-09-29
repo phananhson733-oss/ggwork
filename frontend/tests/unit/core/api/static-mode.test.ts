@@ -219,7 +219,8 @@ it("serves the canonical capability catalog locally and rejects writes", async (
   // Gateway does.
   expect(staticCapabilityCatalog).toEqual(canonical);
   const hidden = canonical.filter((plugin) => plugin.hidden);
-  expect(hidden.map((plugin) => plugin.id)).toContain("lark");
+  expect(hidden.map((plugin) => plugin.id)).toContain("dingtalk");
+  expect(catalog.map((plugin) => plugin.id)).toContain("lark");
   expect(catalog).toEqual(canonical.filter((plugin) => !plugin.hidden));
   expect(network).not.toHaveBeenCalled();
   const write = await apiFetch("/api/capabilities/installations", {
