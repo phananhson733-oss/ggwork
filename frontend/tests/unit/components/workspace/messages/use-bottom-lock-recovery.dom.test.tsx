@@ -29,6 +29,9 @@ function renderConversation() {
   if (!context || !scroller) {
     throw new Error("StickToBottom did not mount its scroll container");
   }
+  // happy-dom computes no default `overflow: visible`, so the library never
+  // applies its own `overflow: auto`, which its wheel escape looks for.
+  scroller.style.overflow = "auto";
   // happy-dom has no layout, so give the viewport a scrollable geometry.
   const geometry = { scrollHeight: SCROLL_HEIGHT };
   Object.defineProperty(scroller, "scrollHeight", {
@@ -44,6 +47,17 @@ function renderConversation() {
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function keyDown(init: KeyboardEventInit) {
+  return new KeyboardEvent("keydown", { ...init, bubbles: true });
+}
+
+// happy-dom's TouchEvent needs Touch objects; the hook only reads clientY.
+function touchEvent(type: "touchstart" | "touchmove", clientY: number) {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperty(event, "touches", { value: [{ clientY }] });
+  return event;
 }
 
 async function scrollTo(scroller: HTMLElement, top: number) {
@@ -78,6 +92,27 @@ describe("useBottomLockRecovery", () => {
     await scrollTo(scroller, MAX_SCROLL_TOP);
     context.state.resizeDifference = 0;
     expect(context.state.isAtBottom).toBe(false);
+
+    await act(async () => {
+      await wait(50);
+    });
+
+    expect(context.state.isAtBottom).toBe(true);
+  });
+
+  it("keeps a pending recovery through a repeated scroll event that did not move", async () => {
+    const { context, scroller } = renderConversation();
+    await leaveLiveTail(context, scroller);
+
+    context.state.resizeDifference = -56;
+    await scrollTo(scroller, MAX_SCROLL_TOP);
+    // The browser still dispatches its own scroll event after a script both
+    // set the offset and dispatched one; nothing moved in between.
+    await act(async () => {
+      scroller.dispatchEvent(new Event("scroll"));
+      await wait(5);
+    });
+    context.state.resizeDifference = 0;
 
     await act(async () => {
       await wait(50);
@@ -163,6 +198,123 @@ describe("useBottomLockRecovery", () => {
       // use-stick-to-bottom escapes on an upward wheel before the browser
       // emits the scroll events for it.
       scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
+      await wait(5);
+    });
+    context.state.resizeDifference = 0;
+    await act(async () => {
+      await wait(50);
+    });
+
+    expect(context.state.isAtBottom).toBe(false);
+  });
+
+  it("does not pull a reader who nudges up within the tolerance back down", async () => {
+    const { context, geometry, scroller } = renderConversation();
+    // The lock parks one pixel above the maximum offset.
+    await scrollTo(scroller, MAX_SCROLL_TOP - 1);
+    expect(context.state.isAtBottom).toBe(true);
+
+    // A one-pixel trackpad nudge: use-stick-to-bottom releases the lock on
+    // the upward wheel, and the scroll it causes still ends within the
+    // tolerance of the end.
+    await act(async () => {
+      scroller.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -1, bubbles: true }),
+      );
+    });
+    expect(context.state.isAtBottom).toBe(false);
+    await scrollTo(scroller, MAX_SCROLL_TOP - 2);
+    // Tokens keep streaming in below the reader before any recovery runs.
+    geometry.scrollHeight = SCROLL_HEIGHT + 120;
+
+    await act(async () => {
+      await wait(50);
+    });
+
+    expect(context.state.isAtBottom).toBe(false);
+    expect(scroller.scrollTop).toBe(MAX_SCROLL_TOP - 2);
+  });
+
+  it("does not re-lock on an upward scroll that stays within the tolerance", async () => {
+    const { context, geometry, scroller } = renderConversation();
+    await scrollTo(scroller, MAX_SCROLL_TOP - 1);
+    await act(async () => {
+      context.stopScroll();
+    });
+
+    // A scrollbar or keyboard nudge: no wheel event, only an upward scroll.
+    await scrollTo(scroller, MAX_SCROLL_TOP - 2);
+    geometry.scrollHeight = SCROLL_HEIGHT + 120;
+
+    await act(async () => {
+      await wait(50);
+    });
+
+    expect(context.state.isAtBottom).toBe(false);
+    expect(scroller.scrollTop).toBe(MAX_SCROLL_TOP - 2);
+  });
+
+  it("re-locks once the reader scrolls back down after an upward nudge", async () => {
+    const { context, geometry, scroller } = renderConversation();
+    await scrollTo(scroller, MAX_SCROLL_TOP - 1);
+    await act(async () => {
+      scroller.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -1, bubbles: true }),
+      );
+    });
+    await scrollTo(scroller, MAX_SCROLL_TOP - 2);
+    geometry.scrollHeight = SCROLL_HEIGHT + 120;
+
+    // Back down to the new end while a row is re-measured, which the library
+    // ignores on its own.
+    context.state.resizeDifference = -56;
+    await scrollTo(scroller, MAX_SCROLL_TOP + 120);
+    context.state.resizeDifference = 0;
+    await act(async () => {
+      await wait(50);
+    });
+
+    expect(context.state.isAtBottom).toBe(true);
+  });
+
+  it.each([
+    ["an Up arrow", () => keyDown({ key: "ArrowUp" })],
+    ["Page Up", () => keyDown({ key: "PageUp" })],
+    ["Shift+Space", () => keyDown({ key: " ", shiftKey: true })],
+  ])(
+    "cancels a pending recovery when the reader presses %s",
+    async (_name, createEvent) => {
+      const { context, scroller } = renderConversation();
+      await leaveLiveTail(context, scroller);
+
+      context.state.resizeDifference = -56;
+      await act(async () => {
+        scroller.scrollTop = MAX_SCROLL_TOP;
+        scroller.dispatchEvent(new Event("scroll"));
+        // The key's own scroll event has not been dispatched yet.
+        scroller.dispatchEvent(createEvent());
+        await wait(5);
+      });
+      context.state.resizeDifference = 0;
+      await act(async () => {
+        await wait(50);
+      });
+
+      expect(context.state.isAtBottom).toBe(false);
+    },
+  );
+
+  it("cancels a pending recovery when a touch drags the content down", async () => {
+    const { context, scroller } = renderConversation();
+    await leaveLiveTail(context, scroller);
+
+    context.state.resizeDifference = -56;
+    await act(async () => {
+      scroller.scrollTop = MAX_SCROLL_TOP;
+      scroller.dispatchEvent(new Event("scroll"));
+      // A finger moving down scrolls the content up.
+      scroller.dispatchEvent(touchEvent("touchstart", 100));
+      scroller.dispatchEvent(touchEvent("touchmove", 130));
       await wait(5);
     });
     context.state.resizeDifference = 0;

@@ -12,11 +12,97 @@ const LATEST_MESSAGE_TOLERANCE_PX = 2;
 // Runs after the library's own deferred (1 ms) scroll handling has decided.
 const LOCK_RECOVERY_DELAY_MS = 16;
 
+// Keys that scroll the focused viewport (or the page's last scroller) up.
+const UPWARD_SCROLL_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
+
+type ScrollDirection = "up" | "down" | "none";
+
+function distanceFromEnd(element: HTMLElement) {
+  return element.scrollHeight - element.clientHeight - element.scrollTop;
+}
+
 function isScrolledToEnd(element: HTMLElement) {
+  return distanceFromEnd(element) <= LATEST_MESSAGE_TOLERANCE_PX;
+}
+
+// Classifies each scroll against the previous one. Content shrinking below
+// clamps the offset without moving away from the end, so only a move that
+// also grows the distance to the end counts as upward.
+function trackScrollDirection(element: HTMLElement) {
+  let lastTop = element.scrollTop;
+  let lastDistance = distanceFromEnd(element);
+  return (): ScrollDirection => {
+    const top = element.scrollTop;
+    const distance = distanceFromEnd(element);
+    const direction =
+      top < lastTop && distance > lastDistance
+        ? "up"
+        : top > lastTop
+          ? "down"
+          : "none";
+    lastTop = top;
+    lastDistance = distance;
+    return direction;
+  };
+}
+
+function isEditable(target: EventTarget | null) {
   return (
-    element.scrollHeight - element.clientHeight - element.scrollTop <=
-    LATEST_MESSAGE_TOLERANCE_PX
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))
   );
+}
+
+// Reports input that asks to scroll up, before the scroll events it causes:
+// an upward wheel, an upward scrolling key, or a finger dragging the content
+// down.
+function watchUpwardInput(viewport: HTMLElement, onUpward: () => void) {
+  let touchY: number | undefined;
+  const handleWheel = (event: WheelEvent) => {
+    if (event.deltaY < 0) {
+      onUpward();
+    }
+  };
+  const handleKeyDown = (event: KeyboardEvent) => {
+    const { target } = event;
+    const scrollsViewport =
+      target === document.body ||
+      (target instanceof Node && viewport.contains(target));
+    if (!scrollsViewport || isEditable(target)) {
+      return;
+    }
+    if (
+      UPWARD_SCROLL_KEYS.has(event.key) ||
+      (event.key === " " && event.shiftKey)
+    ) {
+      onUpward();
+    }
+  };
+  const handleTouch = (event: TouchEvent) => {
+    const y = event.touches[0]?.clientY;
+    const previousY = touchY;
+    touchY = y;
+    if (
+      event.type === "touchmove" &&
+      y !== undefined &&
+      previousY !== undefined &&
+      y > previousY
+    ) {
+      onUpward();
+    }
+  };
+
+  viewport.addEventListener("wheel", handleWheel, { passive: true });
+  viewport.addEventListener("touchstart", handleTouch, { passive: true });
+  viewport.addEventListener("touchmove", handleTouch, { passive: true });
+  document.addEventListener("keydown", handleKeyDown);
+  return () => {
+    viewport.removeEventListener("wheel", handleWheel);
+    viewport.removeEventListener("touchstart", handleTouch);
+    viewport.removeEventListener("touchmove", handleTouch);
+    document.removeEventListener("keydown", handleKeyDown);
+  };
 }
 
 // Mirrors use-stick-to-bottom's own selection check, which it does not export.
@@ -90,6 +176,7 @@ function watchBottomLockRecovery(
   controls: LockControls,
 ) {
   const recovery = createLockRecovery(viewport, controls);
+  const readDirection = trackScrollDirection(viewport);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cancelRecovery = () => {
     clearTimeout(timer);
@@ -97,10 +184,23 @@ function watchBottomLockRecovery(
     recovery.cancel();
   };
   const handleScroll = () => {
+    const direction = readDirection();
+    if (direction === "none") {
+      // Nothing moved (the browser's own event after a script scrolled and
+      // dispatched one, or a clamp from content shrinking): keep whatever
+      // decision the last real move made.
+      return;
+    }
     cancelRecovery();
-    // A scroll while the lock still holds never schedules a recovery, so this
-    // can only help a reader back onto the lock, never undo their escape.
-    if (controls.state.isAtBottom || !isScrolledToEnd(viewport)) {
+    // Only a downward scroll that lands on the end helps a reader back onto
+    // the lock. An upward one, even a one-pixel nudge that stays within the
+    // tolerance, is the reader leaving; and a scroll while the lock still
+    // holds (the library's own follow) must never undo their escape.
+    if (
+      direction === "up" ||
+      controls.state.isAtBottom ||
+      !isScrolledToEnd(viewport)
+    ) {
       return;
     }
     // Sampled now, because streamed content may grow below before the timer
@@ -114,18 +214,14 @@ function watchBottomLockRecovery(
       }
     }, LOCK_RECOVERY_DELAY_MS);
   };
-  const handleWheel = (event: WheelEvent) => {
-    // The library escapes on an upward wheel before its scroll events arrive.
-    if (event.deltaY < 0) {
-      cancelRecovery();
-    }
-  };
+  // The library escapes on an upward wheel before its scroll events arrive;
+  // any upward input likewise cancels a recovery that has not run yet.
+  const disposeUpwardInput = watchUpwardInput(viewport, cancelRecovery);
 
   viewport.addEventListener("scroll", handleScroll, { passive: true });
-  viewport.addEventListener("wheel", handleWheel, { passive: true });
   return () => {
     viewport.removeEventListener("scroll", handleScroll);
-    viewport.removeEventListener("wheel", handleWheel);
+    disposeUpwardInput();
     cancelRecovery();
     recovery.dispose();
   };
@@ -142,10 +238,11 @@ function watchBottomLockRecovery(
  * stays released while the list looks settled, and new messages or streamed
  * tokens grow below the viewport instead of being followed.
  *
- * Only a scroll that ends at the very bottom while the lock is released
- * re-engages it, so a reader who stopped even slightly above keeps their
- * position. While a selection is being dragged the decision waits for the
- * pointer to be released.
+ * Only a downward scroll that ends at the very bottom while the lock is
+ * released re-engages it, so a reader who stopped even slightly above, or
+ * nudged up by a pixel from the parked position, keeps their position. Upward
+ * input cancels a recovery that has not run yet. While a selection is being
+ * dragged the decision waits for the pointer to be released.
  */
 export function useBottomLockRecovery() {
   const { scrollRef, scrollToBottom, state } = useStickToBottomContext();

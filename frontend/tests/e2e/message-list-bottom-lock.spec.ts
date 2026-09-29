@@ -1,44 +1,62 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { mockLangGraphAPI, MOCK_THREAD_ID } from "./utils/mock-api";
 
 // Enough groups to switch the message list into its virtualized mode.
 const TURNS = 40;
 
+async function openLongConversation(page: Page) {
+  const messages = Array.from({ length: TURNS }, (_, turn) => [
+    {
+      type: "human",
+      id: `lock-human-${turn}`,
+      content: `Bottom lock question ${turn}`,
+    },
+    {
+      type: "ai",
+      id: `lock-ai-${turn}`,
+      content: `Bottom lock answer ${turn}`,
+    },
+  ]).flat();
+  mockLangGraphAPI(page, {
+    threads: [
+      {
+        thread_id: MOCK_THREAD_ID,
+        title: "Bottom lock",
+        updated_at: "2025-06-03T12:00:00Z",
+        messages,
+      },
+    ],
+  });
+
+  await page.goto(`/workspace/chats/${MOCK_THREAD_ID}`);
+  await expect(
+    page.getByText(`Bottom lock answer ${TURNS - 1}`, { exact: true }),
+  ).toBeVisible({ timeout: 15_000 });
+
+  const conversation = page.getByRole("log");
+  const scroller = conversation.locator(":scope > div").first();
+  const distanceFromBottom = () =>
+    scroller.evaluate(
+      (element) =>
+        element.scrollHeight - element.clientHeight - element.scrollTop,
+    );
+  // New content below the reader: a streamed token or a new message.
+  const growBelow = () =>
+    scroller.evaluate((element) => {
+      const content = element.firstElementChild as HTMLElement;
+      const bottomSpacer = content.lastElementChild as HTMLElement;
+      bottomSpacer.style.height = "600px";
+    });
+  return { conversation, scroller, distanceFromBottom, growBelow };
+}
+
 test.describe("Message list bottom lock", () => {
   test("follows new content after the reader returns to the latest message during a resize", async ({
     page,
   }) => {
-    const messages = Array.from({ length: TURNS }, (_, turn) => [
-      {
-        type: "human",
-        id: `lock-human-${turn}`,
-        content: `Bottom lock question ${turn}`,
-      },
-      {
-        type: "ai",
-        id: `lock-ai-${turn}`,
-        content: `Bottom lock answer ${turn}`,
-      },
-    ]).flat();
-    mockLangGraphAPI(page, {
-      threads: [
-        {
-          thread_id: MOCK_THREAD_ID,
-          title: "Bottom lock",
-          updated_at: "2025-06-03T12:00:00Z",
-          messages,
-        },
-      ],
-    });
-
-    await page.goto(`/workspace/chats/${MOCK_THREAD_ID}`);
-    await expect(
-      page.getByText(`Bottom lock answer ${TURNS - 1}`, { exact: true }),
-    ).toBeVisible({ timeout: 15_000 });
-
-    const conversation = page.getByRole("log");
-    const scroller = conversation.locator(":scope > div").first();
+    const { conversation, scroller, distanceFromBottom, growBelow } =
+      await openLongConversation(page);
 
     // Leave the live tail the way a reader does.
     await scroller.dispatchEvent("wheel", { deltaY: -1_000 });
@@ -77,22 +95,40 @@ test.describe("Message list bottom lock", () => {
         }),
     );
 
-    const distanceFromBottom = () =>
-      scroller.evaluate(
-        (element) =>
-          element.scrollHeight - element.clientHeight - element.scrollTop,
-      );
     await expect.poll(distanceFromBottom).toBeLessThanOrEqual(2);
     // Let the pending resize settle before new content arrives.
     await page.waitForTimeout(100);
 
-    // New content below the reader (a streamed token, a new message) must be
-    // followed now that they are back on the latest message.
-    await scroller.evaluate((element) => {
-      const content = element.firstElementChild as HTMLElement;
-      const bottomSpacer = content.lastElementChild as HTMLElement;
-      bottomSpacer.style.height = "600px";
-    });
+    // New content below the reader must be followed now that they are back
+    // on the latest message.
+    await growBelow();
     await expect.poll(distanceFromBottom).toBeLessThanOrEqual(2);
+  });
+
+  test("leaves a reader who nudges up by a pixel where they are as content grows", async ({
+    page,
+  }) => {
+    const { scroller, distanceFromBottom, growBelow } =
+      await openLongConversation(page);
+    await expect.poll(distanceFromBottom).toBeLessThanOrEqual(2);
+
+    // A one-pixel trackpad nudge up from the lock's parked position: the
+    // wheel releases the lock, and the scroll it causes still ends within a
+    // couple of pixels of the end.
+    await scroller.dispatchEvent("wheel", { deltaY: -1 });
+    await scroller.evaluate((element) => {
+      element.scrollTop -= 1;
+    });
+    await page.waitForTimeout(100);
+    const before = await scroller.evaluate((element) => element.scrollTop);
+
+    await growBelow();
+    await page.waitForTimeout(300);
+
+    // The reader stays where they were instead of being pulled to the new end.
+    expect(await scroller.evaluate((element) => element.scrollTop)).toBe(
+      before,
+    );
+    expect(await distanceFromBottom()).toBeGreaterThan(500);
   });
 });
