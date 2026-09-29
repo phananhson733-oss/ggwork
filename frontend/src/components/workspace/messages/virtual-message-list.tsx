@@ -19,6 +19,8 @@ import { useStickToBottomContext } from "use-stick-to-bottom";
 
 import type { MessageGroup } from "@/core/messages/utils";
 
+import { useBottomLockRecovery } from "./use-bottom-lock-recovery";
+
 const VIRTUALIZATION_THRESHOLD = 60;
 const ESTIMATED_ROW_HEIGHT = 176;
 const GROUP_START_OFFSET = 16;
@@ -60,6 +62,7 @@ export const VirtualMessageList = forwardRef<
 ) {
   const { isAtBottom, scrollRef, scrollToBottom, stopScroll } =
     useStickToBottomContext();
+  useBottomLockRecovery();
   const listRef = useRef<HTMLDivElement | null>(null);
   const activeIndex = isLoading ? groups.length - 1 : -1;
   const getItemKey = useCallback(
