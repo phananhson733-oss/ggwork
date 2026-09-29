@@ -443,6 +443,16 @@ def test_leaving_titles_out_still_judges_the_titles_named_before_and_beside():
         assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == [], text
 
 
+def test_the_rest_once_every_record_is_named_stands_on_nothing():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Lost Heir", matched=True)])
+    # The second "其余" comes after the only record is named: nothing returned backs it.
+    notes = check_answer("其余都没发过。《Lost Heir》。其余都没发过。", known_titles={"Lost Heir"}, posted_checked=False, posted_seen=seen)
+    assert notes == ["本轮查询没有按发布记录过滤，不能据此断言没发过。"]
+    assert check_answer("其余都没发过。", known_titles={"Lost Heir"}, posted_checked=False, posted_seen=seen) == []
+
+
 def test_not_counting_something_that_is_no_title_leaves_no_title_out():
     from ggwork_pick.answer_check import check_answer, with_posted
 
@@ -504,6 +514,17 @@ def test_where_or_by_whom_must_end_before_the_verb():
         "《Big Boss》没有在 B 账号发表过评论。",
         # A window of time is not "never".
         "《Big Boss》没有在近30天内发布过。",
+        # Another verb starting with 发, or a record, news or version of posting.
+        "《Big Boss》没有在海外发酵。",
+        "《Big Boss》没有在国内发力。",
+        "《Big Boss》没有在国内发售。",
+        "《Big Boss》没有在B站发布的记录。",
+        "《Big Boss》尚无在海外发布的消息。",
+        "《Big Boss》没有公开发布的渠道。",
+        "《Big Boss》没有正式发布的通知。",
+        "《Big Boss》没有被官方发布的消息。",
+        "《Big Boss》没有发布过的记录。",
+        "《Big Boss》没有在这个端发布新版本。",
     ):
         for checked in (False, True):
             assert check_answer(text, known_titles=known, posted_checked=checked, posted_seen=seen) == [], (text, checked)
@@ -559,6 +580,13 @@ def test_more_ways_of_saying_not_posted_are_claims():
         "《Big Boss》没有被官方发布过。",
         "《Big Boss》没有被团队正式发布过。",
         "《Big Boss》没有正式发布过。",
+        "《Big Boss》没在抖音发过。",
+        "《Big Boss》没有在油管发布过。",
+        "《Big Boss》没在美国发过。",
+        "《Big Boss》没在欧美发过。",
+        "《Big Boss》没在主页发过。",
+        "《Big Boss》没在这儿发过。",
+        "《Big Boss》还没有发布的剧就是它。",
     ):
         assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
     for text in ("《Big Boss》没在 A 账号发过。", "《Big Boss》没有被这个账号发布过。"):
@@ -740,8 +768,13 @@ def test_the_judge_finds_what_reading_every_record_for_every_claim_finds():
         "lost heir " * 4_999 + "没发过",
         "《" * 50_000,
         "《a》没发过" * 7_142,
+        " " * 49_997 + "没发过",
+        "\n" + "\t" * 49_996 + "没发过",
+        "和 " * 24_998 + "没发过",
+        "+" * 49_997 + "没发过",
+        "- 、" * 16_665 + "没发过",
     ],
-    ids=["one-word", "one-word-claim", "words", "clauses", "bare-titles", "brackets", "titled-claims"],
+    ids=["one-word", "one-word-claim", "words", "clauses", "bare-titles", "brackets", "titled-claims", "spaces", "tabs", "joins", "pluses", "bullets"],
 )
 def test_a_long_answer_is_checked_in_linear_time(text):
     import time

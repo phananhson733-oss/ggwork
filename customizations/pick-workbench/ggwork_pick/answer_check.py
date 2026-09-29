@@ -24,16 +24,19 @@ _SAVE_CLAIM = re.compile(
 # may stand between the negation and the verb ("没在 B 账号发过", "没有被团队发布过"): an account, the team, a platform, a
 # channel or a place ("美区", "官网", "上", "里") after 在, an account, the team or someone after 被 (or no one), within the
 # clause and before any other 发; and then "正式" or the like. Another verb there ("没有在卡片上显示发布日期"), a noun after
-# 发布 ("暂无发布状态", "没有加发布过滤"), or another word starting with 发 ("发表", "发货"), is what the negation is about;
-# so is a window of time ("近30天内"). "没有再发过" says it was posted before.
+# 发布 ("暂无发布状态", "没有加发布过滤", "没有发布的记录"), or another word starting with 发 ("发表", "发货", "发酵"), is
+# what the negation is about; so is a window of time ("近30天内"). "没有再发过" says it was posted before.
 _GAP = r"[^。！？!?；;，,\n发]"
-_WHERE = r"账号|账户|号|团队|公司|平台|频道|渠道|剧场|地方|国内|海外|国外|境外|市场|区|站|网|端|处|上|里|中|[0-9A-Za-z]"
+_WHERE = (
+    r"账号|账户|号|团队|公司|平台|频道|渠道|剧场|地方|国内|海外|国外|境外|市场|欧美|抖音|快手|油管|推特|这儿|那儿"
+    r"|国|区|站|网|端|页|处|上|里|中|[0-9A-Za-z]"
+)
 _BY_WHOM = r"团队|全队|公司|官方|运营|账号|账户|号|人|我们|咱们|他们|她们|你们|[0-9A-Za-z]"
 _NOT_POSTED = re.compile(
     r"(?<!排期)(?:从来没有?|从没有?|没有?|未曾?|不曾|尚无|暂无|从无|并无)"
     rf"(?:(?:在{_GAP}{{0,16}}?(?:{_WHERE})|被(?:{_GAP}{{0,12}}?(?:{_BY_WHOM}))?)\s*)?(?:正式|公开|实际|真正)?"
-    r"(?:发布(?!过滤|过程|记录|日期|时间|状态|数据|信息|明细|详情|结果|概况|情况|计划|渠道|平台|权限|功能|按钮|页面|入口|规则|要求|标准|流程|说明|会|者|量|数|率)"
-    r"|发(?![布现生展放起出送给挥行货表言声票音]))"
+    r"(?:发布(?!(?:过?的)?(?:过滤|过程|记录|日期|时间|状态|数据|信息|明细|详情|结果|概况|情况|计划|渠道|平台|权限|功能|按钮|页面|入口|规则|要求|标准|流程|说明|消息|通知|新闻|公告|新?版本|会|者|量|数|率))"
+    r"|发(?![布现生展放起出送给挥行货表言声票音酵力售扬觉掘明烧愁怒抖呆光热芽达病散射泄誓问动财福胖]))"
 )
 # A claim quoted inside a disclaimer ("不能声称没发过") is not a claim; a comma ends the disclaimer.
 _NEGATING_PREFIX = re.compile(r"(不能|无法|不代表|不等于|不能声称|不能断言|不能确认|不会|才会|是否|请勿|不要)[^。！？，,；;\n]{0,6}$")
@@ -74,11 +77,14 @@ _BARE_MARK = f"《{_MASK}》"
 # What may join titles in a list, and start a list item.
 _JOINS = r"(?:\s|[、/&+]|和|与|及|跟|以及|还有)*"
 _ITEM_START = r"\s*(?:[-*•·+>]+\s*|[0-9]{1,3}\s*[.、)）]\s*)?"
+# A join word before a clause's first title ("和《C》"): each one takes a word, never the spaces or bullets before it, so a
+# long run of them is matched in one pass.
+_LEAD = r"(?:(?:[、/&]|和|与|及|跟|以及|还有)\s*)*"
 # A clause of titles only ("《A》", "2. 《B》和《C》", a bare title) says nothing of its own; one that starts with its
 # titles ("《C》都没发过", "和《C》都没发过") goes on with such a list, and one that starts otherwise ("其中《C》都没发过")
 # says something else.
-_LISTED = re.compile(rf"{_ITEM_START}{_JOINS}(?:《{_MASK}+》{_JOINS})+")
-_STARTS_WITH_TITLE = re.compile(rf"{_ITEM_START}{_JOINS}《")
+_LISTED = re.compile(rf"{_ITEM_START}{_LEAD}(?:《{_MASK}+》{_JOINS})+")
+_STARTS_WITH_TITLE = re.compile(rf"{_ITEM_START}{_LEAD}《")
 _JOINED = re.compile(rf"{_JOINS}")
 # A clause about the whole team, or the accounts besides one, is not about the account a posted_account query cleared.
 _TEAM_WORDS = re.compile(rf"团队|全队|哪个账号|(?:所有|任何|任意|任一|每一?个|各个?|全部|其他|其余|其它|别的|另外){_SOME_ACCOUNTS}")
@@ -641,14 +647,15 @@ class _Judge:
             self.findings.unplaced()
 
     def _rest(self, subject: _Subject, mentioned: frozenset[str]) -> None:
-        """Every record returned but the titles named: with none, only the posted filter backs it."""
+        """Every record returned but the titles named: with none, only the posted filter backs it, however many claims
+        before read the ones there were."""
+        if not self.unnamed:
+            self.findings.unplaced()
+            return
         key = (REST, mentioned, subject.unknown)
         if key in self.done:
             return
         self.done.add(key)
-        if not self.unnamed:
-            self.findings.unplaced()
-            return
         self._read(self._pooled(self.fixed_rest, self.rest_clearable), mentioned)
         if subject.unknown:
             self.findings.unplaced()
