@@ -55,20 +55,25 @@ export function ShadowMark({ mode }: { mode: string }) {
   ) : null;
 }
 
-/** The link to an identity's detail, from either tab; the pinned set stays pinned. */
+/**
+ * The link to an identity's detail from a list: it pins the set the row was shown in (its own channel is the tab's),
+ * so a set published in between does not change what the detail reads.
+ */
 export function IdentityLink({
   req,
   identity,
+  setId,
   children,
 }: {
   req: PickRequest;
   identity: string;
+  setId: string;
   children: ReactNode;
 }) {
   return (
     <Link
       prefetch={false}
-      href={pickHref(req, { oid: identity })}
+      href={pickHref(req, { oid: identity, obs: setId })}
       className={LINK}
     >
       {children}
@@ -124,8 +129,13 @@ function ShownLine({ load }: { load: ObsChannelLoad }) {
         这个通道还没有发布过观测集合，没有可显示的观测数据。
       </p>
     );
+  const newest = set.set_id === load.recent[0]?.set_id;
   const liveNote =
-    load.live === null ? "还没有生效的集合，下面是最新发布的影子集合。" : null;
+    load.live !== null
+      ? null
+      : newest
+        ? "还没有生效的集合，下面是最新发布的影子集合。"
+        : "还没有生效的集合，下面是钉住的影子集合。";
   return (
     <p>
       显示集合 <code>{shortId(set.set_id)}</code>

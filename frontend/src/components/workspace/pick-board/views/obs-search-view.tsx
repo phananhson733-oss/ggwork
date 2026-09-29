@@ -96,9 +96,15 @@ function CoverageSection({ summary }: { summary: ObsGscSummary }) {
         <table className={TABLE}>
           <thead>
             <tr>
-              <th scope="col" className={TH}>指标</th>
-              <th scope="col" className={TH}>第一层：已收明细守恒</th>
-              <th scope="col" className={TH}>第二层：明细缺口</th>
+              <th scope="col" className={TH}>
+                指标
+              </th>
+              <th scope="col" className={TH}>
+                第一层：已收明细守恒
+              </th>
+              <th scope="col" className={TH}>
+                第二层：明细缺口
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -116,19 +122,24 @@ function CoverageSection({ summary }: { summary: ObsGscSummary }) {
   );
 }
 
+/** Every V-check count on its own (contract VcheckSummary): no new request can still have reused or unsent ones. */
 function VcheckSection({ summary }: { summary: ObsGscSummary }) {
   const v = summary.vcheck_summary;
+  const idle = Object.values(v).every((n) => n === 0);
   return (
     <section className={SECTION} data-obs-section="vchecks">
       <h3 className={HEADING}>逐剧核对</h3>
-      {v.requests === 0 ? (
-        <p className={MUTED}>这一轮没有发逐剧核对请求。</p>
+      {idle ? (
+        <p className={MUTED}>这一轮没有逐剧核对：没有请求，也没有沿用。</p>
       ) : (
-        <p>
-          请求 {v.requests} 个（含复用 {v.reused} 个）：成功 {v.succeeded}、失败{" "}
-          {v.failed}、截断 {v.truncated}、陈旧 {v.stale}、正则超长{" "}
-          {v.regex_overflow}。
-        </p>
+        <>
+          <p>
+            本轮请求 {v.requests} 个；成功 {v.succeeded}、失败 {v.failed}、截断{" "}
+            {v.truncated}、用到陈旧切片 {v.stale}、正则分块溢出{" "}
+            {v.regex_overflow}。
+          </p>
+          <p>按 D26 沿用的 Vd {v.reused} 项。</p>
+        </>
       )}
       <p className={MUTED}>
         本轮 GSC 请求 {summary.requests} 个，配额错误 {summary.quota_errors}{" "}

@@ -144,7 +144,17 @@ describe("the trends tab (b_only)", () => {
     const shadow = trendsSet({ set_id: T_SHADOW, mode: "shadow" });
     const root = show(
       trendsData({
-        trends: channelLoad("trends", { shown: shadow, live: null }),
+        trends: channelLoad("trends", {
+          shown: shadow,
+          live: null,
+          recent: [
+            {
+              set_id: shadow.set_id,
+              mode: shadow.mode,
+              published_at: shadow.published_at,
+            },
+          ],
+        }),
       }),
     );
     expect(root.querySelector('[data-obs-shadow="true"]')?.textContent).toBe(
@@ -189,7 +199,7 @@ describe("the trends tab (b_only)", () => {
 });
 
 describe("the search tab", () => {
-  it("keeps the three coverage layers, the windows and the V checks with reuse", () => {
+  it("keeps the three coverage layers, the windows and the V checks with what was reused", () => {
     const root = show(searchData());
     const coverage = section(root, "coverage")?.textContent ?? "";
     expect(coverage).toContain("第一层：已收明细守恒");
@@ -199,7 +209,9 @@ describe("the search tab", () => {
     expect(section(root, "windows")?.textContent).toContain(
       "24 小时窗口：完整",
     );
-    expect(section(root, "vchecks")?.textContent).toMatch(/含复用 \d+ 个/);
+    expect(section(root, "vchecks")?.textContent).toMatch(
+      /按 D26 沿用的 Vd \d+ 项/,
+    );
     expect(forbiddenTexts(root)).toEqual([]);
   });
 
@@ -407,5 +419,95 @@ describe("an identity's detail", () => {
     expect(row?.textContent).toContain("上升观察");
     expect(row?.textContent).toContain("已确认（相邻两天都成立）");
     expect(row?.textContent).toContain("已人工确认对应");
+  });
+});
+
+describe("codex review (P2, P3)", () => {
+  const detailHrefs = (root: Element) =>
+    Array.from(root.querySelectorAll("a"))
+      .map((a) => a.getAttribute("href") ?? "")
+      .filter((href) => href.includes("oid="));
+
+  it("the title of a small-base descriptive surge is the small-base rise, never the surge", () => {
+    const root = show(searchData());
+    const title = root.querySelector(
+      '[data-obs-label="surge"][data-obs-formal="false"] [data-obs-label-title]',
+    );
+    expect(title?.textContent).toBe("小基数曝光上升");
+  });
+
+  it("a list opened without a pin links each identity to the set it showed", () => {
+    const trends = show(trendsData());
+    expect(detailHrefs(trends).length).toBeGreaterThanOrEqual(2);
+    for (const href of detailHrefs(trends))
+      expect(href).toContain(`obs=${T_LIVE}`);
+    cleanup();
+    const search = show(searchData());
+    expect(detailHrefs(search).length).toBeGreaterThan(0);
+    for (const href of detailHrefs(search))
+      expect(href).toContain(`obs=${G_LIVE}`);
+  });
+
+  it("V checks with no new request still show what was reused or not sent", () => {
+    const vchecks = {
+      requests: 0,
+      succeeded: 0,
+      failed: 0,
+      truncated: 0,
+      stale: 0,
+      reused: 12,
+      regex_overflow: 2,
+    };
+    const base = gscSet();
+    const set = gscSet({
+      summary: { ...base.summary, vcheck_summary: vchecks },
+    });
+    const root = show(searchData({ gsc: channelLoad("gsc", { shown: set }) }));
+    const text = section(root, "vchecks")?.textContent ?? "";
+    expect(text).toContain("按 D26 沿用的 Vd 12 项");
+    expect(text).toContain("正则分块溢出 2");
+    expect(text).not.toContain("没有逐剧核对");
+    cleanup();
+    const idle = gscSet({
+      summary: {
+        ...base.summary,
+        vcheck_summary: { ...vchecks, reused: 0, regex_overflow: 0 },
+      },
+    });
+    const quiet = show(
+      searchData({ gsc: channelLoad("gsc", { shown: idle }) }),
+    );
+    expect(section(quiet, "vchecks")?.textContent).toContain(
+      "这一轮没有逐剧核对：没有请求，也没有沿用。",
+    );
+  });
+
+  it("a pinned older shadow set is not called the newest", () => {
+    const older = trendsSet({ set_id: T_SHADOW, mode: "shadow" });
+    const newest = trendsSet({
+      set_id: "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6e",
+      mode: "shadow",
+      published_at: "2026-09-25T03:00:00.000000+00:00",
+    });
+    const brief = (set: typeof older) => ({
+      set_id: set.set_id,
+      mode: set.mode,
+      published_at: set.published_at,
+    });
+    const root = show(
+      trendsData({
+        trends: channelLoad("trends", {
+          shown: older,
+          live: null,
+          pin: "shown",
+          recent: [brief(newest), brief(older)],
+        }),
+      }),
+      { obs: T_SHADOW },
+    );
+    expect(root.textContent).toContain(
+      "还没有生效的集合，下面是钉住的影子集合。",
+    );
+    expect(root.textContent).not.toContain("最新发布的影子集合");
   });
 });

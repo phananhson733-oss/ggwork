@@ -96,7 +96,11 @@ function DiscoveryRow({ d, req }: { d: ObsDiscovery; req: PickRequest }) {
       </td>
       <td className={TD}>
         {d.matched_identity ? (
-          <IdentityLink req={req} identity={d.matched_identity}>
+          <IdentityLink
+            req={req}
+            identity={d.matched_identity}
+            setId={d.set_id}
+          >
             {identityLabel(d.matched_identity)}
           </IdentityLink>
         ) : (
@@ -135,11 +139,21 @@ function RouteTable({
       <table className={TABLE}>
         <thead>
           <tr>
-            <th scope="col" className={TH}>词（规范化）</th>
-            <th scope="col" className={TH}>geo</th>
-            <th scope="col" className={TH}>种子</th>
-            <th scope="col" className={TH}>对应的剧</th>
-            <th scope="col" className={TH}>首次见到</th>
+            <th scope="col" className={TH}>
+              词（规范化）
+            </th>
+            <th scope="col" className={TH}>
+              geo
+            </th>
+            <th scope="col" className={TH}>
+              种子
+            </th>
+            <th scope="col" className={TH}>
+              对应的剧
+            </th>
+            <th scope="col" className={TH}>
+              首次见到
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -181,9 +195,11 @@ function Discoveries({
 }
 
 function Uncovered({
+  setId,
   summary,
   req,
 }: {
+  setId: string;
   summary: ObsTrendsSummary;
   req: PickRequest;
 }) {
@@ -199,16 +215,22 @@ function Uncovered({
         <table className={TABLE}>
           <thead>
             <tr>
-              <th scope="col" className={TH}>剧</th>
-              <th scope="col" className={TH}>geo</th>
-              <th scope="col" className={TH}>原因</th>
+              <th scope="col" className={TH}>
+                剧
+              </th>
+              <th scope="col" className={TH}>
+                geo
+              </th>
+              <th scope="col" className={TH}>
+                原因
+              </th>
             </tr>
           </thead>
           <tbody>
             {units.map((u) => (
               <tr key={`${u.identity}|${u.geo}`}>
                 <td className={TD}>
-                  <IdentityLink req={req} identity={u.identity}>
+                  <IdentityLink req={req} identity={u.identity} setId={setId}>
                     {identityLabel(u.identity)}
                   </IdentityLink>
                 </td>
@@ -242,7 +264,7 @@ function SetBody({
         <SummaryLines summary={set.summary} />
       </section>
       {page ? <Discoveries page={page} req={req} /> : null}
-      <Uncovered summary={set.summary} req={req} />
+      <Uncovered setId={set.set_id} summary={set.summary} req={req} />
     </>
   );
 }

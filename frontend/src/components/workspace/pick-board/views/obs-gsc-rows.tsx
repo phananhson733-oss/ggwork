@@ -11,6 +11,7 @@ import type {
 import {
   ADMISSION_AGREED,
   GSC_FLAG_TEXT,
+  gscLabelTitle,
   labelCountsText,
   pasteRowText,
   textOf,
@@ -45,7 +46,7 @@ function admissionText(row: ObsState): string {
 function HitLine({ hit }: { hit: ObsLabelHit }) {
   return (
     <li data-obs-label={hit.label} data-obs-formal={String(hit.formal)}>
-      {textOf(GSC_STATE_TEXT, hit.label)}
+      <span data-obs-label-title="true">{gscLabelTitle(hit)}</span>
       <span className={MUTED}>
         {" "}
         — 条件：{hit.condition}；原始计数：{labelCountsText(hit.counts)}
@@ -115,7 +116,7 @@ export function GscRowCard({
   req?: PickRequest;
 }) {
   const title = req ? (
-    <IdentityLink req={req} identity={row.identity}>
+    <IdentityLink req={req} identity={row.identity} setId={row.set_id}>
       {row.title}
     </IdentityLink>
   ) : (

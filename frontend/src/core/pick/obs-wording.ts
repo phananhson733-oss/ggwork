@@ -7,9 +7,10 @@
  * the forbidden words. An unobserved count reads "未观测到", never zero; an
  * admission text never claims completeness, verification or independence.
  */
-import { UNOBSERVED } from "./obs-format";
+import { GSC_STATE_TEXT, UNOBSERVED } from "./obs-format";
 import type {
   DiscoveryRoute,
+  ObsLabelHit,
   ObsPasteRow,
   DISCOVERY_MATCHES,
   GSC_FLAGS,
@@ -166,9 +167,34 @@ export function textOf(
 }
 
 /**
+ * A label hit's title (design 5.8). A surge that is descriptive because its base is small is shown only as a
+ * small-base rise, and a from-zero hit whose base was not checked as new with its base unchecked; rules.py writes
+ * those very phrases into the condition, so the condition says which, and a hit descriptive for any other reason
+ * (admission, a dropped flag) keeps its name.
+ */
+export function gscLabelTitle(
+  hit: Pick<ObsLabelHit, "label" | "formal" | "condition">,
+): string {
+  if (
+    hit.label === "surge" &&
+    !hit.formal &&
+    hit.condition.includes(SMALL_BASE_SURGE)
+  )
+    return SMALL_BASE_SURGE;
+  if (hit.label === "from_zero" && hit.condition.includes(FROM_ZERO_UNCHECKED))
+    return FROM_ZERO_UNCHECKED;
+  return textOf(GSC_STATE_TEXT, hit.label);
+}
+
+/** A cell of the paste row on one line: a tab or line break inside a field would split its columns or rows. */
+function oneLine(text: string): string {
+  return text.replace(/[\t\r\n]+/g, " ");
+}
+
+/**
  * The editorial sheet's seven columns (design 2.2; RS:src/lib/editorial-sheet.ts:93-100), tab-separated for one
  * paste: title, URL, impressions, clicks, query, date, note. Unobserved counts read "未观测到"; the note names the
- * window the counts are from.
+ * window the counts are from. Tabs and line breaks inside a field become spaces; the stored text is not changed.
  */
 export function pasteRowText(row: ObsPasteRow): string {
   const note = [row.note, `窗口 ${WINDOW_TEXT[row.window_kind]}`]
@@ -182,5 +208,7 @@ export function pasteRowText(row: ObsPasteRow): string {
     row.top_query ?? "",
     row.verified_on,
     note,
-  ].join("\t");
+  ]
+    .map(oneLine)
+    .join("\t");
 }

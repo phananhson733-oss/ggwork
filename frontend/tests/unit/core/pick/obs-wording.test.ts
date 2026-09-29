@@ -8,6 +8,7 @@ import { describe, expect, it } from "@rstest/core";
 
 import { forbiddenIn, UNOBSERVED } from "@/core/pick/obs-format";
 import {
+  type ObsLabelHit,
   DISCOVERY_MATCHES,
   DISCOVERY_ROUTES,
   GSC_FLAGS,
@@ -147,11 +148,82 @@ describe("the paste row (design 2.2)", () => {
     ]);
   });
 
+  it("tabs and line breaks inside a field never break the one line of seven columns", () => {
+    const text = wording.pasteRowText({
+      ...row,
+      title: "A\tB",
+      top_query: "q1\r\nq2",
+      note: "one\ntwo",
+    });
+    expect(text).not.toMatch(/[\r\n]/);
+    const cells = text.split("\t");
+    expect(cells).toHaveLength(7);
+    expect([cells[0], cells[4], cells[6]]).toEqual([
+      "A B",
+      "q1 q2",
+      "one two；窗口 24 小时",
+    ]);
+  });
+
   it("an empty query stays an empty column, an empty note only names the window", () => {
     const cells = wording
       .pasteRowText({ ...row, top_query: null, note: "" })
       .split("\t");
     expect(cells[4]).toBe("");
     expect(cells[6]).toBe("窗口 24 小时");
+  });
+});
+
+describe("a GSC label's title (design 5.8; codex P2)", () => {
+  const hit = (
+    label: ObsLabelHit["label"],
+    formal: boolean,
+    condition: string,
+  ) => ({
+    label,
+    formal,
+    condition,
+    counts: {},
+  });
+
+  it("a small-base surge is shown only as a small-base rise", () => {
+    const small = hit(
+      "surge",
+      false,
+      "W0 对 W−1 ≥ +50%，W−1 < 20（小基数曝光上升，只作描述）",
+    );
+    expect(wording.gscLabelTitle(small)).toBe("小基数曝光上升");
+  });
+
+  it("a surge that is descriptive for another reason keeps its name", () => {
+    expect(
+      wording.gscLabelTitle(hit("surge", false, "W0 ≥ 2000，W−1 ≥ 20")),
+    ).toBe("曝光飙升");
+    expect(
+      wording.gscLabelTitle(hit("surge", true, "W0 ≥ 2000，W−1 ≥ 20")),
+    ).toBe("曝光飙升");
+  });
+
+  it("a from-zero hit whose base was not checked is shown as new, base unchecked", () => {
+    const unchecked = hit(
+      "from_zero",
+      false,
+      "W−1 明细没有行，W0 ≥ 20（新出现，基线未核对）",
+    );
+    expect(wording.gscLabelTitle(unchecked)).toBe("新出现，基线未核对");
+    const checked = hit(
+      "from_zero",
+      true,
+      "W−1 两边都没有行（基线未观测到），W0 一致且 ≥ 20",
+    );
+    expect(wording.gscLabelTitle(checked)).toBe("从零起量（基线未观测到）");
+  });
+
+  it("the markers are the phrases rules.py writes into the condition", () => {
+    const rules = repoText(
+      "customizations/pick-workbench/ggwork_pick/observe/gsc/rules.py",
+    );
+    expect(rules).toContain(`SMALL_BASE = "${wording.SMALL_BASE_SURGE}"`);
+    expect(rules).toContain(`"${wording.FROM_ZERO_UNCHECKED}"`);
   });
 });
