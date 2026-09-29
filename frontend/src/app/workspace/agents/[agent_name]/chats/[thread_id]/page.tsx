@@ -465,16 +465,22 @@ export default function AgentChatPage() {
 
               <div
                 className={cn(
-                  "right-0 bottom-0 left-0 z-30 flex justify-center px-3 sm:px-4",
-                  isWelcomeMode ? "absolute" : "relative shrink-0 pb-4",
+                  "right-0 bottom-0 left-0 z-30 flex px-3 sm:px-4",
+                  // Welcome mode stacks the welcome block and the composer in
+                  // normal flow below the header, so their real height decides
+                  // where they sit: the bottom spacer lifts them toward the
+                  // center on tall screens and gives way on short ones, and
+                  // the area scrolls instead of pushing the block off the top.
+                  isWelcomeMode
+                    ? "absolute top-14 flex-col items-center overflow-x-hidden overflow-y-auto"
+                    : "relative shrink-0 justify-center pb-4",
                 )}
               >
+                {isWelcomeMode && <div aria-hidden="true" className="flex-1" />}
                 <div
                   className={cn(
                     "relative w-full",
-                    isWelcomeMode &&
-                      "-translate-y-[calc(50vh-48px)] sm:-translate-y-[calc(50vh-96px)]",
-                    isWelcomeMode ? "max-w-[720px]" : "max-w-[768px]",
+                    isWelcomeMode ? "max-w-[720px] shrink-0" : "max-w-[768px]",
                   )}
                 >
                   {(hasGoal || hasTodos) && (
@@ -498,6 +504,14 @@ export default function AgentChatPage() {
                           />
                         )}
                       </div>
+                    </div>
+                  )}
+                  {isWelcomeMode && !hasGoal && !hasTodos && (
+                    // The margin is the composer's welcome-mode lift below
+                    // plus the gap InputBox's extraHeader slot leaves
+                    // (pb-4 sm:pb-7), keeping the original spacing.
+                    <div className="mb-6 sm:mb-11">
+                      <AgentWelcome agent={agent} agentName={agent_name} />
                     </div>
                   )}
 
@@ -537,13 +551,6 @@ export default function AgentChatPage() {
                           : "ready"
                     }
                     context={settings.context}
-                    extraHeader={
-                      isWelcomeMode &&
-                      !hasGoal &&
-                      !hasTodos && (
-                        <AgentWelcome agent={agent} agentName={agent_name} />
-                      )
-                    }
                     disabled={
                       env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true" ||
                       isUploading ||
@@ -567,6 +574,12 @@ export default function AgentChatPage() {
                     </div>
                   )}
                 </div>
+                {isWelcomeMode && (
+                  <div
+                    aria-hidden="true"
+                    className="min-h-4 basis-[calc(50vh-48px)] sm:basis-[calc(50vh-96px)]"
+                  />
+                )}
               </div>
             </main>
           </div>

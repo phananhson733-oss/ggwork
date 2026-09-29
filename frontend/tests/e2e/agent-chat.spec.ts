@@ -219,19 +219,15 @@ test.describe("Agent chat", () => {
     });
   });
 
-  test("mobile agent welcome keeps the sidebar trigger clickable", async ({
+  test("mobile agent welcome stays on screen and keeps the sidebar trigger clickable", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 664 });
+    const description = "这是一个用于验证移动端欢迎页布局的测试智能体。".repeat(
+      16,
+    );
     mockLangGraphAPI(page, {
-      agents: [
-        {
-          ...MOCK_AGENTS[0]!,
-          description: "这是一个用于验证移动端欢迎页布局的测试智能体。".repeat(
-            16,
-          ),
-        },
-      ],
+      agents: [{ ...MOCK_AGENTS[0]!, description }],
     });
 
     await page.goto("/workspace/agents/test-agent/chats/new");
@@ -239,6 +235,14 @@ test.describe("Agent chat", () => {
       document.cookie = "locale=zh-CN; path=/; SameSite=Lax";
     });
     await page.reload();
+
+    // The welcome block (icon, name, description) sits above the composer;
+    // on short screens it must not be pushed past the top edge.
+    const welcome = page.getByText(description, { exact: true }).locator("..");
+    await expect(welcome).toBeVisible({ timeout: 15_000 });
+    const welcomeBox = await welcome.boundingBox();
+    expect(welcomeBox).not.toBeNull();
+    expect(welcomeBox!.y).toBeGreaterThanOrEqual(0);
 
     const sidebarTrigger = page
       .locator("[data-sidebar='trigger']:visible")
