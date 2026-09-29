@@ -1,8 +1,12 @@
 """`python -m ggwork_pick.observe.admin <command> [args...]`: find the command module and run it (plan D35).
 
-Commands are found by file name (cmd_import_legacy.py is `import-legacy`), and only the module being run is imported:
+Commands are found by file name (cmd_reset_disable.py is `reset-disable`), and only the module being run is imported:
 one command's heavy or broken imports never reach another, and nothing here pulls in the gateway. The module must
 declare the NAME its file name implies and a callable main(argv) returning the exit status (None counts as 0).
+
+The command files that exist today are cmd_gsc_export_urls.py, cmd_gsc_probe.py, cmd_regrant.py and
+cmd_reset_disable.py. cmd_import_legacy.py (`import-legacy`) is planned in TR-22 and not built; where that name still
+appears (command_name's docstring, the tests' throwaway package) it only illustrates the file-name rule.
 
 Exit status: the command's own (0-255; anything else counts as 1, since the OS keeps only the low byte and 256 would
 read as success), or 2 for an unknown or malformed command (nothing ran), 1 for an unexpected error, 130 when
