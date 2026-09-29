@@ -449,15 +449,15 @@
   - 前端：#20 合并为 `fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5` 后，Vercel Git 集成在 14:03Z 自动把前端推上 Production，没有经守卫，也就没有前端守卫记录行。此后到 gateway 上线前，前端领先 gateway：旧 gateway（部署 5e8d3c35，提交 7179c7b）上没有连接检测接口，已登录请求返回 404。
   - gateway 经守卫后，从 `git archive` 导出的目录 `railway up`，部署 `8372055f-4d7a-4cc0-90c4-fb5db1eb0631`，SUCCESS。导出目录只有该提交的 3,845 个跟踪文件，链接到同一项目和服务。#14（账号条件被拒时列出可选账号、给出清空写法）的 gateway 改动也在这次上线。#14、#20 都没有新迁移，迁移头仍是 0007；依赖、`uv.lock` 与 Dockerfile 不变。
   - 部署前在守卫检出（fbda69ff）里验证：
-    - 扩展全套 3,699 通过、21 跳过，用一次性 PG 17 加 SQLite，跳过的都是方言专属，含 `test_managed_copy`；
-    - gateway 四格 35 条，两种库都有，0 跳过；
+    - 扩展全套 3,699 通过、21 跳过，用一次性 PG 17 加 SQLite，跳过的都是方言专属，含 `test_managed_copy`。部署后又在 fbda69ff 上用 `initdb --auth=scram-sha-256` 建的全 scram 集群重跑一遍，结果相同。这个集群的 pg_hba 里 local 与 127.0.0.1 都是 scram，没有 trust；
+    - gateway 四格 35 条，两种库都有，0 跳过；全 scram 集群上重跑结果相同；
     - 宿主用例 466 通过：入口、JSON 净化、create_user（含 PG 那条）、能力中心与业务插件、MCP 缓存、RBAC；
     - 镜像依赖集（`--no-dev --extra postgres`）里有 ddgs、langchain-mcp-adapters、mcp、readabilipy。没有 Node 时，`web_fetch` 的正文提取走 readabilipy 的纯 Python 回退。
   - 部署后核对：
     - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`。没有 Traceback，没有 `service start() failed`，也没有 `Running upgrade`。唯一的 WARNING 仍是 GitHub webhook 路由未挂载。
     - 以管理员登录后请求，GET `/api/capabilities/connections/check` 从 404 变为 405（`Allow: POST`），`/api/pick/sync` 返回 200。`/api/capabilities/catalog` 不再列出 lark、dingtalk、wecom、tencent-docs、notion、browser，新增 feishu-bot、feishu-docs、google-docs。
     - 跑了一轮选剧对话：模型先反问选榜，再按 KalosTV 日榜作答。两个 run 都 success，日志没有报错。
-    - **没做**：容器内核对（`observe.selfcheck`/`grants` 能导入、`regrant --check`）。`railway ssh` 被 auto mode 拦下，待用户执行。
+    - 容器内 `regrant --check`（用户执行，本会话的 `railway ssh` 被 auto mode 拦下）：授权齐全，schema 7、表 31、列 4、序列 12，已发布镜像版本 5 个（pickm_v000001、v000010、v000012、v000013、v000015）。比 PR #10 那次多一个版本，schema 和表因此各多一个。`observe.selfcheck` 能否导入没有在容器里单独核对，#14、#20 没有改它。
 - 部署后由用户做：
   - 在能力中心填真实凭据，每填一项看一次检测结果：
     - GitHub：细粒度只读令牌；
