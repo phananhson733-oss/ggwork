@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from ggwork_pick.contracts import PickConditions
 from ggwork_pick.pin import Pin, as_pin
-from ggwork_pick.references import check_references, hot_scope, is_hot_kind
+from ggwork_pick.references import check_posted_account, check_references, hot_scope, is_hot_kind, names_account
 from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of, with_mirror_version
 
 RULE_VERSION = "pick-rules-v1"
@@ -79,9 +79,7 @@ def _check_references(rows, conditions: PickConditions) -> None:
     if conditions.posted_account:
         if any(row.get("posted") is None for row in rows):
             raise PostedDataUnavailable("当前剧库批次没有发布记录，无法核对是否发过")
-        wanted = conditions.posted_account.strip().casefold()
-        if not any(account.casefold() == wanted for row in rows for account in row["posted"]["accounts"]):
-            raise ValueError(f"发布记录里没有账号「{conditions.posted_account.strip()}」，请确认账号名")
+        check_posted_account(rows, conditions.posted_account)
 
 
 def _posted_excluded(row, conditions: PickConditions) -> bool:
@@ -91,8 +89,7 @@ def _posted_excluded(row, conditions: PickConditions) -> bool:
     if conditions.exclude_posted and posted["post_count"] > 0:
         return True
     if conditions.posted_account:
-        wanted = conditions.posted_account.strip().casefold()
-        return any(account.casefold() == wanted for account in posted["accounts"])
+        return names_account(posted["accounts"], conditions.posted_account)
     return False
 
 
