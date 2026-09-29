@@ -185,7 +185,8 @@ class PickToolGate(AgentMiddleware):
         plugin = not lark and name not in ALLOWED_TOOLS and is_plugin_tool(tool)
         if name not in ALLOWED_TOOLS and not plugin and not lark:
             raise ValueError("本工作台不允许该工具")
-        if name.startswith("pick_"):
+        # Only the configured pick tools spend the pick budget; an MCP tool named pick_* is a plugin like any other.
+        if not plugin and name.startswith("pick_"):
             if task.tool_calls >= 8:
                 raise ValueError("本轮业务工具调用次数已达上限")
             task.tool_calls += 1
