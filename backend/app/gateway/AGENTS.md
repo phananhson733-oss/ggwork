@@ -8,6 +8,8 @@ set. Do not allow arbitrary Python commands, trust manifest metadata to bypass
 execution policy, or put credentials into tool schemas. Existing admin checks,
 masked edits, atomic configuration writes and MCP cache reloads remain owners.
 
+Remote/native adapters, `hidden` entries, connection check: docs/capability-center.md.
+
 Memory shutdown resolves hot-reloaded config and the backend, flushes, then
 closes as one `await_drained` operation. Keep config resolution inside the
 best-effort error handler and off the event loop so malformed config edits do

@@ -49,12 +49,12 @@ def test_discovery_never_exposes_connection_secrets_and_tolerates_legacy_extras(
 
 def test_catalog_install_edit_disable_delete_preserves_existing_store_and_identity(capability_client):
     client, path = capability_client
-    body = {"plugin_id": "github", "name": "team-code", "configuration": {"enabled": True, "type": "http", "url": "https://example.test/mcp", "headers": {"Authorization": "Bearer team-secret"}}}
+    body = {"plugin_id": "openviking", "name": "team-code", "configuration": {"enabled": True, "type": "http", "url": "https://example.test/mcp", "headers": {"Authorization": "Bearer team-secret"}}}
     response = client.post("/api/capabilities/installations", json=body)
     assert response.status_code == 200, response.text
     installed = next(item for item in response.json()["items"] if item["name"] == "team-code")
     identity = installed["id"]
-    assert installed["plugin_id"] == "github"
+    assert installed["plugin_id"] == "openviking"
     raw = json.loads(path.read_text())
     assert raw["mcpServers"]["legacy"]["headers"]["Authorization"] == "Bearer private-secret"
     assert raw["mcpServers"]["team-code"]["headers"]["Authorization"] == "Bearer team-secret"
@@ -63,7 +63,7 @@ def test_catalog_install_edit_disable_delete_preserves_existing_store_and_identi
     assert result.status_code == 200, result.text
     saved = json.loads(path.read_text())["mcpServers"]["team-code"]
     assert saved["capability"]["id"] == identity
-    assert saved["capability"]["plugin_id"] == "github"
+    assert saved["capability"]["plugin_id"] == "openviking"
     assert saved["headers"]["Authorization"] == "Bearer team-secret"
     assert saved["enabled"] is False
     duplicate = client.post("/api/capabilities/installations", json=body)
@@ -78,7 +78,7 @@ def test_catalog_install_edit_disable_delete_preserves_existing_store_and_identi
 def test_only_admin_may_install_and_bad_configuration_is_422(capability_client):
     client, path = capability_client
     before = path.read_bytes()
-    payload = {"plugin_id": "github", "name": "new", "configuration": {"headers": "invalid-secret"}}
+    payload = {"plugin_id": "openviking", "name": "new", "configuration": {"headers": "invalid-secret"}}
     assert client.post("/api/capabilities/installations", json=payload, headers={"test-role": "user"}).status_code == 403
     invalid = client.post("/api/capabilities/installations", json=payload)
     assert invalid.status_code == 422
@@ -98,8 +98,10 @@ def test_adapter_failure_is_isolated_and_lark_configured_is_not_verified(capabil
 @pytest.mark.parametrize(
     "provider,credentials",
     [
-        ("dingtalk", {"access_token": "robot-token", "sign_secret": "SEC-secret"}),
-        ("wecom", {"webhook_key": "webhook-secret"}),
+        ("feishu-bot", {"webhook_token": "robot-token", "sign_secret": "SEC-secret"}),
+        ("feishu-docs", {"app_id": "cli_app-id", "app_secret": "app-secret"}),
+        ("exa", {"api_key": "exa-secret"}),
+        ("firecrawl", {"api_key": "fc-secret"}),
         ("hubspot", {"access_token": "private-token"}),
     ],
 )
@@ -146,7 +148,7 @@ def test_business_config_rejects_arbitrary_execution_and_preserves_store(capabil
 def test_catalog_rejects_incomplete_or_unsafe_http_configuration(capability_client, configuration):
     client, path = capability_client
     before = path.read_bytes()
-    response = client.post("/api/capabilities/installations", json={"plugin_id": "github", "name": "bad", "configuration": configuration})
+    response = client.post("/api/capabilities/installations", json={"plugin_id": "openviking", "name": "bad", "configuration": configuration})
     assert response.status_code == 422
     assert "secret" not in response.text
     assert path.read_bytes() == before

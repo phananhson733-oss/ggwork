@@ -13,11 +13,15 @@ def test_catalog_has_separate_transport_auth_and_contributions():
     catalog = load_catalog()
     assert len({entry.id for entry in catalog}) == len(catalog)
     github = next(entry for entry in catalog if entry.id == "github")
-    assert github.adapter == "mcp"
+    assert github.adapter == "remote"
     assert "api_key" in github.auth_methods
     assert github.version
     assert github.config_schema["type"] == "object"
-    assert next(entry for entry in catalog if entry.id == "lark").adapter == "lark"
+    assert set(github.config_schema["properties"]) == {"name", "token"}
+    assert next(entry for entry in catalog if entry.id == "openviking").adapter == "mcp"
+    lark = next(entry for entry in load_catalog(include_hidden=True) if entry.id == "lark")
+    assert lark.adapter == "lark" and lark.hidden
+    assert all(entry.native_tools for entry in catalog if entry.adapter == "native")
 
 
 def test_installation_identity_ignores_display_and_credentials():

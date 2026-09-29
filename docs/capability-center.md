@@ -32,16 +32,28 @@ loader is separate from this user-facing directory.
 
 ## Bundled business integrations
 
-Three entries ship working API clients with the harness, using the `business`
+These entries ship working API clients with the harness, using the `business`
 configuration adapter and the existing stdio MCP runtime. No separate service,
 package download, or Dify runtime is needed. Configure them under **Capability
 Center → Plugins** as an administrator:
 
 | Plugin | Configuration | Tools |
 | --- | --- | --- |
-| DingTalk group notifications | The robot webhook's `access_token` and signing secret; enable signing in the robot settings | `send_message`: text or Markdown to that group |
-| WeCom group notifications | The `key` parameter from the group robot webhook URL | `send_message`: text or Markdown to that group |
+| Feishu group notifications (`feishu-bot`) | The custom bot's webhook token (after `/hook/`) and its signing secret; enable signature verification on the bot | `send_message`: text, or Markdown as a card, to that group |
+| Feishu Docs (`feishu-docs`) | A custom app's App ID and App Secret with `docx:document:readonly` and `wiki:wiki:readonly`; add the app to each document (… → Add Document App) or wiki space | `read_document`: docx or wiki link (feishu.cn / larkoffice.com) to paged plain text |
+| Google Docs (`google-docs`) | None | `read_document`: a document shared as "Anyone with the link can view", exported as Markdown |
+| Exa (`exa`) | An Exa API key | `search`: up to 10 results with bounded text |
+| Firecrawl (`firecrawl`) | A Firecrawl API key | `scrape`: one page's main content as paged Markdown |
 | HubSpot CRM | A private app access token | `get_companies`: paginated company list; `create_contact`: create a contact by email and optional profile fields |
+| DingTalk / WeCom group notifications | Hidden in the catalog; existing connections keep working | `send_message` |
+
+The clients live in `deerflow/capabilities/business.py` (launcher, credentials,
+tools) and `providers_*.py`. Google Docs follows redirects only to
+`docs.google.com` and `*.googleusercontent.com` and accepts only text or Markdown
+responses, so a private document produces a sharing hint instead of a sign-in
+page. `verify_credentials` gives the connection check a side-effect-free live
+test where the provider has one (HubSpot company read, Feishu tenant token,
+Firecrawl credit usage); sending a message is never part of a check.
 
 HubSpot needs `crm.objects.companies.read` for company queries and
 `crm.objects.contacts.write` for contact creation. A read-only token can be used
@@ -115,6 +127,14 @@ For example:
 `kind` describes the execution mechanism, `auth_methods` describes supported
 account mechanisms, and `adapter` selects the integration flow. `guide` entries
 only link to setup instructions; listing them never claims they are installed.
+`remote` entries connect to a provider's official hosted MCP endpoint, which the
+gateway owns in `deerflow/capabilities/remote.py`; their form only asks for
+credentials (GitHub: a personal access token against the read-only endpoint;
+Jira/Confluence: account email plus a scoped API token, sent as Basic auth).
+`native` entries list `native_tools`, tool names from `config.yaml`; they show as
+enabled when every listed tool is configured and cannot be installed from the UI.
+`"hidden": true` keeps a manifest in the file but out of discovery and
+installation, so a withdrawn integration returns by removing the flag.
 The catalog version describes this manifest, not a remotely detected server
 version. A catalog listing does not install, enable, or authorize anything.
 
@@ -142,6 +162,20 @@ service's authorization and validation; never add a provider branch to the galle
   names return 409.
 - Existing owner APIs perform edit, enable/disable, uninstall, skill import/export,
   and account authorization. Query invalidation refreshes discovery after writes.
+
+- `POST /api/capabilities/connections/check` (administrators): body `{name}`, a
+  saved MCP server name. Discovers that server's tools once with its stored
+  definition (regardless of its enabled flag) and returns `{name, ok, code,
+  tool_count, tools, detail}`. `code` is one of `ok`, `auth_failed`,
+  `unreachable`, `timeout`, `no_tools`, `provider_error`, `error`; `detail`
+  carries only HTTP status codes, exception type names, or a bundled client's
+  credential-free message. Bundled providers also run their side-effect-free
+  `verify_credentials` check when one exists. Remote presets can require tool
+  names (Jira/Confluence answer rejected credentials with public Teamwork Graph
+  tools only). A passing check of an enabled server that the agent's MCP cache
+  recorded as tool-less resets the cache, since failed discovery otherwise stays
+  cached until the configuration file changes. The settings dialog runs the check
+  right after saving; configured rows offer it again.
 
 Discovery excludes MCP endpoints, commands, environment variables, headers,
 OAuth secrets, and per-user credential mappings. `configured` means credentials
@@ -176,6 +210,13 @@ installations provide no tools; their IDs stay in Agent configuration so editing
 other settings cannot silently broaden the selection. The same semantics apply
 to the existing skill-name selection. A selection never enables a disabled tool
 or grants access to another user's account.
+
+The personal pick deployment (`config.pick.example.yaml`) admits, besides its
+pick tools, only `web_search`/`web_fetch` and tools tagged as MCP-sourced:
+`ggwork_pick.middleware` filters the model's tool list and rejects other calls,
+with plugin calls on their own per-turn budget. Its RBAC tool policy is `allow:
+'*'` with the host built-ins it never uses denied, because MCP tool names come
+from whatever servers an administrator enables.
 
 The lead Agent filters tools by their MCP source metadata. Ordinary delegated
 and durable batch tasks carry the selection in their execution metadata. Each

@@ -6,13 +6,27 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.gateway.capabilities import AdapterContext, InstallationList, list_installations, registry
+from app.gateway.capabilities import AdapterContext, InstallationList, check_connection, list_installations, registry
 from app.gateway.deps import get_config, require_admin_user
 from deerflow.capabilities.catalog import PluginManifest, load_catalog
 from deerflow.config.app_config import AppConfig
 from deerflow.runtime.user_context import get_effective_user_id
 
 router = APIRouter(prefix="/api/capabilities", tags=["capabilities"])
+
+
+class CheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=128)
+
+
+class CheckResponse(BaseModel):
+    name: str
+    ok: bool
+    code: str
+    tool_count: int
+    tools: list[str]
+    detail: str | None = None
 
 
 class InstallRequest(BaseModel):
@@ -42,3 +56,11 @@ async def install(body: InstallRequest, request: Request, config: AppConfig = De
     context = AdapterContext(request, config, get_effective_user_id())
     await registry.get(manifest.adapter).install(context, manifest, body.name, body.configuration)
     return await list_installations(manifest.adapter, request, config)
+
+
+@router.post("/connections/check", response_model=CheckResponse)
+async def check(body: CheckRequest, request: Request) -> CheckResponse:
+    """Administrators test a saved connection; the result never includes its URL or credentials."""
+    await require_admin_user(request, detail="Admin privileges required to test connections.")
+    result = await check_connection(body.name)
+    return CheckResponse(name=body.name, ok=result.ok, code=result.code, tool_count=result.tool_count, tools=list(result.tools), detail=result.detail)
