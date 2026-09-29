@@ -401,7 +401,7 @@
   - 同一线程页面里第二次断流不会再自动重新加入。
 - `pick-deploy-guard target=frontend commit=7c73ac9c0c7fe8c1613caff519512bd7e1b0019e at=2026-09-29T12:57:15Z`
 
-## 能力中心：目录裁剪、插件打通与连接检测（PR #20，2026-09-29，未部署）
+## 能力中心：目录裁剪、插件打通与连接检测（PR #20，2026-09-29 上线）
 
 - 起因：用户提了三点。智能体还没实现，入口先屏蔽。IM 只留飞书；文档加飞书和 Google Docs，腾讯文档、Notion 先屏蔽。其余入口要真的能连上，GitHub 这类当时都没打通。用户截图里 GitHub 配置框的「服务地址」被浏览器自动填成了登录邮箱，「授权请求头」填成了登录密码。
 - 用户定的范围：
@@ -445,8 +445,20 @@
   - 前端：check 通过，单测 2,797 通过、45 跳过；能力中心、业务插件、集成、图标、MCP 设置、侧边栏 6 个 e2e 文件 38/38；
   - ruff 通过；agent guidance 检查 0 错误；
   - 独立审查：CRITICAL、HIGH 为 0。MEDIUM 两条：插件放给所有登录用户，是用户的决定；飞书群通知可能被外部内容诱导发送，已用上面的读后拦截处理。
+- 上线：
+  - 前端：#20 合并为 `fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5` 后，Vercel Git 集成在 14:03Z 自动把前端推上 Production，没有经守卫，也就没有前端守卫记录行。此后到 gateway 上线前，前端领先 gateway：旧 gateway（部署 5e8d3c35，提交 7179c7b）上没有连接检测接口，已登录请求返回 404。
+  - gateway 经守卫后，从 `git archive` 导出的目录 `railway up`，部署 `8372055f-4d7a-4cc0-90c4-fb5db1eb0631`，SUCCESS。导出目录只有该提交的 3,845 个跟踪文件，链接到同一项目和服务。#14（账号条件被拒时列出可选账号、给出清空写法）的 gateway 改动也在这次上线。#14、#20 都没有新迁移，迁移头仍是 0007；依赖、`uv.lock` 与 Dockerfile 不变。
+  - 部署前在守卫检出（fbda69ff）里验证：
+    - 扩展全套 3,699 通过、21 跳过，用一次性 PG 17 加 SQLite，跳过的都是方言专属，含 `test_managed_copy`；
+    - gateway 四格 35 条，两种库都有，0 跳过；
+    - 宿主用例 466 通过：入口、JSON 净化、create_user（含 PG 那条）、能力中心与业务插件、MCP 缓存、RBAC；
+    - 镜像依赖集（`--no-dev --extra postgres`）里有 ddgs、langchain-mcp-adapters、mcp、readabilipy。没有 Node 时，`web_fetch` 的正文提取走 readabilipy 的纯 Python 回退。
+  - 部署后核对：
+    - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`。没有 Traceback，没有 `service start() failed`，也没有 `Running upgrade`。唯一的 WARNING 仍是 GitHub webhook 路由未挂载。
+    - 以管理员登录后请求，GET `/api/capabilities/connections/check` 从 404 变为 405（`Allow: POST`），`/api/pick/sync` 返回 200。`/api/capabilities/catalog` 不再列出 lark、dingtalk、wecom、tencent-docs、notion、browser，新增 feishu-bot、feishu-docs、google-docs。
+    - 跑了一轮选剧对话：模型先反问选榜，再按 KalosTV 日榜作答。两个 run 都 success，日志没有报错。
+    - **没做**：容器内核对（`observe.selfcheck`/`grants` 能导入、`regrant --check`）。`railway ssh` 被 auto mode 拦下，待用户执行。
 - 部署后由用户做：
-  - gateway 和前端都要部署，时间与另一会话协调。前端部署目前暂停。
   - 在能力中心填真实凭据，每填一项看一次检测结果：
     - GitHub：细粒度只读令牌；
     - Jira：组织管理员先在 Rovo 设置里开启 API 令牌认证，再填账号邮箱和作用域令牌；
@@ -455,4 +467,6 @@
     - Exa、Firecrawl：填 API Key。
 - 后续：
   - lark-cli 个人授权；
-  - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定。
+  - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定；
+  - PR #16 合并后再经守卫部署一次 gateway。
+- `pick-deploy-guard target=gateway commit=fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5 prod_head=0007 chain_head=0007 at=2026-09-29T15:20:55Z`
