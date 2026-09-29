@@ -120,6 +120,16 @@ LARK_CLI_LINUX_ARCHES = ("amd64", "arm64")
 LARK_CLI_RUNTIME_MANIFEST_FILE = ".deerflow-lark-cli-runtime.json"
 LARK_CLI_FLOW_STATE_FILE = ".deerflow-lark-cli-flow.json"
 
+# Pinned mode (GGWork pick image, docs/pick-workbench/lark-personal-auth.md): the image bundles one verified
+# lark-cli binary and names its release here. Nothing is then installed from npm or GitHub at runtime, the
+# skills come from the binary itself (``lark-cli skills``), and lark-cli runs with a minimal environment so
+# the Gateway's own variables (database URLs, model keys) never reach it.
+LARK_CLI_PINNED_VERSION_ENV = "DEER_FLOW_LARK_CLI_PINNED_VERSION"
+LARK_CLI_MINIMAL_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+_LARK_CLI_PASSTHROUGH_ENV = ("HOME", "TZ", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy")
+_EMBEDDED_SKILLS_CACHE: dict[tuple[str, str], tuple[str, ...]] = {}
+_EMBEDDED_SKILLS_CACHE_LOCK = threading.Lock()
+
 # Pattern B (issue #4338): loopback URL the sandbox shim uses to reach the broker
 # sidecar. LARK_BROKER_URL_ENV is imported from the broker module so the shim,
 # server, and Gateway overlay share one source of truth.
@@ -1372,6 +1382,11 @@ def _lark_credential_lock(user_id: str):
         yield
 
 
+def lark_credential_lock(user_id: str):
+    """The per-user credential lock, for tools that run lark-cli with a user's credentials outside this module."""
+    return _lark_credential_lock(user_id)
+
+
 def _lark_flow_state_path(user_id: str) -> Path:
     return _lark_cli_credential_root(user_id) / LARK_CLI_FLOW_STATE_FILE
 
@@ -1469,6 +1484,8 @@ def _lark_cli_managed_bin_dir() -> Path:
 
 
 def _lark_cli_managed_path() -> str | None:
+    if pinned_lark_cli_version() is not None:
+        return None
     for name in ("lark-cli", "lark-cli.cmd"):
         candidate = _lark_cli_managed_bin_dir() / name
         if candidate.exists():
@@ -1515,7 +1532,61 @@ def lark_cli_env_overlay(user_id: str, *, sandbox_paths: bool = False, broker: b
 
 def lark_cli_env(user_id: str) -> dict[str, str]:
     """Full environment for Gateway-side lark-cli probes."""
-    return {**os.environ, **lark_cli_env_overlay(user_id)}
+    return {**lark_cli_base_env(), **lark_cli_env_overlay(user_id)}
+
+
+def pinned_lark_cli_version() -> str | None:
+    """The release tag of the image-bundled lark-cli, or None for the upstream managed install."""
+    raw = os.getenv(LARK_CLI_PINNED_VERSION_ENV, "").strip()
+    if not raw:
+        return None
+    tag = _normalize_lark_cli_version_tag(raw)
+    if tag is None:
+        raise ValueError(f"{LARK_CLI_PINNED_VERSION_ENV} must be a release tag such as v1.0.96, got {raw!r}")
+    return tag
+
+
+def lark_cli_base_env() -> dict[str, str]:
+    """Environment every Gateway-side lark-cli process starts from.
+
+    Pinned deployments pass only a fixed PATH, the locale and a few network settings; everything else in
+    the Gateway's environment stays out. Other deployments keep the upstream behavior (the host environment).
+    """
+    if pinned_lark_cli_version() is None:
+        return dict(os.environ)
+    passthrough = {name: os.environ[name] for name in _LARK_CLI_PASSTHROUGH_ENV if name in os.environ}
+    return {"PATH": LARK_CLI_MINIMAL_PATH, "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", **passthrough}
+
+
+def _require_pinned_lark_cli(tag: str) -> LarkCliProbe:
+    probe = probe_lark_cli()
+    if not probe.available:
+        raise FileNotFoundError(f"The image does not contain a runnable lark-cli {tag}: {probe.error or 'not found'}")
+    if _normalize_version(probe.version) != tag.removeprefix("v"):
+        raise ValueError(f"The image's lark-cli reports {probe.version!r}, but {LARK_CLI_PINNED_VERSION_ENV} pins {tag}.")
+    return probe
+
+
+def embedded_lark_skill_names(path: str, tag: str) -> tuple[str, ...]:
+    """Skills compiled into the pinned binary (``lark-cli skills list``), read once per binary."""
+    key = (path, tag)
+    with _EMBEDDED_SKILLS_CACHE_LOCK:
+        cached = _EMBEDDED_SKILLS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        result = subprocess.run([path, "skills", "list"], check=False, capture_output=True, text=True, timeout=10, env=lark_cli_base_env())
+    except Exception:  # noqa: BLE001 - status probe boundary
+        logger.warning("Could not list the skills embedded in lark-cli %s", tag, exc_info=True)
+        return ()
+    data = _parse_json_object(result.stdout or "") if result.returncode == 0 else None
+    entries = data.get("skills") if data else None
+    if not isinstance(entries, list):
+        return ()
+    names = tuple(sorted({str(entry["name"]) for entry in entries if isinstance(entry, dict) and isinstance(entry.get("name"), str)}))
+    with _EMBEDDED_SKILLS_CACHE_LOCK:
+        _EMBEDDED_SKILLS_CACHE[key] = names
+    return names
 
 
 def probe_lark_cli() -> LarkCliProbe:
@@ -1533,6 +1604,7 @@ def _probe_lark_cli_at_path(path: str) -> LarkCliProbe:
             capture_output=True,
             text=True,
             timeout=5,
+            env=lark_cli_base_env(),
         )
     except Exception as exc:  # noqa: BLE001 - probe boundary
         return LarkCliProbe(available=False, path=path, error=str(exc))
@@ -1722,6 +1794,9 @@ def get_lark_integration_status(
     check_latest: bool = False,
     check_runtime: bool = False,
 ) -> LarkIntegrationStatus:
+    pinned = pinned_lark_cli_version()
+    if pinned is not None:
+        return _pinned_lark_integration_status(user_id, config, pinned, verify_auth=verify_auth, check_runtime=check_runtime)
     root = lark_integration_root(user_id)
     manifest = _read_manifest(root)
     app_config = read_lark_app_config(user_id)
@@ -1745,6 +1820,36 @@ def get_lark_integration_status(
         installed_skills=installed_skills,
         enabled_skills=enabled_skills,
         install_path=str(root),
+        cli=cli,
+        auth=probe_lark_auth(user_id, verify=verify_auth),
+        sandbox_runtime_mode=runtime_mode,
+        sandbox_runtime_ready=runtime_ready,
+        sandbox_runtime_detail=runtime_detail,
+    )
+
+
+def _pinned_lark_integration_status(user_id: str, config: AppConfig, tag: str, *, verify_auth: bool, check_runtime: bool) -> LarkIntegrationStatus:
+    """Status of an image-bundled CLI: installed means the binary is present at the pinned version; its skills
+    are the ones compiled into it, and there is no newer release to offer."""
+    app_config = read_lark_app_config(user_id)
+    cli = probe_lark_cli()
+    matches = cli.available and _normalize_version(cli.version) == tag.removeprefix("v")
+    skills = embedded_lark_skill_names(cli.path, tag) if matches and cli.path else ()
+    runtime_mode, runtime_ready, runtime_detail = _resolve_sandbox_runtime_readiness(config, probe=check_runtime)
+    return LarkIntegrationStatus(
+        installed=matches,
+        version=tag,
+        manifest_version=tag,
+        latest_available_version=None,
+        runtime_version_mismatch=cli.available and not matches,
+        app_configured=bool(app_config["configured"]),
+        app_id=app_config["app_id"],
+        app_brand=app_config["brand"],
+        skills_expected=len(skills),
+        skills_installed=len(skills),
+        installed_skills=skills,
+        enabled_skills=(),
+        install_path=cli.path or "",
         cli=cli,
         auth=probe_lark_auth(user_id, verify=verify_auth),
         sandbox_runtime_mode=runtime_mode,
@@ -1823,6 +1928,16 @@ def install_lark_integration(
     *,
     source_archive: str | Path | None = None,
 ) -> LarkInstallResult:
+    pinned = pinned_lark_cli_version()
+    if pinned is not None:
+        _require_pinned_lark_cli(pinned)
+        status = get_lark_integration_status(user_id, config)
+        return LarkInstallResult(
+            success=True,
+            installed_skills=status.installed_skills,
+            status=status,
+            message=f"lark-cli {pinned} is bundled in the image; its {len(status.installed_skills)} skills are read from the CLI.",
+        )
     env_archive = os.getenv(LARK_CLI_SOURCE_ARCHIVE_ENV)
     if source_archive is not None:
         archive_path = Path(source_archive)
@@ -2114,6 +2229,9 @@ def complete_lark_auth(
 
 
 def _resolve_lark_cli_path() -> str | None:
+    if pinned_lark_cli_version() is not None:
+        # Only the image's binary: nothing earlier on the Gateway PATH can stand in for it.
+        return shutil.which("lark-cli", path=LARK_CLI_MINIMAL_PATH)
     return _lark_cli_managed_path() or shutil.which("lark-cli")
 
 
@@ -2124,7 +2242,11 @@ def _ensure_managed_gateway_lark_cli() -> LarkCliProbe:
     need to install ``@larksuite/cli`` in a terminal. If npm/GitHub are not
     reachable but an existing CLI is already available (managed or on PATH), we
     keep using it and let the skill-pack install align to that runtime version.
+    A pinned image only verifies its bundled binary.
     """
+    pinned = pinned_lark_cli_version()
+    if pinned is not None:
+        return _require_pinned_lark_cli(pinned)
     target_version = _resolve_latest_lark_cli_version()
     current = probe_lark_cli()
     current_version = _normalize_version(current.version)
@@ -2303,7 +2425,7 @@ def _tenant_brand(result: dict[str, Any]) -> str | None:
 
 def _lark_cli_env_for_directories(*, config_dir: Path, data_dir: Path) -> dict[str, str]:
     env = {
-        **os.environ,
+        **lark_cli_base_env(),
         "LARKSUITE_CLI_CONFIG_DIR": str(config_dir),
         "LARKSUITE_CLI_DATA_DIR": str(data_dir),
         "LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1",
