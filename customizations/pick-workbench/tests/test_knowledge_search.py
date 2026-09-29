@@ -255,6 +255,106 @@ async def test_metadata_that_escapes_past_the_limit_is_cut_instead_of_emptying_t
 
 
 @pytest.mark.asyncio
+async def test_one_document_with_long_metadata_does_not_crowd_out_the_others(searcher):
+    long_ref = "upload:" + "x" * 2_040
+    notes = ("# DramaBox 备注\n" + "备注内容。\n" * 30, "notes.md", long_ref)
+    raw = await (await searcher([(RULES, "realshort-rules.md", "realshort:feed-v1/rules"), notes]))("DramaBox")
+    documents = {doc["title"]: doc for doc in json.loads(raw)["documents"]}
+    assert set(documents) == {"realshort-rules.md", "notes.md"} and len(raw) <= RESULT_LIMIT
+    # Each entry pays for its own source ref: the rules document still comes back whole.
+    assert documents["realshort-rules.md"]["excerpt"] == RULES and "truncated" not in documents["realshort-rules.md"]
+    assert documents["notes.md"]["source_ref"] == long_ref
+    # Five documents, one of them with a long source ref: all five still get an excerpt.
+    refs = [long_ref, *(f"upload:doc{index}" for index in range(1, 5))]
+    bundle = [(f"# 规则 {index}\n" + "规则说明。\n" * 600, f"doc{index}.md", ref) for index, ref in enumerate(refs)]
+    raw = await (await searcher(bundle))("规则")
+    assert sorted(doc["title"] for doc in json.loads(raw)["documents"]) == [f"doc{index}.md" for index in range(5)]
+    assert len(raw) <= RESULT_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_what_the_limits_leave_out_is_counted(searcher):
+    # Seven matching documents: five come back, and the other two are counted.
+    bundle = [(f"# 规则 {index}\n规则内容。\n", f"doc{index}.md", f"upload:doc{index}") for index in range(7)]
+    result = json.loads(await (await searcher(bundle))("规则"))
+    assert len(result["documents"]) == 5 and result["omitted"] == 2
+    # One document with eight named sections: five excerpts come back, and the other three sections are counted.
+    sections = "# 长规则\n\n" + "".join(f"## Theater {index}\n" + "规则说明。\n" * 200 + "\n" for index in range(8))
+    raw = await (await searcher([(sections, "long.md", "upload:long")]))("theater")
+    result = json.loads(raw)
+    assert [doc["excerpt"].split("\n", 1)[0] for doc in result["documents"]] == [f"## Theater {index}" for index in range(5)]
+    assert result["omitted"] == 3 and len(raw) <= RESULT_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_nothing_left_out_adds_no_count(searcher):
+    result = json.loads(await (await searcher([(RULES, "realshort-rules.md", "realshort:feed-v1/rules")]))("DramaBox"))
+    assert "omitted" not in result
+    assert len(result["documents"]) == 1 and "truncated" not in result["documents"][0]
+
+
+@pytest.mark.asyncio
+async def test_an_excerpt_cut_to_the_result_limit_says_so(searcher):
+    bundle = [(f"# 规则 {index}\n" + "每一行都是一条较长的规则说明文字。\n" * 210, f"doc{index}.md", f"upload:doc{index}") for index in range(5)]
+    raw = await (await searcher(bundle))("规则")
+    documents = json.loads(raw)["documents"]
+    assert len(documents) == 5 and all(doc["truncated"] is True for doc in documents) and len(raw) <= RESULT_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_an_excerpt_cut_to_its_length_says_so(search, monkeypatch):
+    from ggwork_pick import knowledge_excerpts
+
+    # Cut to EXCERPT_CHARS, from a window or a section; a whole section is not cut.
+    monkeypatch.setattr(knowledge_excerpts, "WHOLE_DOCUMENT_CHARS", 1_000)
+    (window,) = await search("解禁通道")
+    assert window["truncated"] is True
+    (section,) = await search("DramaBox 必带标签")
+    assert section["excerpt"] == _section("DramaBox") and "truncated" not in section
+
+
+@pytest.mark.asyncio
+async def test_a_document_whose_entry_does_not_fit_is_counted(searcher):
+    # Each entry's source ref and title escape to their caps: two entries leave the excerpts too little.
+    control = chr(1)
+    bundle = [("# 规则\n规则内容。\n", f"{control * 495}{index}.md", f"{control * 2_040}{index}") for index in range(2)]
+    raw = await (await searcher(bundle))("规则")
+    result = json.loads(raw)
+    assert len(result["documents"]) == 1 and result["omitted"] == 1 and len(raw) <= RESULT_LIMIT
+
+
+def test_each_section_says_whether_it_is_cut():
+    from ggwork_pick.knowledge_excerpts import choose_excerpts
+
+    long_section = "规则说明。\n" * 400
+    text = "# 长规则\n\n## Theater 0\n" + long_section + "\n## Theater 1\n规则说明。\n\n## Theater 2\n" + long_section
+    chosen, omitted = choose_excerpts([text], ["theater"], 9_000, [300])
+    assert [found.truncated for found in chosen] == [True, False, True] and omitted == 0
+    assert text[chosen[1].start : chosen[1].end] == "## Theater 1\n规则说明。"
+
+
+@pytest.mark.parametrize("word", ["Straße", "İstanbul", "ﬁnance"])
+def test_a_word_only_casefolding_finds_still_places_the_window(word):
+    from ggwork_pick.knowledge_excerpts import EXCERPT_CHARS, excerpt_spans
+
+    # The query word folds to more than it is written ("strasse"): the text writes it the way the query does, after
+    # characters that fold to two, so the hit lies further on in the casefolded text.
+    text = "ß" * 500 + "\n" + "填充内容。\n" * 1_500 + f"{word} 规则在这里。\n" + "其余内容。\n" * 600
+    start = text.index(word) - 100
+    assert excerpt_spans(text, [word.casefold()]) == [(start, start + EXCERPT_CHARS)]
+
+
+@pytest.mark.parametrize("wide", ["İ", "ß", "ﬁ"])
+def test_the_window_starts_at_the_hit_when_casefolding_changes_lengths(wide):
+    from ggwork_pick.knowledge_excerpts import EXCERPT_CHARS, excerpt_spans
+
+    # Each of these casefolds to more than one character: a hit found in the casefolded text lies further on.
+    text = wide * 2_000 + "\n" + "填充内容。\n" * 600 + "Needle 规则在这里。\n" + "其余内容。\n" * 600
+    start = text.index("Needle") - 100
+    assert excerpt_spans(text, ["needle"]) == [(start, start + EXCERPT_CHARS)]
+
+
+@pytest.mark.asyncio
 async def test_metadata_too_long_for_any_excerpt_gets_a_notice_not_a_silent_empty_result(searcher, monkeypatch):
     import ggwork_pick.tools as tools
 
