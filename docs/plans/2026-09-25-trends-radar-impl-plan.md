@@ -665,6 +665,19 @@
 
 > **2026-09-29 拆分（用户确认）**：TR-25 与 TR-24 同一批做成「带明确空状态的只读入口」，TR-25 只留读的部分：`gp/observe/status.py`、`/sync` 的 `obs` 键（`test_sync_obs_key_shape` 等）、前端 `sync-schema.ts` 与 `gateway.ts`、「同步与导入」的红色横幅（`sync-schema.test`、`data-imports.dom.test`）。写的部分拆成 **TR-25b**，依赖不变、另开会话：`POST /api/pick/obs/decisions` 与 `test_decisions_owner_required`、`test_decisions_append_only`、`test_watch_add_cap_50`；`fe/components/workspace/pick/obs/` 下确认、暂停、人工加入的交互组件；`contracts.test` 的 client 组件登记表。上面验收里「以真实认证走一遍确认、暂停、人工加入」随之归 TR-25b。TR-24 的只读视图不引用任何交互组件，所以不等 TR-25b。生产上 15 张 obs 表除 runtime 种子外全空，`run_status` 在开 cron 前没有行，所以横幅与状态接口对「从没运行」「没有 live 集合」都要给出明确的空状态，不能显示成零。
 
+> **2026-09-30 TR-25b 的范围（用户确认）**：G2 定为 `b_only` 之后，Trends 不跑 A/B 清单，也不做逐剧判定（第 8 节「只过 B」）。确认按钮只对判出 rising、emerging 的 Trends 行出现（设计 4.7，0007 的确认队列视图就是这样筛的）；暂停、人工加入作用于观察清单；GSC 一侧不要求对应确认（`eligibility.py`）。所以这三种决定在 b_only 下没有采集服务或视图会读。本批只做：
+> - 写接口 `POST /api/pick/obs/decisions`：
+>   - 九种决定照合同第 12 节。
+>   - 必须是认证过的 owner。
+>   - 事务第一句是 `lock_for_append`，之后读有效状态、问 `refusal`、追加，都在同一个事务里。
+>   - 同一 owner 用同一 `request_id` 重发，内容相同时返回原来那一行，不再追加；内容不同时返回 409。
+>   - 读到 `DecisionLogError` 时返回 503，响应里不带表里的原文。
+> - 测试：`test_decisions_owner_required`、`test_decisions_append_only`、`test_watch_add_cap_50`，外加路由级并发测试。
+> - `contracts.test` 的 client 组件登记表：雷达的 client 组件逐个登记并写理由，没登记的会让测试变红。
+> - 本机以真实登录验收：接口只追加。
+>
+> 下面这些等逐剧路线恢复（或者别的通道开始读这些决定）时另开任务，回执的合同模型也到那时再定：确认、暂停、人工加入三个交互组件；TR-35 交接里的「列出全部 watch_added」「按 alert_id 标注提示」。
+
 ### TR-20 集合发布通用层、Trends 发布、联动物化、提示与清理（批次 2b-ii，1.5 人日，依赖 TR-10、TR-13、TR-17、TR-18、TR-21、TR-35）
 - **目标**：拥有 `store.py` 的全部通用部分；实现设计 3.5 的保留、4.10、6.2 的提示记录、7.1 的集合冻结（Trends 一侧），把发布接进 `trends/run.py`。
 - **文件**：`gp/observe/store.py`、`trends/publish.py`、`trends/run.py`（加发布接线）；`t/observe/test_trends_publish.py`、`test_store.py`、`test_store_prune.py`。
