@@ -9,9 +9,9 @@ import { getPickSyncStatus, startPickSync } from "@/core/pick/api";
 import { dataAsOfLine } from "@/core/pick/format";
 import {
   isMirrorReadError,
-  parseSyncTime,
   type PickMirrorField,
   type PickMirrorStatus,
+  utcMinute,
 } from "@/core/pick/sync-schema";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -31,12 +31,7 @@ const TRIGGER_LABEL: Record<string, string> = {
 };
 
 /** A /sync moment as the pick data board prints it: UTC, to the minute. */
-function utc(value: string | null | undefined): string | null {
-  const moment = parseSyncTime(value);
-  return moment
-    ? `${moment.toISOString().slice(0, 16).replace("T", " ")} UTC`
-    : null;
-}
+const utc = utcMinute;
 
 function earlier(a: string | null, b: string | null): string | null {
   if (a === null || b === null) return a ?? b;

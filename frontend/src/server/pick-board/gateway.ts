@@ -7,6 +7,7 @@ import { AUTH_REQUEST_TIMEOUT_MS } from "@/core/auth/constants";
 import { getGatewayConfig } from "@/core/auth/gateway-config";
 import {
   mirrorFieldSchema,
+  obsFieldSchema,
   type PickSyncStatus,
   syncStatusSchema,
 } from "@/core/pick/sync-schema";
@@ -106,8 +107,8 @@ function issuePaths(issues: readonly z.ZodIssue[]): string[] {
   return [...new Set(paths)];
 }
 
-// The shared schema reads a malformed mirror as absent; here that is logged,
-// by field path only. A failed mirror read ({error}) is not malformed.
+// The shared schema reads a malformed mirror or obs as absent; here that is
+// logged, by field path only. A failed read ({error}) is not malformed.
 const boardSyncSchema = syncStatusSchema.extend({
   mirror: mirrorFieldSchema
     .nullable()
@@ -118,9 +119,18 @@ const boardSyncSchema = syncStatusSchema.extend({
       });
       return undefined;
     }),
+  obs: obsFieldSchema
+    .nullable()
+    .optional()
+    .catch(({ error }) => {
+      console.error("[pick-board] gateway obs malformed", {
+        fields: issuePaths(error.issues),
+      });
+      return undefined;
+    }),
 });
 
-/** GET /api/pick/sync, with its optional mirror field. */
+/** GET /api/pick/sync, with its optional mirror and obs fields. */
 export function getPickSync(): Promise<GatewayResult<PickSyncStatus>> {
   return gatewayGet("/api/pick/sync", boardSyncSchema);
 }

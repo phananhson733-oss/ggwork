@@ -12,6 +12,14 @@
  * and the rest of /sync still parse. mirrorStatusSchema itself stays strict,
  * so no banner guesses at a field.
  *
+ * `obs` (plan TR-25, D10; contract section 13) is the radar's status: per
+ * channel the current live set, the latest set of either mode, the last run
+ * and the banners the gateway computed at `checked_at`; or `{error}` when the
+ * gateway could not read it. Same declaration as mirror, so a malformed obs
+ * reads as absent and never breaks the rest. The channels must be trends
+ * then gsc; a banner's level is one of three, its code any snake_case word:
+ * a code a newer gateway adds still shows (obs-status.ts words it).
+ *
  * Times come in two shapes: current.as_of is RealShort's asOf
  * ("…T22:15:00.000Z"), every other moment is the gateway's stamp
  * ("…T03:52:00.123456+00:00"); parseSyncTime reads both.
@@ -79,6 +87,50 @@ export const mirrorFieldSchema = z.union([
   mirrorReadErrorSchema,
 ]);
 
+const SET_ID = /^[0-9a-f]{32}$/;
+const STATUS_CODE = /^[a-z][a-z0-9_]{0,39}$/;
+/** obs-status.ts's BANNER_LEVELS and OBS_CHANNELS; this module imports zod only (obs-status.test keeps them equal). */
+export const SYNC_BANNER_LEVELS = ["red", "warn", "info"] as const;
+export const SYNC_OBS_CHANNELS = ["trends", "gsc"] as const;
+
+export const obsBannerSchema = z.object({
+  code: z.string().regex(STATUS_CODE),
+  level: z.enum(SYNC_BANNER_LEVELS),
+});
+
+export const obsChannelStatusSchema = z.object({
+  channel: z.enum(SYNC_OBS_CHANNELS),
+  live_set_id: z.string().regex(SET_ID).nullable(),
+  live_published_at: z.string().nullable(),
+  latest_set_id: z.string().regex(SET_ID).nullable(),
+  latest_published_at: z.string().nullable(),
+  latest_mode: z.enum(["live", "shadow"]).nullable(),
+  last_run_at: z.string().nullable(),
+  banners: z.array(obsBannerSchema),
+});
+
+export const obsSyncStatusSchema = z
+  .object({
+    checked_at: z.string(),
+    channels: z.array(obsChannelStatusSchema),
+  })
+  .refine(
+    (status) =>
+      status.channels.map((c) => c.channel).join() === SYNC_OBS_CHANNELS.join(),
+    { message: "channels are trends then gsc", path: ["channels"] },
+  );
+
+/** The gateway could not read the radar's status; it names the class only. */
+export const obsReadErrorSchema = z
+  .object({ error: z.string().regex(CLASS_NAME) })
+  .strict();
+
+/** What /sync's obs key holds when present and not null. */
+export const obsFieldSchema = z.union([
+  obsSyncStatusSchema,
+  obsReadErrorSchema,
+]);
+
 export const syncStatusSchema = z.object({
   configured: z.boolean(),
   current: z
@@ -94,6 +146,7 @@ export const syncStatusSchema = z.object({
     .nullable(),
   runs: z.array(syncRunSchema),
   mirror: mirrorFieldSchema.nullable().optional().catch(undefined),
+  obs: obsFieldSchema.nullable().optional().catch(undefined),
 });
 
 export type PickSyncRun = z.infer<typeof syncRunSchema>;
@@ -101,11 +154,22 @@ export type PickMirrorStatus = z.infer<typeof mirrorStatusSchema>;
 export type PickMirrorReadError = z.infer<typeof mirrorReadErrorSchema>;
 export type PickMirrorField = z.infer<typeof mirrorFieldSchema>;
 export type PickSyncStatus = z.infer<typeof syncStatusSchema>;
+export type PickObsBanner = z.infer<typeof obsBannerSchema>;
+export type PickObsChannelStatus = z.infer<typeof obsChannelStatusSchema>;
+export type PickObsStatus = z.infer<typeof obsSyncStatusSchema>;
+export type PickObsReadError = z.infer<typeof obsReadErrorSchema>;
+export type PickObsField = z.infer<typeof obsFieldSchema>;
 
 export function isMirrorReadError(
   mirror: PickMirrorField | null | undefined,
 ): mirror is PickMirrorReadError {
   return typeof mirror === "object" && mirror !== null && "error" in mirror;
+}
+
+export function isObsReadError(
+  obs: PickObsField | null | undefined,
+): obs is PickObsReadError {
+  return typeof obs === "object" && obs !== null && "error" in obs;
 }
 
 const SYNC_TIME =
@@ -116,4 +180,12 @@ export function parseSyncTime(value: string | null | undefined): Date | null {
   if (typeof value !== "string" || !SYNC_TIME.test(value)) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** A /sync moment as the pick pages print it: UTC, to the minute; null when it cannot be read. */
+export function utcMinute(value: string | null | undefined): string | null {
+  const moment = parseSyncTime(value);
+  return moment
+    ? `${moment.toISOString().slice(0, 16).replace("T", " ")} UTC`
+    : null;
 }

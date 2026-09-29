@@ -21,6 +21,7 @@ import pytest_asyncio
 from engines import host_engine
 from fake_realshort import EXPORT_TOKEN, FEED_TOKEN, v2_error
 from mirror_pairs import catalog_payload
+from obs_status_rows import batch_row, insert_rows, set_row
 from run_world import BASE, V1_RULES, fetch, make_sync, open_harness, world_fake
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -321,12 +322,37 @@ def _contract_shape(answers: dict):
     return _shape({name: {**answer, "runs": without_details(answer["runs"])} for name, answer in answers.items()})
 
 
+async def _observed(harness) -> None:
+    """Rows that give every field of the obs key (TR-25) a value on both channels: a live and a newer shadow set each, and
+    a latest run each whose codes and mode make one banner of every level. The times are recent, so no banner depends
+    on when the fixture is regenerated beyond the run's own codes and mode."""
+    now = datetime.now(UTC)
+
+    def moment(hours: float) -> str:
+        return stamp(now - timedelta(hours=hours))
+
+    await insert_rows(
+        harness.service.session_factory,
+        sets=[
+            set_row(1, "trends", "live", moment(3)),
+            set_row(2, "trends", "shadow", moment(2)),
+            set_row(3, "gsc", "live", moment(1)),
+            set_row(4, "gsc", "shadow", moment(0.5)),
+        ],
+        batches=[
+            batch_row("obs-trends", "trends", "shadow", moment(5), target_date=now.date().isoformat(), codes=["extinguished_today"]),
+            batch_row("obs-gsc", "gsc", "live", moment(0.75), target_date=None, codes=["gsc_gap_exceeded"]),
+        ],
+    )
+
+
 async def _every_field_set(harness) -> dict:
     """/sync with every mirror field holding a value: a paired run, the curve's reach, a degraded run counting a
-    failure, and a mirror lock another session has held for 81 minutes."""
+    failure, and a mirror lock another session has held for 81 minutes; and every obs field holding one too."""
     from ggwork_pick.mirror.connection import open_dedicated
     from ggwork_pick.mirror.lock import try_mirror_lock
 
+    await _observed(harness)
     await _run(harness)
     await _execute(harness.engine, "UPDATE pick_mirror.series_state SET through = DATE '2026-09-22', trimmed_before = DATE '2026-06-21' WHERE id = 1")
     too_large = v2_error(500, "row_too_large", resource="rs_ids", key=["d-1"])
@@ -355,6 +381,7 @@ async def test_sync_answers_match_the_frontend_fixture(harness, monkeypatch, tmp
 
     with monkeypatch.context() as patched:
         patched.setattr(routes, "mirror_status", broken)
+        patched.setattr(routes, "obs_status", broken)
         answers["read_error"] = await _sync_status(harness.service)
     answers["sqlite"] = await _sqlite_sync_status(tmp_path)
     mirror = answers["every_field_set"]["mirror"]
@@ -362,6 +389,13 @@ async def test_sync_answers_match_the_frontend_fixture(harness, monkeypatch, tmp
     assert mirror["current"]["as_of"].endswith(":00.000Z") and mirror["current"]["published_at"].endswith("+00:00")
     assert answers["before_any_version"]["mirror"]["current"] is None and answers["read_error"]["mirror"] == {"error": "RuntimeError"}
     assert answers["sqlite"]["mirror"] is None
+    # The obs key (TR-25): empty before any run (production today), every field set, a failed read, and on SQLite too.
+    empty = answers["before_any_version"]["obs"]["channels"]
+    assert [channel["channel"] for channel in empty] == ["trends", "gsc"] and all(channel["banners"] == [] for channel in empty)
+    observed = answers["every_field_set"]["obs"]["channels"]
+    assert all(value is not None for channel in observed for value in channel.values())
+    assert {banner["level"] for channel in observed for banner in channel["banners"]} == {"red", "warn", "info"}
+    assert answers["read_error"]["obs"] == {"error": "RuntimeError"} and answers["sqlite"]["obs"]["channels"][0]["banners"] == []
     if os.environ.get("PICK_WRITE_CONTRACT"):
         SYNC_FIXTURE.write_text(json.dumps(answers, ensure_ascii=False, indent=2) + "\n")
     assert _contract_shape(json.loads(SYNC_FIXTURE.read_text())) == _contract_shape(answers)

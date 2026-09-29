@@ -186,6 +186,50 @@ describe("getPickSync", () => {
     expect(errorLog).not.toHaveBeenCalled();
   });
 
+  it("drops a malformed obs, logging its field paths only (TR-25)", async () => {
+    const body = {
+      configured: true,
+      current: null,
+      runs: [],
+      mirror: null,
+      obs: { checked_at: "s3cr3t", channels: [{ channel: "gsc" }] },
+    };
+    stubFetch(async () => Response.json(body));
+    const result = await getPickSync();
+    expect(result).toEqual({
+      ok: true,
+      data: { configured: true, current: null, runs: [], mirror: null },
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      "[pick-board] gateway obs malformed",
+      { fields: expect.arrayContaining(["obs.channels.0.live_set_id"]) },
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain("s3cr3t");
+  });
+
+  it("keeps the obs status and a failed obs read, with nothing logged", async () => {
+    const channel = (name: string) => ({
+      channel: name,
+      live_set_id: null,
+      live_published_at: null,
+      latest_set_id: null,
+      latest_published_at: null,
+      latest_mode: null,
+      last_run_at: null,
+      banners: [],
+    });
+    const status = {
+      checked_at: "2026-09-29T08:00:00.000000+00:00",
+      channels: [channel("trends"), channel("gsc")],
+    };
+    for (const obs of [status, { error: "OperationalError" }]) {
+      const body = { configured: true, current: null, runs: [], obs };
+      stubFetch(async () => Response.json(body));
+      await expect(getPickSync()).resolves.toEqual({ ok: true, data: body });
+    }
+    expect(errorLog).not.toHaveBeenCalled();
+  });
+
   it("parses /sync with its mirror field", async () => {
     const body = {
       configured: true,
