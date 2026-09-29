@@ -456,3 +456,32 @@
 - 后续：
   - lark-cli 个人授权；
   - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定。
+
+## 选剧资料自动采集恢复（2026-09-29）
+
+- 背景：09-28 手工恢复（镜像 v11）之后，RealShort 剧单的每日采集一直没恢复，见上文「选剧资料审查修复与数据恢复」。用户决定继续用原 Mac mini 做运行器。本机连不上 mini：`~/.ssh/config` 里没有它，`.local` 名称解析不到，也没有 Tailscale。所以 mini 上的操作都由用户执行，这边只读查库核对。
+- 链路分两段：
+  1. RealShort `pnpm catalog-refresh`：mini 上的 LaunchAgent `com.realshort.catalog-refresh` 每天北京时间 10:45 拉起 `scripts/juyuantai/daily.sh`。步骤依次是 fetch（lark-cli 以用户身份读 9 个剧场的剧单，以及运营的选剧池、发布记录、账号台账）、鹊娱两张 Top25、build、posted、catalog-import（全量替换 RealShort 库的 catalog 表），最后发飞书心跳。断掉的是这一段。
+  2. 工作台 gateway 进程内定时（03:40 / 15:40 UTC）拉 RealShort feed 并发布镜像：09-24 以来全部成功，09-29 03:42 UTC 发布了 v13，连续失败 0。
+- 盘点第 32 条（生产 `scheduler.enabled=false`）与采集无关：选剧同步由 `PickService._start_schedule` 启动，只看 feed URL 和 token 有没有配置；`scheduler.enabled` 只管「定时任务」页面上用户自建的任务。
+- 原因：
+  - 09-24 16:07 起，mini 上 lark-cli 的默认配置换成了另一个应用（`cli_aa8edad1a6785bea`）和另一个飞书账号的授权，只有多维表格权限。09-25 到 09-28 每天 10:45 的运行，都在 fetch 读第一张电子表格时报 `missing_scope: sheets:spreadsheet:read`。
+  - 这四天飞书群里没有任何失败告警。原因是 `daily.sh` 把 fetch、build、posted 放在 `( … )` 子 shell 里跑，`set -e` 下这种失败不触发 ERR trap，脚本以退出码 1 直接结束，既不写 `FAILED at step`，也不发告警，只剩服务端 14:00 的过期检查在报。本机用 macOS 的 `/bin/bash` 3.2 复现过，去掉子 shell 后告警恢复。修复另开任务，在 realshort 仓库做。
+  - 09-29 00:21 用户在 mini 上用采集账号给默认配置补授了 `sheets:spreadsheet:read`，00:24 手动跑成功（导入时间 2026-09-28 16:30 UTC，随 v13 进了工作台）。
+  - 09-29 10:45 的定时再次失败：MoboReels 剧单（外部租户的电子表格 `MRdRsef0jhRLTXtG6vHcVEuInch`，sheet `omjCKZ`）收回了采集账号的查看权限，报 `40403 no permission`。本机用另一个应用、同一个账号也复现了。其余 16 张电子表格和 12 个多维表格来源都能正常读。
+- 处置（用户决定：先跳过 MoboReels，沿用快照，直接改 mini 的检出）：
+  - 在 mini 的 `~/realshort/scripts/juyuantai/fetch.sh` 第 25 行（`sheet moboreels …`）前加了 `# TEMP-SKIP 2026-09-29` 注释，build 继续读 09-29 00:25 那份完整文件（15 MB）。MoboReels 在库里仍是 12,389 行、候选池 12 部，内容停在 09-29 00:25，资料页上看不出这一点。
+  - mini 的检出因此和 realshort main 有这一处差异。`git pull --ff-only` 只要不改到 `fetch.sh` 就不受影响。
+  - 权限恢复后，先在 mini 的 `scripts/juyuantai/` 目录下用 `lark-cli sheets +csv-get --spreadsheet-token MRdRsef0jhRLTXtG6vHcVEuInch --sheet-id omjCKZ --as user --output-path ./mobo-probe.json` 确认能读（读完删掉探针文件），再执行 `git checkout -- scripts/juyuantai/fetch.sh` 还原。
+- 恢复与验证（UTC）：
+  - 用户在 mini 上执行 `launchctl kickstart gui/$(id -u)/com.realshort.catalog-refresh`，由 launchd 拉起，环境与定时运行相同。15:33:26 开始导入，15:34:37 `pick_catalog=success`，15:34 飞书群收到心跳。
+  - 回读 RealShort 库：剧单 41,894 行，信号 2,871 条，发布记录 309 部，账号 25 个。鹊娱 qc/qr 有 09-29 的 50 个点，共 16 个榜期（09-11 到 09-24、09-28、09-29），09-25 到 09-27 的缺口不补。Kalos 日榜到 09-28，发布日期到 09-28。
+  - 剧单比 09-28 少 501 行，来自 GoodShort：从 5,080 行降到 4,343 行。源表「英语剧单」从 2,033 行变成 1,825 行，「小语种剧单」从 4,678 行变成 4,066 行，是剧场那边删了行，不是采集缺失。
+  - 工作台 15:40 UTC 的定时同步：success、paired，15:45:26 发布镜像 v15（as_of 15:41）。第一次尝试（v14，as_of 15:38）在 v2 阶段遇到来源漂移，被标为 failed，按设计 90 秒后换新的 as_of 重试一次，成功。八道闸门全部通过，网盘命中 0，连续失败 0，锁已释放。v15 带的就是这次导入：剧单 41,894 行、信号 2,871 条、发布记录 309 部、账号 25 个；智能体用的共享批次 12,508 部。保留规则删掉了 09-28 手工恢复发布的 v11，保留 v15、v13、v12、v10、v1。
+- 待核：明早 10:45（09-30 02:45 UTC）的定时运行，以及随后 03:40 UTC 的工作台同步。今天 10:45 这一档确实触发了（launchd 记录 `runs = 1`），失败只是因为 MoboReels 的权限。
+- 后续：
+  - realshort `daily.sh` 子 shell 吞掉失败告警的问题已另开任务。修好之前，fetch、build、posted 三步失败时飞书群仍然不会报，只能靠 14:00 的过期检查，而它要超过 24 小时才报。
+  - MoboReels 权限：找剧场或鹊娱恢复采集账号的查看权限，或者拿到新表的链接。
+  - mini 上 lark-cli 的默认配置与其他流程共用，谁再改默认配置，采集就会再断。可以给采集单独建一份配置，在 plist 里用 `LARKSUITE_CLI_PROFILE` 指定（本机 lark-cli 1.0.93 已确认认这个变量，mini 上是 1.0.91，要先核对）。
+  - 本机连不上 mini，排查只能靠用户在现场执行；要不要开远程登录由用户定。
+  - realshort 的 Mac mini 运行手册还没写这次对 fetch.sh 的临时改动（按用户决定，只写本文）。
