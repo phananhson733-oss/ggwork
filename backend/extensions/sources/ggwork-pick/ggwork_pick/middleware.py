@@ -123,6 +123,7 @@ async def _lark_offer(request) -> bool | None:
     user_id = resolve_runtime_user_id(request.runtime)
     if not user_id or user_id == "default":
         return False
+    # One small file read and no locks, so the default pool; lark_cli's own threads may all be waiting their turn.
     return await asyncio.to_thread(lark_connected, user_id)
 
 

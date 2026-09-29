@@ -5,7 +5,6 @@ Connecting and authorizing happen in the capability center (Plugins → Lark / F
 lark-cli's config or auth commands. lark_policy decides what may run, lark_runner how it runs.
 """
 
-import asyncio
 import json
 import logging
 import time
@@ -56,8 +55,8 @@ async def lark_cli_tool(argv: list[str], runtime: Runtime) -> str:
         return _answer("rejected", "运行缺少已认证身份")
     try:
         command = check_args(argv)
-        # The worker thread outlives a cancelled await, so each step is bounded by what is left of the turn.
-        return await asyncio.to_thread(_run, user_id, command, time.monotonic() + task.remaining())
+        # A started worker thread outlives a cancelled await, so each step is bounded by what is left of the turn.
+        return await lark_runner.in_lark_thread(_run, user_id, command, time.monotonic() + task.remaining())
     except LarkRefused as exc:
         return _answer("rejected", str(exc))
     except (lark_runner.LarkUnavailable, TimeoutError) as exc:
