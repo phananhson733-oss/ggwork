@@ -177,6 +177,7 @@
 - **TR-33 或 G 节点（合同）**
   - （G3 已定）`CorrespondenceConfirm.platform` 至少 1 个字，不放宽：平台为空的 Trends 行确认不了，只能停在 unconfirmed。合同文档已写明；页面怎么提示见 decisions.md（TR-24、TR-25 不要给这种行确认按钮）。
   - 合同的 `MAX_ROW_ID` 是 2^63−1，0007 的 id 列却是 Integer（PG 上是 int4）。`read_decisions` 已改为按 bigint 绑定 `upto_id`；其他拿决定里的 `alias_id`、`alert_id` 去比 int4 列的查询，也要按 bigint 绑定或先限幅，否则超过 2^31−1 的值会让 asyncpg 抛 DataError，报错里还带着这个值。
+    - 2026-09-29 核查（5bd4be9）：扩展里拿决定 id 比 int4 列的 SQL 目前只有 `read_decisions`，`test_read_decisions_upto_beyond_the_id_column` 在 PG 上覆盖 2^31−1、2^31 与 2^63−1。`alias_id` 只进 `EffectiveDecisions.alias_verdicts`，`alert_id` 只进 `irrelevant_alerts`，都还没有 SQL 读；gateway 路由、前端与脚本里也没有查观测表的代码。这条约束留给还没做的几处：别名刷新按 `alias_id` 读 `ggwp_obs_identity_alias`（TR-18、TR-23b）；决定追加时若按 `alias_id`、`alert_id` 核对行是否存在（TR-25）；资料页按 `alert_id` 标注 `ggwp_obs_alerts`（TR-24）。
 
 ## 趋势雷达上线（S0 起，2026-09-26）
 
