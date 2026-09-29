@@ -29,6 +29,10 @@ export interface PluginManifest {
     >;
     required?: string[];
   };
+  /** Withdrawn entries stay in the manifest but never reach discovery. */
+  hidden?: boolean;
+  /** For native entries: deployment tools that must all be configured. */
+  native_tools?: string[];
 }
 export interface CapabilityInstallation {
   id: string;
@@ -50,4 +54,22 @@ export interface CapabilityInstallation {
 export interface InstallationList {
   items: CapabilityInstallation[];
   can_manage: boolean;
+}
+export type ConnectionCheckCode =
+  | "ok"
+  | "auth_failed"
+  | "unreachable"
+  | "timeout"
+  | "no_tools"
+  | "provider_error"
+  | "error";
+/** Result of POST /api/capabilities/connections/check for one MCP server. */
+export interface ConnectionCheck {
+  name: string;
+  ok: boolean;
+  code: ConnectionCheckCode;
+  tool_count: number;
+  /** At most 50 tool names. */
+  tools: string[];
+  detail: string | null;
 }

@@ -3,7 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetch } from "@/core/api/fetcher";
 import { getBackendBaseURL } from "@/core/config";
 
-import type { InstallationList, PluginManifest } from "./types";
+import type {
+  ConnectionCheck,
+  InstallationList,
+  PluginManifest,
+} from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(
@@ -52,6 +56,21 @@ export function useInstallCapability() {
         client.invalidateQueries({ queryKey: ["skills"] }),
       ]);
     },
+  });
+}
+/**
+ * Probe one configured MCP server (admin only). The check runs regardless of
+ * the server's enabled flag and changes no stored state, so nothing is
+ * invalidated afterwards.
+ */
+export function useCheckConnection() {
+  return useMutation({
+    mutationFn: (name: string) =>
+      request<ConnectionCheck>("connections/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
   });
 }
 

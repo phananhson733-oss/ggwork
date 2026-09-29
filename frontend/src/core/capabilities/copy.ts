@@ -1,12 +1,25 @@
+import type { ConnectionCheckCode } from "./types";
+
 const en = {
   install: "Configure plugin",
-  name: "Connection name",
-  url: "Server URL",
-  authorization: "Authorization header (optional)",
-  access_token: "Access token",
-  sign_secret: "Robot signing secret",
-  webhook_key: "Robot webhook key (the key parameter in its URL)",
+  /** Labels for manifest config_schema keys; unknown keys fall back to the schema title. */
+  fields: {
+    name: "Connection name",
+    url: "Server URL",
+    authorization: "Authorization header (optional)",
+    access_token: "Access token",
+    sign_secret: "Robot signing secret",
+    webhook_key: "Robot webhook key (the key parameter in its URL)",
+    token: "Personal access token",
+    email: "Account email",
+    api_token: "API token",
+    app_id: "App ID",
+    app_secret: "App Secret",
+    webhook_token: "Webhook token (the part after /hook/)",
+    api_key: "API Key",
+  },
   save: "Save configuration",
+  enable: "Enable",
   accountHint:
     "These are deployment credentials managed by the administrator. Personal authorization, when supported, uses the integration's account flow.",
   saved: "Configuration saved",
@@ -29,16 +42,45 @@ const en = {
   version: "Catalog version",
   noPlugins: "No configured plugins",
   invalidUrl: "Enter an HTTP or HTTPS server URL.",
+  nativeEnabled: "Enabled in this deployment",
+  nativeDisabled:
+    "Not enabled in this deployment. Contact your administrator to turn it on.",
+  checkConnection: "Test connection",
+  checking: "Testing connection…",
+  checkOk: "Connected. Tools found: {n}",
+  checkTools: "Tools",
+  checkCodes: {
+    ok: "Connected",
+    auth_failed: "Authentication failed. Check the token and its permissions.",
+    unreachable: "Could not reach the server address",
+    timeout: "Connection timed out",
+    no_tools: "The server returned no tools",
+    provider_error: "The provider rejected the request",
+    error: "Connection failed",
+  } satisfies Record<ConnectionCheckCode, string>,
+  checkReconfigure:
+    "To change the settings, an administrator can delete this entry in the plugin list and configure it again.",
+  done: "Done",
 };
 const zh: typeof en = {
   install: "配置插件",
-  name: "连接名称",
-  url: "服务地址",
-  authorization: "授权请求头（可选）",
-  access_token: "访问令牌（Access Token）",
-  sign_secret: "机器人加签密钥",
-  webhook_key: "机器人 Webhook 密钥（地址中的 key 参数）",
+  fields: {
+    name: "连接名称",
+    url: "服务地址",
+    authorization: "授权请求头（可选）",
+    access_token: "访问令牌（Access Token）",
+    sign_secret: "机器人加签密钥",
+    webhook_key: "机器人 Webhook 密钥（地址中的 key 参数）",
+    token: "个人访问令牌",
+    email: "账号邮箱",
+    api_token: "API 令牌",
+    app_id: "App ID",
+    app_secret: "App Secret",
+    webhook_token: "Webhook 令牌（地址中 /hook/ 之后的部分）",
+    api_key: "API Key",
+  },
   save: "保存配置",
+  enable: "启用",
   accountHint:
     "这里配置的是由管理员管理的部署凭据。支持个人授权的集成，通过其账号流程连接。",
   saved: "配置已保存",
@@ -61,6 +103,24 @@ const zh: typeof en = {
   version: "目录版本",
   noPlugins: "暂无已配置插件",
   invalidUrl: "请输入 HTTP 或 HTTPS 服务地址。",
+  nativeEnabled: "当前部署已启用",
+  nativeDisabled: "当前部署未启用，如需使用请联系管理员。",
+  checkConnection: "测试连接",
+  checking: "正在测试连接…",
+  checkOk: "已连接，发现 {n} 个工具",
+  checkTools: "工具",
+  checkCodes: {
+    ok: "已连接",
+    auth_failed: "认证失败，请检查令牌与权限",
+    unreachable: "无法连接到服务地址",
+    timeout: "连接超时",
+    no_tools: "服务没有返回任何工具",
+    provider_error: "服务商拒绝了请求",
+    error: "连接失败",
+  },
+  checkReconfigure: "如需修改配置，管理员可在插件列表中删除此条目后重新配置。",
+  done: "完成",
 };
-export const capabilityCopy = (locale: string) =>
+export type CapabilityCopy = typeof en;
+export const capabilityCopy = (locale: string): CapabilityCopy =>
   locale === "zh-CN" ? zh : en;

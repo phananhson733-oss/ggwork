@@ -160,6 +160,11 @@ export type MockAPIOptions = {
     mcpTasksEnabled?: boolean;
     knowledgeScopeSelectionEnabled?: boolean;
   };
+  /**
+   * Hidden catalog ids to serve anyway. Discovery omits withdrawn entries, so
+   * tests that still exercise such an adapter (e.g. Lark) opt back in here.
+   */
+  revealedPlugins?: string[];
   runStreamHandler?: (route: Route) => Promise<void>;
 };
 
@@ -1862,19 +1867,39 @@ export function mockLangGraphAPI(page: Page, options?: MockAPIOptions) {
     route.fulfill({ json: { mcp_servers: {} } }),
   );
 
-  // Skills list — capability center and slash autocomplete
-  void page.route("**/api/capabilities/catalog", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: readFileSync(
+  // Plugin catalog — served like GET /api/capabilities/catalog, which leaves
+  // hidden (withdrawn) manifest entries out of discovery.
+  const revealedPlugins = new Set(options?.revealedPlugins ?? []);
+  void page.route("**/api/capabilities/catalog", (route) => {
+    const manifests = JSON.parse(
+      readFileSync(
         path.resolve(
           process.cwd(),
           "../backend/packages/harness/deerflow/capabilities/builtin.json",
         ),
         "utf8",
       ),
-    }),
-  );
+    ) as { id: string; hidden?: boolean }[];
+    return route.fulfill({
+      json: manifests
+        .filter((plugin) => !plugin.hidden || revealedPlugins.has(plugin.id))
+        .map((plugin) => ({ ...plugin, hidden: false })),
+    });
+  });
+  // Admin connection probe; tests override it to exercise failures.
+  void page.route("**/api/capabilities/connections/check", (route) => {
+    const { name } = route.request().postDataJSON() as { name: string };
+    return route.fulfill({
+      json: {
+        name,
+        ok: true,
+        code: "ok",
+        tool_count: 2,
+        tools: ["search", "fetch"],
+        detail: null,
+      },
+    });
+  });
   void page.route("**/api/capabilities/installations/*", (route) => {
     const adapter = route.request().url().split("/").pop();
     const items =

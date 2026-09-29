@@ -7,14 +7,14 @@ import { mockLangGraphAPI } from "./utils/mock-api";
 
 for (const plugin of [
   {
-    id: "dingtalk",
-    name: "DingTalk group notifications",
-    fields: { access_token: "fixture-token", sign_secret: "fixture-secret" },
+    id: "feishu-bot",
+    name: "Feishu group notifications",
+    fields: { webhook_token: "fixture-token", sign_secret: "fixture-secret" },
   },
   {
-    id: "wecom",
-    name: "WeCom group notifications",
-    fields: { webhook_key: "fixture-key" },
+    id: "exa",
+    name: "Exa",
+    fields: { api_key: "fixture-key" },
   },
   {
     id: "hubspot",
@@ -67,6 +67,9 @@ for (const plugin of [
     for (const [key, value] of Object.entries(plugin.fields)) {
       const field = dialog.locator(`#plugin-field-${key}`);
       await expect(field).toHaveAttribute("type", "password");
+      // Browser autofill must not drop a saved password into a credential.
+      await expect(field).toHaveAttribute("autocomplete", "new-password");
+      await expect(field).toHaveAttribute("name", `plugin-${plugin.id}-${key}`);
       await field.fill(value);
     }
     const screenshotDirectory = process.env.CAPABILITY_SCREENSHOT_DIR;
@@ -77,6 +80,8 @@ for (const plugin of [
       });
     }
     await dialog.getByRole("button", { name: "Save configuration" }).click();
+    await expect(dialog.getByText("Connected. Tools found: 2")).toBeVisible();
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
     await expect(dialog).toHaveCount(0);
     expect(submission).toEqual({
       plugin_id: plugin.id,
@@ -162,13 +167,13 @@ test("ordinary users see each shared connection once and cannot configure creden
   ).toHaveCount(0);
   await page
     .getByRole("button", {
-      name: "Configure WeCom group notifications",
+      name: "Configure Feishu group notifications",
       exact: true,
     })
     .click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.locator("#plugin-field-webhook_key")).toBeDisabled();
-  await expect(dialog.locator("#plugin-field-webhook_key")).toHaveValue("");
+  await expect(dialog.locator("#plugin-field-webhook_token")).toBeDisabled();
+  await expect(dialog.locator("#plugin-field-webhook_token")).toHaveValue("");
   await expect(
     dialog.getByRole("button", { name: "Save configuration" }),
   ).toBeDisabled();

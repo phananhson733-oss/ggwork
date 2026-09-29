@@ -4,14 +4,25 @@ import type { CapabilityInstallation } from "./types";
 /** Generated catalog snapshot; refresh with pnpm catalog:sync. */
 export const staticCapabilityCatalog = catalog;
 
+/** Discovery omits withdrawn entries, as GET /api/capabilities/catalog does. */
+export function visibleStaticCapabilityCatalog() {
+  return staticCapabilityCatalog.filter(
+    (plugin) => !("hidden" in plugin && plugin.hidden),
+  );
+}
+
 export async function staticCapabilityInstallations(
   adapter: string,
   origin: string,
   init?: RequestInit,
 ): Promise<Response> {
+  // The demo cannot know which native tools the deployment configures.
+  if (adapter === "native")
+    return Response.json({ items: [], can_manage: false });
   const paths: Record<string, string> = {
     mcp: "mcp/config",
     business: "mcp/config",
+    remote: "mcp/config",
     lark: "integrations/lark/status",
     skills: "skills",
   };
@@ -88,16 +99,18 @@ export async function staticCapabilityInstallations(
       },
     ];
   } else {
-    const businessPluginIds = new Set(
+    // business and remote project the same MCP store, narrowed to the plugin
+    // ids their adapter owns; mcp lists every server.
+    const adapterPluginIds = new Set(
       staticCapabilityCatalog
-        .filter((plugin) => plugin.adapter === "business")
+        .filter((plugin) => plugin.adapter === adapter)
         .map((plugin) => plugin.id),
     );
     items = Object.entries(data.mcp_servers ?? {})
       .filter(
         ([, server]) =>
-          adapter !== "business" ||
-          businessPluginIds.has(server.capability?.plugin_id ?? ""),
+          adapter === "mcp" ||
+          adapterPluginIds.has(server.capability?.plugin_id ?? ""),
       )
       .map(([name, server]) => ({
         ...base,

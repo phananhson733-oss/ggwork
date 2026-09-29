@@ -206,17 +206,21 @@ it("serves the canonical capability catalog locally and rejects writes", async (
   const response = await apiFetch("/api/capabilities/catalog");
   expect(response.status).toBe(200);
   const catalog = (await response.json()) as { id: string }[];
-  expect(catalog).toEqual(
-    JSON.parse(
-      readFileSync(
-        path.resolve(
-          process.cwd(),
-          "../backend/packages/harness/deerflow/capabilities/builtin.json",
-        ),
-        "utf8",
+  const canonical = JSON.parse(
+    readFileSync(
+      path.resolve(
+        process.cwd(),
+        "../backend/packages/harness/deerflow/capabilities/builtin.json",
       ),
+      "utf8",
     ),
-  );
+  ) as { id: string; hidden?: boolean }[];
+  // The snapshot keeps withdrawn entries; discovery leaves them out, as the
+  // Gateway does.
+  expect(staticCapabilityCatalog).toEqual(canonical);
+  const hidden = canonical.filter((plugin) => plugin.hidden);
+  expect(hidden.map((plugin) => plugin.id)).toContain("lark");
+  expect(catalog).toEqual(canonical.filter((plugin) => !plugin.hidden));
   expect(network).not.toHaveBeenCalled();
   const write = await apiFetch("/api/capabilities/installations", {
     method: "POST",
@@ -273,6 +277,7 @@ it("provides Lark, skills and business projections from the owning fixtures", as
       1,
     ],
     ["business", { mcp_servers: {} }, 0],
+    ["remote", { mcp_servers: {} }, 0],
   ] as const) {
     network.mockResolvedValueOnce(Response.json(fixture));
     const response = await apiFetch(
@@ -318,4 +323,32 @@ it("discovers newly cataloged business adapters without a provider allowlist", a
   } finally {
     staticCapabilityCatalog.pop();
   }
+});
+
+it("narrows remote projections to remote plugins and leaves native empty", async () => {
+  const servers = {
+    mcp_servers: {
+      "team-code": { enabled: true, capability: { plugin_id: "github" } },
+      jira: { enabled: false, capability: { plugin_id: "atlassian" } },
+      search: { enabled: true, capability: { plugin_id: "exa" } },
+      custom: { enabled: true },
+    },
+  };
+  network.mockResolvedValueOnce(Response.json(servers));
+  const remote = await apiFetch("/api/capabilities/installations/remote");
+  const result = (await remote.json()) as {
+    items: { name: string; plugin_id: string; adapter: string }[];
+  };
+  expect(result.items.map((item) => [item.name, item.plugin_id])).toEqual([
+    ["team-code", "github"],
+    ["jira", "atlassian"],
+  ]);
+  expect(result.items.every((item) => item.adapter === "mcp")).toBe(true);
+
+  network.mockClear();
+  // The demo cannot know which native tools a deployment configures.
+  const native = await apiFetch("/api/capabilities/installations/native");
+  expect(native.status).toBe(200);
+  expect(await native.json()).toEqual({ items: [], can_manage: false });
+  expect(network).not.toHaveBeenCalled();
 });

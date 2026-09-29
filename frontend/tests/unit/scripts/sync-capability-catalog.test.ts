@@ -32,7 +32,7 @@ it("resolves formatter configuration in checkouts containing spaces and Unicode"
     );
     writeFileSync(
       path.join(backend, "builtin.json"),
-      '[{"id":"example","adapter":"business"}]',
+      '[{"id":"example","adapter":"business"},{"id":"withdrawn","adapter":"lark","hidden":true}]',
     );
     symlinkSync(
       path.resolve("node_modules"),
@@ -46,8 +46,10 @@ it("resolves formatter configuration in checkouts containing spaces and Unicode"
       path.join(output, "builtin.demo.json"),
       "utf8",
     );
+    // Hidden entries stay in the snapshot; the static response filters them.
     expect(JSON.parse(snapshot)).toEqual([
       { id: "example", adapter: "business" },
+      { id: "withdrawn", adapter: "lark", hidden: true },
     ]);
     expect(snapshot.startsWith("[\n       {\n")).toBe(true);
   } finally {
