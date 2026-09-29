@@ -8,6 +8,7 @@ never rewritten.
 """
 
 import re
+import sys
 from bisect import bisect_right
 from typing import NamedTuple
 
@@ -31,12 +32,14 @@ _INDENT = re.compile(r"[ \t]*")
 _SUMMARY = re.compile(r"都|均|全部|这些|这几|它们|(?<![第0-9一二两三四五六七八九十])[0-9一二两三四五六七八九十]+部")
 # "以上两部" sums up the titles named before it as well ("100集以上" is a count); "其余" every title but those.
 _ABOVE = re.compile(r"(?<![0-9一二两三四五六七八九十百千万%％集部岁分秒天周月年次条个])以上|上述")
-# "以上3部" / "以上全部" after naming fewer titles than that sums up the cards the answer never named as well.
-_COUNT = re.compile(r"(?<![第0-9一二两三四五六七八九十])([0-9]{1,4}|[一二两三四五六七八九十]{1,3})部")
-_PLURAL = re.compile(r"都|均|全部|所有|这些|这几|它们")
+# "以上3部" / "以上都" after naming fewer titles than that sums up the cards the answer never named as well, and so does
+# "以上全部" however many were named.
+_COUNT = re.compile(r"(?<![第0-9一二两三四五六七八九十])([0-9]{1,4}|[一二两三四五六七八九十]{1,3})\s*(?:部|个|条|款|套)")
+_EVERY = re.compile(r"全部|所有")
+_PLURAL = re.compile(r"都|均|这些|这几|它们")
 _NUMERALS = {numeral: value for value, numeral in enumerate("零一二三四五六七八九")} | {"两": 2}
-# Some accounts, however worded: "其他几个账号", "所有账户", "另外的账号".
-_SOME_ACCOUNTS = r"(?:的|几个|所有|[0-9一二两三四五六七八九十]+个)?(?:账号|账户)"
+# Some accounts, however worded: "其他几个账号", "所有账户", "另外的账号", "其他号".
+_SOME_ACCOUNTS = r"(?:的|几个|所有|[0-9一二两三四五六七八九十]+个)?(?:账号|账户|号(?![码称]))"
 _REST = re.compile(rf"(?:其余|其他|其它|剩下|剩余|余下)(?!{_SOME_ACCOUNTS}|团队)")
 # "除了《A》都没发过" / "《A》以外其余都没发过" sum up every title but the ones the clause names.
 _EXCEPT = re.compile(r"除了|除去|除开|》(?:以外|之外)")
@@ -51,6 +54,9 @@ _NOT_NAMES = frozenset({"youtube", "tiktok", "facebook", "instagram", "fb", "ig"
 _TEAM_WORDS = re.compile(rf"团队|全队|哪个账号|(?:所有|任何|任意|任一|每一?个|各个?|全部|其他|其余|其它|别的|另外){_SOME_ACCOUNTS}")
 # An account the records never name is one no query cleared: a clause about it is about the team.
 _ACCOUNT_WORD = re.compile(r"账号|账户")
+# Where _Accounts.named blanked out an account the records name; "A 以外" / "除 A 外" / "非 A" are the accounts besides A.
+_BLANK = "\x00"
+_BESIDES = re.compile(rf"(?:除了?|除去|除开|非)\s*{_BLANK}|{_BLANK}\s*(?:账号|账户)?\s*(?:以外|之外|外)")
 _TEAM = "\x00team"
 # "这个账号" is the account a posted_account query asked about.
 _THIS_ACCOUNT = re.compile(r"(?:该|这个|此|本)(?:账号|账户)")
@@ -129,15 +135,15 @@ class _Accounts:
         self.queried = frozenset(name for entry in seen.values() for name in entry.clear)
 
     def named(self, clause: str) -> tuple[frozenset[str], str]:
-        """The accounts the clause names (_TEAM for the whole team or an account no record names), and its casefolded
-        text with them blanked out."""
+        """The accounts the clause names (_TEAM for the whole team, the accounts besides one, or an account no record
+        names), and its casefolded text with them blanked out."""
         folded, named = clause.casefold(), set()
         if self.pattern is not None:
             named.update(self.pattern.findall(folded))
-            folded = self.pattern.sub("|", folded)
+            folded = self.pattern.sub(_BLANK, folded)
         if _THIS_ACCOUNT.search(clause):
             named |= self.queried
-        if _TEAM_WORDS.search(clause) or (not named and _ACCOUNT_WORD.search(folded)):
+        if _TEAM_WORDS.search(clause) or _BESIDES.search(folded) or (not named and _ACCOUNT_WORD.search(folded)):
             named.add(_TEAM)
         return frozenset(named), folded
 
@@ -228,11 +234,13 @@ def _number(word: str) -> int | None:
 
 
 def _least(masked: str, left: int, right: int) -> int:
-    """The fewest titles an "以上" clause sums up: its count ("以上3部"), two for a plural ("以上全部", "以上都"), else one."""
-    count = _COUNT.search(masked, left, right)
-    number = _number(count.group(1)) if count else None
-    if number is not None:
-        return max(number, 1)
+    """The fewest titles an "以上" clause sums up: its largest count ("以上3部"), every card for "以上全部", two for a
+    plural ("以上都"), else one."""
+    numbers = [number for count in _COUNT.finditer(masked, left, right) if (number := _number(count.group(1))) is not None]
+    if numbers:
+        return max(*numbers, 1)
+    if _EVERY.search(masked, left, right):
+        return sys.maxsize
     return 2 if _PLURAL.search(masked, left, right) else 1
 
 
@@ -371,13 +379,15 @@ class _Judge:
             if key not in self.done:
                 self.done.add(key)
                 self._stand([(entry.title, _effective(entry, mentioned)) for norm, entry in self.seen.items() if norm not in self.named], subject)
-        elif subject.summary == ABOVE and len(self.order) >= subject.least:
+        elif subject.summary == ABOVE and self.order:
             key = (ABOVE, mentioned, subject.unknown)
             begin = self.above.get(key, 0)
             if begin < len(self.order):
                 self._stand(self._entries(self.order[begin:], mentioned), subject)
                 self.above[key] = len(self.order)
-        elif subject.titles and subject.summary != ABOVE:
+            if len(self.order) < subject.least:
+                self._everything(subject, mentioned)
+        elif subject.titles:
             key = (subject.start, mentioned)
             if key not in self.done:
                 self.done.add(key)
