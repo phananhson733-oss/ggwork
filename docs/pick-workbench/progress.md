@@ -498,6 +498,6 @@
   - lark-cli 个人授权；
   - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定；
   - PR #16 合并后再经守卫部署一次 gateway；它若改了前端，前端也要经守卫发布；
-  - Vercel 项目 `ggwork` 仍接着 Git 集成，每次推 main 都会给 ggwork-nine 构建一次 Production。要不要断开或删除，由用户定。
+  - Vercel 项目 `ggwork`：2026-09-30 按用户要求先断开 Git 集成，再用 `vercel project rm` 删除，ggwork-nine.vercel.app 现在返回 404。本团队里已经没有项目接着这个仓库，推 main 不会再触发任何 Vercel 构建。
 - `pick-deploy-guard target=gateway commit=fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5 prod_head=0007 chain_head=0007 at=2026-09-29T15:20:55Z`
 - `pick-deploy-guard target=frontend commit=7d33058427c457446a8a676e317da391aa824144 at=2026-09-29T16:09:56Z`
