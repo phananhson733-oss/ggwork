@@ -51,7 +51,7 @@ high档一轮最多12次模型调用，单次调用在推理期间可能几分�
 |---|---|---|
 | 浏览器 → Vercel | 同源`/api/langgraph`，Next在构建时写入的rewrite指向Railway（外部rewrite，不经函数，`maxDuration`不适用） | Vercel代理要求120秒内收到首字节，之后每120秒至少有一次数据（[文档](https://vercel.com/docs/routing/rewrites)，[changelog](https://vercel.com/changelog/cdn-origin-timeout-increased-to-two-minutes)）。gateway空闲时每15秒发一次SSE心跳，所以这条不会触发 |
 | Railway边缘 | 单个HTTP请求最长15分钟，连续5分钟没有数据就断开（[文档](https://docs.railway.com/networking/public-networking/specs-and-limits)） | 心跳能防止空闲断开；整轮上限要留在15分钟以内，默认600秒 |
-| 前端 | LangGraph SDK不设超时；主发送用`onDisconnect: "continue"`，断流后服务端继续跑，可以重新加入 | 「重新生成/编辑」没传`onDisconnect`，走服务端默认的cancel，代理断流会取消这一轮（遗留） |
+| 前端 | LangGraph SDK不设超时；主发送和「重新生成/编辑」都用`buildRunStreamOptions()`显式传`onDisconnect: "continue"`，断流后服务端继续跑，可以重新加入 | 已修（2026-09-29）：两条路径共用同一组提交选项，单测钉住传给SDK的选项，e2e钉住请求体里的`on_disconnect: "continue"`。核对时发现重跑路径此前实际也发`continue`：SDK 1.6.0在`streamResumable: true`时自动补这个默认值，原先「走服务端默认的cancel」的记录不准。现在显式传入，不再依赖SDK默认值 |
 | LLM重试 | `LLMErrorHandlingMiddleware`对`ReadTimeout`、`StreamChunkTimeoutError`各重试1次；每次重试都经过`PickModelGate`，计入12次调用上限 | 一次超时重试后最坏耗时约为2×`PICK_LLM_REQUEST_TIMEOUT_SECONDS`，仍受整轮上限约束 |
 | OpenAI SDK重试 | `max_retries: 0` | 不重试 |
 
