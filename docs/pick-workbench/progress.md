@@ -372,3 +372,31 @@
   - 流式最终回答那次调用，日志记的是 `input=0 output=0`，用量没进这一行，只能看前面几次调用。
   - **新发现**：high 档工具调用更多，第 2、3 题都碰到了每轮 8 次的业务工具上限（`ggwork_pick/middleware.py` 的 `PickToolGate`），模型收到错误后照常作答；low 对照没碰到。上限是写死的（工具 8 次、模型 12 次），要不要也改成 Railway 变量，待用户决定。
 - `pick-deploy-guard target=gateway commit=7179c7bad1d8d1112c8932f57ff9bcd45b68ae5e prod_head=0007 chain_head=0007 at=2026-09-28T16:44:53Z`
+
+## 前端：矮屏欢迎块、重跑断流续接显式化、回底重新锁定（PR #5、#6、#15、#17，2026-09-29 上线）
+
+- #5、#6 修矮屏下欢迎块被挤出视口，合并到 5bd4be98。#17 把重新生成、编辑重跑的 `thread.submit` 与主发送共用 `buildRunStreamOptions()`，显式带 `onDisconnect: "continue"`，合并为 `6919eb5f`。#15 让读者回到最新消息时重新锁定底部跟随，合并为 `7c73ac9c`。
+- #17 核对时发现：SDK 1.6.0 在 `streamResumable: true` 时本来就把 `onDisconnect` 默认成 `continue`，修复前的构建上重跑请求体也已经是 `on_disconnect: "continue"`。原先「重跑走服务端默认的 cancel」这个判断不准，部署文档已在 #17 里更正。这次改动是加固：不再依赖 SDK 的默认值，免得 SDK 升级后退回 gateway 的默认值 cancel。
+- #15 经 gpt-6-astra 复审两轮，先后修了两个问题，都先写失败用例再修：
+  - 向上微滚 1px 仍落在 2px 容差内，会被重新锁回底部；
+  - 多次 scroll 合并派发时，向上滚动被判成向下。
+- 发布：经守卫从 `git archive` 导出的目录发布，部署 `dpl_5XZsx8urqbnfYrfFx8xrJd8s75Dc`，READY，生产别名 ggwork-deerflow.vercel.app 指向它。上传 1,028 个文件，除导出内容外只放了 `.vercel/project.json`。构建带 `NEXT_PUBLIC_APP_VERSION=20260929-7c73ac9`。gateway 这次没动，#14 的 gateway 改动随下一次 gateway 部署上线。
+- 部署前在守卫检出里验证（7c73ac9c）：
+  - 四格 5/5，含 hot card 格；
+  - 合同夹具 12/12；
+  - 前端全套 2,780 通过、45 跳过；
+  - typecheck 通过，检出干净。
+- PR 分支上另外验证过：
+  - #17：相关 e2e 98/98，单测、typecheck、lint、format 通过；
+  - #15：底部锁 e2e 两条各 5 次 10/10，相关 e2e 73/73。
+  - 两个分支同时合并没有冲突，用 `git merge-tree` 确认过。GitHub Actions 仍因账单停摆，以上都是本机等价检查。
+- 部署后核对：
+  - `/` 307 到 `/workspace`；
+  - 未登录访问 `/workspace/chats/new` 307 到 `/login`；
+  - 带 `RSC: 1` 的请求只返回到 `/login` 的 `NEXT_REDIRECT` 和路由树，没有页面数据；
+  - `/login` 的响应头和 meta 都带 noindex。
+- 登录后的界面核对还没做，由用户做：重新生成时断流再回来能接上这一轮、向上阅读不会被拉回底部、回到底部后继续跟随。
+- 后续（读代码得出，没有复现，写在 #17 正文里）：
+  - 重新生成的回合断流后重新加入时，旧答案会和正在生成的新答案同时显示，直到这一轮结束；
+  - 同一线程页面里第二次断流不会再自动重新加入。
+- `pick-deploy-guard target=frontend commit=7c73ac9c0c7fe8c1613caff519512bd7e1b0019e at=2026-09-29T12:57:15Z`
