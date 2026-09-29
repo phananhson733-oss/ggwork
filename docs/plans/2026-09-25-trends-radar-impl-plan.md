@@ -663,6 +663,8 @@
 - **测试**：`test_decisions_owner_required`、`test_decisions_append_only`、`test_watch_add_cap_50`（第 51 条被拒绝）、`test_sync_obs_key_shape`（与 TR-33 合同一致）；前端 `sync-schema.test`（`obs` 键缺失或形状不对，不影响其余字段）、`data-imports.dom.test`（红色横幅按状态显示）、`contracts.test`（未登记的 client 组件会让测试变红）。
 - **验收**：以真实认证走一遍确认、暂停、人工加入，决定表只追加；`/sync` 加了 `obs` 键后，旧前端照样能解析。
 
+> **2026-09-29 拆分（用户确认）**：TR-25 与 TR-24 同一批做成「带明确空状态的只读入口」，TR-25 只留读的部分：`gp/observe/status.py`、`/sync` 的 `obs` 键（`test_sync_obs_key_shape` 等）、前端 `sync-schema.ts` 与 `gateway.ts`、「同步与导入」的红色横幅（`sync-schema.test`、`data-imports.dom.test`）。写的部分拆成 **TR-25b**，依赖不变、另开会话：`POST /api/pick/obs/decisions` 与 `test_decisions_owner_required`、`test_decisions_append_only`、`test_watch_add_cap_50`；`fe/components/workspace/pick/obs/` 下确认、暂停、人工加入的交互组件；`contracts.test` 的 client 组件登记表。上面验收里「以真实认证走一遍确认、暂停、人工加入」随之归 TR-25b。TR-24 的只读视图不引用任何交互组件，所以不等 TR-25b。生产上 15 张 obs 表除 runtime 种子外全空，`run_status` 在开 cron 前没有行，所以横幅与状态接口对「从没运行」「没有 live 集合」都要给出明确的空状态，不能显示成零。
+
 ### TR-20 集合发布通用层、Trends 发布、联动物化、提示与清理（批次 2b-ii，1.5 人日，依赖 TR-10、TR-13、TR-17、TR-18、TR-21、TR-35）
 - **目标**：拥有 `store.py` 的全部通用部分；实现设计 3.5 的保留、4.10、6.2 的提示记录、7.1 的集合冻结（Trends 一侧），把发布接进 `trends/run.py`。
 - **文件**：`gp/observe/store.py`、`trends/publish.py`、`trends/run.py`（加发布接线）；`t/observe/test_trends_publish.py`、`test_store.py`、`test_store_prune.py`。
@@ -705,6 +707,8 @@
   - `obs-banner-rules.test`、`obs-link.test`：结果与夹具一致。`obs-spark.test`：null 断开。`contracts.test`：没有无参 `Date.now()`，只用看板调色板，链接 `prefetch={false}`，只引用 TR-25 登记过的 client 组件。`obs-views.test`：没有禁用词（前提 1、2）。`[反例 26]`
   - e2e：在本机 QA 实例上跑 `pick-data-board.spec.ts`，扩展到两个新 tab，零 skip。
 - **验收**：perf 预算数字不变；不进 PORTED_FROM，也不进 parity。
+
+> **2026-09-29 与 TR-25 同一批做成只读入口（用户确认）**：数据访问、请求、缓存、trends 视图（按 b_only：说明文字、发现队列与未覆盖清单）、search 视图、详情页（含 TS 版 `obs-link.ts`，只做可行动性）、`obs-banner-rules.ts` 本批照做。调整三处：① `obs-spark` 与 `obs-spark.test` 不做，b_only 下没有逐剧曲线；GSC 的总量与分组曲线以后要时另开任务。② `contracts.test` 的「只引用 TR-25 登记过的 client 组件」本批写成「观测视图不新增 client 组件」，登记表归 TR-25b。③ e2e 扩展不在本批跑，放到 S11 之前在本机 QA 实例上补。生产上 obs 表除 runtime 种子外全空，每个视图、横幅、计数都要有明确的空状态，措辞以合同与 `wording.py` 的禁用词为准，不把「没有集合」「没有行」写成零。
 
 ### TR-19 发现段（批次 2b-iii，1.5 人日，依赖闸门 B 通过、TR-18、TR-20）
 - **目标**：实现设计 4.8。
