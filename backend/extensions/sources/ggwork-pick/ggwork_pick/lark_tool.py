@@ -32,9 +32,9 @@ FAILED_NOTICE = f"如果提示缺少权限或 scope，请用户到{_SETTINGS}重
 
 
 def lark_connected(user_id: str) -> bool:
-    """Whether the user finished the capability center's connect step (reads one small file)."""
+    """Whether the user finished the capability center's connect step (reads one small file, writes nothing)."""
     try:
-        return bool(lark_cli.read_lark_app_config(user_id)["configured"])
+        return bool(lark_cli.peek_lark_app_config(user_id)["configured"])
     except (OSError, ValueError):
         logger.warning("Could not read the Lark connection of user %s", user_id, exc_info=True)
         return False
@@ -83,7 +83,7 @@ def render(completed: lark_runner.Completed) -> str:
     if completed.exit_code == 0:
         text = completed.stdout.strip() or completed.stderr.strip() or "（没有输出）"
         if completed.truncated:
-            text += f"\n…（输出已截断到 {lark_runner.MAX_OUTPUT_CHARS} 字符；用 --jq、分页参数或 --scope outline/section 缩小范围）"
+            text += f"\n…（输出已截断到 {lark_runner.MAX_OUTPUT_CHARS} 字符；用 --jq=<表达式>、分页参数或 --scope outline/section 缩小范围）"
         return text
     error = _error_of(completed)
     if error.get("type") in AUTH_ERROR_TYPES:

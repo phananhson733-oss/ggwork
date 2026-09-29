@@ -18,11 +18,15 @@ SKILL_ACTIONS = frozenset({"list", "read"})
 DENIED_FLAGS = frozenset({"--yes", "--profile", "--dry-run"})
 JQ_FLAGS = frozenset({"--jq", "-q"})
 HELP_FLAGS = frozenset({"--help", "-h"})
+JQ_ATTACH_HINT = "jq 表达式请写成一个参数：--jq=<表达式>"
 MAX_ARGS = 40
 MAX_ARG_CHARS = 2000
 
 _PARENT = re.compile(r"(^|[/\\])\.\.([/\\]|$)")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+# lark-cli trims Unicode whitespace before it treats a value as `@file` or `-` (09-29 review), so the checks look at
+# the value without it, and without the invisible format characters that could stand in for it.
+_EDGE_BLANKS = re.compile(r"^[\s\u200b-\u200f\u2060\ufeff]+|[\s\u200b-\u200f\u2060\ufeff]+$")
 _FLAG_NAME = re.compile(r"--?[A-Za-z0-9][A-Za-z0-9-]*")
 _NUMBER = re.compile(r"-\d+(\.\d+)?")
 _USAGE = re.compile(r"^Usage:\n\s+lark-cli ([^\n\[]+)", re.MULTILINE)
@@ -72,11 +76,12 @@ def _check_text(arg: object) -> None:
 
 
 def _check_flags_and_values(args: list[str]) -> None:
-    jq_value = False
+    after_jq = False
     for arg in args:
-        if jq_value:
-            jq_value = False  # a jq expression reads only lark-cli's JSON output
-            continue
+        # Only an attached expression (`--jq=...`) is exempt. A separate one may not be a jq expression at all:
+        # lark-cli takes a dash-led token as the previous flag's value, so in `--base-token -q --filter-json=@f`
+        # the `-q` is a value and the next token a real flag (09-29 review). The next token is checked as usual.
+        jq_value, after_jq = after_jq, False
         if arg.startswith("-") and arg != "-":
             name, equals, value = arg.partition("=")
             # lark-cli also takes a dash-led token as the previous flag's value (`--doc -/x`), so a dash-led
@@ -86,16 +91,17 @@ def _check_flags_and_values(args: list[str]) -> None:
             if name in DENIED_FLAGS:
                 raise LarkRefused(f"不支持参数 {name}：本工具只读，不确认高风险写入、不切换配置、不打印请求")
             if name in JQ_FLAGS:
-                jq_value = not equals
+                after_jq = not equals  # an attached expression reads only lark-cli's JSON output
             elif equals:
                 _check_value(value)
             continue
-        _check_value(arg)
+        _check_value(arg, hint=JQ_ATTACH_HINT if jq_value else "")
 
 
-def _check_value(value: str) -> None:
-    if value == "-" or value[:1] in ("@", "/", "~", "\\") or value.lower().startswith("file:") or _PARENT.search(value):
-        raise LarkRefused(f"不支持本地文件（{value[:40]!r}）：只接受飞书链接、token 和普通文本")
+def _check_value(value: str, *, hint: str = "") -> None:
+    visible = _EDGE_BLANKS.sub("", value)
+    if visible == "-" or visible[:1] in ("@", "/", "~", "\\") or visible.lower().startswith("file:") or _PARENT.search(visible):
+        raise LarkRefused(f"不支持本地文件（{value[:40]!r}）：只接受飞书链接、token 和普通文本" + (f"；{hint}" if hint else ""))
 
 
 def risk_from_help(path: tuple[str, ...], text: str) -> str:
