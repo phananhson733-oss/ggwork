@@ -21,14 +21,17 @@ _SAVE_CLAIM = re.compile(
     r"|保存(成功|好了|完成)(?!后)"
 )
 # 发 must be the verb: 没发现/没发生/没有发布记录 are not claims, and "已排期未发" relays a card warning. Where or by whom
-# may stand between the negation and the verb ("没在 B 账号发过", "没有被团队发布过"): an account, a platform or a place
-# ("上", "里") after 在, an account, the team or someone after 被 (or no one), within the clause and before any other 发.
-# Another verb there ("没有在卡片上显示发布日期"), a noun after 发布 ("暂无发布状态", "没有加发布过滤"), or another word
-# starting with 发 ("发表", "发货"), is what the negation is about; so is a window of time ("近30天内").
+# may stand between the negation and the verb ("没在 B 账号发过", "没有被团队发布过"): an account, the team, a platform, a
+# channel or a place ("美区", "官网", "上", "里") after 在, an account, the team or someone after 被 (or no one), within the
+# clause and before any other 发; and then "正式" or the like. Another verb there ("没有在卡片上显示发布日期"), a noun after
+# 发布 ("暂无发布状态", "没有加发布过滤"), or another word starting with 发 ("发表", "发货"), is what the negation is about;
+# so is a window of time ("近30天内"). "没有再发过" says it was posted before.
 _GAP = r"[^。！？!?；;，,\n发]"
+_WHERE = r"账号|账户|号|团队|公司|平台|频道|渠道|剧场|地方|国内|海外|国外|境外|市场|区|站|网|端|处|上|里|中|[0-9A-Za-z]"
+_BY_WHOM = r"团队|全队|公司|官方|运营|账号|账户|号|人|我们|咱们|他们|她们|你们|[0-9A-Za-z]"
 _NOT_POSTED = re.compile(
     r"(?<!排期)(?:从来没有?|从没有?|没有?|未曾?|不曾|尚无|暂无|从无|并无)"
-    rf"(?:(?:在{_GAP}{{0,16}}?(?:账号|账户|号|上|里|中|平台|频道|[0-9A-Za-z])|被(?:{_GAP}{{0,12}}?(?:团队|全队|账号|账户|号|人|[0-9A-Za-z]))?)\s*)?"
+    rf"(?:(?:在{_GAP}{{0,16}}?(?:{_WHERE})|被(?:{_GAP}{{0,12}}?(?:{_BY_WHOM}))?)\s*)?(?:正式|公开|实际|真正)?"
     r"(?:发布(?!过滤|过程|记录|日期|时间|状态|数据|信息|明细|详情|结果|概况|情况|计划|渠道|平台|权限|功能|按钮|页面|入口|规则|要求|标准|流程|说明|会|者|量|数|率)"
     r"|发(?![布现生展放起出送给挥行货表言声票音]))"
 )
@@ -72,9 +75,10 @@ _BARE_MARK = f"《{_MASK}》"
 _JOINS = r"(?:\s|[、/&+]|和|与|及|跟|以及|还有)*"
 _ITEM_START = r"\s*(?:[-*•·+>]+\s*|[0-9]{1,3}\s*[.、)）]\s*)?"
 # A clause of titles only ("《A》", "2. 《B》和《C》", a bare title) says nothing of its own; one that starts with its
-# titles ("《C》都没发过") goes on with such a list, and one that starts otherwise ("其中《C》都没发过") says something else.
-_LISTED = re.compile(rf"{_ITEM_START}(?:《{_MASK}+》{_JOINS})+")
-_STARTS_WITH_TITLE = re.compile(rf"{_ITEM_START}《")
+# titles ("《C》都没发过", "和《C》都没发过") goes on with such a list, and one that starts otherwise ("其中《C》都没发过")
+# says something else.
+_LISTED = re.compile(rf"{_ITEM_START}{_JOINS}(?:《{_MASK}+》{_JOINS})+")
+_STARTS_WITH_TITLE = re.compile(rf"{_ITEM_START}{_JOINS}《")
 _JOINED = re.compile(rf"{_JOINS}")
 # A clause about the whole team, or the accounts besides one, is not about the account a posted_account query cleared.
 _TEAM_WORDS = re.compile(rf"团队|全队|哪个账号|(?:所有|任何|任意|任一|每一?个|各个?|全部|其他|其余|其它|别的|另外){_SOME_ACCOUNTS}")
@@ -270,8 +274,9 @@ def _marked(folded: str, found: list[tuple[str, int, int]], bracketed: list[str]
 def _left_out(marked: str, marks: list[_Mark]) -> tuple[bool, set[int]]:
     """Whether a clause's marked text leaves titles out, and which of its marks it leaves out.
 
-    Leaving out an account with no title after it ("除了 A 账号都没发过") leaves no title out. Each mark is read once,
-    however many "除了" or "以外" the clause holds.
+    Leaving out an account with no title after it ("除了 A 账号都没发过") leaves no title out, and so does "不含" or
+    "不算" naming none ("不含已保存的"); "除了这部" leaves out the titles named. Each mark is read once, however many
+    "除了" or "以外" the clause holds.
     """
     starts = [mark.start for mark in marks]
     untils = [match.start() for match in _LEFT_OUT_UNTIL.finditer(marked)]
@@ -279,10 +284,11 @@ def _left_out(marked: str, marks: list[_Mark]) -> tuple[bool, set[int]]:
     for match in _LEFT_OUT_BEFORE.finditer(marked):
         if _ACCOUNT_LEFT_OUT.match(marked, match.start()) and (not starts or starts[-1] < match.start()):
             continue
-        leaves = True
         until = bisect_left(untils, match.end())
         stop = bisect_left(starts, untils[until] if until < len(untils) else len(marked))
-        left_out.update(range(max(covered, bisect_left(starts, match.end())), stop))
+        first = bisect_left(starts, match.end())
+        leaves = leaves or match.group().startswith("除") or first < stop
+        left_out.update(range(max(covered, first), stop))
         covered = max(covered, stop)
     for match in _LEFT_OUT_AFTER.finditer(marked):
         leaves = True
@@ -311,8 +317,8 @@ class _Subject(NamedTuple):
     indent: int
     # The fewest titles an ABOVE claim sums up: fewer named up to it, and it sums up every record returned.
     least: int = 1
-    # The titles an EXCEPT claim leaves out.
-    excepted: tuple[str, ...] = ()
+    # The normalized titles an EXCEPT claim leaves out: one set, carried from clause to clause, hashed once.
+    excepted: frozenset[str] = frozenset()
 
 
 def _summary(masked: str, left: int, right: int) -> str | None:
@@ -356,7 +362,7 @@ class _Own(NamedTuple):
     titles: tuple[str, ...]
     listed: bool
     leads: bool
-    leaving: tuple[str, ...] | None
+    leaving: frozenset[str] | None
 
 
 def _own_subject(text: str, masked: str, clause: tuple[_Accounts, _BareTitles], left: int, right: int, indent: int) -> _Own:
@@ -367,7 +373,7 @@ def _own_subject(text: str, masked: str, clause: tuple[_Accounts, _BareTitles], 
     marked, marks = _marked(words, found, [match.group(1).strip() for match in _TITLE.finditer(text, left, right)])
     leaves, left_out = _left_out(marked, marks)
     titles = _distinct(mark.title for mark in marks)
-    excepted = _distinct(marks[index].title for index in sorted(left_out))
+    excepted = frozenset(_norm(marks[index].title) for index in left_out if marks[index].title)
     kept = _distinct(mark.title for index, mark in enumerate(marks) if index not in left_out)
     summary, listed, leads = _summary(masked, left, right), _LISTED.fullmatch(marked) is not None, _STARTS_WITH_TITLE.match(marked) is not None
     least = _least(masked, left, right) if summary == ABOVE else 1
@@ -395,17 +401,20 @@ def _leaving_listed(own: _Own, listing: list[str]) -> _Own:
     if not (listing and own.leads):
         return own
     if own.leaving:
-        return own._replace(leaving=_distinct((*listing, *own.leaving)))
+        return own._replace(leaving=own.leaving | frozenset(map(_norm, listing)))
     if own.subject.summary == EXCEPT:
-        return own._replace(subject=own.subject._replace(excepted=_distinct((*listing, *own.subject.excepted))))
+        return own._replace(subject=own.subject._replace(excepted=own.subject.excepted | frozenset(map(_norm, listing))))
     return own
 
 
-def _widened(own: _Own, listing: list[str], leaving: tuple[str, ...] | None) -> _Subject:
-    """A summing-up clause after the clauses it goes on from: after "除了《A》，" it sums up every record but A (the rest
-    when "除了这部" names none); starting with new titles of its own, it also sums up the titles listed right before it
-    ("《A》，《B》都没发过"). Naming again a title listed before it ("…\n《C》和《B》都没发过"), it picks from the list."""
+def _widened(own: _Own, listing: list[str], leaving: frozenset[str] | None) -> _Subject:
+    """A summing-up clause after the clauses it goes on from: after "除了《A》，" it sums up every record but A, "其余"
+    as well (the rest when "除了这部" names none); starting with new titles of its own, it also sums up the titles listed
+    right before it ("《A》，《B》都没发过"). Naming again a title listed before it ("…\n《C》和《B》都没发过"), it picks
+    from the list."""
     subject = own.subject
+    if subject.summary == REST and not subject.titles and leaving:
+        return subject._replace(summary=EXCEPT, excepted=leaving)
     if subject.summary != ALL:
         return subject
     if leaving is not None and not subject.titles:
@@ -437,7 +446,7 @@ def _clauses(text: str, masked: str, seen: dict[str, Seen]) -> _Clauses:
     reading = (_Accounts(seen), _BareTitles(seen))
     left, soft, comma, borrowed, indent = 0, False, False, False, _INDENT.match(masked).end()
     listing: list[str] = []
-    leaving: tuple[str, ...] | None = None
+    leaving: frozenset[str] | None = None
     for mark in (*_CLAUSE_MARK.finditer(masked), None):
         own = _leaving_listed(_own_subject(text, masked, reading, left, mark.start() if mark else len(masked), indent), listing)
         _left_out_before(found, own, comma, borrowed)
@@ -482,10 +491,6 @@ def _cleared(entry: Seen, mentioned: frozenset[str]) -> bool:
     return bool(mentioned) and mentioned <= _clearing(entry)
 
 
-def _effective(entry: Seen, mentioned: frozenset[str]) -> str:
-    return UNPOSTED if _cleared(entry, mentioned) else entry.status
-
-
 class _Findings:
     """Across an answer's claims: the titles whose records refute one, and whether one stood on nothing."""
 
@@ -525,9 +530,10 @@ class _Judge:
 
     Judging only adds, so each record is read about once however many claims stand on it. Unmatched, unknown and posted
     records no posted_account query cleared say the same to every claim: each is read once for every record, once for
-    those not named yet, and once as "以上" reaches it. A posted record some query cleared says something else to a claim
-    about the accounts cleared: once a claim is refuted by it, it is read no more, so it is read again only by claims
-    naming only accounts that queries cleared.
+    those not named yet, once as "以上" reaches it, once for each set of titles left out and once for each subject
+    naming it. A posted record some query cleared says something else to a claim about the accounts cleared: once a
+    claim is refuted by it, it is read no more, so it is read again only by claims naming only accounts that queries
+    cleared.
     """
 
     def __init__(self, seen: dict[str, Seen], posted_checked: bool, owns: list[tuple[str, ...]]) -> None:
@@ -540,6 +546,11 @@ class _Judge:
         self.unnamed = len(seen)
         self.done: set[tuple] = set()
         self.above: dict[tuple, int] = {}
+        # For each set of titles left out, whether it leaves out every record returned; once in it, the fixed records
+        # but those have been read.
+        self.left_out: dict[frozenset[str], bool] = {}
+        # For each claim naming titles (by where its subject starts), its cleared posted records no claim has refuted yet.
+        self.named_pools: dict[int, dict[str, str]] = {}
         # Where each record came back: a claim about every record reads them, and lists those refuting it, in this order.
         self.rank = {norm: position for position, norm in enumerate(seen)}
         fixed = {norm: entry for norm, entry in seen.items() if entry.status != UNPOSTED and not _clearing(entry)}
@@ -606,13 +617,26 @@ class _Judge:
             self._everything(subject, mentioned)
 
     def _titles(self, subject: _Subject, mentioned: frozenset[str]) -> None:
+        """The titles a claim names. The first claim naming them reads them all; the others naming them read only the
+        cleared posted records it left, until one refutes each."""
         key = (subject.start, mentioned)
         if key in self.done:
             return
         self.done.add(key)
-        missing = Seen("", UNKNOWN)
-        for title in subject.titles:
-            self.findings.add(_norm(title), title, _effective(self.seen.get(_norm(title), missing), mentioned))
+        pool = self.named_pools.get(subject.start)
+        if pool is None:
+            pool = self.named_pools[subject.start] = {}
+            for title in subject.titles:
+                norm = _norm(title)
+                entry = self.seen.get(norm)
+                if entry is not None and _cleared(entry, mentioned):
+                    pool.setdefault(norm, title)
+                else:
+                    self.findings.add(norm, title, UNKNOWN if entry is None else entry.status)
+        else:
+            for norm, title in [(norm, title) for norm, title in pool.items() if not _cleared(self.seen[norm], mentioned)]:
+                self.findings.add(norm, title, POSTED)
+                del pool[norm]
         if subject.unknown:
             self.findings.unplaced()
 
@@ -653,16 +677,24 @@ class _Judge:
             self._everything(subject, mentioned)
 
     def _except(self, subject: _Subject, mentioned: frozenset[str]) -> None:
-        """Every record returned but the titles left out, named before or not: with none, only the posted filter backs it."""
-        skip = frozenset(map(_norm, subject.excepted))
+        """Every record returned but the titles left out, named before or not: with none, only the posted filter backs it.
+
+        The first claim leaving out a set of titles reads the fixed records but those; the others leaving out the same
+        set read only the cleared ones.
+        """
+        skip = subject.excepted
         key = (EXCEPT, mentioned, subject.unknown, skip)
         if key in self.done:
             return
         self.done.add(key)
-        if len(self.seen) == sum(norm in self.seen for norm in skip):
+        whole = self.left_out.get(skip)
+        fixed = self.fixed_all if whole is None else {}
+        if whole is None:
+            whole = self.left_out[skip] = len(self.seen) == sum(norm in self.seen for norm in skip)
+        if whole:
             self.findings.unplaced()
             return
-        self._read(self._pooled(self.fixed_all, self.clearable, skip), mentioned)
+        self._read(self._pooled(fixed, self.clearable, skip), mentioned)
         if subject.unknown:
             self.findings.unplaced()
 
