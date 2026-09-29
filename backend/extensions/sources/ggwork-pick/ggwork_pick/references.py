@@ -149,10 +149,36 @@ def _check_tags(rows, tags: list[str]) -> None:
         raise ValueError(f"剧库里没有标签「{'、'.join(missing)}」。{hint}{_clear('tags', '[]')}")
 
 
+def names_account(accounts, account: str) -> bool:
+    """Whether one of a publication record's accounts is the asked one: case ignored, and the asked name's outer spaces.
+    The reference check and the filter both ask this, so an account the refusal lists is one the filter matches."""
+    wanted = account.strip().casefold()
+    return any(name.casefold() == wanted for name in accounts)
+
+
+def check_posted_account(rows, account: str) -> None:
+    """Refuse an account no publication record in the batch names, listing the ones they do, most dramas first. Every
+    row carries its records here: selection refuses a batch without them before asking (PostedDataUnavailable)."""
+    if any(names_account(row["posted"]["accounts"], account) for row in rows):
+        return
+    # An account written twice on one drama counts once: the order is by how many dramas each account posted.
+    counts = Counter(name for row in rows for name in dict.fromkeys(row["posted"]["accounts"]))
+    if counts:
+        hint = (
+            f"posted_account填发布记录里的账号名（不分大小写），可选：{_choices(counts)}。"
+            "只是拼写不同时改用列出的名字重查，否则把可选账号告诉用户确认，不要换成别的账号代查。"
+        )
+    else:
+        hint = "当前批次的发布记录都没有账号名，不能按账号排除。"
+    team = "说的是整个团队没发过时改用exclude_posted=true（任一账号发过都排除）。"
+    raise ValueError(f"发布记录里没有账号「{account.strip()}」；{hint}{team}{_clear('posted_account')}")
+
+
 def check_references(rows, conditions: PickConditions) -> None:
-    """Refuse a theater, language, tag, signal kind or account the batch does not contain, a region used as a title
-    word, and hot_only on a batch without hot evidence. Only for a new query or count: a stored result is replayed
-    without it, on the batch it already passed."""
+    """Refuse a theater, language, tag or signal kind the batch does not contain, a region used as a title word, and
+    hot_only on a batch without hot evidence (an account: check_posted_account, once selection has made sure the batch
+    has publication records). Only for a new query or count: a stored result is replayed without it, on the batch it
+    already passed."""
     if conditions.theater:
         _check_theater(rows, conditions.theater)
     if conditions.language:
