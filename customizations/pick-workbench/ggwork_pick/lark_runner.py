@@ -7,9 +7,17 @@ environment, DEER_FLOW_HOME or other users' credential trees. One lark-cli proce
 and worker processes, and whatever the lark user left running is killed when the run ends, so no other user's copy
 exists while a run is in flight. What lark-cli changed in its copy (a refreshed token, a cache) is copied back before
 the lock is released, unless the copy then holds anything but plain files and directories.
+
+A run takes its user's credential lock before the shared slot, and gives up on both when its time is up: that
+user's authorization flow may hold their lock for a while, and nobody else's command waits behind it. Callers on
+the event loop go through ``in_lark_thread``, a few threads of this module's own, so commands waiting their turn
+queue there rather than on the default executor the rest of the Gateway shares (09-29 review).
 """
 
+import asyncio
+import contextvars
 import fcntl
+import functools
 import logging
 import os
 import pwd
@@ -20,8 +28,9 @@ import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,6 +51,11 @@ MAX_RISK_CACHE = 512
 PASSTHROUGH_ENV = ("TZ", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")
 SCRATCH_DIRS = ("work", "home", "tmp", "config", "data")
 QUEUE_TIMEOUT = "飞书命令排队超时，请稍后再试"
+CREDENTIALS_BUSY = "该用户的飞书授权正在进行，请完成授权后再试"
+# One lark-cli process runs at a time; a few threads let the next command wait for it, and one whose user is still
+# authorizing wait for that user, without holding up the rest. Further commands wait in the executor's queue.
+MAX_WORKER_THREADS = 4
+THREAD_NAME_PREFIX = "lark-cli"
 
 _VERSION = re.compile(r"\d+\.\d+\.\d+")
 _POLL_SECONDS = 0.05
@@ -49,6 +63,7 @@ _ONE_AT_A_TIME = threading.Lock()
 _CACHE_LOCK = threading.Lock()
 _RISK_CACHE: dict[tuple[str, ...], str] = {}
 _BINARY_CACHE: dict[str, str] = {}
+_EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKER_THREADS, thread_name_prefix=THREAD_NAME_PREFIX)
 
 
 class LarkUnavailable(RuntimeError):
@@ -133,11 +148,17 @@ def child_env(scratch: Path) -> dict[str, str]:
     }
 
 
+async def in_lark_thread[T](func: Callable[..., T], /, *args) -> T:
+    """``asyncio.to_thread`` on this module's own threads. A call cancelled before it starts never runs."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_EXECUTOR, functools.partial(contextvars.copy_context().run, func, *args))
+
+
 def run_guide(args: tuple[str, ...], *, timeout: float = HELP_TIMEOUT_SECONDS) -> Completed:
     """lark-cli's own help, schema and skill text, with empty credential directories."""
     binary, owner = resolve_binary(), run_as()
     deadline = time.monotonic() + timeout
-    with _slot(deadline), _failures_as_unavailable("lark-cli 无法运行"), _scratch() as scratch:
+    with _failures_as_unavailable("lark-cli 无法运行"), _slot(deadline), _scratch() as scratch:
         _hand_over(scratch, owner)
         return _execute(binary, args, scratch, owner, deadline)
 
@@ -146,7 +167,7 @@ def run_for_user(user_id: str, args: tuple[str, ...], *, timeout: float = TIMEOU
     """One command with a private copy of ``user_id``'s credentials; keeps what lark-cli refreshed in it."""
     binary, owner = resolve_binary(), run_as()
     deadline = time.monotonic() + timeout
-    with _slot(deadline), _failures_as_unavailable("飞书凭据或 lark-cli 无法使用"), lark_cli.lark_credential_lock(user_id):
+    with _failures_as_unavailable("飞书凭据或 lark-cli 无法使用"), _user_lock(user_id, deadline), _slot(deadline):
         lark_cli.ensure_lark_cli_credential_tree(user_id)
         real = {"config": lark_cli.lark_cli_config_dir(user_id), "data": lark_cli.lark_cli_data_dir(user_id)}
         before = {name: lark_credentials.snapshot(path) for name, path in real.items()}
@@ -175,6 +196,17 @@ def command_risk(path: tuple[str, ...], *, timeout: float = HELP_TIMEOUT_SECONDS
             _RISK_CACHE.clear()
         _RISK_CACHE[path] = risk
     return risk
+
+
+@contextmanager
+def _user_lock(user_id: str, deadline: float) -> Iterator[None]:
+    """The user's credential lock, shared with their authorization flow; waiting for it ends at ``deadline``."""
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(lark_cli.lark_credential_lock(user_id, deadline=deadline))
+        except TimeoutError:
+            raise TimeoutError(CREDENTIALS_BUSY) from None
+        yield
 
 
 @contextmanager

@@ -1,9 +1,13 @@
 """How the lark_cli tool runs lark-cli (docs/pick-workbench/lark-personal-auth.md section 3.3): an empty scratch
 directory, a listed environment, a private copy of the user's credentials, the image's unprivileged user."""
 
+import asyncio
+import contextvars
 import os
 import stat
 import subprocess
+import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -157,22 +161,127 @@ def test_a_symlink_left_in_the_scratch_tree_keeps_the_old_credentials(monkeypatc
     assert not token.is_symlink() and token.read_text(encoding="utf-8") == '{"access": "old"}'
 
 
-def test_a_user_run_holds_that_users_credential_lock(monkeypatch):
+def test_a_user_run_takes_its_own_lock_before_the_shared_slot_both_bounded_by_the_run(monkeypatch):
     held = []
 
     @contextmanager
-    def lock(user_id):
-        held.append(user_id)
+    def lock(user_id, *, deadline):
+        held.append((user_id, deadline))
+        yield
+
+    @contextmanager
+    def slot(deadline):
+        held.append(("slot", deadline))
         yield
 
     fake = FakeCli(action=lambda *_: held.append("ran"))
     monkeypatch.setattr(lark_runner.subprocess, "run", fake)
     monkeypatch.setattr(lark_cli, "lark_credential_lock", lock)
+    monkeypatch.setattr(lark_runner, "_slot", slot)
     _user_tree()
 
-    lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"))
+    started = time.monotonic()
+    lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"), timeout=5)
 
-    assert held == ["alice", "ran"]
+    (user, deadline), (name, slot_deadline), ran = held
+    assert (user, name, ran) == ("alice", "slot", "ran")
+    assert deadline == slot_deadline and started + 5 <= deadline < started + 6
+
+
+def test_an_authorization_in_progress_holds_up_only_that_user(monkeypatch):
+    """09-29 review: a user's authorization flow holds their credential lock for up to 45 seconds. Their own command
+    gives up when its time is up; nobody else's command waits behind it."""
+    fake = FakeCli()
+    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    _user_tree("alice")
+    _user_tree("bob")
+    authorizing, finished = threading.Event(), threading.Event()
+    outcome = {}
+
+    def authorize():
+        with lark_cli.lark_credential_lock("alice"):
+            authorizing.set()
+            finished.wait(3)
+
+    def alice():
+        try:
+            lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"), timeout=1.5)
+        except Exception as exc:  # noqa: BLE001 - the test inspects it
+            outcome["alice"] = exc
+
+    holder = threading.Thread(target=authorize, daemon=True)
+    holder.start()
+    assert authorizing.wait(5)
+    waiting = threading.Thread(target=alice, daemon=True)
+    waiting.start()
+    time.sleep(0.2)
+    lark_runner.run_for_user("bob", ("docs", "+fetch", "--doc", "AbC"), timeout=1)
+    lark_runner.run_guide(("docs", "--help"), timeout=1)
+    waiting.join(5)
+    finished.set()
+    holder.join(5)
+
+    assert isinstance(outcome.get("alice"), TimeoutError) and lark_runner.CREDENTIALS_BUSY in str(outcome["alice"])
+    assert len(fake.calls) == 2
+
+
+@pytest.mark.parametrize("run", [lambda: lark_runner.run_guide(("docs", "--help")), lambda: lark_runner.run_for_user("alice", ("docs", "+fetch"))])
+def test_a_run_lock_that_cannot_be_opened_is_unavailable(monkeypatch, run):
+    monkeypatch.setattr(lark_runner.subprocess, "run", FakeCli())
+    _user_tree()
+    (paths_module.get_paths().base_dir / lark_runner.RUN_LOCK_FILE).mkdir(parents=True)
+    with pytest.raises(lark_runner.LarkUnavailable):
+        run()
+
+
+@pytest.mark.asyncio
+async def test_lark_work_runs_on_its_own_threads():
+    names = await asyncio.gather(*(lark_runner.in_lark_thread(lambda: threading.current_thread().name) for _ in range(3)))
+    assert all(name.startswith(lark_runner.THREAD_NAME_PREFIX) for name in names)
+
+
+@pytest.mark.asyncio
+async def test_queued_lark_work_waits_in_the_queue_not_on_threads():
+    """09-29 review: each queued command used to park a thread of the default pool the whole Gateway shares."""
+    release, guard = threading.Event(), threading.Lock()
+    counts = {"running": 0, "peak": 0}
+
+    def work():
+        with guard:
+            counts["running"] += 1
+            counts["peak"] = max(counts["peak"], counts["running"])
+        release.wait(5)
+        with guard:
+            counts["running"] -= 1
+
+    tasks = [asyncio.ensure_future(lark_runner.in_lark_thread(work)) for _ in range(lark_runner.MAX_WORKER_THREADS + 3)]
+    await asyncio.sleep(0.3)
+    assert counts["peak"] == lark_runner.MAX_WORKER_THREADS
+    release.set()
+    await asyncio.gather(*tasks)
+
+
+@pytest.mark.asyncio
+async def test_a_call_cancelled_while_queued_never_runs():
+    release, ran = threading.Event(), []
+    blockers = [asyncio.ensure_future(lark_runner.in_lark_thread(release.wait, 5)) for _ in range(lark_runner.MAX_WORKER_THREADS)]
+    await asyncio.sleep(0.2)
+    queued = asyncio.ensure_future(lark_runner.in_lark_thread(ran.append, "late"))
+    await asyncio.sleep(0.1)
+    queued.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await queued
+    release.set()
+    await asyncio.gather(*blockers)
+    await asyncio.gather(lark_runner.in_lark_thread(time.sleep, 0.05))
+    assert ran == []
+
+
+@pytest.mark.asyncio
+async def test_lark_work_sees_the_callers_context():
+    request = contextvars.ContextVar("request")
+    request.set("alice-turn")
+    assert await lark_runner.in_lark_thread(request.get) == "alice-turn"
 
 
 def test_guides_run_without_the_users_credentials(monkeypatch):

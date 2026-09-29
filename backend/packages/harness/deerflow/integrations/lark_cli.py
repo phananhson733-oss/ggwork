@@ -129,6 +129,8 @@ LARK_CLI_MINIMAL_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin
 _LARK_CLI_PASSTHROUGH_ENV = ("HOME", "TZ", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy")
 _EMBEDDED_SKILLS_CACHE: dict[tuple[str, str], tuple[str, ...]] = {}
 _EMBEDDED_SKILLS_CACHE_LOCK = threading.Lock()
+# How often a lock taken with a deadline retries the advisory file lock of another worker process.
+_LOCK_POLL_SECONDS = 0.05
 
 # Pattern B (issue #4338): loopback URL the sandbox shim uses to reach the broker
 # sidecar. LARK_BROKER_URL_ENV is imported from the broker module so the shim,
@@ -1303,26 +1305,50 @@ def _read_json_object_file(path: Path) -> dict[str, Any] | None:
 
 
 @contextmanager
-def _exclusive_install_lock(lock_path: Path, thread_lock):
-    """Hold one advisory file lock plus its in-process counterpart."""
-    with thread_lock, lock_path.open("a+b") as lock_file:
-        lock_file.seek(0, os.SEEK_END)
-        if lock_file.tell() == 0:
-            lock_file.write(b"\0")
-            lock_file.flush()
-        lock_file.seek(0)
-        if fcntl is not None:
-            fcntl.flock(lock_file, fcntl.LOCK_EX)
-        else:  # pragma: no cover - Windows fallback
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
-        try:
-            yield
-        finally:
+def _exclusive_install_lock(lock_path: Path, thread_lock, *, deadline: float | None = None):
+    """Hold one advisory file lock plus its in-process counterpart.
+
+    With a ``deadline`` (a ``time.monotonic()`` value) both waits give up with TimeoutError once it passes rather
+    than lasting as long as the holder takes; a free lock is still taken after it. Without one they wait as before.
+    """
+    waited = -1 if deadline is None else max(0.0, deadline - time.monotonic())
+    if not thread_lock.acquire(timeout=waited):
+        raise TimeoutError(f"Timed out waiting for {lock_path.name}")
+    try:
+        with lock_path.open("a+b") as lock_file:
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
             lock_file.seek(0)
             if fcntl is not None:
-                fcntl.flock(lock_file, fcntl.LOCK_UN)
+                _flock_exclusive(lock_file, deadline)
             else:  # pragma: no cover - Windows fallback
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                if fcntl is not None:
+                    fcntl.flock(lock_file, fcntl.LOCK_UN)
+                else:  # pragma: no cover - Windows fallback
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+    finally:
+        thread_lock.release()
+
+
+def _flock_exclusive(lock_file, deadline: float | None) -> None:
+    if deadline is None:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        return
+    while True:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting for {Path(lock_file.name).name}") from None
+            time.sleep(_LOCK_POLL_SECONDS)
 
 
 def _lark_credential_thread_lock(user_id: str) -> threading.Lock:
@@ -1359,7 +1385,7 @@ def _lark_hardening_lock(user_id: str, paths: Paths):
 
 
 @contextmanager
-def _lark_credential_lock(user_id: str):
+def _lark_credential_lock(user_id: str, *, deadline: float | None = None):
     """Serialize credential replacement for one user across threads/processes.
 
     On Windows the advisory lock file is anchored directly under the trusted
@@ -1378,13 +1404,17 @@ def _lark_credential_lock(user_id: str):
         root = user_dir / "integrations" / INTEGRATION_ID
         root.parent.mkdir(parents=True, exist_ok=True)
         lock_path = root.parent / f".{INTEGRATION_ID}.credentials.lock"
-    with _exclusive_install_lock(lock_path, _lark_credential_thread_lock(user_id)):
+    with _exclusive_install_lock(lock_path, _lark_credential_thread_lock(user_id), deadline=deadline):
         yield
 
 
-def lark_credential_lock(user_id: str):
-    """The per-user credential lock, for tools that run lark-cli with a user's credentials outside this module."""
-    return _lark_credential_lock(user_id)
+def lark_credential_lock(user_id: str, *, deadline: float | None = None):
+    """The per-user credential lock, for tools that run lark-cli with a user's credentials outside this module.
+
+    ``deadline`` (a ``time.monotonic()`` value) makes the wait give up with TimeoutError instead of lasting as long
+    as the holder, such as this user's authorization flow, keeps it.
+    """
+    return _lark_credential_lock(user_id, deadline=deadline)
 
 
 def _lark_flow_state_path(user_id: str) -> Path:

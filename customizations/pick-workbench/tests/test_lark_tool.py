@@ -1,6 +1,7 @@
 """The lark_cli tool the model sees (docs/pick-workbench/lark-personal-auth.md section 3)."""
 
 import json
+import threading
 import time
 from types import SimpleNamespace
 
@@ -91,6 +92,23 @@ async def test_policy_refusals_run_nothing(monkeypatch, connected):
 
     assert answer["status"] == "rejected" and "不开放" in answer["notice"]
     assert runner.calls == []
+
+
+@pytest.mark.asyncio
+async def test_commands_run_on_the_lark_threads_not_the_shared_pool(monkeypatch, connected):
+    runner = Runner().install(monkeypatch)
+    threads = []
+    original = lark_runner.run_for_user
+
+    def recording(*args, **kwargs):
+        threads.append(threading.current_thread().name)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(lark_runner, "run_for_user", recording)
+    await _call(["docs", "+fetch", "--doc", "AbC"])
+
+    assert runner.calls[-1][0] == "user"
+    assert [name.startswith(lark_runner.THREAD_NAME_PREFIX) for name in threads] == [True]
 
 
 @pytest.mark.asyncio
