@@ -21,6 +21,16 @@ import path from "node:path";
 import { describe, expect, it } from "@rstest/core";
 import ts from "typescript";
 
+import {
+  type Boundary,
+  type SourceHost,
+  compilerOptions,
+  hasUseClient,
+  isRadarComponent,
+  registryProblems,
+  viewProblems,
+} from "./client-boundary";
+
 const FRONTEND_ROOT = path.resolve(__dirname, "../../../..");
 const CORE_DIR = "src/core/pick-board";
 const SERVER_DIR = "src/server/pick-board";
@@ -256,7 +266,7 @@ describe("component imports", () => {
 
   it("client components pull in only the small pure modules they need", () => {
     const clientFiles = componentFiles().filter((file) =>
-      /^\s*(\/\/[^\n]*\n\s*)*["']use client["']/.test(read(file)),
+      hasUseClient(file, read(file)),
     );
     expect(clientFiles.sort()).toEqual([
       `${COMPONENTS_DIR}/glossary.tsx`,
@@ -274,84 +284,64 @@ describe("component imports", () => {
 });
 
 const PICK_DIR = "src/components/workspace/pick";
+const RADAR_ROOTS = [PICK_DIR, COMPONENTS_DIR] as const;
 
 /**
  * The radar's client components (plan TR-25; TR-25b keeps the registry): every "use client" file the radar adds is
- * listed with why it has to run in the browser. The radar's components are the files named obs-* in the pick and
- * pick-board component folders and everything under pick/obs/, where the interactive ones will go.
+ * listed with why it has to run in the browser. The radar's components are the files named obs-* anywhere in the pick
+ * and pick-board component folders and everything in an obs/ folder there, where the interactive ones will go.
  */
 const RADAR_CLIENT_COMPONENTS: Readonly<Record<string, string>> = {
   [`${PICK_DIR}/obs-status-panel.tsx`]:
     "TR-25：「同步与导入」tab 本身在浏览器里，雷达一栏与 SyncStatus 共用同一个 /sync 的 react-query 查询（useQuery、useAuth）",
 };
 
-const USE_CLIENT = /^\s*(\/\/[^\n]*\n\s*)*["']use client["']/;
+const DISK: SourceHost = {
+  read: (file) => {
+    try {
+      return read(file);
+    } catch {
+      return undefined;
+    }
+  },
+};
+const ON_DISK: Boundary = {
+  root: FRONTEND_ROOT,
+  host: DISK,
+  options: compilerOptions(FRONTEND_ROOT),
+};
 
-function isRadarComponent(file: string): boolean {
-  return (
-    file.startsWith(`${PICK_DIR}/obs/`) ||
-    new RegExp(`^(${PICK_DIR}|${COMPONENTS_DIR}/views)/obs-[^/]+\\.tsx?$`).test(
-      file,
-    )
-  );
-}
-
-/** What is wrong with a registry for these files: unlisted client components, stale entries, missing reasons. */
-function registryProblems(
-  files: readonly string[],
-  textOf: (file: string) => string,
-  registry: Readonly<Record<string, string>>,
-): string[] {
-  const clients = files.filter(
-    (file) => isRadarComponent(file) && USE_CLIENT.test(textOf(file)),
-  );
-  return [
-    ...clients
-      .filter((file) => !(file in registry))
-      .map((file) => `${file}: a client component the registry does not list`),
-    ...Object.keys(registry)
-      .filter((file) => !clients.includes(file))
-      .map((file) => `${file}: listed, but not a radar client component`),
-    ...Object.entries(registry)
-      .filter(([, why]) => why.trim().length < 10)
-      .map(([file]) => `${file}: no reason given`),
-  ];
-}
-
-/** The source file an import names, when it is one of ours: "@/…" or a relative path. */
-function resolveImport(from: string, spec: string): string | null {
-  const base = spec.startsWith("@/")
-    ? `src/${spec.slice(2)}`
-    : spec.startsWith(".")
-      ? path.posix.join(path.posix.dirname(from), spec)
-      : null;
-  if (base === null) return null;
-  const candidates = [`${base}.tsx`, `${base}.ts`, `${base}/index.tsx`];
-  return (
-    candidates.find((file) => {
-      try {
-        return statSync(path.join(FRONTEND_ROOT, file)).isFile();
-      } catch {
-        return false;
-      }
-    }) ?? null
-  );
+/** A boundary over sources that exist only in the test. */
+function inMemory(sources: Readonly<Record<string, string>>): Boundary {
+  return { ...ON_DISK, host: { read: (file) => sources[file] } };
 }
 
 describe("the radar's client components (TR-25b registry)", () => {
   const radarFiles = () =>
-    [...walk(PICK_DIR), ...componentFiles()].filter(isRadarComponent);
+    [...walk(PICK_DIR), ...componentFiles()].filter((file) =>
+      isRadarComponent(file, RADAR_ROOTS),
+    );
 
   it("each one is registered with a reason, and every entry is one", () => {
     expect(radarFiles().length).toBeGreaterThanOrEqual(8);
     expect(
-      registryProblems(radarFiles(), read, RADAR_CLIENT_COMPONENTS),
+      registryProblems(
+        radarFiles(),
+        ON_DISK,
+        RADAR_ROOTS,
+        RADAR_CLIENT_COMPONENTS,
+      ),
     ).toEqual([]);
   });
 
   it("an unregistered client component turns the check red", () => {
     const sources: Readonly<Record<string, string>> = {
       [`${PICK_DIR}/obs/confirm-button.tsx`]: '"use client";\nexport {};',
+      [`${PICK_DIR}/obs/pause.tsx`]:
+        '/* the pause button */\n"use client";\nexport {};',
+      [`${PICK_DIR}/obs/not-a-directive.tsx`]:
+        'const x = 1;\n"use client";\nexport { x };',
+      [`${COMPONENTS_DIR}/obs-button.tsx`]: "'use client';\nexport {};",
       [`${PICK_DIR}/obs-status-panel.tsx`]:
         '// the panel\n"use client";\nexport {};',
       [`${COMPONENTS_DIR}/views/obs-view.tsx`]: "export {};",
@@ -363,30 +353,55 @@ describe("the radar's client components (TR-25b registry)", () => {
       [`${COMPONENTS_DIR}/views/obs-view.tsx`]: "",
     };
     expect(
-      registryProblems(Object.keys(sources), (f) => sources[f] ?? "", registry),
+      registryProblems(
+        Object.keys(sources),
+        inMemory(sources),
+        RADAR_ROOTS,
+        registry,
+      ),
     ).toEqual([
       `${PICK_DIR}/obs/confirm-button.tsx: a client component the registry does not list`,
+      `${PICK_DIR}/obs/pause.tsx: a client component the registry does not list`,
+      `${COMPONENTS_DIR}/obs-button.tsx: a client component the registry does not list`,
       `${PICK_DIR}/obs/gone.tsx: listed, but not a radar client component`,
       `${COMPONENTS_DIR}/views/obs-view.tsx: listed, but not a radar client component`,
       `${COMPONENTS_DIR}/views/obs-view.tsx: no reason given`,
     ]);
   });
 
-  it("the data board's radar views are server components that use only registered client components", () => {
+  it("the data board's radar views are server components that reach only registered client components", () => {
     const views = componentFiles().filter((file) =>
       /\/views\/obs-[^/]+\.tsx$/.test(file),
     );
     expect(views.length).toBeGreaterThanOrEqual(6);
-    const offenders = views.flatMap((file) => [
-      ...(USE_CLIENT.test(read(file)) ? [`${file}: "use client"`] : []),
-      ...moduleSpecifiers(sourceFile(file))
-        .map(({ spec }) => resolveImport(file, spec))
-        .filter((target): target is string => target !== null)
-        .filter((target) => USE_CLIENT.test(read(target)))
-        .filter((target) => !(target in RADAR_CLIENT_COMPONENTS))
-        .map((target) => `${file}: imports ${target}`),
+    expect(viewProblems(views, ON_DISK, RADAR_CLIENT_COMPONENTS)).toEqual([]);
+  });
+
+  it("a view reaching an unregistered client component, however it is imported, turns the check red", () => {
+    const view = `${COMPONENTS_DIR}/views/obs-a.tsx`;
+    const sources: Readonly<Record<string, string>> = {
+      [view]: [
+        'import type { T } from "@/typed";',
+        'import { B } from "@/widgets";',
+        'import { S } from "./obs-helper.js";',
+        'import { type P } from "@/components/workspace/pick/obs-status-panel";',
+        'import { Q } from "@/missing";',
+        "export { B, S, Q };",
+      ].join("\n"),
+      "src/typed.tsx": '"use client";\nexport type T = 1;',
+      "src/widgets/index.ts": 'export { B } from "./button";',
+      "src/widgets/button.tsx": '"use client";\nexport const B = 1;',
+      [`${COMPONENTS_DIR}/views/obs-helper.tsx`]:
+        '"use client";\nexport const S = 1;',
+      [`${PICK_DIR}/obs-status-panel.tsx`]: '"use client";\nexport type P = 1;',
+    };
+    expect(
+      viewProblems([view], inMemory(sources), RADAR_CLIENT_COMPONENTS),
+    ).toEqual([
+      `${view}: reaches ${COMPONENTS_DIR}/views/obs-helper.tsx`,
+      `${view}: reaches src/widgets/button.tsx`,
+      `${view}: cannot resolve ${view}: @/missing`,
     ]);
-    expect(offenders).toEqual([]);
   });
 });
 

@@ -16,8 +16,7 @@ from pydantic import Field, ValidationError
 from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.mirror.status import mirror_status
-from ggwork_pick.observe.contract_api import Decision
-from ggwork_pick.observe.decisions import DecisionRefused, RequestIdReused, append_decision
+from ggwork_pick.observe.decisions import MAX_BODY_BYTES, DecisionInvalid, DecisionRefused, RequestIdReused, append_decision, parse_decision
 from ggwork_pick.observe.decisions_state import DecisionLogError
 from ggwork_pick.observe.status import obs_status
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
@@ -30,6 +29,7 @@ MANUAL_SYNC_COOLDOWN = timedelta(minutes=5)
 FAILED_SYNC_BACKOFF = timedelta(minutes=1)
 # decisions_state.DecisionLogError: no decision can be appended, a revocation neither, until the row is dealt with.
 DECISION_LOG_UNREADABLE = "人工决定表里有本服务读不了的行，暂时写不进任何决定（撤销也写不进）：请值守按 observe-runbook/decisions.md 处置"
+DECISION_INVALID = "请求体不是合同第 12 节的九种决定之一"
 
 
 async def mirror_view(service, shared: PickRepository) -> dict | None:
@@ -50,6 +50,17 @@ async def obs_view(shared: PickRepository) -> dict:
     except Exception as exc:
         logger.warning("[pick-obs] reading the observation status for /sync failed: %s", type(exc).__name__)
         return {"error": type(exc).__name__}
+
+
+async def decision_body(request: Request) -> bytes:
+    """A decision's request body, read no further than MAX_BODY_BYTES: a longer one is refused with 413."""
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_BODY_BYTES:
+            raise HTTPException(413, f"请求体过大：一条决定不超过 {MAX_BODY_BYTES // 1024} KB")
+        chunks = [*chunks, chunk]
+    return b"".join(chunks)
 
 
 class SaveInput(StrictInput):
@@ -287,14 +298,21 @@ def build_router(service):
             raise api_error(exc) from None
 
     @router.post("/obs/decisions", status_code=201)
-    async def append_obs_decision(body: Decision, response: Response, owner_id: str = Depends(signed_in)):
-        """A human decision for the radar (TR-25b, D12): appended, never changed or removed. The signed-in user is the
-        operator (a dependency, so nobody signed out gets past it to the body rules). 201 for a new row; 200 answers the
-        row a repeated request_id wrote."""
+    async def append_obs_decision(request: Request, response: Response, owner_id: str = Depends(signed_in)):
+        """A human decision for the radar (TR-25b, D12): appended, never changed or removed. 201 for a new row; 200
+        answers the row a repeated request_id wrote.
+
+        The signed-in user is the operator. The route declares no body parameter, so nothing reads the body before that
+        dependency has run: nobody signed out gets a word about it, not even that it is not JSON. A body outside the
+        contract is answered with where and which rule (parse_decision), never with what was sent."""
         if service.session_factory is None:
             raise HTTPException(503, "选剧服务尚未就绪")
         try:
-            appended = await append_decision(service.session_factory, owner_id, body, now=datetime.now(UTC))
+            decision = parse_decision(await decision_body(request))
+        except DecisionInvalid as exc:
+            raise HTTPException(422, {"message": DECISION_INVALID, "problems": list(exc.problems)}) from None
+        try:
+            appended = await append_decision(service.session_factory, owner_id, decision, now=datetime.now(UTC))
         except (DecisionRefused, RequestIdReused) as exc:
             raise HTTPException(409, str(exc)) from None
         except DecisionLogError as exc:

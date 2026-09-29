@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 
 import pytest
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, select
 
 from ggwork_pick.models import obs_decisions
 from ggwork_pick.observe import decisions as appender
@@ -24,6 +24,9 @@ FIXTURE = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "obs_co
 ROUTE = "/api/pick/obs/decisions"
 ALICE, BOB = {"test-owner": "alice"}, {"test-owner": "bob"}
 X = json.dumps(["realshort", "UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ", "en"], separators=(",", ":"))
+SENTINEL = "SENTINEL-7f3a"
+# The appender's own seams, taken before any test wraps them.
+REAL_INSERT, REAL_LOCK = appender._insert, appender.lock_for_append
 
 
 def _valid(name: str) -> dict:
@@ -69,8 +72,9 @@ async def test_decisions_owner_required(app_client):
     body = _valid("alert_irrelevant")
     for headers in ({}, {"test-owner": "default"}, {"test-owner": SHARED_OWNER}):
         assert (await client.post(ROUTE, headers=headers, json=body)).status_code == 401
-    # Nobody signed in learns nothing about the body rules either: 401 before the body is read.
+    # Nobody signed in learns nothing about the body either: 401 before it is read, even when it is not JSON.
     assert (await client.post(ROUTE, json={"kind": "alias_delete"})).status_code == 401
+    assert (await client.post(ROUTE, content=b"{", headers={"content-type": "application/json"})).status_code == 401
     # The owner is never a body field.
     assert (await client.post(ROUTE, headers=ALICE, json={**body, "owner_id": "bob"})).status_code == 422
     assert await _rows(service) == []
@@ -121,7 +125,20 @@ async def test_a_body_outside_the_contract_is_refused_without_echoing_it(app_cli
     for case in FIXTURE["invalid"]:
         response = await client.post(ROUTE, headers=ALICE, json=case["value"])
         assert response.status_code == 422, case["name"]
-        assert all("input" not in error for error in response.json()["detail"]), case["name"]
+        problems = response.json()["detail"]["problems"]
+        assert any(problem.endswith(f"（{case['error']['type']}）") for problem in problems), (case["name"], problems)
+    # Where and which rule, never what was sent: not a tag, an unexpected key, a value, or text that is not JSON.
+    body = _valid("alert_irrelevant")
+    extra = await client.post(ROUTE, headers=ALICE, json={**body, SENTINEL: "x"})
+    assert extra.json()["detail"]["problems"] == ["alert_irrelevant.<extra>（extra_forbidden）"]
+    for sent in ({**body, "kind": SENTINEL}, {**body, "note": SENTINEL * 100}, {**body, "alert_id": SENTINEL}, {**body, "note": f"{SENTINEL}\x00"}, [SENTINEL]):
+        response = await client.post(ROUTE, headers=ALICE, json=sent)
+        assert response.status_code == 422 and SENTINEL not in response.text, (sent, response.text)
+    not_json = await client.post(ROUTE, headers={**ALICE, "content-type": "application/json"}, content=f'{{"{SENTINEL}'.encode())
+    assert not_json.status_code == 422 and SENTINEL not in not_json.text
+    assert not_json.json()["detail"]["problems"] == ["body（json_invalid）"]
+    too_big = await client.post(ROUTE, headers=ALICE, json={**body, "note": "x" * (appender.MAX_BODY_BYTES + 1)})
+    assert too_big.status_code == 413
     assert await _rows(service) == []
 
 
@@ -190,50 +207,56 @@ async def test_watch_add_cap_50(app_client):
 
 
 class _Race:
-    """Holds the first append's transaction open right after its insert and notes when the second one gets the lock."""
+    """Two appends, the first held open right after its insert. `events` records, in order, each lock taken (with the
+    largest id the locking transaction can see) and the moment the first append is let go."""
 
     def __init__(self, monkeypatch, first_request_id: str):
         self.first_request_id = first_request_id
-        self.inserted, self.release, self.second_locked = asyncio.Event(), asyncio.Event(), asyncio.Event()
-        real_insert, real_lock = appender._insert, appender.lock_for_append
+        self.events: list[tuple[str, int | None]] = []
+        self.inserted, self.release, self.second_waiting = asyncio.Event(), asyncio.Event(), asyncio.Event()
 
         async def insert_then_hold(session, row):
-            appended_id = await real_insert(session, row)
+            appended_id = await REAL_INSERT(session, row)
             if row["request_id"] == self.first_request_id:
                 self.inserted.set()
                 await self.release.wait()
             return appended_id
 
         async def lock_and_note(session):
-            await real_lock(session)
             if self.inserted.is_set():
-                self.second_locked.set()
+                self.second_waiting.set()
+            await REAL_LOCK(session)
+            self.events.append(("locked", (await session.execute(select(func.max(obs_decisions.c.id)))).scalar()))
 
         monkeypatch.setattr(appender, "_insert", insert_then_hold)
         monkeypatch.setattr(appender, "lock_for_append", lock_and_note)
 
-    async def run(self, client, first: dict, second: dict):
+    async def run(self, client, first: dict, second: dict, second_owner: dict):
         held = asyncio.create_task(client.post(ROUTE, headers=ALICE, json=first))
         await asyncio.wait_for(self.inserted.wait(), 10)
-        waiting = asyncio.create_task(client.post(ROUTE, headers=ALICE, json=second))
-        await asyncio.sleep(0.3)
-        blocked = not self.second_locked.is_set()
+        waiting = asyncio.create_task(client.post(ROUTE, headers=second_owner, json=second))
+        await asyncio.wait_for(self.second_waiting.wait(), 10)  # the second append has reached the lock
+        await asyncio.sleep(0.2)
+        self.events.append(("released", None))
         self.release.set()
-        answers = (await held, await waiting)
-        assert blocked, "the second append read the state while the first one's id was drawn but not committed"
-        return answers
+        return await held, await waiting
 
 
 @pytest.mark.asyncio
 async def test_concurrent_appends_commit_in_id_order_and_hold_the_cap(app_client, monkeypatch):
     client, service = app_client
     assert await _post_all(client, [_add(n) for n in range(1, WATCH_ADD_CAP - 1)]) == [201] * (WATCH_ADD_CAP - 2)
-    # A smaller id never commits after a larger one is visible.
-    first, second = await _Race(monkeypatch, "add-49").run(client, _add(WATCH_ADD_CAP - 1), _pause(100))
+    # Another owner waits too (one lock for the table, not one per owner): its transaction takes the lock only after
+    # the first one committed, and sees that row. A smaller id never commits after a larger one is visible.
+    race = _Race(monkeypatch, "add-49")
+    first, second = await race.run(client, _add(WATCH_ADD_CAP - 1), _pause(100), BOB)
+    assert race.events == [("locked", WATCH_ADD_CAP - 2), ("released", None), ("locked", WATCH_ADD_CAP - 1)]
     assert (first.status_code, second.status_code) == (201, 201)
     assert (first.json()["id"], second.json()["id"]) == (WATCH_ADD_CAP - 1, WATCH_ADD_CAP)
     # Two additions racing for the last slot: exactly one lands, the other sees it and is refused.
-    first, second = await _Race(monkeypatch, "add-50").run(client, _add(WATCH_ADD_CAP), _add(WATCH_ADD_CAP + 1))
+    race = _Race(monkeypatch, "add-50")
+    first, second = await race.run(client, _add(WATCH_ADD_CAP), _add(WATCH_ADD_CAP + 1), ALICE)
+    assert race.events == [("locked", WATCH_ADD_CAP), ("released", None), ("locked", WATCH_ADD_CAP + 1)]
     assert (first.status_code, second.status_code) == (201, 409)
     state = await _state(service)
     assert (state.version, len(state.watch_added), state.over_cap) == (WATCH_ADD_CAP + 1, WATCH_ADD_CAP, ())
@@ -252,16 +275,19 @@ async def test_concurrent_appends_commit_in_id_order_and_hold_the_cap(app_client
 )
 async def test_an_unreadable_log_refuses_every_write_without_its_content(app_client, caplog, kind, payload):
     client, service = app_client
+    earlier = _add(9, request_id="before-the-bad-row")
+    assert (await client.post(ROUTE, headers=ALICE, json=earlier)).status_code == 201
     async with service.session_factory() as session, session.begin():
         await session.execute(
             insert(obs_decisions).values(kind=kind, request_id="manual-1", owner_id="ops", payload_json=payload, created_at="2026-09-30T01:00:00.000000+00:00")
         )
     before = await _rows(service)
     with caplog.at_level(logging.ERROR, logger="ggwork_pick.routes"):
-        for body in (_valid("correspondence_revoke"), _add(1)):
+        # A revocation cannot get through, nor a repeat of a request answered before the row appeared.
+        for body in (_valid("correspondence_revoke"), _add(1), earlier):
             response = await client.post(ROUTE, headers=ALICE, json=body)
             assert response.status_code == 503
             assert "内部备注" not in response.text and "decisions.md" in response.json()["detail"]
     assert await _rows(service) == before
     logged = [record.getMessage() for record in caplog.records if record.name == "ggwork_pick.routes"]
-    assert logged and all(f"第 {before[0]['id']} 行" in message and "内部备注" not in message for message in logged)
+    assert len(logged) == 3 and all(f"第 {before[-1]['id']} 行" in message and "内部备注" not in message for message in logged)
