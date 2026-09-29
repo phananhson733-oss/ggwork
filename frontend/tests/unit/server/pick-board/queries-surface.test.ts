@@ -410,6 +410,12 @@ const PAGE_ENTRY = [
   "MirrorMisconfigured",
   "MirrorVersionGone",
   "MirrorBusy",
+  // the radar's two tabs (TR-24)
+  "loadObsTab",
+  "ObsError",
+  "ObsNotReady",
+  "ObsUnreadable",
+  "ObsRowInvalid",
 ] as const;
 
 const INTERNAL = [
@@ -441,6 +447,10 @@ const INTERNAL = [
   "resetVersionCacheForTests",
   "unionRows",
   "filtersFor",
+  // the radar's executor, error translation and cache (TR-24)
+  "obsDb",
+  "translateObsError",
+  "resetObsCacheForTests",
 ] as const;
 
 describe("桶文件 @/server/pick-board", () => {

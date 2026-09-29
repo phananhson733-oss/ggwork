@@ -46,6 +46,7 @@ import { validateAuthNextPath } from "@/core/auth/next-path";
 import { buildLoginUrl } from "@/core/auth/types";
 import type { PickSyncStatus } from "@/core/pick/sync-schema";
 import {
+  isObsTab,
   isRsRank,
   parsePickRequest,
   reelshortId,
@@ -72,10 +73,6 @@ import {
   loadRowDetail,
   loadRowsByKeys,
   loadRsRank,
-  MirrorBusy,
-  MirrorMisconfigured,
-  MirrorUnavailable,
-  MirrorVersionGone,
   PICK_DATA_PATH,
   pickDataNextPath,
   type ReadyBoard,
@@ -86,6 +83,9 @@ import {
   sourcesOf,
 } from "@/server/pick-board";
 
+import { guarded } from "./notice-of";
+import { obsRoute } from "./obs-route";
+
 /**
  * 选剧资料：RealShort 选剧台的七个 tab，读工作台库里 P2 写的镜像版本（pickm_vN），一个请求钉一个版本。
  *
@@ -94,6 +94,7 @@ import {
  * 镜像读不了（没配、没版本、授权缺失、忙、版本刚被清理）是提示，不进 error.tsx；别的错误照常抛给 error.tsx。
  * 回放（tab=pick&result=…，P4-2）：先问 gateway 的 /replay（名单）与 /results/{id}（条件），再按结果配对的镜像版本
  * 钉住（批判 B11：它优先于链接的 v），只取这一页的行、一次查全名单的缺行（B10）。别的 tab 带着 result 一律忽略。
+ * 趋势雷达的两个 tab（trends、search，TR-24）在鉴权之后早分支进 obs-route.tsx（D9）：不解析镜像版本，镜像读不了也能看。
  */
 
 export const dynamic = "force-dynamic";
@@ -117,28 +118,6 @@ export async function generateMetadata({
 /** 选剧 tab 带着合法的 result：回放；别的 tab 上的 result 不算 */
 function isReplay(req: PickRequest): boolean {
   return req.tab === "pick" && req.result !== "";
-}
-
-/** 镜像读不了的几种：返回提示；别的错误不认，交回调用方抛出 */
-function mirrorNoticeOf(error: unknown): MirrorNoticeKind | null {
-  if (error instanceof MirrorUnavailable) return { kind: "unavailable" };
-  if (error instanceof MirrorMisconfigured)
-    return { kind: "misconfigured", reason: error.reason };
-  if (error instanceof MirrorBusy) return { kind: "busy" };
-  if (error instanceof MirrorVersionGone) return { kind: "gone" };
-  return null;
-}
-
-async function guarded<T>(
-  read: () => Promise<T>,
-): Promise<{ ok: true; value: T } | { ok: false; notice: MirrorNoticeKind }> {
-  try {
-    return { ok: true, value: await read() };
-  } catch (error) {
-    const notice = mirrorNoticeOf(error);
-    if (notice) return { ok: false, notice };
-    throw error;
-  }
 }
 
 async function loadRank(req: PickRequest): Promise<RankData> {
@@ -190,6 +169,10 @@ async function loadTab(req: PickRequest): Promise<TabData> {
     }
     case "rules":
       return { kind: "rules" };
+    case "trends":
+    case "search":
+      // 两个观测 tab 在 PickDataPage 里经 obsRoute 早分支出去（D9），不读镜像版本；走到这里就是分支漏了
+      throw new Error(`观测 tab 不经镜像版本：${req.tab}`);
     default: {
       const [page, facets] = await Promise.all([
         loadPickRows(req),
@@ -427,6 +410,7 @@ export default async function PickDataPage({
         <ImportsView />
       </NoticePage>
     );
+  if (isObsTab(req0.tab)) return obsRoute({ ...req0, tab: req0.tab });
   if (isReplay(req0)) return replayRoute(req0, nextPath);
   const [resolved, sync] = await Promise.all([
     guarded(() => resolveBoard(req0.v)),

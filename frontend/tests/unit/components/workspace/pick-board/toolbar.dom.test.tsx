@@ -163,3 +163,57 @@ describe("the search word across tabs", () => {
     expect(tabHref(root, "同步与导入").has("q")).toBe(false);
   });
 });
+
+// TR-24: the radar's two tabs sit after the four list tabs. A pinned set (obs)
+// belongs to one channel and a detail identity (oid) to one page, so every tab
+// link drops both; the search word never follows into them.
+describe("the radar's two tabs", () => {
+  const SET = "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c";
+
+  function labels(root: Element): string[] {
+    return Array.from(root.querySelectorAll("a")).map(
+      (a) => a.textContent ?? "",
+    );
+  }
+
+  function hrefOf(root: Element, label: string): URLSearchParams {
+    const link = Array.from(root.querySelectorAll("a")).find(
+      (a) => a.textContent === label,
+    );
+    return query(link?.getAttribute("href"));
+  }
+
+  it("are listed after the list tabs, before the rules", () => {
+    const root = render(<Tabs req={request()} />).container;
+    expect(labels(root)).toEqual([
+      "选剧",
+      "全部剧库",
+      "榜单",
+      "发布记录",
+      "Google 趋势",
+      "搜索表现（GSC）",
+      "剧场规则",
+      "同步与导入",
+    ]);
+    expect(hrefOf(root, "Google 趋势").get("tab")).toBe("trends");
+    expect(hrefOf(root, "搜索表现（GSC）").get("tab")).toBe("search");
+  });
+
+  it("drop the pinned set, the identity and the search word on every link", () => {
+    const root = render(
+      <Tabs
+        req={request({ tab: "trends", obs: SET, oid: "rs|1|en", q: "bride" })}
+      />,
+    ).container;
+    for (const label of labels(root)) {
+      const params = hrefOf(root, label);
+      expect(params.has("obs"), label).toBe(false);
+      expect(params.has("oid"), label).toBe(false);
+    }
+    expect(hrefOf(root, "搜索表现（GSC）").has("q")).toBe(false);
+    expect(hrefOf(root, "Google 趋势").has("q")).toBe(false);
+    expect(root.querySelector('a[aria-current="page"]')?.textContent).toBe(
+      "Google 趋势",
+    );
+  });
+});

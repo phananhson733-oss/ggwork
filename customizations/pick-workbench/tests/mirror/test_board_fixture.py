@@ -115,6 +115,33 @@ def test_reader_may_not_read_control_nor_write(board):
             conn.execute("CREATE TEMP TABLE scratch (n int)")
 
 
+RADAR_VIEWS = ("sets", "states", "links", "discoveries", "run_status")
+
+
+def test_the_radar_rows_read_as_the_reader_are_contract_rows(board):
+    """board_obs's world through migration 0007's views and grants: what the trends and search tabs read (TR-24)."""
+    import board_obs
+
+    from ggwork_pick.observe.contract_views import VIEW_COLUMNS, VIEW_ROW_MODELS
+
+    world = board_obs.view_rows()
+    with _connect(board["reader"]) as conn:
+        for view in RADAR_VIEWS:
+            names = [column.name for column in VIEW_COLUMNS[view]]
+            cursor = conn.execute(f"SELECT {', '.join(names)} FROM pick_obs.{view}")
+            rows = [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
+            assert len(rows) == len(world[view]), view
+            for row in rows:
+                VIEW_ROW_MODELS[view].model_validate(row)
+
+
+def test_the_reader_reads_no_radar_table(board):
+    import psycopg
+
+    with _connect(board["reader"]) as conn, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        conn.execute("SELECT 1 FROM deerflow.ggwp_obs_sets")
+
+
 def test_the_two_published_versions_differ(board):
     ids = board["info"]["versions"]
     titles, rules = {}, {}

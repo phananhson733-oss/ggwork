@@ -16,12 +16,37 @@
       "warnings": [],
       "lock_stuck": null,
       "shared_source_as_of": null
+    },
+    "obs": {
+      "checked_at": "2026-09-29T15:33:57.641184+00:00",
+      "channels": [
+        {
+          "channel": "trends",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        },
+        {
+          "channel": "gsc",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        }
+      ]
     }
   },
   "every_field_set": {
     "configured": true,
     "current": {
-      "id": "6b932c62d6f44653be0b557163ddd789",
+      "id": "c575b60827884bb183c4e06091b16787",
       "status": "published",
       "shared": true,
       "source_as_of": "2026-09-23T12:42:00.000Z",
@@ -38,15 +63,15 @@
     },
     "runs": [
       {
-        "id": "52265d7d67f848e2891af9f436b33c78",
+        "id": "e0d0272dcbdd4df5a9e84c55730f30da",
         "source": "realshort",
         "trigger": "cron",
         "status": "success",
-        "started_at": "2026-09-24T19:12:38.065629+00:00",
-        "finished_at": "2026-09-24T19:12:38.131489+00:00",
+        "started_at": "2026-09-29T15:33:57.874251+00:00",
+        "finished_at": "2026-09-29T15:33:57.970585+00:00",
         "rows": 6,
-        "catalog_batch_id": "6b932c62d6f44653be0b557163ddd789",
-        "knowledge_batch_id": "0c5e51ae07ee4b2096b1062bf7b6d3c1",
+        "catalog_batch_id": "c575b60827884bb183c4e06091b16787",
+        "knowledge_batch_id": "ebc1b604e7414621983338805b6dc12f",
         "source_as_of": "2026-09-23T12:42:00.000Z",
         "error": null,
         "details_json": {
@@ -109,7 +134,7 @@
             "error": null
           },
           "capacity": {
-            "db_size_bytes": 9139891,
+            "db_size_bytes": 10221235,
             "db_size_cap": 6442450944,
             "over_cap": false
           },
@@ -136,7 +161,7 @@
             "batch_blobs_deleted": 0,
             "errors": []
           },
-          "cpu_ms": 30,
+          "cpu_ms": 34,
           "outcome": "degraded",
           "reason": "degraded:RowTooLargeError",
           "consecutive_failures": 1,
@@ -144,15 +169,15 @@
         }
       },
       {
-        "id": "fd682ff496af4388b356ebf6baa613ed",
+        "id": "d4da75fc8d9c48b9b95a1eb20e79a566",
         "source": "realshort",
         "trigger": "cron",
         "status": "success",
-        "started_at": "2026-09-24T19:12:37.984033+00:00",
-        "finished_at": "2026-09-24T19:12:38.062413+00:00",
+        "started_at": "2026-09-29T15:33:57.692042+00:00",
+        "finished_at": "2026-09-29T15:33:57.869313+00:00",
         "rows": 6,
-        "catalog_batch_id": "6b932c62d6f44653be0b557163ddd789",
-        "knowledge_batch_id": "0c5e51ae07ee4b2096b1062bf7b6d3c1",
+        "catalog_batch_id": "c575b60827884bb183c4e06091b16787",
+        "knowledge_batch_id": "ebc1b604e7414621983338805b6dc12f",
         "source_as_of": "2026-09-23T12:32:00.000Z",
         "error": null,
         "details_json": {
@@ -231,7 +256,7 @@
             "error": null
           },
           "capacity": {
-            "db_size_bytes": 8418995,
+            "db_size_bytes": 9508531,
             "db_size_cap": 6442450944,
             "over_cap": false
           },
@@ -256,7 +281,7 @@
             "batch_blobs_deleted": 0,
             "errors": []
           },
-          "cpu_ms": 34,
+          "cpu_ms": 41,
           "outcome": "paired",
           "reason": null,
           "consecutive_failures": 0,
@@ -283,17 +308,56 @@
         "catalog_import_incomplete"
       ],
       "lock_stuck": {
-        "pid": 77102,
+        "pid": 323,
         "holder": "backfill",
-        "since": "2026-09-24T17:51:38.136118+00:00"
+        "since": "2026-09-29T14:12:58.027558+00:00"
       },
       "shared_source_as_of": "2026-09-23T12:42:00.000Z"
+    },
+    "obs": {
+      "checked_at": "2026-09-29T15:33:57.998116+00:00",
+      "channels": [
+        {
+          "channel": "trends",
+          "live_set_id": "00000000000000000000000000000001",
+          "live_published_at": "2026-09-29T12:33:57.648041+00:00",
+          "latest_set_id": "00000000000000000000000000000002",
+          "latest_published_at": "2026-09-29T13:33:57.648041+00:00",
+          "latest_mode": "shadow",
+          "last_run_at": "2026-09-29T10:33:57.648041+00:00",
+          "banners": [
+            {
+              "code": "extinguished_today",
+              "level": "red"
+            },
+            {
+              "code": "shadow_mode",
+              "level": "info"
+            }
+          ]
+        },
+        {
+          "channel": "gsc",
+          "live_set_id": "00000000000000000000000000000003",
+          "live_published_at": "2026-09-29T14:33:57.648041+00:00",
+          "latest_set_id": "00000000000000000000000000000004",
+          "latest_published_at": "2026-09-29T15:03:57.648041+00:00",
+          "latest_mode": "shadow",
+          "last_run_at": "2026-09-29T14:48:57.648041+00:00",
+          "banners": [
+            {
+              "code": "gsc_gap_exceeded",
+              "level": "warn"
+            }
+          ]
+        }
+      ]
     }
   },
   "read_error": {
     "configured": true,
     "current": {
-      "id": "6b932c62d6f44653be0b557163ddd789",
+      "id": "c575b60827884bb183c4e06091b16787",
       "status": "published",
       "shared": true,
       "source_as_of": "2026-09-23T12:42:00.000Z",
@@ -310,15 +374,15 @@
     },
     "runs": [
       {
-        "id": "52265d7d67f848e2891af9f436b33c78",
+        "id": "e0d0272dcbdd4df5a9e84c55730f30da",
         "source": "realshort",
         "trigger": "cron",
         "status": "success",
-        "started_at": "2026-09-24T19:12:38.065629+00:00",
-        "finished_at": "2026-09-24T19:12:38.131489+00:00",
+        "started_at": "2026-09-29T15:33:57.874251+00:00",
+        "finished_at": "2026-09-29T15:33:57.970585+00:00",
         "rows": 6,
-        "catalog_batch_id": "6b932c62d6f44653be0b557163ddd789",
-        "knowledge_batch_id": "0c5e51ae07ee4b2096b1062bf7b6d3c1",
+        "catalog_batch_id": "c575b60827884bb183c4e06091b16787",
+        "knowledge_batch_id": "ebc1b604e7414621983338805b6dc12f",
         "source_as_of": "2026-09-23T12:42:00.000Z",
         "error": null,
         "details_json": {
@@ -381,7 +445,7 @@
             "error": null
           },
           "capacity": {
-            "db_size_bytes": 9139891,
+            "db_size_bytes": 10221235,
             "db_size_cap": 6442450944,
             "over_cap": false
           },
@@ -408,7 +472,7 @@
             "batch_blobs_deleted": 0,
             "errors": []
           },
-          "cpu_ms": 30,
+          "cpu_ms": 34,
           "outcome": "degraded",
           "reason": "degraded:RowTooLargeError",
           "consecutive_failures": 1,
@@ -416,15 +480,15 @@
         }
       },
       {
-        "id": "fd682ff496af4388b356ebf6baa613ed",
+        "id": "d4da75fc8d9c48b9b95a1eb20e79a566",
         "source": "realshort",
         "trigger": "cron",
         "status": "success",
-        "started_at": "2026-09-24T19:12:37.984033+00:00",
-        "finished_at": "2026-09-24T19:12:38.062413+00:00",
+        "started_at": "2026-09-29T15:33:57.692042+00:00",
+        "finished_at": "2026-09-29T15:33:57.869313+00:00",
         "rows": 6,
-        "catalog_batch_id": "6b932c62d6f44653be0b557163ddd789",
-        "knowledge_batch_id": "0c5e51ae07ee4b2096b1062bf7b6d3c1",
+        "catalog_batch_id": "c575b60827884bb183c4e06091b16787",
+        "knowledge_batch_id": "ebc1b604e7414621983338805b6dc12f",
         "source_as_of": "2026-09-23T12:32:00.000Z",
         "error": null,
         "details_json": {
@@ -503,7 +567,7 @@
             "error": null
           },
           "capacity": {
-            "db_size_bytes": 8418995,
+            "db_size_bytes": 9508531,
             "db_size_cap": 6442450944,
             "over_cap": false
           },
@@ -528,7 +592,7 @@
             "batch_blobs_deleted": 0,
             "errors": []
           },
-          "cpu_ms": 34,
+          "cpu_ms": 41,
           "outcome": "paired",
           "reason": null,
           "consecutive_failures": 0,
@@ -538,16 +602,19 @@
     ],
     "mirror": {
       "error": "RuntimeError"
+    },
+    "obs": {
+      "error": "RuntimeError"
     }
   },
   "sqlite": {
     "configured": true,
     "current": {
-      "id": "36fcdc76aaa4475ab8a5625ec7ec0087",
+      "id": "35106b6caafd4a82bca60d32140d0949",
       "status": "published",
       "shared": true,
       "source_as_of": "2026-09-23T03:00:00.000Z",
-      "published_at": "2026-09-24T19:12:38.195393+00:00",
+      "published_at": "2026-09-29T15:33:58.058073+00:00",
       "freshness": {
         "catalogImportedAt": "2026-09-22T03:19:21.327Z",
         "reelshortSyncedAt": "2026-09-23T00:05:56.475Z"
@@ -557,15 +624,15 @@
     },
     "runs": [
       {
-        "id": "d7cb7fb9bc614b5888cc71c5894905ac",
+        "id": "d019ad37b45449b290b77da48ec5891f",
         "source": "realshort",
         "trigger": "cron",
         "status": "success",
-        "started_at": "2026-09-24T19:12:38.190924+00:00",
-        "finished_at": "2026-09-24T19:12:38.199939+00:00",
+        "started_at": "2026-09-29T15:33:58.054221+00:00",
+        "finished_at": "2026-09-29T15:33:58.061999+00:00",
         "rows": 2,
-        "catalog_batch_id": "36fcdc76aaa4475ab8a5625ec7ec0087",
-        "knowledge_batch_id": "d6125d661d3c4dbab2fcab1892fd1571",
+        "catalog_batch_id": "35106b6caafd4a82bca60d32140d0949",
+        "knowledge_batch_id": "913ca22b00224a72bf0450d8aa12e1f5",
         "source_as_of": "2026-09-23T03:00:00.000Z",
         "error": null,
         "details_json": {
@@ -573,6 +640,31 @@
         }
       }
     ],
-    "mirror": null
+    "mirror": null,
+    "obs": {
+      "checked_at": "2026-09-29T15:33:58.069172+00:00",
+      "channels": [
+        {
+          "channel": "trends",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        },
+        {
+          "channel": "gsc",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        }
+      ]
+    }
   }
 }

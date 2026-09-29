@@ -1,5 +1,6 @@
 // PORTED_FROM: realshort@816ca2e src/components/admin/pick/toolbar.tsx
 // 本地改动：pickHref 的前缀改成 /workspace/pick-data；Tabs 加「同步与导入」（imports），tab 链接清掉回放的 result（C27）；
+// Tabs 加趋势雷达的「Google 趋势」「搜索表现（GSC）」（TR-24），tab 链接同样清掉钉住的集合 obs 与详情身份 oid；
 // 在用剧场与依据标签改读版本规则（rules.inUse / rules.basisLabels），原来模块级的「其他剧场」挪进 PlatformChips 现算；
 // 搜索表单加隐藏的 v；所有 Link 加 prefetch={false}；Filters 拆成几个小组件（函数 <50 行），文案与链接逐条不变。
 // GGWork 样式：当前 tab 用 link 色下划线；chip 默认白底、虚线开关用 line-strong、行间距 8；搜索框聚焦用 link 边框加
@@ -22,6 +23,7 @@ import {
   type PickRequest,
   type Platform,
   type Sort,
+  isObsTab,
 } from "@/core/pick-board/request";
 import type { BoardRules } from "@/core/pick-board/rules";
 import type { PickFacets } from "@/server/pick-board";
@@ -42,10 +44,11 @@ export function pickHref(
   return `${BOARD_PATH}${pickQuery(next)}`;
 }
 
-/** 证据页是从哪个列表 tab 进来的：在证据页里再点同名行沿用原来源，别的 tab 就是自己；规则与同步 tab 没有行，回选剧 */
+/** 证据页是从哪个列表 tab 进来的：在证据页里再点同名行沿用原来源，别的 tab 就是自己；规则、同步与两个观测 tab 没有行，回选剧 */
 export function originTab(req: PickRequest): ListTab {
   if (req.tab === "row") return req.from;
-  if (req.tab === "rules" || req.tab === "imports") return "pick";
+  if (req.tab === "rules" || req.tab === "imports" || isObsTab(req.tab))
+    return "pick";
   return req.tab;
 }
 
@@ -69,6 +72,8 @@ export const TAB_LABELS = {
   posted: "发布记录",
   rules: "剧场规则",
   imports: "同步与导入",
+  trends: "Google 趋势",
+  search: "搜索表现（GSC）",
   row: "证据页",
 } as const;
 const SORT_LABELS = {
@@ -103,7 +108,11 @@ export interface TabCounts {
 function tabQuery(req: PickRequest, dest: PickRequest["tab"]): string {
   const crossesPosted = (dest === "posted") !== (originTab(req) === "posted");
   const crossesRank = (dest === "rank") !== (originTab(req) === "rank");
-  return crossesPosted || crossesRank || dest === "rules" || dest === "imports"
+  return crossesPosted ||
+    crossesRank ||
+    dest === "rules" ||
+    dest === "imports" ||
+    isObsTab(dest)
     ? ""
     : req.q;
 }
@@ -133,6 +142,8 @@ function TabLink({
         sd: "",
         q: tabQuery(req, dest),
         result: "",
+        obs: "",
+        oid: "",
       })}
       aria-current={active ? "page" : undefined}
       className={`-mb-px border-b-2 px-3.5 py-2.5 text-[14px] whitespace-nowrap ${
@@ -163,6 +174,8 @@ export function Tabs({
     { t: "all", label: TAB_LABELS.all, count: counts.all },
     { t: "rank", label: TAB_LABELS.rank },
     { t: "posted", label: TAB_LABELS.posted, count: counts.posted },
+    { t: "trends", label: TAB_LABELS.trends },
+    { t: "search", label: TAB_LABELS.search },
     { t: "rules", label: TAB_LABELS.rules },
     { t: "imports", label: TAB_LABELS.imports },
   ];

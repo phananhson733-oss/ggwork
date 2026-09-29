@@ -31,6 +31,7 @@ import {
   validCase,
   type ModelFixture,
 } from "./obs-contract-fixtures";
+import { pyMapping, pyString, pyTuple } from "./py-source";
 
 const CONTRACT_PY = repoText(
   "customizations/pick-workbench/ggwork_pick/observe/contract.py",
@@ -38,48 +39,6 @@ const CONTRACT_PY = repoText(
 const WORDING_PY = repoText(
   "customizations/pick-workbench/ggwork_pick/observe/wording.py",
 );
-
-function pyString(source: string, name: string): string {
-  const found = new RegExp(`^${name} = "([^"]*)"$`, "m").exec(source);
-  if (found?.[1] === undefined) throw new Error(`no ${name}`);
-  return found[1];
-}
-
-function pyTuple(source: string, name: string): string[] {
-  const found = new RegExp(`^${name} = \\(([^)]*)\\)`, "m").exec(source);
-  if (!found?.[1]) throw new Error(`no ${name}`);
-  return [...found[1].matchAll(/"([^"]*)"/g)].map((m) => m[1] ?? "");
-}
-
-type Known = Readonly<{
-  /** module string constants an f-string names */
-  strings?: Readonly<Record<string, string>>;
-  /** mappings a `**NAME` spread names */
-  mappings?: Readonly<Record<string, Readonly<Record<string, string>>>>;
-}>;
-
-/** A `NAME = MappingProxyType({...})` of string literals, f-strings over module constants and `**OTHER` spreads. */
-function pyMapping(
-  source: string,
-  name: string,
-  known: Known = {},
-): Record<string, string> {
-  const head = `${name} = MappingProxyType(`;
-  const start = source.indexOf(head);
-  if (start < 0) throw new Error(`no ${name}`);
-  // The texts use full-width brackets, so the first ASCII ")" closes the call.
-  const body = source.slice(start, source.indexOf(")", start + head.length));
-  const entries = [
-    ...body.matchAll(/\*\*(\w+)|"(\w+)":\s*(f?)"([^"]*)"/g),
-  ].flatMap((m): [string, string][] => {
-    if (m[1]) return Object.entries(known.mappings?.[m[1]] ?? {});
-    const text = (m[4] ?? "").replace(/\{(\w+)\}/g, (_, constant: string) =>
-      m[3] ? (known.strings?.[constant] ?? "?") : `{${constant}}`,
-    );
-    return [[m[2] ?? "", text]];
-  });
-  return Object.fromEntries(entries);
-}
 
 type ObsEvidence = PickEvidence & { kind: ObsKind };
 

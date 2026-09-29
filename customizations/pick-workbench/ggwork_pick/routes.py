@@ -16,6 +16,7 @@ from pydantic import Field, ValidationError
 from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.mirror.status import mirror_status
+from ggwork_pick.observe.status import obs_status
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import ReplayGone, ReplayUnrunnable, SelectionService, result_view
 
@@ -33,6 +34,16 @@ async def mirror_view(service, shared: PickRepository) -> dict | None:
         return await mirror_status(shared, enabled=service.mirror_enabled(), sync_running=service.sync_lock.locked(), now=datetime.now(UTC))
     except Exception as exc:
         logger.warning("[pick-mirror] reading the mirror status for /sync failed: %s", type(exc).__name__)
+        return {"error": type(exc).__name__}
+
+
+async def obs_view(shared: PickRepository) -> dict:
+    """/sync's obs key (TR-25, D10): the radar's status and banners at request time. Extra to the v1 sync status like the
+    mirror key, so a failed read answers {"error": <class>} (logged by class only) instead of failing the request."""
+    try:
+        return await obs_status(shared, now=datetime.now(UTC))
+    except Exception as exc:
+        logger.warning("[pick-obs] reading the observation status for /sync failed: %s", type(exc).__name__)
         return {"error": type(exc).__name__}
 
 
@@ -135,7 +146,9 @@ def build_router(service):
         runs = await shared.sync_runs()
         # The mirror's state (P2-8b): null on SQLite; judged on the shared batches, not on this user's current.
         mirror = await mirror_view(service, shared)
-        return {"configured": service.sync_settings.configured, "current": info, "runs": runs, "mirror": mirror}
+        # The radar's status (TR-25): shared like the mirror's, on both dialects; before the crons run every field is null.
+        obs = await obs_view(shared)
+        return {"configured": service.sync_settings.configured, "current": info, "runs": runs, "mirror": mirror, "obs": obs}
 
     @router.post("/sync", status_code=202)
     async def sync_now(request: Request):

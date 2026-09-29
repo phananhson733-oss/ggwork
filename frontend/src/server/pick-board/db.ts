@@ -16,6 +16,7 @@ import {
   MirrorMisconfigured,
   MirrorUnavailable,
   translateMirrorError,
+  translateObsError,
 } from "./errors";
 
 /**
@@ -34,10 +35,16 @@ import {
  * withScriptScope. makeScope builds all of these around an injected holder and
  * pool, so tests can share one holder; production binds React's per-request
  * cache() and the reader pool.
+ *
+ * obsDb (TR-24, D9) reads the radar's pick_obs views through the same pool and
+ * the same one-query transactions, with no version scope: observations do not
+ * belong to a mirror version, and the trends and search tabs work when the
+ * mirror does not. Its failures translate to ObsNotReady / ObsUnreadable.
  */
 
 const VERSION_SCHEMA = /^pickm_v[0-9]{6}$/;
 const CONTROL_SCHEMA = "pick_mirror";
+const OBS_SCHEMA = "pick_obs";
 const READER_PROTOCOLS = new Set(["postgres:", "postgresql:"]);
 const PEM_CERTIFICATE = "-----BEGIN CERTIFICATE-----";
 const POOL_LIMITS = {
@@ -244,10 +251,13 @@ async function runOnce(
   }
 }
 
+type Translate = (error: unknown) => unknown;
+
 async function run<R>(
   pool: () => MirrorPool,
   searchPath: string,
   query: SQL,
+  translate: Translate,
 ): Promise<QueryRows<R>> {
   const { sql: text, params } = dialect.sqlToQuery(query);
   const statement: MirrorQuery = { text, values: params };
@@ -260,7 +270,7 @@ async function run<R>(
     });
     return { rows: rows as R[] };
   } catch (error) {
-    const typed = translateMirrorError(error);
+    const typed = translate(error);
     if (!(typed instanceof MirrorUnavailable)) {
       console.error("[pick-board] query failed", {
         code:
@@ -275,10 +285,11 @@ async function run<R>(
 function executorFor(
   pool: () => MirrorPool,
   searchPath: () => string,
+  translate: Translate = translateMirrorError,
 ): Executor {
   return Object.freeze({
     execute: async <R = Record<string, unknown>>(query: SQL) =>
-      run<R>(pool, searchPath(), query),
+      run<R>(pool, searchPath(), query, translate),
   });
 }
 
@@ -297,6 +308,7 @@ export type BoardScope<R> = Readonly<{
   getDb: () => Executor;
   controlDb: () => Executor;
   versionDb: (schema: string) => Executor;
+  obsDb: () => Executor;
 }>;
 
 export function makeScope<R = unknown>(
@@ -335,6 +347,7 @@ export function makeScope<R = unknown>(
       const checked = checkVersionSchema(schema);
       return executorFor(pool, () => `${checked}, ${CONTROL_SCHEMA}`);
     },
+    obsDb: () => executorFor(pool, () => OBS_SCHEMA, translateObsError),
   });
 }
 
@@ -348,4 +361,5 @@ export const {
   getDb,
   controlDb,
   versionDb,
+  obsDb,
 } = makeScope<BoardRules>(requestHolder, getPool);

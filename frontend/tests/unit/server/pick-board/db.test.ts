@@ -21,6 +21,8 @@ import {
   MirrorMisconfigured,
   MirrorUnavailable,
   MirrorVersionGone,
+  ObsNotReady,
+  ObsUnreadable,
   type MisconfiguredReason,
 } from "@/server/pick-board/errors";
 
@@ -160,6 +162,60 @@ describe("one read-only transaction per query", () => {
       "BEGIN READ ONLY; SET LOCAL search_path TO pickm_v000007, pick_mirror",
     );
     expect(() => scope.versionDb("pickm_v7; DROP")).toThrow();
+  });
+});
+
+// TR-24: the radar's pick_obs views, read as the same reader, decoupled from the mirror version (D9).
+describe("obsDb", () => {
+  it("runs one query in its own read-only transaction on pick_obs, with no version scope", async () => {
+    const { log, pool } = recorder();
+    const result = await scopeWith(pool)
+      .obsDb()
+      .execute(sql`SELECT ${"x"}::text AS v`);
+    expect(result.rows).toEqual([{ n: 1 }]);
+    expect(log.statements).toEqual([
+      "BEGIN READ ONLY; SET LOCAL search_path TO pick_obs",
+      { text: "SELECT $1::text AS v", values: ["x"] },
+      "COMMIT",
+    ]);
+    expect(log.releases).toEqual([undefined]);
+  });
+
+  async function obsFailWith(error: Error) {
+    const { pool } = recorder((text) =>
+      text.startsWith("SELECT") ? error : null,
+    );
+    return scopeWith(pool)
+      .obsDb()
+      .execute(sql`SELECT 1`)
+      .then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+  }
+
+  it("says the views are not there yet, or not readable, instead of a gone version", async () => {
+    expect(await obsFailWith(pgError("42P01"))).toBeInstanceOf(ObsNotReady);
+    expect(await obsFailWith(pgError("3F000"))).toBeInstanceOf(ObsNotReady);
+    expect(await obsFailWith(pgError("42501"))).toBeInstanceOf(ObsUnreadable);
+  });
+
+  it("maps busy and connection failures as the mirror reads do", async () => {
+    expect(await obsFailWith(pgError("57014"))).toBeInstanceOf(MirrorBusy);
+    const auth = await obsFailWith(pgError("28P01"));
+    expect(auth).toBeInstanceOf(MirrorMisconfigured);
+    expect((auth as MirrorMisconfigured).reason).toBe("auth");
+  });
+
+  it("names fixed texts, never the database's message", async () => {
+    const thrown = await obsFailWith(
+      pgError("42P01", 'relation "pick_obs.sets" does not exist'),
+    );
+    expect((thrown as Error).message).toBe("观测数据未就绪");
+    const denied = await obsFailWith(
+      pgError("42501", "permission denied for view sets"),
+    );
+    expect((denied as Error).message).toBe("观测数据不可读");
   });
 });
 
