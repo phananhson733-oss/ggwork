@@ -19,6 +19,7 @@ export function PluginRow({
   description,
   icon,
   label,
+  note,
   onDetails,
   detailsLabel,
   children,
@@ -27,6 +28,8 @@ export function PluginRow({
   description: string;
   icon: ReactNode;
   label?: ReactNode;
+  /** Transient status next to the label, e.g. the latest connection check. */
+  note?: ReactNode;
   onDetails?: () => void;
   detailsLabel?: string;
   children: ReactNode;
@@ -54,6 +57,7 @@ export function PluginRow({
               {label}
             </span>
           )}
+          {note}
         </div>
         <p className="text-muted-foreground mt-1.5 line-clamp-2 text-xs leading-5">
           {description}

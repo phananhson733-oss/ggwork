@@ -1,6 +1,6 @@
 import {
-  staticCapabilityCatalog,
   staticCapabilityInstallations,
+  visibleStaticCapabilityCatalog,
 } from "@/core/capabilities/static";
 import { getBackendBaseURL } from "@/core/config";
 import type { FeaturesResponse } from "@/core/features/api";
@@ -45,7 +45,7 @@ export async function staticApiResponse(
   if (path === "capabilities/catalog") {
     return method === "HEAD"
       ? new Response(null)
-      : Response.json(staticCapabilityCatalog);
+      : Response.json(visibleStaticCapabilityCatalog());
   }
   if (path.startsWith("capabilities/installations/")) {
     const response = await staticCapabilityInstallations(

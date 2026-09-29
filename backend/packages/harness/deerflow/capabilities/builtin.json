@@ -36,6 +36,67 @@
       "type": "object",
       "properties": {},
       "additionalProperties": false
+    },
+    "hidden": true
+  },
+  {
+    "schema_version": 1,
+    "id": "feishu-bot",
+    "version": "1",
+    "name": {
+      "en-US": "Feishu group notifications",
+      "zh-CN": "飞书群通知"
+    },
+    "description": {
+      "en-US": "Send text or Markdown notifications to a Feishu group through its custom bot.",
+      "zh-CN": "通过自定义机器人向飞书群发送文本或 Markdown 通知。"
+    },
+    "setup": {
+      "en-US": "In the Feishu group, add a Custom Bot, enable Signature Verification, then enter the token at the end of its webhook address (after /hook/) and the signing secret. Saving sends no message; this plugin does not read chats.",
+      "zh-CN": "在飞书群「设置 → 群机器人」添加自定义机器人并开启「签名校验」，填写 Webhook 地址末尾（/hook/ 之后）的令牌和签名密钥。保存不会发送消息；此插件不读取聊天。"
+    },
+    "category": "office",
+    "kind": "mcp",
+    "adapter": "business",
+    "source": "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot",
+    "icon": "/images/plugins/lark.ico",
+    "aliases": [
+      "feishu",
+      "lark",
+      "飞书",
+      "群机器人",
+      "webhook"
+    ],
+    "auth_methods": [
+      "api_key"
+    ],
+    "contributions": [
+      "tools"
+    ],
+    "config_schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Connection name"
+        },
+        "webhook_token": {
+          "type": "string",
+          "format": "password",
+          "title": "Webhook token"
+        },
+        "sign_secret": {
+          "type": "string",
+          "format": "password",
+          "title": "Signing secret"
+        }
+      },
+      "required": [
+        "name",
+        "webhook_token",
+        "sign_secret"
+      ],
+      "additionalProperties": false
     }
   },
   {
@@ -93,7 +154,8 @@
         "sign_secret"
       ],
       "additionalProperties": false
-    }
+    },
+    "hidden": true
   },
   {
     "id": "wecom",
@@ -145,7 +207,8 @@
         "webhook_key"
       ],
       "additionalProperties": false
-    }
+    },
+    "hidden": true
   },
   {
     "id": "tencent-docs",
@@ -199,6 +262,114 @@
       "required": [
         "name",
         "url"
+      ],
+      "additionalProperties": false
+    },
+    "hidden": true
+  },
+  {
+    "schema_version": 1,
+    "id": "feishu-docs",
+    "version": "1",
+    "name": {
+      "en-US": "Feishu Docs",
+      "zh-CN": "飞书文档"
+    },
+    "description": {
+      "en-US": "Read Feishu docs and wiki pages from their links.",
+      "zh-CN": "粘贴飞书文档或知识库链接，读取正文内容。"
+    },
+    "setup": {
+      "en-US": "Create a custom app on open.feishu.cn, grant docx:document:readonly and wiki:wiki:readonly, publish it, and enter its App ID and App Secret. The app only reads documents it can access: add it from a document's ... > Add Document App, or add it to the wiki space.",
+      "zh-CN": "在飞书开放平台创建企业自建应用，开通 docx:document:readonly 和 wiki:wiki:readonly 权限并发布版本，填写 App ID 与 App Secret。应用只能读有权限的文档：在文档右上角「… → 添加文档应用」加入该应用，或把应用加入知识库成员。"
+    },
+    "category": "knowledge",
+    "kind": "mcp",
+    "adapter": "business",
+    "source": "https://open.feishu.cn/document/server-docs/docs/docs/docx-v1/document/raw_content",
+    "icon": "/images/plugins/lark.ico",
+    "aliases": [
+      "feishu",
+      "lark",
+      "飞书",
+      "docx",
+      "wiki",
+      "知识库"
+    ],
+    "auth_methods": [
+      "api_key"
+    ],
+    "contributions": [
+      "tools"
+    ],
+    "config_schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Connection name"
+        },
+        "app_id": {
+          "type": "string",
+          "title": "App ID"
+        },
+        "app_secret": {
+          "type": "string",
+          "format": "password",
+          "title": "App Secret"
+        }
+      },
+      "required": [
+        "name",
+        "app_id",
+        "app_secret"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "schema_version": 1,
+    "id": "google-docs",
+    "version": "1",
+    "name": {
+      "en-US": "Google Docs",
+      "zh-CN": "Google Docs"
+    },
+    "description": {
+      "en-US": "Read Google Docs shared as \"Anyone with the link\".",
+      "zh-CN": "读取共享设置为「知道链接的任何人」的 Google 文档。"
+    },
+    "setup": {
+      "en-US": "No account is needed. Share the document as \"Anyone with the link can view\", then paste its link in a conversation. Private documents are not supported yet.",
+      "zh-CN": "无需账号。把文档共享设置改为「知道链接的任何人均可查看」，在对话中粘贴链接即可读取。暂不支持私有文档。"
+    },
+    "category": "knowledge",
+    "kind": "mcp",
+    "adapter": "business",
+    "source": "https://support.google.com/docs/answer/2494822",
+    "icon": "/images/plugins/google-docs.svg",
+    "aliases": [
+      "google",
+      "google docs",
+      "gdocs",
+      "谷歌文档"
+    ],
+    "auth_methods": [
+      "none"
+    ],
+    "contributions": [
+      "tools"
+    ],
+    "config_schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Connection name"
+        }
+      },
+      "required": [
+        "name"
       ],
       "additionalProperties": false
     }
@@ -256,7 +427,8 @@
         "url"
       ],
       "additionalProperties": false
-    }
+    },
+    "hidden": true
   },
   {
     "id": "openviking",
@@ -271,8 +443,8 @@
     },
     "kind": "mcp",
     "setup": {
-      "en-US": "Follow the provider's setup guide, prepare the required account or API credentials, then add its MCP server using Add MCP plugin. Adding a configuration does not verify the connection.",
-      "zh-CN": "按提供方文档准备账号或 API 凭据，再通过「添加 MCP 插件」录入服务配置。保存配置后仍需验证连接和权限。"
+      "en-US": "Deploy the provider's MCP server yourself, then enter its HTTP(S) address and, if the server requires one, the full Authorization header (for example Bearer <token>). GGWork tests the connection after saving.",
+      "zh-CN": "先按提供方文档自行部署其 MCP 服务，再填写服务的 HTTP(S) 地址；服务要求鉴权时填写完整的 Authorization 请求头（例如 Bearer <token>）。保存后会自动测试连接。"
     },
     "source": "https://github.com/volcengine/OpenViking",
     "aliases": [
@@ -327,8 +499,8 @@
     },
     "kind": "native",
     "setup": {
-      "en-US": "This capability is supported by GGWork. Ask your administrator to select a provider and configure its credentials in config.yaml. Availability depends on this deployment; this directory does not check its runtime status.",
-      "zh-CN": "GGWork 已支持此能力。请由管理员在 config.yaml 中选择服务并配置所需凭据；能否使用取决于当前部署，本目录尚未检测运行状态。"
+      "en-US": "Built into this deployment and needs no account. The agent uses it when a question needs public web information.",
+      "zh-CN": "当前部署已内置，无需账号。问题需要公开网页信息时，Agent 会自动使用。"
     },
     "source": "https://github.com/bytedance/deer-flow/blob/main/config.example.yaml",
     "aliases": [
@@ -340,11 +512,10 @@
       "serper"
     ],
     "schema_version": 1,
-    "version": "1",
-    "adapter": "guide",
+    "version": "2",
+    "adapter": "native",
     "auth_methods": [
-      "none",
-      "api_key"
+      "none"
     ],
     "icon": null,
     "contributions": [
@@ -354,7 +525,10 @@
       "type": "object",
       "properties": {},
       "additionalProperties": false
-    }
+    },
+    "native_tools": [
+      "web_search"
+    ]
   },
   {
     "id": "web-fetch",
@@ -369,8 +543,8 @@
     },
     "kind": "native",
     "setup": {
-      "en-US": "This capability is supported by GGWork. Ask your administrator to select a provider and configure its credentials in config.yaml. Availability depends on this deployment; this directory does not check its runtime status.",
-      "zh-CN": "GGWork 已支持此能力。请由管理员在 config.yaml 中选择服务并配置所需凭据；能否使用取决于当前部署，本目录尚未检测运行状态。"
+      "en-US": "Built into this deployment and needs no account. The agent uses it when a question needs public web information.",
+      "zh-CN": "当前部署已内置，无需账号。问题需要公开网页信息时，Agent 会自动使用。"
     },
     "source": "https://github.com/bytedance/deer-flow/tree/main/backend/packages/harness/deerflow/community/jina_ai",
     "aliases": [
@@ -378,11 +552,10 @@
       "jina"
     ],
     "schema_version": 1,
-    "version": "1",
-    "adapter": "guide",
+    "version": "2",
+    "adapter": "native",
     "auth_methods": [
-      "none",
-      "api_key"
+      "none"
     ],
     "icon": null,
     "contributions": [
@@ -392,7 +565,10 @@
       "type": "object",
       "properties": {},
       "additionalProperties": false
-    }
+    },
+    "native_tools": [
+      "web_fetch"
+    ]
   },
   {
     "id": "exa",
@@ -405,20 +581,19 @@
       "en-US": "Find relevant sources with semantic web search.",
       "zh-CN": "通过语义搜索找到相关网页，开展行业与公司研究。"
     },
-    "kind": "native",
+    "kind": "mcp",
     "setup": {
-      "en-US": "This capability is supported by GGWork. Ask your administrator to select a provider and configure its credentials in config.yaml. Availability depends on this deployment; this directory does not check its runtime status.",
-      "zh-CN": "GGWork 已支持此能力。请由管理员在 config.yaml 中选择服务并配置所需凭据；能否使用取决于当前部署，本目录尚未检测运行状态。"
+      "en-US": "Enter an Exa API key from dashboard.exa.ai. Each search uses your Exa quota.",
+      "zh-CN": "填写在 dashboard.exa.ai 创建的 API Key。每次搜索消耗该账号的 Exa 额度。"
     },
-    "source": "https://github.com/bytedance/deer-flow/tree/main/backend/packages/harness/deerflow/community/exa",
+    "source": "https://docs.exa.ai/reference/search",
     "aliases": [
       "exa"
     ],
     "schema_version": 1,
-    "version": "1",
-    "adapter": "guide",
+    "version": "2",
+    "adapter": "business",
     "auth_methods": [
-      "none",
       "api_key"
     ],
     "icon": "/images/plugins/exa.svg",
@@ -427,7 +602,21 @@
     ],
     "config_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Connection name"
+        },
+        "api_key": {
+          "type": "string",
+          "format": "password",
+          "title": "API key"
+        }
+      },
+      "required": [
+        "name",
+        "api_key"
+      ],
       "additionalProperties": false
     }
   },
@@ -439,23 +628,22 @@
       "zh-CN": "Firecrawl"
     },
     "description": {
-      "en-US": "Search and extract content from websites at scale.",
-      "zh-CN": "搜索与抓取网站内容，将网页转为可分析的资料。"
+      "en-US": "Read a web page's main content as Markdown for analysis.",
+      "zh-CN": "抓取网页正文，转为便于分析的 Markdown 资料。"
     },
-    "kind": "native",
+    "kind": "mcp",
     "setup": {
-      "en-US": "This capability is supported by GGWork. Ask your administrator to select a provider and configure its credentials in config.yaml. Availability depends on this deployment; this directory does not check its runtime status.",
-      "zh-CN": "GGWork 已支持此能力。请由管理员在 config.yaml 中选择服务并配置所需凭据；能否使用取决于当前部署，本目录尚未检测运行状态。"
+      "en-US": "Enter a Firecrawl API key from firecrawl.dev. Each page read uses your Firecrawl credits.",
+      "zh-CN": "填写在 firecrawl.dev 创建的 API Key。每读取一个网页消耗该账号的 Firecrawl 额度。"
     },
-    "source": "https://github.com/bytedance/deer-flow/tree/main/backend/packages/harness/deerflow/community/firecrawl",
+    "source": "https://docs.firecrawl.dev/api-reference/endpoint/scrape",
     "aliases": [
       "firecrawl"
     ],
     "schema_version": 1,
-    "version": "1",
-    "adapter": "guide",
+    "version": "2",
+    "adapter": "business",
     "auth_methods": [
-      "none",
       "api_key"
     ],
     "icon": "/images/plugins/firecrawl.svg",
@@ -464,7 +652,21 @@
     ],
     "config_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Connection name"
+        },
+        "api_key": {
+          "type": "string",
+          "format": "password",
+          "title": "API key"
+        }
+      },
+      "required": [
+        "name",
+        "api_key"
+      ],
       "additionalProperties": false
     }
   },
@@ -481,8 +683,8 @@
     },
     "kind": "mcp",
     "setup": {
-      "en-US": "Follow the provider's setup guide, prepare the required account or API credentials, then add its MCP server using Add MCP plugin. Adding a configuration does not verify the connection.",
-      "zh-CN": "按提供方文档准备账号或 API 凭据，再通过「添加 MCP 插件」录入服务配置。保存配置后仍需验证连接和权限。"
+      "en-US": "Deploy the provider's MCP server yourself, then enter its HTTP(S) address and, if the server requires one, the full Authorization header (for example Bearer <token>). GGWork tests the connection after saving.",
+      "zh-CN": "先按提供方文档自行部署其 MCP 服务，再填写服务的 HTTP(S) 地址；服务要求鉴权时填写完整的 Authorization 请求头（例如 Bearer <token>）。保存后会自动测试连接。"
     },
     "source": "https://github.com/googleapis/genai-toolbox",
     "aliases": [
@@ -586,24 +788,23 @@
       "zh-CN": "GitHub"
     },
     "description": {
-      "en-US": "Find code, triage issues, and review pull requests.",
-      "zh-CN": "检索代码与仓库，跟进 Issue，协助审查 Pull Request。"
+      "en-US": "Read repositories, code, issues and pull requests (read-only).",
+      "zh-CN": "只读查看仓库、代码、Issue 与 Pull Request。"
     },
     "kind": "mcp",
     "setup": {
-      "en-US": "Follow the provider's setup guide, prepare the required account or API credentials, then add its MCP server using Add MCP plugin. Adding a configuration does not verify the connection.",
-      "zh-CN": "按提供方文档准备账号或 API 凭据，再通过「添加 MCP 插件」录入服务配置。保存配置后仍需验证连接和权限。"
+      "en-US": "Create a personal access token on GitHub (Settings > Developer settings). Fine-grained: grant read-only Contents, Issues, Pull requests and Metadata for the repositories to expose. Classic: the repo scope, plus read:org for organization data. GGWork connects to GitHub's official remote MCP server in read-only mode.",
+      "zh-CN": "在 GitHub「Settings → Developer settings」创建个人访问令牌。细粒度令牌：对要开放的仓库授予 Contents、Issues、Pull requests、Metadata 的只读权限；经典令牌：勾选 repo，需要组织信息再加 read:org。GGWork 以只读模式连接 GitHub 官方远程 MCP 服务。"
     },
-    "source": "https://github.com/github/github-mcp-server",
+    "source": "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
     "aliases": [
       "github"
     ],
     "schema_version": 1,
-    "version": "1",
-    "adapter": "mcp",
+    "version": "2",
+    "adapter": "remote",
     "auth_methods": [
-      "api_key",
-      "oauth"
+      "api_key"
     ],
     "icon": "/images/plugins/github.svg",
     "contributions": [
@@ -614,21 +815,17 @@
       "properties": {
         "name": {
           "type": "string",
-          "title": "Name"
+          "title": "Connection name"
         },
-        "url": {
+        "token": {
           "type": "string",
-          "title": "Server URL"
-        },
-        "authorization": {
-          "type": "string",
-          "title": "Authorization header",
-          "format": "password"
+          "format": "password",
+          "title": "Personal access token"
         }
       },
       "required": [
         "name",
-        "url"
+        "token"
       ],
       "additionalProperties": false
     }
@@ -646,10 +843,10 @@
     },
     "kind": "mcp",
     "setup": {
-      "en-US": "Follow the provider's setup guide, prepare the required account or API credentials, then add its MCP server using Add MCP plugin. Adding a configuration does not verify the connection.",
-      "zh-CN": "按提供方文档准备账号或 API 凭据，再通过「添加 MCP 插件」录入服务配置。保存配置后仍需验证连接和权限。"
+      "en-US": "An Atlassian organization admin must first allow API token authentication for the Rovo MCP server (Atlassian Administration > Rovo settings). Then create a scoped API token with read:jira-work, read:page:confluence, search:confluence and search:rovo:mcp, and enter it with the account email. Writes depend on the token's scopes.",
+      "zh-CN": "先由 Atlassian 组织管理员在「Atlassian Administration → Rovo 设置」开启 Rovo MCP 服务的 API 令牌认证；再创建带作用域的 API 令牌，授予 read:jira-work、read:page:confluence、search:confluence、search:rovo:mcp，连同账号邮箱一起填写。能否写入取决于令牌作用域。"
     },
-    "source": "https://github.com/sooperset/mcp-atlassian",
+    "source": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/configuring-authentication-via-api-token/",
     "aliases": [
       "atlassian",
       "jira",
@@ -657,11 +854,10 @@
       "mcp-atlassian"
     ],
     "schema_version": 1,
-    "version": "1",
-    "adapter": "mcp",
+    "version": "2",
+    "adapter": "remote",
     "auth_methods": [
-      "api_key",
-      "oauth"
+      "api_key"
     ],
     "icon": "/images/plugins/jira.svg",
     "contributions": [
@@ -672,21 +868,22 @@
       "properties": {
         "name": {
           "type": "string",
-          "title": "Name"
+          "title": "Connection name"
         },
-        "url": {
+        "email": {
           "type": "string",
-          "title": "Server URL"
+          "title": "Account email"
         },
-        "authorization": {
+        "api_token": {
           "type": "string",
-          "title": "Authorization header",
-          "format": "password"
+          "format": "password",
+          "title": "Scoped API token"
         }
       },
       "required": [
         "name",
-        "url"
+        "email",
+        "api_token"
       ],
       "additionalProperties": false
     }
@@ -727,6 +924,7 @@
       "type": "object",
       "properties": {},
       "additionalProperties": false
-    }
+    },
+    "hidden": true
   }
 ]

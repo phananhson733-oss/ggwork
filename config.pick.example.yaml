@@ -46,8 +46,12 @@ tools:
   - {name: pick_count_candidates, group: pick, use: 'ggwork_pick.tools:count_candidates_tool'}
   - {name: pick_get_drama_detail, group: pick, use: 'ggwork_pick.tools:get_drama_detail_tool'}
   - {name: pick_prepare_selection, group: pick, use: 'ggwork_pick.tools:prepare_selection_tool'}
+  # Keyless public web tools, shown as enabled in the capability center; PickToolGate budgets them as plugins.
+  - {name: web_search, group: web, use: 'deerflow.community.ddg_search.tools:web_search_tool', max_results: 5}
+  - {name: web_fetch, group: web, use: 'deerflow.community.jina_ai.tools:web_fetch_tool', timeout: 10}
 tool_groups:
   - {name: pick}
+  - {name: web}
 plugins:
   - name: ggwork-pick
     use: 'ggwork_pick:install'
@@ -85,15 +89,21 @@ authorization:
     config:
       roles:
         admin:
+          # MCP tool names come from the servers an admin enables in the capability center, so they cannot be
+          # listed here; the pick middleware admits pick tools, web_search/web_fetch and enabled MCP tools only.
           tools:
-            allow: [ask_clarification, pick_search_knowledge, pick_query_candidates, pick_count_candidates, pick_get_drama_detail, pick_prepare_selection]
+            allow: '*'
+            deny: [present_files, review_skill_package, list_uploaded_files, task, task_status, batch_task, batch_status, cancel_batch, list_background_tasks, cancel_background_task, invoke_acp_agent]
           routes: {allow: '*'}
           models: {allow: [azure-pick]}
           sandbox: {allow: false}
           skills: {allow: [pick-drama]}
         user:
+          # MCP tool names come from the servers an admin enables in the capability center, so they cannot be
+          # listed here; the pick middleware admits pick tools, web_search/web_fetch and enabled MCP tools only.
           tools:
-            allow: [ask_clarification, pick_search_knowledge, pick_query_candidates, pick_count_candidates, pick_get_drama_detail, pick_prepare_selection]
+            allow: '*'
+            deny: [present_files, review_skill_package, list_uploaded_files, task, task_status, batch_task, batch_status, cancel_batch, list_background_tasks, cancel_background_task, invoke_acp_agent]
           routes: {allow: '*'}
           models: {allow: [azure-pick]}
           sandbox: {allow: false}

@@ -1,6 +1,11 @@
 "use client";
 
-import { PencilIcon, Trash2 } from "lucide-react";
+import {
+  LoaderCircleIcon,
+  PencilIcon,
+  PlugZapIcon,
+  Trash2,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { capabilityCopy } from "@/core/capabilities/copy";
 import { useI18n } from "@/core/i18n/hooks";
 import { MCPConfigRequestError } from "@/core/mcp/api";
 import {
@@ -30,8 +36,10 @@ import {
 import type { MCPServerConfig } from "@/core/mcp/types";
 import { env } from "@/env";
 
+import { ConnectionCheckLabel, useConnectionChecks } from "./connection-check";
 import {
   catalogForServer,
+  catalogText,
   type CatalogPlugin,
   type PluginCategory,
 } from "./plugin-catalog";
@@ -51,6 +59,24 @@ type MCPPluginManagerProps = {
   toolbar?: ReactNode;
   definitions?: CatalogPlugin[];
 };
+
+/**
+ * Catalog installs store the English manifest text; show the localized one
+ * unless an admin wrote their own. Saved servers may omit the description.
+ */
+function localizedServerDescription(
+  config: MCPServerConfig,
+  metadata: CatalogPlugin | undefined,
+  locale: string,
+  fallback: string,
+) {
+  const saved = config.description as string | undefined;
+  if (!saved) return fallback;
+  if (metadata === undefined) return saved;
+  return saved === metadata.description["en-US"]
+    ? catalogText(metadata.description, locale)
+    : saved;
+}
 
 export function MCPPluginManager(props: MCPPluginManagerProps) {
   const { config, isLoading, error } = useMCPConfig();
@@ -81,7 +107,9 @@ function MCPServerList({
   isLoading?: boolean;
   error?: Error | null;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const copy = capabilityCopy(locale);
+  const connectionChecks = useConnectionChecks();
   const { isPending, mutate: enableMCPServer } = useEnableMCPServer();
   const { isPending: isWriting, mutate: mutateServer } = useMCPServerMutation();
   const [editor, setEditor] = useState<
@@ -218,13 +246,16 @@ function MCPServerList({
         return;
       }
       setDefinitionError(null);
+      const serverName = editor.name;
       mutateServer(
+        { operation: "update", serverName, server: editedConfig },
         {
-          operation: "update",
-          serverName: editor.name,
-          server: editedConfig,
+          onSuccess: () => {
+            // The previous result described the old definition.
+            connectionChecks.clear(serverName);
+            closeEditor();
+          },
         },
-        { onSuccess: closeEditor },
       );
     }
   }
@@ -232,7 +263,12 @@ function MCPServerList({
   function handleRemove(name: string) {
     mutateServer(
       { operation: "delete", serverName: name },
-      { onSuccess: () => setPendingRemoval(null) },
+      {
+        onSuccess: () => {
+          connectionChecks.clear(name);
+          setPendingRemoval(null);
+        },
+      },
     );
   }
 
@@ -279,6 +315,8 @@ function MCPServerList({
           ...entries.map(([name, config]): PluginDirectoryEntry => {
             const displayName = displayServerName(name);
             const metadata = catalogForServer(config, definitions);
+            const check = connectionChecks.checks[name];
+            const checking = check?.status === "pending";
             return {
               id: `mcp:${name}`,
               category: metadata?.category ?? "custom",
@@ -287,13 +325,19 @@ function MCPServerList({
               node: (
                 <PluginRow
                   name={displayName}
-                  description={
-                    config.description || t.capabilities.mcpDescription
-                  }
+                  description={localizedServerDescription(
+                    config,
+                    metadata,
+                    locale,
+                    t.capabilities.mcpDescription,
+                  )}
                   label={
                     config.enabled
                       ? t.capabilities.enabled
                       : t.capabilities.disabled
+                  }
+                  note={
+                    check && <ConnectionCheckLabel state={check} copy={copy} />
                   }
                   icon={
                     <PluginIcon
@@ -318,6 +362,22 @@ function MCPServerList({
                       enableMCPServer({ serverName: name, enabled: checked })
                     }
                   />
+                  {/* Checks even a disabled server, so it can be verified
+                      before being switched on. */}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label={`${copy.checkConnection} ${displayName}`}
+                    title={copy.checkConnection}
+                    disabled={readOnly || isMutating || checking}
+                    onClick={() => connectionChecks.run(name)}
+                  >
+                    {checking ? (
+                      <LoaderCircleIcon className="size-4 animate-spin" />
+                    ) : (
+                      <PlugZapIcon className="size-4" />
+                    )}
+                  </Button>
                   <Button
                     size="icon"
                     variant="ghost"

@@ -25,6 +25,12 @@ class PluginManifest(BaseModel):
     auth_methods: list[Literal["none", "api_key", "oauth"]] = Field(default_factory=list)
     contributions: list[Literal["tools", "skills"]] = Field(default_factory=list)
     config_schema: dict[str, Any] = Field(default_factory=lambda: {"type": "object"})
+    # Kept in the manifest but left out of discovery and installation, so a
+    # temporarily withdrawn integration returns by flipping one flag.
+    hidden: bool = False
+    # For ``native`` entries: configured tool names that must all be present
+    # for the capability to count as enabled in this deployment.
+    native_tools: list[str] = Field(default_factory=list)
 
     @field_validator("source")
     @classmethod
@@ -41,11 +47,11 @@ class PluginManifest(BaseModel):
         return value
 
 
-def load_catalog(path: Path | None = None) -> list[PluginManifest]:
+def load_catalog(path: Path | None = None, *, include_hidden: bool = False) -> list[PluginManifest]:
     """An operator may supply another manifest file; never load executable code."""
     source = path or Path(__file__).with_name("builtin.json")
     items = [PluginManifest.model_validate(item) for item in json.loads(source.read_text(encoding="utf-8"))]
     ids = [item.id for item in items]
     if len(ids) != len(set(ids)):
         raise ValueError("Duplicate plugin identifiers in catalog")
-    return items
+    return items if include_hidden else [item for item in items if not item.hidden]

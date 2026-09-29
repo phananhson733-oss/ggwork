@@ -153,7 +153,7 @@ test("catalog navigation, search, details, and migrated settings", async ({
   await expect(
     page.getByRole("heading", { name: "能力中心", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("article")).toHaveCount(17);
+  await expect(page.locator("article")).toHaveCount(15);
   await expect(page.locator("a[href='/workspace/capabilities']")).toBeVisible();
   await screenshot(page, "capability-center-plugins.png");
 
@@ -214,7 +214,7 @@ test("the skills catalog fits a mobile viewport", async ({ page }) => {
   ).toBeVisible();
 });
 
-test("MCP access errors preserve the independently available Lark integration", async ({
+test("MCP access errors preserve the independently available catalog", async ({
   page,
 }) => {
   await mockCatalog(page);
@@ -226,7 +226,7 @@ test("MCP access errors preserve the independently available Lark integration", 
     page.getByRole("alert").filter({ hasText: "Admin privileges" }),
   ).toBeVisible();
   await expect(
-    page.locator("article").filter({ hasText: "Lark / Feishu" }),
+    page.locator("article").filter({ hasText: "Feishu group notifications" }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Add MCP plugin" }),
@@ -278,24 +278,27 @@ test("plugin filters remain usable after an MCP refetch fails", async ({
     return route.fallback();
   });
   await page.goto("/workspace/capabilities");
-  await expect(page.locator("article")).toHaveCount(17);
+  await expect(page.locator("article")).toHaveCount(15);
   const installed = page.getByRole("tab", { name: "Installed", exact: true });
   await installed.click();
   await expect(page.locator("article")).toHaveCount(5);
   await page
     .getByRole("switch", { name: "Enabled GitHub", exact: true })
     .click();
-  await expect(page.getByRole("alert")).toBeVisible();
+  // Next's route announcer is also role="alert"; match the MCP error itself.
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Admin privileges" }),
+  ).toBeVisible();
   await expect(installed).toHaveAttribute("aria-selected", "true");
   await expect(
     page.getByRole("button", { name: "Add MCP plugin" }),
   ).toHaveCount(0);
   await page.getByRole("tab", { name: "All plugins", exact: true }).click();
   await expect(
-    page.locator("article").filter({ hasText: "Lark / Feishu" }),
+    page.locator("article").filter({ hasText: "HubSpot CRM" }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Configure Lark / Feishu", exact: true })
+    .getByRole("button", { name: "Configure HubSpot CRM", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
 });
@@ -312,7 +315,7 @@ test("plugin categories, setup guides, and installed state remain distinct", asy
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/workspace/capabilities");
-  await expect(page.locator("article")).toHaveCount(17);
+  await expect(page.locator("article")).toHaveCount(15);
   for (const name of [
     "办公协作",
     "文档与知识",
@@ -326,17 +329,17 @@ test("plugin categories, setup guides, and installed state remain distinct", asy
   }
   await screenshot(page, "capability-catalog-zh.png");
   await page.getByRole("button", { name: "办公协作", exact: true }).click();
-  await expect(page.locator("article")).toHaveCount(3);
+  await expect(page.locator("article")).toHaveCount(1);
   await expect(
     page.locator("article").filter({ hasText: "GitHub" }),
   ).toHaveCount(0);
   await page
-    .getByRole("button", { name: "配置 企业微信群通知", exact: true })
+    .getByRole("button", { name: "配置 飞书群通知", exact: true })
     .click();
-  await expect(page.getByRole("dialog")).toContainText("企业微信");
+  await expect(page.getByRole("dialog")).toContainText("自定义机器人");
   await expect(page.getByRole("dialog").getByRole("link")).toHaveAttribute(
     "href",
-    "https://developer.work.weixin.qq.com/document/path/91770",
+    "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot",
   );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "全部分类", exact: true }).click();
@@ -344,11 +347,12 @@ test("plugin categories, setup guides, and installed state remain distinct", asy
     .getByRole("textbox", { name: "搜索插件名称或用途" })
     .fill("firecrawl");
   await expect(page.locator("article")).toHaveCount(1);
-  await expect(page.locator("article")).toContainText("推荐接入");
+  await expect(page.locator("article")).toContainText("未配置");
   await page
-    .getByRole("button", { name: "接入指南 Firecrawl", exact: true })
+    .getByRole("button", { name: "配置 Firecrawl", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toContainText("Firecrawl");
+  await expect(page.getByRole("dialog").getByLabel("API Key")).toBeVisible();
   await screenshot(page, "capability-catalog-detail-zh.png");
   await page.keyboard.press("Escape");
   await page.getByRole("tab", { name: "已安装", exact: true }).click();
@@ -373,7 +377,7 @@ test("English plugin catalog preview", async ({ page }) => {
   await page.setViewportSize({ width: 1512, height: 1850 });
   await mockCatalog(page);
   await page.goto("/workspace/capabilities");
-  await expect(page.locator("article")).toHaveCount(17);
+  await expect(page.locator("article")).toHaveCount(15);
   await screenshot(page, "capability-catalog-en.png");
 });
 
@@ -383,6 +387,7 @@ test("manifest installation saves through the adapter and refreshes the catalog"
   mockLangGraphAPI(page);
   let installed: Record<string, unknown> | null = null;
   let submission: Record<string, unknown> | null = null;
+  const checks: unknown[] = [];
   await page.route("**/api/mcp/config", (route) =>
     route.fulfill({
       json: { mcp_servers: installed ? { "team-code": installed } : {} },
@@ -390,11 +395,30 @@ test("manifest installation saves through the adapter and refreshes the catalog"
   );
   await page.route("**/api/capabilities/installations", (route) => {
     submission = route.request().postDataJSON() as Record<string, unknown>;
+    // The remote adapter owns the endpoint; the stored server never echoes
+    // the token back.
     installed = {
-      ...(submission.configuration as Record<string, unknown>),
-      capability: { id: "stable-github", plugin_id: "github", version: "1" },
+      enabled: true,
+      type: "http",
+      url: "https://api.githubcopilot.com/mcp/readonly",
+      headers: { Authorization: "***" },
+      capability: { id: "stable-github", plugin_id: "github", version: "2" },
     };
     return route.fulfill({ json: { items: [], can_manage: true } });
+  });
+  await page.route("**/api/capabilities/connections/check", (route) => {
+    const body = route.request().postDataJSON() as { name: string };
+    checks.push(body);
+    return route.fulfill({
+      json: {
+        name: body.name,
+        ok: true,
+        code: "ok",
+        tool_count: 12,
+        tools: ["get_me", "search_code", "list_issues"],
+        detail: null,
+      },
+    });
   });
   await page.goto("/workspace/capabilities");
   await page
@@ -404,34 +428,186 @@ test("manifest installation saves through the adapter and refreshes the catalog"
     .getByRole("button", { name: "Configure GitHub", exact: true })
     .click();
   const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("Server URL")).toHaveCount(0);
   await dialog.getByLabel("Connection name").fill("team-code");
-  await dialog.getByLabel("Server URL").fill("https://example.test/mcp");
-  await dialog
-    .getByLabel("Authorization header (optional)")
-    .fill("Bearer fixture-only");
+  const token = dialog.getByLabel("Personal access token");
+  await expect(token).toHaveAttribute("type", "password");
+  await expect(token).toHaveAttribute("autocomplete", "new-password");
+  await token.fill("fixture-only-token");
   await dialog.getByRole("button", { name: "Save configuration" }).click();
-  await expect(dialog).toHaveCount(0);
-  expect(submission).toMatchObject({
+  // The dialog stays open until the post-save connection check reports.
+  await expect(dialog.getByText("Connected. Tools found: 12")).toBeVisible();
+  await expect(
+    dialog.getByText("Tools: get_me, search_code, list_issues"),
+  ).toBeVisible();
+  expect(submission).toEqual({
     plugin_id: "github",
     name: "team-code",
-    configuration: {
-      type: "http",
-      headers: { Authorization: "Bearer fixture-only" },
-    },
+    configuration: { token: "fixture-only-token" },
   });
+  expect(checks).toEqual([{ name: "team-code" }]);
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
   await page
     .getByRole("textbox", { name: "Search plugins by name or purpose" })
     .fill("");
   await expect(
     page.getByRole("button", { name: "Edit team-code", exact: true }),
   ).toBeVisible();
-  await expect(
-    page.locator("article").filter({ hasText: "team-code" }),
-  ).toHaveCount(1);
+  const row = page.locator("article").filter({ hasText: "team-code" });
+  await expect(row).toHaveCount(1);
+  await row
+    .getByRole("button", { name: "Test connection team-code", exact: true })
+    .click();
+  await expect(row.getByText("Connected. Tools found: 12")).toBeVisible();
+  expect(checks).toHaveLength(2);
   await page.reload();
   await expect(
     page.getByRole("button", { name: "Edit team-code", exact: true }),
   ).toBeVisible();
+});
+
+test("a failed post-save check explains the reason and how to reconfigure", async ({
+  page,
+  baseURL,
+}) => {
+  await page
+    .context()
+    .addCookies([{ name: "locale", value: "zh-CN", url: baseURL! }]);
+  mockLangGraphAPI(page);
+  await page.route("**/api/capabilities/installations", (route) =>
+    route.fulfill({ json: { items: [], can_manage: true } }),
+  );
+  await page.route("**/api/capabilities/connections/check", (route) =>
+    route.fulfill({
+      json: {
+        name: "openviking",
+        ok: false,
+        code: "unreachable",
+        tool_count: 0,
+        tools: [],
+        detail: "Connection refused",
+      },
+    }),
+  );
+  await page.goto("/workspace/capabilities?plugin=openviking");
+  const dialog = page.getByRole("dialog");
+  const url = dialog.getByLabel("服务地址");
+  await expect(url).toHaveAttribute(
+    "placeholder",
+    "https://mcp.example.com/mcp",
+  );
+  await expect(url).toHaveAttribute("autocomplete", "off");
+  await expect(dialog.getByLabel("授权请求头（可选）")).toHaveAttribute(
+    "placeholder",
+    "Bearer <token>",
+  );
+  await url.fill("name@company.com");
+  await dialog.getByRole("button", { name: "保存配置" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText(
+    "请输入 HTTP 或 HTTPS 服务地址。",
+  );
+  await url.fill("https://mcp.example.test/mcp");
+  await dialog.getByRole("button", { name: "保存配置" }).click();
+  const alert = dialog.getByRole("alert");
+  await expect(alert).toContainText("无法连接到服务地址");
+  await expect(alert).toContainText("Connection refused");
+  await expect(alert).toContainText("删除此条目后重新配置");
+  await expect(dialog.getByRole("button", { name: "完成" })).toBeVisible();
+});
+
+test("hidden manifests stay out of discovery and deep links", async ({
+  page,
+}) => {
+  mockLangGraphAPI(page);
+  await page.goto("/workspace/capabilities");
+  await expect(page.locator("article")).toHaveCount(12);
+  for (const name of [
+    "Lark / Feishu",
+    "DingTalk",
+    "WeCom",
+    "Tencent Docs",
+    "Notion",
+    "Browser",
+  ]) {
+    await expect(page.locator("article").filter({ hasText: name })).toHaveCount(
+      0,
+    );
+  }
+  await page.goto("/workspace/capabilities?plugin=dingtalk");
+  await expect(page.locator("article")).toHaveCount(12);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("native capabilities report deployment status and credential-free plugins enable directly", async ({
+  page,
+}) => {
+  mockLangGraphAPI(page);
+  await page.route("**/api/capabilities/installations/native", (route) =>
+    route.fulfill({
+      json: {
+        can_manage: true,
+        items: [
+          {
+            id: "native:web-search",
+            plugin_id: "web-search",
+            adapter: "native",
+            name: "Web search",
+            reference: "web-search",
+            installed: true,
+            enabled: true,
+            scope: "deployment",
+            auth_status: "not_required",
+            health: "unknown",
+          },
+        ],
+      },
+    }),
+  );
+  let submission: Record<string, unknown> | undefined;
+  await page.route("**/api/capabilities/installations", (route) => {
+    submission = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({ json: { items: [], can_manage: true } });
+  });
+  await page.goto("/workspace/capabilities");
+  // Exa's description also mentions web search; find rows by their action.
+  const row = (name: string) =>
+    page.locator("article").filter({
+      has: page.getByRole("button", { name: `View ${name}`, exact: true }),
+    });
+  await expect(row("Web search")).toContainText("Enabled");
+  await expect(row("Web reader")).toContainText("Disabled");
+  await row("Web search")
+    .getByRole("button", { name: "View Web search", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("status")).toHaveText(
+    "Enabled in this deployment",
+  );
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /Save|Enable/ })).toHaveCount(
+    0,
+  );
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "View Web reader", exact: true })
+    .click();
+  await expect(dialog.getByRole("status")).toContainText(
+    "Contact your administrator",
+  );
+  await page.keyboard.press("Escape");
+
+  await page
+    .getByRole("button", { name: "Configure Google Docs", exact: true })
+    .click();
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Enable", exact: true }).click();
+  await expect(dialog.getByText("Connected. Tools found: 2")).toBeVisible();
+  expect(submission).toEqual({
+    plugin_id: "google-docs",
+    name: "google-docs",
+    configuration: {},
+  });
 });
 
 test("agent selection saves explicit plugin IDs and an empty skill list", async ({

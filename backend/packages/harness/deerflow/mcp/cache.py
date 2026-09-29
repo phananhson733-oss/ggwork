@@ -250,6 +250,22 @@ def get_cached_mcp_tools() -> list[BaseTool]:
                 return _mcp_tools_cache or []
 
 
+def cached_mcp_server_names() -> set[str] | None:
+    """Servers that contributed tools to the current cache, or None when no fresh cache exists.
+
+    Never triggers initialization. Discovery that failed is cached as "no tools"
+    until the config changes; callers use this to tell whether a server that now
+    works is missing from the cache.
+    """
+    from deerflow.tools.mcp_metadata import get_mcp_source
+
+    with _init_lock:
+        if not _cache_initialized or _is_cache_stale():
+            return None
+        tools = list(_mcp_tools_cache or [])
+    return {source["server_name"] for tool in tools if (source := get_mcp_source(tool)) is not None}
+
+
 def _reset_mcp_tools_cache_state() -> None:
     """Reset cache state under ``_init_condition`` / ``_init_lock``."""
     global _mcp_tools_cache, _cache_initialized, _config_path, _config_signature

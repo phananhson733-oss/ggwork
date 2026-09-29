@@ -54,6 +54,9 @@ class PickTask:
     initialized: bool = False
     model_calls: int = 0
     tool_calls: int = 0
+    plugin_calls: int = 0
+    # Set once a read-only plugin brought outside content into this run; see PickToolGate.
+    plugin_read: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     budget: float = field(default_factory=run_seconds)
 

@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, rs } from "@rstest/core";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 
 import { MCPPluginManager } from "@/components/workspace/capabilities/mcp-plugin-manager";
 
@@ -11,6 +17,8 @@ const mcpMockState = rs.hoisted(() => ({
   updateIsPending: false,
   updateMutate: rs.fn(),
   servers: {} as Record<string, unknown>,
+  check: rs.fn(),
+  locale: "en-US",
 }));
 
 // A server carrying config this page never renders: it must survive a write
@@ -27,6 +35,7 @@ const DURABLE_TASK_SERVER = {
 
 rs.mock("@/core/i18n/hooks", () => ({
   useI18n: () => ({
+    locale: mcpMockState.locale,
     t: {
       capabilities: {
         icon: {
@@ -113,6 +122,10 @@ rs.mock("@/core/mcp/hooks", () => ({
   }),
 }));
 
+rs.mock("@/core/capabilities/hooks", () => ({
+  useCheckConnection: () => ({ mutateAsync: mcpMockState.check }),
+}));
+
 rs.mock("@/env", () => ({
   env: { NEXT_PUBLIC_STATIC_WEBSITE_ONLY: "false" },
 }));
@@ -157,7 +170,9 @@ afterEach(() => {
   mcpMockState.updateIsPending = false;
   mcpMockState.mutate.mockReset();
   mcpMockState.updateMutate.mockReset();
+  mcpMockState.check.mockReset();
   mcpMockState.servers = {};
+  mcpMockState.locale = "en-US";
   cleanup();
 });
 
@@ -428,5 +443,135 @@ describe("MCPPluginManager remove server", () => {
       operation: "delete",
       serverName: "",
     });
+  });
+});
+
+describe("MCPPluginManager connection checks", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((onResolve, onReject) => {
+      resolve = onResolve;
+      reject = onReject;
+    });
+    return { promise, resolve, reject };
+  }
+
+  it("checks one row at a time and shows the latest result on that row", async () => {
+    twoServers();
+    const pending = deferred<unknown>();
+    mcpMockState.check.mockReturnValueOnce(pending.promise);
+
+    render(<MCPPluginManager />);
+    const button = screen.getByRole("button", {
+      name: "Test connection github",
+    });
+    fireEvent.click(button);
+
+    expect(mcpMockState.check).toHaveBeenCalledWith("github");
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Testing connection…")).toBeDefined();
+    fireEvent.click(button);
+    expect(mcpMockState.check).toHaveBeenCalledTimes(1);
+    // Other rows stay independently checkable.
+    expect(
+      screen
+        .getByRole("button", { name: "Test connection remote" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+
+    await act(async () => {
+      pending.resolve({
+        name: "github",
+        ok: true,
+        code: "ok",
+        tool_count: 3,
+        tools: ["a", "b", "c"],
+        detail: null,
+      });
+      await pending.promise;
+    });
+
+    expect(screen.getByText("Connected. Tools found: 3")).toBeDefined();
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("labels a failed check with the localized reason and keeps the detail", async () => {
+    twoServers();
+    mcpMockState.check.mockResolvedValueOnce({
+      name: "remote",
+      ok: false,
+      code: "timeout",
+      tool_count: 0,
+      tools: [],
+      detail: "No response in 15s",
+    });
+
+    render(<MCPPluginManager />);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Test connection remote" }),
+      );
+    });
+
+    const label = screen.getByText("Connection timed out");
+    expect(label.getAttribute("title")).toBe("No response in 15s");
+  });
+
+  it("reports a rejected request as a failed connection", async () => {
+    twoServers();
+    mcpMockState.check.mockRejectedValueOnce(new Error("Admin only"));
+
+    render(<MCPPluginManager />);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Test connection github" }),
+      );
+    });
+
+    expect(screen.getByText("Connection failed").getAttribute("title")).toBe(
+      "Admin only",
+    );
+  });
+});
+
+describe("MCPPluginManager server descriptions", () => {
+  const manifest = {
+    id: "google-docs",
+    category: "knowledge",
+    aliases: [],
+    name: { "en-US": "Google Docs" },
+    description: { "en-US": "Read shared docs.", "zh-CN": "读取共享文档。" },
+  };
+
+  it("localizes catalog text, keeps admin text and tolerates a missing description", () => {
+    mcpMockState.locale = "zh-CN";
+    setServers({
+      "google-docs": {
+        enabled: true,
+        description: "Read shared docs.",
+        capability: { plugin_id: "google-docs" },
+      },
+      renamed: {
+        enabled: true,
+        description: "Team wording",
+        capability: { plugin_id: "google-docs" },
+      },
+      bare: { enabled: false, command: "npx", args: ["example"] },
+    });
+
+    render(
+      <MCPPluginManager
+        definitions={
+          [manifest] as unknown as Parameters<
+            typeof MCPPluginManager
+          >[0]["definitions"]
+        }
+      />,
+    );
+
+    expect(screen.getByText("读取共享文档。")).toBeDefined();
+    expect(screen.getByText("Team wording")).toBeDefined();
+    expect(screen.getByText("MCP tools")).toBeDefined();
   });
 });

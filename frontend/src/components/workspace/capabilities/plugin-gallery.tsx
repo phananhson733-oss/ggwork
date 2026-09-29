@@ -48,6 +48,10 @@ function getPluginStatusLabel(
   labels: ReturnType<typeof capabilityCopy>,
 ) {
   if (unavailable) return labels.adapterError;
+  // Native tools have no credentials: an installation means the deployment
+  // configures them.
+  if (adapter === "native")
+    return status ? t.capabilities.enabled : t.capabilities.disabled;
   if (status) {
     if (status.auth_status === "connected") return labels.connected;
     if (status.auth_status === "required") return labels.required;
@@ -65,9 +69,16 @@ function getPluginActionLabel(
   canManage: boolean,
   t: Translations,
 ) {
+  if (adapter === "native") return t.capabilities.directory.view;
   if (installed) return t.capabilities.manage;
   if (adapter === "guide" || !canManage) return t.capabilities.directory.view;
   if (adapter === "lark") return t.common.install;
+  return t.capabilities.configure;
+}
+
+function getPluginActionAriaPrefix(adapter: string, t: Translations) {
+  if (adapter === "guide") return t.capabilities.directory.guide;
+  if (adapter === "native") return t.capabilities.directory.view;
   return t.capabilities.configure;
 }
 
@@ -156,7 +167,7 @@ export function PluginGallery({ query }: { query: string }) {
               size="sm"
               variant="outline"
               className="h-8 text-xs"
-              aria-label={`${plugin.adapter === "guide" ? copy.guide : t.capabilities.configure} ${catalogText(plugin.name, locale)}`}
+              aria-label={`${getPluginActionAriaPrefix(plugin.adapter, t)} ${catalogText(plugin.name, locale)}`}
               onClick={() => setSelectedId(plugin.id)}
             >
               {getPluginActionLabel(plugin.adapter, !!status, canManage, t)}

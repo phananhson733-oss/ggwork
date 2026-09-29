@@ -11,9 +11,12 @@ from pydantic import BaseModel, Field, ValidationError
 from app.gateway.deps import is_admin_user
 from app.gateway.routers import integrations, mcp, skills
 from deerflow.capabilities.business import connection_config
-from deerflow.capabilities.catalog import PluginManifest
+from deerflow.capabilities.catalog import PluginManifest, load_catalog
+from deerflow.capabilities.check import ConnectionCheck, check_mcp_server
+from deerflow.capabilities.remote import PRESETS, remote_connection
 from deerflow.capabilities.runtime import ambiguous_installation_ids, installation_id
 from deerflow.config.app_config import AppConfig
+from deerflow.config.extensions_config import ExtensionsConfig
 from deerflow.integrations.lark_cli import get_lark_integration_status
 from deerflow.runtime.user_context import get_effective_user_id
 
@@ -154,6 +157,46 @@ class BusinessAdapter(MCPAdapter):
         await super().install(context, manifest, name, definition)
 
 
+class RemoteAdapter(MCPAdapter):
+    """Official remote endpoints: the form supplies credentials, the gateway owns the URL."""
+
+    async def list_installations(self, context: AdapterContext) -> list[CapabilityInstallation]:
+        return [item for item in await super().list_installations(context) if item.plugin_id in PRESETS]
+
+    async def install(self, context: AdapterContext, manifest: PluginManifest, name: str, configuration: dict[str, Any]) -> None:
+        try:
+            definition = remote_connection(manifest.id, configuration)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        definition["description"] = manifest.description.get("en-US", "")
+        await super().install(context, manifest, name, definition)
+
+
+class NativeAdapter:
+    """Tools configured in the deployment's config.yaml; enabled there, never installed here."""
+
+    async def list_installations(self, context: AdapterContext) -> list[CapabilityInstallation]:
+        configured = {tool.name for tool in getattr(context.config, "tools", None) or []}
+        manifests = await asyncio.to_thread(load_catalog)
+        return [
+            CapabilityInstallation(
+                id=f"native:{manifest.id}",
+                plugin_id=manifest.id,
+                adapter="native",
+                name=", ".join(manifest.native_tools),
+                reference=manifest.id,
+                enabled=True,
+                auth_status="not_required",
+                category=manifest.category,
+            )
+            for manifest in manifests
+            if manifest.adapter == "native" and manifest.native_tools and set(manifest.native_tools) <= configured
+        ]
+
+    async def install(self, context: AdapterContext, manifest: PluginManifest, name: str, configuration: dict[str, Any]) -> None:
+        raise HTTPException(422, "This capability is enabled by the deployment configuration")
+
+
 class LarkAdapter:
     async def list_installations(self, context: AdapterContext) -> list[CapabilityInstallation]:
         status = await asyncio.to_thread(get_lark_integration_status, context.user_id, context.config)
@@ -218,6 +261,8 @@ class AdapterRegistry:
 registry = AdapterRegistry()
 registry.register("mcp", MCPAdapter())
 registry.register("business", BusinessAdapter())
+registry.register("remote", RemoteAdapter())
+registry.register("native", NativeAdapter())
 registry.register("lark", LarkAdapter())
 registry.register("skills", SkillAdapter())
 
@@ -226,3 +271,20 @@ async def list_installations(adapter: str, request: Request, config: AppConfig) 
     context = AdapterContext(request, config, get_effective_user_id())
     items = await registry.get(adapter).list_installations(context)
     return InstallationList(items=items, can_manage=await is_admin_user(request))
+
+
+async def check_connection(name: str) -> ConnectionCheck:
+    """Discover one saved server's tools now; refresh the agent's cache if it missed a now-working server."""
+    from deerflow.mcp.cache import cached_mcp_server_names, reset_mcp_tools_cache
+
+    extensions = await asyncio.to_thread(ExtensionsConfig.from_file)
+    server = extensions.mcp_servers.get(name)
+    if server is None:
+        raise HTTPException(404, "MCP server not found")
+    result = await check_mcp_server(name, server)
+    if result.ok and server.enabled:
+        cached = cached_mcp_server_names()
+        # Failed discovery stays cached as "no tools" until the file changes.
+        if cached is not None and name not in cached:
+            reset_mcp_tools_cache()
+    return result
