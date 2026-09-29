@@ -6,6 +6,7 @@ import contextvars
 import os
 import stat
 import subprocess
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -50,7 +51,7 @@ def isolated(monkeypatch, tmp_path):
 
 
 class FakeCli:
-    """subprocess.run stand-in: records each call and lets a test act inside the scratch tree like lark-cli would."""
+    """_run_process stand-in: records each call and lets a test act inside the scratch tree like lark-cli would."""
 
     def __init__(self, *, stdout="{}", exit_code=0, action=None):
         self.calls = []
@@ -85,20 +86,34 @@ def _user_tree(user_id="alice"):
 
 def test_the_child_environment_holds_only_listed_variables(monkeypatch):
     fake = FakeCli()
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
     _user_tree()
 
     lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"))
 
     (call,) = fake.calls
-    assert set(call.env) <= ALLOWED_ENV | {"TZ", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"}
+    assert set(call.env) <= ALLOWED_ENV | set(lark_runner.PASSTHROUGH_ENV)
     assert not set(SECRETS) & set(call.env)
     assert call.env["PATH"] == lark_cli.LARK_CLI_MINIMAL_PATH
 
 
+@pytest.mark.parametrize("name", ["https_proxy", "http_proxy", "no_proxy", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"])
+def test_proxy_settings_reach_lark_cli_in_either_case(monkeypatch, name):
+    """09-29 review: the Gateway's own lark-cli calls pass the lowercase forms too (lark_cli._LARK_CLI_PASSTHROUGH_ENV)."""
+    fake = FakeCli()
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
+    monkeypatch.setenv(name, "http://proxy.internal:3128")
+    _user_tree()
+
+    lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"))
+
+    (call,) = fake.calls
+    assert call.env[name] == "http://proxy.internal:3128"
+
+
 def test_a_user_run_uses_a_private_copy_in_an_empty_scratch_directory(monkeypatch):
     fake = FakeCli()
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
     config, data = _user_tree()
 
     lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"))
@@ -122,7 +137,7 @@ def test_refreshed_tokens_and_new_cache_files_are_kept(monkeypatch):
         (config_dir / "cache").mkdir()
         (config_dir / "cache" / "meta").write_text("m", encoding="utf-8")
 
-    monkeypatch.setattr(lark_runner.subprocess, "run", FakeCli(action=refresh))
+    monkeypatch.setattr(lark_runner, "_run_process", FakeCli(action=refresh))
     config, data = _user_tree()
 
     lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"))
@@ -134,7 +149,7 @@ def test_refreshed_tokens_and_new_cache_files_are_kept(monkeypatch):
 
 
 def test_unchanged_credentials_are_left_alone(monkeypatch):
-    monkeypatch.setattr(lark_runner.subprocess, "run", FakeCli())
+    monkeypatch.setattr(lark_runner, "_run_process", FakeCli())
     _, data = _user_tree()
     token = data / "token.json"
     os.utime(token, (1_000_000, 1_000_000))
@@ -152,7 +167,7 @@ def test_a_symlink_left_in_the_scratch_tree_keeps_the_old_credentials(monkeypatc
         (data_dir / "token.json").unlink()
         (data_dir / "token.json").symlink_to(outside)
 
-    monkeypatch.setattr(lark_runner.subprocess, "run", FakeCli(action=plant))
+    monkeypatch.setattr(lark_runner, "_run_process", FakeCli(action=plant))
     _, data = _user_tree()
 
     lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"))
@@ -175,7 +190,7 @@ def test_a_user_run_takes_its_own_lock_before_the_shared_slot_both_bounded_by_th
         yield
 
     fake = FakeCli(action=lambda *_: held.append("ran"))
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
     monkeypatch.setattr(lark_cli, "lark_credential_lock", lock)
     monkeypatch.setattr(lark_runner, "_slot", slot)
     _user_tree()
@@ -192,7 +207,7 @@ def test_an_authorization_in_progress_holds_up_only_that_user(monkeypatch):
     """09-29 review: a user's authorization flow holds their credential lock for up to 45 seconds. Their own command
     gives up when its time is up; nobody else's command waits behind it."""
     fake = FakeCli()
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
     _user_tree("alice")
     _user_tree("bob")
     authorizing, finished = threading.Event(), threading.Event()
@@ -221,13 +236,13 @@ def test_an_authorization_in_progress_holds_up_only_that_user(monkeypatch):
     finished.set()
     holder.join(5)
 
-    assert isinstance(outcome.get("alice"), TimeoutError) and lark_runner.CREDENTIALS_BUSY in str(outcome["alice"])
+    assert isinstance(outcome.get("alice"), lark_runner.LarkBusy) and lark_runner.CREDENTIALS_BUSY in str(outcome["alice"])
     assert len(fake.calls) == 2
 
 
 @pytest.mark.parametrize("run", [lambda: lark_runner.run_guide(("docs", "--help")), lambda: lark_runner.run_for_user("alice", ("docs", "+fetch"))])
 def test_a_run_lock_that_cannot_be_opened_is_unavailable(monkeypatch, run):
-    monkeypatch.setattr(lark_runner.subprocess, "run", FakeCli())
+    monkeypatch.setattr(lark_runner, "_run_process", FakeCli())
     _user_tree()
     (paths_module.get_paths().base_dir / lark_runner.RUN_LOCK_FILE).mkdir(parents=True)
     with pytest.raises(lark_runner.LarkUnavailable):
@@ -286,7 +301,7 @@ async def test_lark_work_sees_the_callers_context():
 
 def test_guides_run_without_the_users_credentials(monkeypatch):
     fake = FakeCli(stdout="# lark-doc")
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
     config, _ = _user_tree()
 
     completed = lark_runner.run_guide(("skills", "read", "lark-doc"))
@@ -301,7 +316,7 @@ def test_a_timeout_is_reported_as_exit_124(monkeypatch):
     def slow(args, **kwargs):
         raise subprocess.TimeoutExpired(args, kwargs["timeout"])
 
-    monkeypatch.setattr(lark_runner.subprocess, "run", slow)
+    monkeypatch.setattr(lark_runner, "_run_process", slow)
     _user_tree()
 
     completed = lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"))
@@ -312,14 +327,64 @@ def test_a_timeout_is_reported_as_exit_124(monkeypatch):
 
 def test_output_is_decoded_leniently_and_capped(monkeypatch):
     fake = FakeCli(stdout="x" * (lark_runner.MAX_OUTPUT_CHARS + 10))
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
     _user_tree()
 
     completed = lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"))
 
-    (call,) = fake.calls
-    assert (call.kwargs["encoding"], call.kwargs["errors"]) == ("utf-8", "replace")
     assert completed.truncated and len(completed.stdout) == lark_runner.MAX_OUTPUT_CHARS
+
+
+def _python(code: str) -> list[str]:
+    return [sys.executable, "-c", code]
+
+
+@pytest.mark.parametrize("char", ["x", "é", "你", "😀"])
+def test_a_flood_of_output_is_kept_to_a_bounded_prefix(tmp_path, char):
+    """09-29 review: output used to be read whole into memory before it was cut to MAX_OUTPUT_CHARS."""
+    flood = 3 * lark_runner.MAX_OUTPUT_BYTES
+    code = f"import sys; sys.stdout.write({char!r} * {flood}); sys.stdout.flush(); sys.stderr.write('e' * {flood}); sys.exit(3)"
+
+    result = lark_runner._run_process(_python(code), cwd=tmp_path, timeout=30, start_new_session=True, stdin=subprocess.DEVNULL)
+
+    assert result.returncode == 3
+    for text in (result.stdout, result.stderr):
+        assert lark_runner.MAX_OUTPUT_CHARS < len(text) and len(text.encode("utf-8", errors="replace")) <= lark_runner.MAX_OUTPUT_BYTES + 3
+
+
+def test_a_capped_run_reports_the_real_exit_code_and_is_marked_truncated(monkeypatch, tmp_path):
+    code = f"import sys; sys.stdout.write('你' * {3 * lark_runner.MAX_OUTPUT_BYTES})"
+    with lark_runner._scratch() as scratch:
+        completed = lark_runner._execute(sys.executable, ("-c", code), scratch, None, time.monotonic() + 30)
+    assert completed.exit_code == 0 and completed.truncated
+    assert len(completed.stdout) == lark_runner.MAX_OUTPUT_CHARS and set(completed.stdout) == {"你"}
+
+
+def test_short_output_is_kept_whole(tmp_path):
+    result = lark_runner._run_process(
+        _python("import sys; print('é 你 😀'); print('warn', file=sys.stderr)"), cwd=tmp_path, timeout=30, start_new_session=True, stdin=subprocess.DEVNULL
+    )
+    assert (result.returncode, result.stdout, result.stderr) == (0, "é 你 😀\n", "warn\n")
+
+
+def test_invalid_utf8_is_replaced_not_raised(tmp_path):
+    result = lark_runner._run_process(
+        _python("import sys; sys.stdout.buffer.write(b'ok \\xff\\xfe end')"), cwd=tmp_path, timeout=30, start_new_session=True, stdin=subprocess.DEVNULL
+    )
+    assert result.stdout == "ok \ufffd\ufffd end"
+
+
+def test_a_timeout_kills_the_whole_process_group(tmp_path):
+    marker = tmp_path / "survivor"
+    # The child starts a grandchild that would outlive it and keep the pipes open.
+    grandchild = f"import time; time.sleep(2); open({str(marker)!r}, 'w').close()"
+    code = f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {grandchild!r}]); time.sleep(30)"
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        lark_runner._run_process(_python(code), cwd=tmp_path, timeout=0.5, start_new_session=True, stdin=subprocess.DEVNULL)
+    assert time.monotonic() - started < 5
+    time.sleep(2.5)
+    assert not marker.exists()
 
 
 class Owner:
@@ -346,7 +411,7 @@ def _as_root(monkeypatch):
 def test_the_image_user_runs_lark_cli_with_its_own_group_and_no_others(monkeypatch):
     owner = _as_root(monkeypatch)
     fake = FakeCli()
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
     config, _ = _user_tree()
 
     lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"))
@@ -362,7 +427,7 @@ def test_the_image_user_runs_lark_cli_with_its_own_group_and_no_others(monkeypat
 def test_guides_also_run_as_the_image_user(monkeypatch):
     _as_root(monkeypatch)
     fake = FakeCli()
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
 
     lark_runner.run_guide(("docs", "--help"))
 
@@ -410,7 +475,7 @@ HELP = "Fetch\n\nRisk: read\n\nUsage:\n  lark-cli docs +fetch [flags]\n"
 
 def test_risk_is_looked_up_once_per_command(monkeypatch):
     fake = FakeCli(stdout=HELP)
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
 
     assert [lark_runner.command_risk(("docs", "+fetch")) for _ in range(3)] == ["read"] * 3
     (call,) = fake.calls
@@ -419,7 +484,7 @@ def test_risk_is_looked_up_once_per_command(monkeypatch):
 
 def test_a_failed_help_lookup_is_a_refusal_and_is_not_cached(monkeypatch):
     fake = FakeCli(stdout="", exit_code=1)
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
 
     for _ in range(2):
         with pytest.raises(LarkRefused):
@@ -458,7 +523,7 @@ def test_a_failure_to_start_lark_cli_is_unavailable(monkeypatch, error):
     def fail(args, **kwargs):
         raise error
 
-    monkeypatch.setattr(lark_runner.subprocess, "run", fail)
+    monkeypatch.setattr(lark_runner, "_run_process", fail)
     _user_tree()
 
     with pytest.raises(lark_runner.LarkUnavailable, match="lark-cli"):
@@ -469,7 +534,7 @@ def test_a_failure_to_start_lark_cli_is_unavailable(monkeypatch, error):
 
 def test_an_unsafe_real_credential_tree_is_unavailable(monkeypatch, tmp_path):
     fake = FakeCli()
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
     _, data = _user_tree()
     (data / "link").symlink_to(tmp_path)
 
@@ -482,7 +547,7 @@ def test_a_failed_copy_back_keeps_the_previous_tokens_and_the_output(monkeypatch
     def refresh(_config_dir, data_dir):
         (data_dir / "token.json").write_text('{"access": "new"}', encoding="utf-8")
 
-    monkeypatch.setattr(lark_runner.subprocess, "run", FakeCli(stdout='{"ok": true}', action=refresh))
+    monkeypatch.setattr(lark_runner, "_run_process", FakeCli(stdout='{"ok": true}', action=refresh))
     _, data = _user_tree()
     real_copy = lark_credentials.copy_tree
 
@@ -543,7 +608,7 @@ def test_every_run_ends_by_reaping_the_lark_user(monkeypatch):
     def slow(args, **kwargs):
         raise subprocess.TimeoutExpired(args, kwargs["timeout"])
 
-    monkeypatch.setattr(lark_runner.subprocess, "run", slow)
+    monkeypatch.setattr(lark_runner, "_run_process", slow)
     _user_tree()
 
     lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"))
@@ -554,7 +619,7 @@ def test_every_run_ends_by_reaping_the_lark_user(monkeypatch):
 
 def test_the_run_is_bounded_by_the_callers_budget(monkeypatch):
     fake = FakeCli(stdout=HELP)
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
     _user_tree()
 
     lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"), timeout=5)
@@ -571,12 +636,12 @@ def test_one_run_at_a_time_across_processes(monkeypatch):
     import fcntl
 
     fake = FakeCli()
-    monkeypatch.setattr(lark_runner.subprocess, "run", fake)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
     lock = paths_module.get_paths().base_dir / lark_runner.RUN_LOCK_FILE
     lock.parent.mkdir(parents=True, exist_ok=True)
     with lock.open("a+b") as other_worker:
         fcntl.flock(other_worker, fcntl.LOCK_EX)
-        with pytest.raises(TimeoutError):
+        with pytest.raises(lark_runner.LarkBusy, match=lark_runner.QUEUE_TIMEOUT):
             lark_runner.run_guide(("docs", "--help"), timeout=0.3)
     assert fake.calls == []
     lark_runner.run_guide(("docs", "--help"))

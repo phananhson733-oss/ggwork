@@ -47,8 +47,12 @@ RUN_LOCK_FILE = ".lark-cli.run.lock"
 TIMEOUT_SECONDS = 60
 HELP_TIMEOUT_SECONDS = 15
 MAX_OUTPUT_CHARS = 40_000
+# What is read of each output stream; the rest is drained and dropped. A character is at most 4 UTF-8 bytes, so a
+# stream longer than this still decodes to more than MAX_OUTPUT_CHARS characters and is reported as truncated.
+MAX_OUTPUT_BYTES = MAX_OUTPUT_CHARS * 4 + 4
 MAX_RISK_CACHE = 512
-PASSTHROUGH_ENV = ("TZ", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")
+# The same network settings the Gateway's own lark-cli calls pass (lark_cli._LARK_CLI_PASSTHROUGH_ENV), HOME aside.
+PASSTHROUGH_ENV = ("TZ", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy")
 SCRATCH_DIRS = ("work", "home", "tmp", "config", "data")
 QUEUE_TIMEOUT = "飞书命令排队超时，请稍后再试"
 CREDENTIALS_BUSY = "该用户的飞书授权正在进行，请完成授权后再试"
@@ -59,6 +63,9 @@ THREAD_NAME_PREFIX = "lark-cli"
 
 _VERSION = re.compile(r"\d+\.\d+\.\d+")
 _POLL_SECONDS = 0.05
+# How long the pipes may stay open once lark-cli has exited (a leftover child holding them is killed by _reap).
+_DRAIN_SECONDS = 2.0
+_READ_CHUNK = 64 * 1024
 _ONE_AT_A_TIME = threading.Lock()
 _CACHE_LOCK = threading.Lock()
 _RISK_CACHE: dict[tuple[str, ...], str] = {}
@@ -68,6 +75,10 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKER_THREADS, thread_name_prefi
 
 class LarkUnavailable(RuntimeError):
     """The tool cannot run here: no usable binary, no way to run lark-cli as the lark user, or a broken tree."""
+
+
+class LarkBusy(TimeoutError):
+    """The run's time was up before its turn came; the message is written for the user."""
 
 
 @dataclass(frozen=True)
@@ -205,7 +216,7 @@ def _user_lock(user_id: str, deadline: float) -> Iterator[None]:
         try:
             stack.enter_context(lark_cli.lark_credential_lock(user_id, deadline=deadline))
         except TimeoutError:
-            raise TimeoutError(CREDENTIALS_BUSY) from None
+            raise LarkBusy(CREDENTIALS_BUSY) from None
         yield
 
 
@@ -213,7 +224,7 @@ def _user_lock(user_id: str, deadline: float) -> Iterator[None]:
 def _slot(deadline: float) -> Iterator[None]:
     """One lark-cli process at a time, across threads (the lock) and Gateway worker processes (the file lock)."""
     if not _ONE_AT_A_TIME.acquire(timeout=max(0.0, deadline - time.monotonic())):
-        raise TimeoutError(QUEUE_TIMEOUT)
+        raise LarkBusy(QUEUE_TIMEOUT)
     try:
         path = get_paths().base_dir / RUN_LOCK_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -234,7 +245,7 @@ def _flock_until(handle, deadline: float) -> None:
             return
         except BlockingIOError:
             if time.monotonic() >= deadline:
-                raise TimeoutError(QUEUE_TIMEOUT) from None
+                raise LarkBusy(QUEUE_TIMEOUT) from None
             time.sleep(_POLL_SECONDS)
 
 
@@ -275,18 +286,13 @@ def _execute(binary: str, args: tuple[str, ...], scratch: Path, owner: RunAs | N
         "cwd": scratch / "work",
         "env": child_env(scratch),
         "stdin": subprocess.DEVNULL,
-        "capture_output": True,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
         "timeout": timeout,
-        "check": False,
         "start_new_session": True,
     }
     if owner is not None:
         options.update(user=owner.uid, group=owner.gid, extra_groups=[], umask=0o077)
     try:
-        result = subprocess.run([binary, *args], **options)  # noqa: S603 - argv list, no shell, checked by lark_policy
+        result = _run_process([binary, *args], **options)
     except subprocess.TimeoutExpired:
         return Completed(124, "", f"lark-cli 运行超时（{timeout:.0f} 秒），已终止")
     finally:
@@ -294,6 +300,57 @@ def _execute(binary: str, args: tuple[str, ...], scratch: Path, owner: RunAs | N
     stdout, cut_out = _cap(result.stdout or "")
     stderr, cut_err = _cap(result.stderr or "")
     return Completed(result.returncode, stdout, stderr, cut_out or cut_err)
+
+
+def _run_process(args: list[str], *, timeout: float, **options) -> subprocess.CompletedProcess[str]:
+    """``subprocess.run(capture_output=True)`` that keeps at most MAX_OUTPUT_BYTES of each stream.
+
+    The rest is read and dropped, so lark-cli neither fills the Gateway's memory nor stalls on a full pipe, and its
+    exit code stays its own. Output is decoded as UTF-8, invalid bytes replaced. On timeout the process group is
+    killed and TimeoutExpired raised, as ``subprocess.run`` would.
+    """
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **options)  # noqa: S603 - argv list, no shell, checked by lark_policy
+    out, err = _Capped(process.stdout), _Capped(process.stderr)
+    try:
+        returncode = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill(process, group=bool(options.get("start_new_session")))
+        process.wait()
+        raise
+    finally:
+        # The reader threads close the pipes once they end; closing them here would wait on a blocked read.
+        drained = time.monotonic() + _DRAIN_SECONDS
+        stdout, stderr = out.text(until=drained), err.text(until=drained)
+    return subprocess.CompletedProcess(args, returncode, stdout, stderr)
+
+
+class _Capped:
+    """One output pipe, read to its end on a thread of its own; the first MAX_OUTPUT_BYTES are kept."""
+
+    def __init__(self, stream) -> None:
+        self._stream = stream
+        self._kept = bytearray()
+        self._thread = threading.Thread(target=self._drain, name=f"{THREAD_NAME_PREFIX}-pipe", daemon=True)
+        self._thread.start()
+
+    def _drain(self) -> None:
+        with self._stream:
+            while chunk := self._stream.read1(_READ_CHUNK):
+                room = MAX_OUTPUT_BYTES - len(self._kept)
+                if room > 0:
+                    self._kept += chunk[:room]
+
+    def text(self, *, until: float) -> str:
+        self._thread.join(max(0.0, until - time.monotonic()))
+        return bytes(self._kept).decode("utf-8", errors="replace")
+
+
+def _kill(process: subprocess.Popen, *, group: bool) -> None:
+    with suppress(ProcessLookupError, PermissionError):
+        if group:
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
 
 
 def _reap(owner: RunAs | None, proc: Path = Path("/proc")) -> None:

@@ -87,6 +87,32 @@ async def test_plugin_calls_have_their_own_budget_and_unknown_tools_stay_blocked
     assert handler.await_count == PLUGIN_CALL_LIMIT + 1
 
 
+@tool("pick_export_board")
+def mcp_pick_export(board: str) -> str:
+    """An MCP server's tool whose name starts like the pick tools; no annotations."""
+    return board
+
+
+tag_mcp_tool(mcp_pick_export, server_name="exports", transport="http")
+
+
+@pytest.mark.asyncio
+async def test_an_mcp_tool_named_like_a_pick_tool_is_still_a_plugin():
+    """09-29 review: a `pick_` prefix used to put an MCP tool on the pick budget and past the post-read block."""
+    from ggwork_pick.middleware import PickToolGate
+
+    runtime, task = _runtime()
+    handler = AsyncMock(return_value="ok")
+    gate = PickToolGate()
+    export = SimpleNamespace(runtime=runtime, tool_call={"name": "pick_export_board"}, tool=mcp_pick_export)
+    assert await gate.awrap_tool_call(export, handler) == "ok"
+    assert (task.plugin_calls, task.tool_calls) == (1, 0)
+    read = SimpleNamespace(runtime=runtime, tool_call={"name": "web_search"}, tool=web_search)
+    assert await gate.awrap_tool_call(read, handler) == "ok"
+    with pytest.raises(ValueError, match="用户确认"):
+        await gate.awrap_tool_call(export, handler)
+
+
 @pytest.mark.asyncio
 async def test_native_web_tools_count_as_plugins():
     from ggwork_pick.middleware import PickToolGate

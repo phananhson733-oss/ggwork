@@ -182,15 +182,42 @@ async def test_truncated_output_says_so(monkeypatch, connected):
 
 
 @pytest.mark.asyncio
-async def test_an_unavailable_deployment_says_so(monkeypatch, connected):
+@pytest.mark.parametrize(
+    "error",
+    [
+        lark_runner.LarkUnavailable("数据目录 /data 对其他用户开放（755），不以 DEER_FLOW_LARK_CLI_RUN_AS 用户运行 lark-cli"),
+        lark_runner.LarkUnavailable("镜像里没有用户 larkrun（DEER_FLOW_LARK_CLI_RUN_AS）"),
+        TimeoutError("/data/.lark-cli.run.lock"),
+    ],
+)
+async def test_an_unavailable_deployment_says_so_and_keeps_the_details_in_the_log(monkeypatch, connected, caplog, error):
+    """09-29 review: the reason names Gateway paths, modes and users; the model gets a plain notice, the log the rest."""
+
     def unavailable(_path, *, timeout):
-        raise lark_runner.LarkUnavailable("网关不是 root")
+        raise error
 
     monkeypatch.setattr(lark_runner, "command_risk", unavailable)
 
+    with caplog.at_level("WARNING", logger=lark_tool.__name__):
+        answer = json.loads(await _call(["docs", "+fetch", "--doc", "AbC"]))
+
+    assert answer == {"status": "unavailable", "notice": lark_tool.UNAVAILABLE}
+    for detail in ("/data", "larkrun", "755", "DEER_FLOW"):
+        assert detail not in answer["notice"]
+    assert str(error) in caplog.text and "alice" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", [lark_runner.QUEUE_TIMEOUT, lark_runner.CREDENTIALS_BUSY])
+async def test_a_busy_tool_says_why(monkeypatch, connected, reason):
+    def busy(_path, *, timeout):
+        raise lark_runner.LarkBusy(reason)
+
+    monkeypatch.setattr(lark_runner, "command_risk", busy)
+
     answer = json.loads(await _call(["docs", "+fetch", "--doc", "AbC"]))
 
-    assert answer["status"] == "unavailable" and "网关不是 root" in answer["notice"]
+    assert answer["status"] == "busy" and reason in answer["notice"]
 
 
 @pytest.mark.asyncio

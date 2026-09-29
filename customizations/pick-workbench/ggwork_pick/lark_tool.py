@@ -28,6 +28,8 @@ NOT_CONNECTED = (
     f"用户还没连接飞书，或授权已过期。回复用户这个链接：{_SETTINGS}，在能力中心 → 插件 → 飞书完成连接与授权后再继续。不要让用户在终端执行 lark-cli 命令。"
 )
 FAILED_NOTICE = f"如果提示缺少权限或 scope，请用户到{_SETTINGS}重新授权对应权限；不要让用户在终端执行 lark-cli 命令。"
+# The reason names Gateway paths, modes and users, so it goes to the log and the model gets this (09-29 review).
+UNAVAILABLE = "本部署的飞书命令暂时不可用，原因已记在网关日志里。请告诉用户稍后再试或联系管理员。"
 
 
 def lark_connected(user_id: str) -> bool:
@@ -59,8 +61,11 @@ async def lark_cli_tool(argv: list[str], runtime: Runtime) -> str:
         return await lark_runner.in_lark_thread(_run, user_id, command, time.monotonic() + task.remaining())
     except LarkRefused as exc:
         return _answer("rejected", str(exc))
+    except lark_runner.LarkBusy as exc:
+        return _answer("busy", f"{exc}。请告诉用户稍后再试。")
     except (lark_runner.LarkUnavailable, TimeoutError) as exc:
-        return _answer("unavailable", f"本部署的飞书命令暂时不可用：{exc}。请告诉用户稍后再试或联系管理员。")
+        logger.warning("lark_cli is unavailable for user %s: %s", user_id, exc)
+        return _answer("unavailable", UNAVAILABLE)
 
 
 def _run(user_id: str, command: Command, deadline: float) -> str:
