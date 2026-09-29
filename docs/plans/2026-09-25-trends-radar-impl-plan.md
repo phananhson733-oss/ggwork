@@ -403,7 +403,7 @@
 - **交付物**
   - 报告：两道闸门的判定与去向；选 H、D 还是 H+D；N 的取值；3 小时滞后值（按 `isPartial` 的位置回标）；trend-rules-v1 全文；选 D 或 H+D 时的「数据合同变更单」（块定义、`latest_block_end` 的算法、前端展示字段，D39）；占位阈值。
   - 脱敏后的真实响应夹具，换掉 TR-02 的构造夹具。
-- **验收**：本机跑完两天；报告经 G2 审过；用户确认颗粒度（U5）。
+- **验收**：本机跑完两天；报告经 G2 审过；用户确认颗粒度（U5）。**2026-09-29 G2 已定**：去向 `b_only`、颗粒度 `H`，trend-rules-v1 全文随 TR-17 取消不再写；U5 的 CSV 形状比对豁免到 S12b 之前（第 8.1 节）。
 
 ### TR-06 GSC 客户端（批次 1a，0.75 人日，依赖 TR-01）
 - **目标**：实现设计 5.1。签名、私钥归一化与 403 文案照抄 `RS:src/lib/gsc-api.ts:45-130` 与 `gsc-encoding.ts`；入库、窗口与合并逻辑不照抄。
@@ -590,6 +590,8 @@
 - **验收**：纯函数覆盖率 ≥90%。
 
 ### TR-17 Trends 判定规则（批次 2b-i，1.0 人日，依赖阶段 0 报告过 G2）
+
+> **2026-09-29 G2：取消**（去向 `b_only`，第 8.1 节）。下文保留作记录，不实现。
 - **目标**：按报告选定的颗粒度（下面以小时级为例）实现设计 4.9。
 - **文件**：`trends/rules.py`；`t/observe/test_trends_rules.py`（用真实夹具加构造序列）。
 - **测试**
@@ -694,7 +696,7 @@
   - 数据访问：`db.ts` 的 `makeScope` 加 `obsDb`（search_path 为 `pick_obs`）。观测专用错误类：`42P01` 显示「观测数据未就绪」，`42501` 显示「观测数据不可读」；`mirrorNoticeOf` 与 `MirrorNoticeKind` 同步扩展。
   - 请求：`request.ts` 的 TABS 加 `trends`、`search`；新 URL 参数 `obs` 钉住集合，照 `cleanVersion` 校验；`loadTab` 对这两个 tab 显式抛错，不能静默落进 default。`page.tsx` 加早分支进 `obs-route.tsx`（D9）。
   - 缓存：已发布集合的判定行与联动事实不可变，按集合 id 用 `remember()` 缓存；「当前集合」每次实时查；联动的可行动性每次请求用请求时刻重算（D13，`obs-link.ts` 与 Python 共用夹具）。
-  - trends 视图：按身份 × geo 展示状态、中间量、按判定行里的块定义画的服务端 SVG 曲线（D39，遇 null 断开）、`window_end`、carried_over 与 stale；「歧义，不判定（设计如此）」单独计数；未覆盖单元名单；发现队列；影子集合带「影子」标记；「Data source: Google Trends」。
+  - trends 视图：按身份 × geo 展示状态、中间量、按判定行里的块定义画的服务端 SVG 曲线（D39，遇 null 断开）、`window_end`、carried_over 与 stale；「歧义，不判定（设计如此）」单独计数；未覆盖单元名单；发现队列；影子集合带「影子」标记；「Data source: Google Trends」。**G2（2026-09-29）定为 `b_only`**：trends 视图只做「逐剧趋势未上线，发现队列已启用」的说明、发现队列与未覆盖清单，不画逐剧曲线（第 8.1 节）。
   - search 视图：三层覆盖常驻；按 market-map 分组，BGR 单列；描述性标签与正式标签分开，都带命中条件与原始计数；「暂定」「完整」标记；逐剧核对的计数（含复用）；质量注记；「未观测到」的措辞；可粘贴行（纯文本加选中复制）。
   - 详情页：两个通道并排；联动标签与可行动性；「全球同向」「时效不符」「不同市场信号」。横幅：`obs-banner-rules.ts` 是纯函数，用 `obs_status_cases.json` 与 Python 端对照。
   - 登记：`queries-surface` 的 `PAGE_ENTRY` 与 `INTERNAL` 加 `obsDb`；`pick-data-page.support` 的 `LOADERS` 登记新 loader；board_fixture 加 `pick_obs` 的视图与授权。
@@ -711,6 +713,7 @@
   - 种子：设计 4.8 那 8 个，查 WW、US、GB 的网页搜索，另加 4 组本地化种子；YouTube 属性到稳定期再加；种子清单先经用户审（U6）。
   - 抽取：去掉种子词、平台词、意图词后规范化，在同语种共享池里精确匹配；短名和泛词要带平台词或意图词作上下文；命中照样过歧义判定。
   - 分流：唯一匹配且剧名清楚的进 A 档 14 天；其余进发现队列；池外命中只在资料页显示，按（语种，规范化剧名）记键供入池关联（D37）。写入经 TR-20 的 `store`。
+  - **G2（2026-09-29）定为 `b_only`**：没有 A 档，池内唯一匹配进 `queue`，池外命中仍是 `display_only`；集合的规则引用、`a_tier_coverage` 与发布条件按第 8.1 节的交接项在 G4 之前定。
 - **测试**：`test_reelshort_stay_goes_through_ambiguity`；`test_youtube_hit_discovery_only`；`test_out_of_pool_never_agent`；`test_breakout_representation`（按阶段 0 的真实夹具解析）；`test_out_of_pool_key_recorded`。
 - **验收**：用阶段 0 的真实 relatedsearches 夹具跑出发现队列，唯一匹配的才进 A 档。闸门 B 不过时本任务取消（第 8 节）。
 
@@ -822,6 +825,33 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 
 - 选 D 或 H+D 时：TR-17 按报告的数据合同变更单实现，联动时效与前端曲线按 D39 的锚点，不改 TR-10、TR-24 的接口；选 H+D 时 TR-17 +0.5，A 档单元减半，TR-18 的分配随之调整。
 
+### 8.1 G2 决定（阶段 0 部分，2026-09-29 用户拍板）
+
+**结果**：去向「只过 B」（`b_only`），颗粒度 `H`，节奏 `user`。Railway 变量 `PICK_OBS_TRENDS_ROUTE=b_only`、`PICK_OBS_TRENDS_GRANULARITY=H` 显式写入，`PICK_OBS_TRENDS_PACE` 不设（即 `user`）；在下一次经守卫的 cron 切换（`packaging.md` 第 5 节第 4 步）之前改，金丝雀期间都不改。U5 的「用户确认颗粒度」由本次拍板完成；「浏览器导出 3 个词的 CSV 做形状比对」经用户批准豁免到 S12b 之前补，不挡 S7–S11。
+
+**性质**：阶段 0 报告里闸门 A 小时级不过、日级**未定**（已观测正对照 7 部，不到 8 部），闸门 B 过。日级维持「未定」，不改判、不下调 N；`b_only` 是用户批准的对未定分支的显式处置：现有样本撑不起逐剧路线，不再为闸门 A 补样本。它不是判定器自动得出的，以后引用时不要写成「A 不过」。
+
+**依据**（数字经 codex 对原始数据与代码复核）
+- 闸门 A：小时级正对照 1/8 可见、区域对照 0/9；日级正对照 2/7（N=12），未观测 8 部中 7 部 `no_data`、1 部限流，只补那 1 部最好 3/8。区域对照（四国近期新剧）两种颗粒度都 0 部可见；本次测过的大盘短语只有 US `short drama` 可用；剧名相关查询这次全是空列表。
+- 闸门 B：相关查询可用 7/7、6/7，种子拿到列表 2/2、1/2，explore 80 次全部 `USER_TYPE_SCRAPER`；这些相关查询按 `now 7-d` 取。判据之外的风险：种子列表里像剧名的很少（第一份 reelshort-US 23 条热门只有 1 条），发现段产出可能很薄。
+- 颗粒度取 H 不取 D：闸门 B 的证据在 H 上；`run.py` 的 `window_end`（整点减 3 小时）就是 H 的口径，D 要先出数据合同变更单、按颗粒度分 `window_end`、定义 TR-30 的日级新鲜率并再审；b_only 不做逐剧判定，D 的可见度优势用不上。
+- 节奏维持 `user`：第 1 天 `design` 在第 56 个请求首次 429，第 2 天 `user` 在第 17 个、又在第 28 个；放慢没有推迟 429，也没有证据表明加快更安全。按真实容量模型重放第 2 天的两次熔断，canary1 在 `user` 下覆盖 86.8%（`design` 97.8%），canary2、stable 都在 98% 以上；但两次熔断的一晚在金丝雀任一阶段都不达标，容量放得下不等于能通过。
+
+**任务与步骤的变化**（上表「只过 B」一行，加下列细化）
+- TR-17 取消；第 14.3 节里负责人是 TR-17 的处置（如「分层 A（窗口间隔）」）随之不再执行。TR-18 只做发现命中所需的歧义与别名，相关查询照常分类，不因这次为空就硬编码成 `unresolved`。TR-19、TR-20 照做。TR-31 加 GSC 阈值回标约 2 人日。
+- **TR-19、TR-20、TR-24 的交接项**（b_only 下合同尚未定义，G4 之前写进各自规格）：① 合同要求 Trends 集合带 `trend-rules-*` 规则引用（`contract_views.py`），TR-17 取消后发现集合挂什么规则版本；② `SetSummaryTrends.a_tier_coverage` 必填，没有 A 档时怎么表示，「A 档覆盖率低于 80% 不发布」换成什么发布条件；③ `DiscoveryRoute` 在 b_only 下没有 `a_tier`：池内唯一匹配进 `queue`，池外命中仍是 `display_only`，两者不合并；④ shadow/live 标识照旧；⑤ TR-24 的 trends 视图写「逐剧趋势未上线，发现队列已启用」，只列发现队列与未覆盖清单，search 视图不变。
+- S7：前提不变。它只验证采集机制（出口、限速、预算、租约）；金丝雀没有种子负载，不能替代发现段验收。代码里 ROUTE 对金丝雀只决定混不混 relatedsearches，`both` 与 `b_only` 行为相同，所以金丝雀的请求形态与 S6 核对过的一致。市场对照词表按 `H` 冻结：小样本验证要另经用户批准，没批准就按现有 `canary_controls.json` 冻结并记下版本（第 14.3 节两路的 B）。
+- S10 的 TR-17 换成 TR-19；S12b 按上表改门槛，TR-36、G5 保留，U5 的 CSV 比对在它之前补；S13 只开放上表允许的字段，G6 与 M1 回滚下限保留（第 10 节各行已注明）。
+
+**后续（不在本次 G2 解决）**
+- 金丝雀若限流：TR-30 写的「修复后半速重跑 3 天」没有比 `user` 更慢的预设，到时另开任务；失败就停在该关口，改过参数的运行不接着累计原周期（第 9 节）。
+- 容量模型的 `LIMIT_AT=56` 只建一次熔断，第 2 天实况是第 17、28 个；TR-30 首晚校准回答耗时时一并改。
+- 发现段产出：G4 只审 TR-19 的真实夹具与接线；影子第一周统计同语种池内唯一匹配的发现命中，放在 S12b/G5 之前，产出门槛到时另请用户定。
+- 金丝雀以逐剧单元为主，b_only 稳定期主要是种子与大盘。若金丝雀因量被限，转后备之前先考虑把金丝雀改成 b_only 的实际形状（另开任务，重新数验收）。
+- G2 的 GSC 实测一项等 U1/U2 之后单独交审；RealShort 零改动方案已于 2026-09-25 随 TR-08 审过。
+
+决定稿（证据表、容量重放、选项对比、codex 审查处置）在 `~/.gstack/projects/ggwork-deerflow/artifacts/trends-stage0/trends-g2-decision-2026-09-29.md`，与阶段 0 报告同目录，不进仓库。
+
 ---
 
 ## 9. 金丝雀：推荐走 0007 路线
@@ -875,17 +905,17 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 | S2 | 在生产库执行 `bootstrap-observer.sql`，用 `\password pick_observer` 设口令，然后用 `pg_roles` 核对 | 是 | 用户（postgres 身份） |
 | S3 | 部署带 0007 的 gateway，对应 7.5 第 2 步。从 S0 之后的 `ggwork/main` 干净检出，守卫通过（生产上一次记录的提交是 HEAD 的祖先；gateway 第一次经守卫部署时带 `--first-record`）后执行 `railway up --detach`；部署前在该提交上跑完整套件，不带 `-k` | 是 | 代理，经用户批准 |
 | S4 | 核对：日志里没有 `ggwork-pick` 的 `service start() failed`，扩展的启动日志正常；在 gateway 容器里（`railway ssh`，`cd /app/backend`）能导入本阶段已交付的 `ggwork_pick.observe.selfcheck` 与 `ggwork_pick.observe.grants`（`python -c "import ggwork_pick.observe.selfcheck, ggwork_pick.observe.grants"`）。`observe.read` 属于批次 3 的 TR-26，它的导入检查移到 S11，不为过这一步补空壳模块；迁移头 0007；`has_table_privilege('pick_observer',…)`、`has_schema_privilege('pick_board_reader','pick_obs','USAGE')`；anon 与 authenticated 没有 USAGE；在 gateway 里经 `railway ssh` 跑 `observe.admin regrant --check`，有缺项就跑 `regrant`，再 `--check` 到「授权齐全」（`observer-role.md`「S4」）；以 observer 连接在只读事务里读当前镜像版本的 `rs_ids` 后回滚（权限实读）；以登录用户访问 `/api/pick/sync` 返回 200，并打开资料页与一次不带趋势条件的选剧对话（宿主 `/health/ready` 通过不证明扩展加载成功）；只读统计共享批次里 v1 `gsc` 信号的条数（设计 1.2） | 是（只读核对，加一次补授权） | 代理 |
-| S5 | 新建 Railway 服务 `pick-obs-trends`：同一仓库、同一项目与环境，不开推送自动部署。**服务设置先写自检配置** `/deploy/pick-obs/trends/selfcheck/railway.toml`：第一次部署就是 S6 的自检，S6 核对通过后才切到 `/deploy/pick-obs/trends/railway.toml`（`packaging.md` 第 3.2 节、第 5 节第 4 步）。Railway 已不读配置路径（2026-09-28 S5 实测，Config as Code 弃用），两份文件由 `scripts/pick-railway-settings.py apply` 写进服务设置、`check` 核对（`packaging.md` 第 3.3 节）。变量名（不写值；全表、谁填与来历见 `packaging.md` 第 5 节）：`PICK_DATABASE_URL`（observer 的 Supavisor session DSN，URL 不带 ssl 参数）、`PGSSLMODE`、`PICK_OBS_STATE_KEY`、`PICK_OBS_EXPECTED_COLLECTOR`、`PICK_OBS_EXPECTED_ROLE`、`PICK_DB_SIZE_CAP_BYTES`、`PICK_OBS_TRENDS_MODE=canary1`；`PICK_OBS_TRENDS_ROUTE` 与 `PICK_OBS_TRENDS_GRANULARITY`（取值由 G2 定，显式写入，不能靠默认值落回 `both`、`H`）；`PICK_OBS_TRENDS_PACE`（默认 `user`，即阶段 0 第二天用的桶 4、每分钟补 2；由 G3 的节奏修复加入，名字与可选值以实现为准）；`PICK_OBS_PUBLISH`（不设）；`PICK_OBS_EGRESS_ECHO_URL`（U13 批准前不设；旧稿写的 `PICK_OBS_EGRESS_URL` 是错名，代码不读，只在 stderr 点名提示，不会开出口测量）。ROUTE、GRANULARITY、PACE 在金丝雀期间都不改。确认 healthcheck 关闭、重启策略 NEVER。守卫通过后（首次带 `--first-record`）从干净检出执行 `railway up --detach --service pick-obs-trends`；后续顺序见 S6 | 是 | 服务由代理经批准创建，机密变量由用户填 |
+| S5 | 新建 Railway 服务 `pick-obs-trends`：同一仓库、同一项目与环境，不开推送自动部署。**服务设置先写自检配置** `/deploy/pick-obs/trends/selfcheck/railway.toml`：第一次部署就是 S6 的自检，S6 核对通过后才切到 `/deploy/pick-obs/trends/railway.toml`（`packaging.md` 第 3.2 节、第 5 节第 4 步）。Railway 已不读配置路径（2026-09-28 S5 实测，Config as Code 弃用），两份文件由 `scripts/pick-railway-settings.py apply` 写进服务设置、`check` 核对（`packaging.md` 第 3.3 节）。变量名（不写值；全表、谁填与来历见 `packaging.md` 第 5 节）：`PICK_DATABASE_URL`（observer 的 Supavisor session DSN，URL 不带 ssl 参数）、`PGSSLMODE`、`PICK_OBS_STATE_KEY`、`PICK_OBS_EXPECTED_COLLECTOR`、`PICK_OBS_EXPECTED_ROLE`、`PICK_DB_SIZE_CAP_BYTES`、`PICK_OBS_TRENDS_MODE=canary1`；`PICK_OBS_TRENDS_ROUTE` 与 `PICK_OBS_TRENDS_GRANULARITY`（取值由 G2 定，显式写入，不能靠默认值落回 `both`、`H`；2026-09-29 G2 定为 `b_only`、`H`，S5 时写入的是暂定值 `both`、`H`，切 cron 之前把 ROUTE 改成 `b_only`，第 8.1 节）；`PICK_OBS_TRENDS_PACE`（默认 `user`，即阶段 0 第二天用的桶 4、每分钟补 2；由 G3 的节奏修复加入，名字与可选值以实现为准）；`PICK_OBS_PUBLISH`（不设）；`PICK_OBS_EGRESS_ECHO_URL`（U13 批准前不设；旧稿写的 `PICK_OBS_EGRESS_URL` 是错名，代码不读，只在 stderr 点名提示，不会开出口测量）。ROUTE、GRANULARITY、PACE 在金丝雀期间都不改。确认 healthcheck 关闭、重启策略 NEVER。守卫通过后（首次带 `--first-record`）从干净检出执行 `railway up --detach --service pick-obs-trends`；后续顺序见 S6 | 是 | 服务由代理经批准创建，机密变量由用户填 |
 | S6 | **自检，再切回 cron**（与 S5 连着做；步骤、核对项与失败处理以 `packaging.md` 第 5 节第 4 步与第 6 节为准，这里只列顺序）：① 守卫只在开头跑一次（S5）；② 以自检配置 `/deploy/pick-obs/trends/selfcheck/railway.toml` 部署，它立即以 `--selfcheck-only` 自检一次，自检以 0 退出才接着跑 S6a 的 `preflight`，然后退出，这次部署的退出码是最后跑的那一步的（`packaging.md` 第 3.2 节）；③ 读这次部署的日志，核对 `selfcheck ok` 一行里的包摘要（等于在所部署提交的干净检出里算出的 `package_digest`）、角色 `pick_observer`、迁移头（等于守卫刚打印的生产迁移头）与 collector，再按 S6a 核对紧随其后的 `{"preflight": …}` 一行，任一不通过就停；④ 从同一检出、同一提交把服务设置 `apply` 回 `/deploy/pick-obs/trends/railway.toml`，再 `railway up` 一次，用 `check --deployment` 核对这次部署的 cron 计划、重启 NEVER、没有健康检查，并确认没开推送自动部署；⑤ 最后才把守卫这一轮的记录行追加进 progress.md，经用户同意推到 `ggwork/main`。期间 `ggwork/main` 前进或间隔过久，按 `packaging.md` 的规则在第二次部署前原样重跑守卫；被拒就在最新 main 的干净检出里从头重走（提交变了，包摘要要重核）。只在 `packaging.md` 第 7 节写的部署时段内做：时段跟着 G3 金丝雀修复定下的起跑时刻与 cron 触发范围走（`test_railway_config.py` 的 `DEPLOY_WINDOW` 把它与 cron 计划钉在一起），本节不另写时刻。自检只证明配置、角色、迁移链与包，不证明当晚的任务负载合格（S6a） | 是 | 代理 |
 | S6a | **不发 HTTP 的金丝雀预检**（G3 接缝 1）：`python -m ggwork_pick.observe.trends preflight` 不另开命令：它是 S6 自检配置启动命令的第二步，同一镜像、同一服务变量，自检通过才跑，只读、不取租约（`packaging.md` 第 3.2 节与第 6 节第 3 步；字段与判据见 `trends-session.md`「金丝雀的负载闸门」）。它读当前共享批次，列出各组对照的匹配数与缺失项、近期剧目数、展开与截断后的计划请求数，不发 HTTP。未达最低负载或缺必要对照时退出 2，不进 S7，服务留在自检配置上；金丝雀期间某一晚出现同样情况，该日记为无效验收日，不计入三天、七天，原因在日志与 `status` 里看得见 | 是（只读） | 代理 |
 | S7 | 金丝雀开始，对应 7.5 第 3 步（开关关着）。前提：S6a 通过；所部署的提交含第 14.3 节的金丝雀修复（有效负载准入、生产节奏与排期、首次验证码即终止）；市场对照词表已冻结并记下版本（第 14.3 节两路的 B：小样本验证要访问 Google，另经用户批准；没批准就按现有 `canary_controls.json` 冻结，没有合格基线的 geo 按 `control_unavailable` 处理，不出依赖它的业务结论） | 是（访问 Google） | 已批准；代理监控，TR-30 |
 | S8 | 旧页快照导入：在本机用 observer 的 DSN（600 权限文件）执行 `observe.admin import-legacy`；U14 批准时同时 `import-editorial` | 是 | 代理，经批准 |
 | S9 | 新建 `pick-obs-gsc` 服务：配置 `/deploy/pick-obs/gsc/railway.toml`，变量 `PICK_DATABASE_URL`、`PGSSLMODE`、`PICK_GSC_SA_EMAIL`、`PICK_GSC_SA_PRIVATE_KEY`、`PICK_GSC_SITE_URL`、`PICK_OBS_EXPECTED_COLLECTOR`、`PICK_OBS_EXPECTED_ROLE`、`PICK_DB_SIZE_CAP_BYTES`。TR-21 到 TR-23b 完成后以影子模式运行；没有快照时它不发布（TR-23b） | 是 | 同 S5 |
-| S10 | 金丝雀通过，而且 TR-17、TR-18、TR-20 已部署到 trends 服务之后，改成 stable 模式，开始影子运行 2 周 | 是 | 代理，经批准 |
+| S10 | 金丝雀通过，而且 TR-17、TR-18、TR-20 已部署到 trends 服务之后，改成 stable 模式，开始影子运行 2 周（G2 定为 `b_only` 后：TR-17 取消，改为 TR-18 的缩减部分、TR-19、TR-20 已部署，第 8.1 节） | 是 | 代理，经批准 |
 | S11 | 发前端 TR-24、TR-25（资料页能看到 shadow 集合与 shadow 联动）；再部署带 TR-26 至 TR-28 的 gateway，`PICK_OBS_AGENT` 不设（工具 schema 与改动前相同）；gateway 上线后在容器里核对能导入 `ggwork_pick.observe.read`（TR-26 交付，自 S4 移来），并按 S4 的其余各项复核；然后跑 TR-36 | 是 | 代理，经批准 |
 | S12a | gsc 服务设 `PICK_OBS_PUBLISH=1`。门槛：GSC 影子抽检通过、TR-36 通过、G5 | 是 | 用户拍板，代理执行 |
-| S12b | trends 服务设 `PICK_OBS_PUBLISH=1`，对应 7.5 第 4 步。门槛按第 8 节的去向：阶段 0 至少过一道闸门、金丝雀阶段 2 达标、影子抽检通过、TR-36 通过、G5 | 是 | 用户拍板，代理执行 |
-| S13 | gateway 设 `PICK_OBS_AGENT=1`（Railway 改变量即重启，工具 schema 随之打开），对应 7.5 第 5 步。先提醒大家刷新页面（照 P4-1 的做法）。需过 G6。从这一步产生新卡起，gateway 的最低可回滚版本升为 M1，按回滚规则的四格验证核对 | 是 | 用户拍板 |
+| S12b | trends 服务设 `PICK_OBS_PUBLISH=1`，对应 7.5 第 4 步。门槛按第 8 节的去向：阶段 0 至少过一道闸门、金丝雀阶段 2 达标、影子抽检通过、TR-36 通过、G5。G2 定为 `b_only`（第 8.1 节）：影子抽检是发现段的影子抽检，U5 的 CSV 形状比对在这一步之前补，TR-36、G5 保留 | 是 | 用户拍板，代理执行 |
+| S13 | gateway 设 `PICK_OBS_AGENT=1`（Railway 改变量即重启，工具 schema 随之打开），对应 7.5 第 5 步。先提醒大家刷新页面（照 P4-1 的做法）。需过 G6。从这一步产生新卡起，gateway 的最低可回滚版本升为 M1，按回滚规则的四格验证核对。G2 定为 `b_only`：`trend_state`、`trend_include_first`、`trend_include_presumed` 不开放，`link_state` 只剩 `site_only`（第 8 节） | 是 | 用户拍板 |
 
 **回滚规则**（设计 3.8）
 - **每次发布与回滚都做两类检查，缺一不可**（`rollback-matrix.md`「来源检查与合同能力检查」）：
@@ -924,7 +954,7 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 | U2 | 以 Owner 身份在 Search Console 的 `sc-domain:dramashortstv.com` 添加这个服务账号，权限选 Restricted（加不了就说明当前账号不是 Owner，请实际 Owner 操作） | 紧接 U1 |
 | U3 | 在生产库以 postgres 身份执行 `bootstrap-observer.sql` 并设口令（S2）；把 observer 的 DSN 存进 600 权限文件（守卫与本机导入都用），同时填到 Railway | S2 |
 | U4 | 在 Railway 上填机密变量（S5、S9）；告知 Railway 套餐（决定日志留存期与静态出口是否可用） | S5 |
-| U5 | 阶段 0：在自己的浏览器里导出 3 个词的 Trends 走势 CSV；审阅阶段 0 报告，选定 H、D 或 H+D | 第 4–6 天 |
+| U5 | 阶段 0：在自己的浏览器里导出 3 个词的 Trends 走势 CSV；审阅阶段 0 报告，选定 H、D 或 H+D。**2026-09-29**：颗粒度已选 `H`；CSV 形状比对经批准豁免到 S12b 之前（第 8.1 节） | 第 4–6 天；CSV 在 S12b 之前 |
 | U6 | 审发现段种子清单（闸门 B 通过后） | 批次 2b |
 | U7 | 给导出脚本提供 RealShort 生产库的只读 `DATABASE_URL`（或新建只读角色）；审并合并 RealShort 的 PR（只含脚本与测试）；知悉 `verify-legacy-live` 会对自家生产站做约 300 次、每秒约 1 次的只读请求；确认 #68 的防火墙规则不会误伤本机 | 批次 1 |
 | U8 | 批准在生产上只读比较两个共享批次的身份变动率（设计 7.2） | 批次 2b |
@@ -999,7 +1029,7 @@ TR-05 报告经 G2 定去向；下表是预先定好的分支，G2 只选一行�
 | 节点 | 时点 | 审什么 |
 |---|---|---|
 | G1 | 本计划定稿、批次 0 开工前 | 计划与设计的对照、四个前提、D1–D43、第 14 节处置、TR-33 合同 |
-| G2 | 批次 1 合并后，TR-17 编码前，RealShort PR 合并前 | 阶段 0 报告、trend-rules 全文与去向；GSC 实测结论；RealShort 零改动方案的等价性 |
+| G2 | 批次 1 合并后，TR-17 编码前，RealShort PR 合并前 | 阶段 0 报告、trend-rules 全文与去向；GSC 实测结论；RealShort 零改动方案的等价性。**阶段 0 部分结论（2026-09-29，`feat/trends-radar` 的 `fbda69f`）**：codex 只读审一轮「改后可交」（P1 一条：日级闸门 A 不能改判为不过；P2 六条），改稿后用户拍板 `b_only`、`H`、`user`，U5 的 CSV 豁免到 S12b 之前，见第 8.1 节。RealShort 部分已于 2026-09-25 随 TR-08 审过；GSC 实测部分等 U1/U2 之后另审 |
 | G3 | 0007 上生产前（S0 之前） | 迁移、授权、视图、预置行、回滚矩阵、租约与唯一写入口、金丝雀执行器、守卫。**本轮结论（2026-09-25，`feat/trends-radar` 的 `c095fe4`）**：分层审有条件放行基础设施（迁移、授权、租约、唯一写入口没有上线阻塞，4 项 P2、2 项 P3），但不批准按当前限速与排期开跑 S7；接缝审暂不通过（4 项 P1：金丝雀有效负载准入、阶段 0 节奏没进生产且排期漏算半速、首次验证码没有跨日终止、S4 导入 S11 才交付的模块；另有 2 项 P2）。逐条处置与门槛见第 14.3 节 |
 | G4 | 批次 2b 完成、影子运行开始前 | 采集状态机、切片、准入与逐剧核对、冻结输入、清理、联动配对、反例表 |
 | G5 | 打开 `PICK_OBS_PUBLISH` 前（S12a、S12b 各一次） | 金丝雀报告、影子抽检、TR-36、连接账实测 |
