@@ -8,8 +8,8 @@ import { Eyebrow } from "@/components/brand/eyebrow";
 // (inputBox.suggestions), so this header carries none of its own.
 export function PickWelcome() {
   return (
-    // Anchored above the welcome composer and grows upward, so no bottom
-    // padding: the composer header already leaves the 28px gap.
+    // Sits directly above the welcome composer, so no bottom padding: the
+    // chat page's welcome slot already leaves the 28px gap.
     <div className="mx-auto max-w-xl space-y-3 px-4 text-center">
       <Eyebrow>个人选剧工作台</Eyebrow>
       <h1 className="text-[30px] leading-tight font-bold tracking-[-0.02em]">

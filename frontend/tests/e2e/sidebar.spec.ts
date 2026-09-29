@@ -95,11 +95,16 @@ test.describe("Sidebar navigation", () => {
       expect(box).not.toBeNull();
       expect(box!.x).toBeGreaterThanOrEqual(-1);
       expect(box!.x + box!.width).toBeLessThanOrEqual(viewportWidth + 1);
+      // The welcome block sits above the composer; on short screens it must
+      // not be pushed past the top edge.
+      expect(box!.y).toBeGreaterThanOrEqual(0);
     };
 
     // The new-chat welcome renders either the workbench or the pick welcome;
     // both carry the page's only h1 followed by its description paragraph.
     const welcomeHeading = page.getByRole("heading", { level: 1 });
+    // The whole block, including the eyebrow above the heading.
+    await expectInsideViewport(welcomeHeading.locator(".."));
     await expectInsideViewport(welcomeHeading);
     await expectInsideViewport(
       welcomeHeading.locator("xpath=following-sibling::p[1]"),
