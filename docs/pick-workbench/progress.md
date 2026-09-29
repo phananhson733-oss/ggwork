@@ -400,3 +400,59 @@
   - 重新生成的回合断流后重新加入时，旧答案会和正在生成的新答案同时显示，直到这一轮结束；
   - 同一线程页面里第二次断流不会再自动重新加入。
 - `pick-deploy-guard target=frontend commit=7c73ac9c0c7fe8c1613caff519512bd7e1b0019e at=2026-09-29T12:57:15Z`
+
+## 能力中心：目录裁剪、插件打通与连接检测（PR #20，2026-09-29，未部署）
+
+- 起因：用户提了三点。智能体还没实现，入口先屏蔽。IM 只留飞书；文档加飞书和 Google Docs，腾讯文档、Notion 先屏蔽。其余入口要真的能连上，GitHub 这类当时都没打通。用户截图里 GitHub 配置框的「服务地址」被浏览器自动填成了登录邮箱，「授权请求头」填成了登录密码。
+- 用户定的范围：
+  - 管理员接入的插件工具，所有登录用户都能在对话里用；
+  - 飞书做群通知和文档读取两项，lark-cli 个人授权以后单独做；
+  - Google Docs 先只读公开链接；
+  - 搜索打开，浏览器自动化屏蔽。
+- 改动：
+  - 侧边栏：`agents_api` 关闭时不再显示「智能体」入口（原来是灰色占位加提示）。
+  - 目录：钉钉、企业微信、腾讯文档、Notion、浏览器自动化、飞书 CLI 标成 `hidden`，不列出，也不能安装。新增三个内置客户端：
+    - 飞书群通知：自定义机器人的 webhook 令牌加签名密钥；
+    - 飞书文档：自建应用的 App ID/Secret，读 docx 和 wiki 链接，feishu.cn 与 larkoffice.com 都认；
+    - Google Docs：读公开链接，不用凭据。
+  - GitHub、Jira/Confluence 改走新的 remote 适配器，端点由 gateway 固定，表单只收凭据：
+    - GitHub 连官方只读端点 `api.githubcopilot.com/mcp/readonly`，填个人访问令牌；
+    - Atlassian 连 `mcp.atlassian.com/v1/mcp`，用账号邮箱加作用域 API 令牌做 Basic 认证。
+  - 搜索：运行配置打开 DuckDuckGo `web_search` 和 Jina `web_fetch`，目录里显示为已启用。Exa、Firecrawl 改成填 API Key 的内置客户端。
+  - 连接检测 `POST /api/capabilities/connections/check`，仅管理员可用：
+    - 保存后自动检测一次，已安装列表每行也能手动检测；
+    - 结果只回状态码和异常类型，不回 URL、请求头或异常原文；
+    - Atlassian 凭据无效时仍会列出 Teamwork Graph 的公共工具，所以检测要求至少有一个 Jira 或 Confluence 工具，否则判为认证失败；
+    - 检测通过、而 Agent 缓存里记着这个服务没有工具时，会重置缓存。
+  - 凭据输入框关掉浏览器自动填充：`autocomplete` 设为 off 或 new-password，并给每个框唯一的 name。
+  - 选剧对话（`PickModelGate` / `PickToolGate`）：
+    - MCP 插件工具和两个搜索工具对模型可见；
+    - 插件每轮另有 8 次上限，不占选剧工具的 8 次；
+    - 本轮读过外部内容后，没有 `readOnlyHint` 的插件操作直接拒绝，比如飞书群通知、没有标注的 Jira 操作。模型要先把内容给用户看，用户下一条消息同意后才能调；
+    - RBAC 两个角色改为 `allow: '*'`，再显式 deny 宿主内置工具。
+- 本机端到端（QA gateway，pick 配置，Ollama qwen3:8b，SQLite）：
+  - 本机 bearer 鉴权的 FastMCP 替身：正确令牌检测通过；错误令牌判 `auth_failed`（HTTP 401）。
+  - GitHub 用假令牌打真实端点，判 HTTP 401，界面显示「认证失败」和重新配置的提示。
+  - 钉钉安装返回 404。
+  - 对话里模型依次调了替身 MCP 工具、`web_search`、`google-docs_read_document`（读一篇公开文档），答案正确。
+  - 浏览器：侧边栏没有「智能体」；GitHub 弹窗只有连接名称和个人访问令牌两项。
+- 测试，均在变基到 2adcb3fa 之后跑：
+  - 扩展全套：SQLite 2,901 通过、819 跳过；全 scram 的 PG 17 3,699 通过、21 跳过。两遍都含 `test_managed_copy`；
+  - 后端全套 18,533 通过，3 条失败：
+    - `test_agent_guidance_check`：`backend/app/gateway/AGENTS.md` 超了硬上限，已把新增段落缩成一句指向 [capability-center.md](../capability-center.md)，重跑 13 通过；
+    - `test_local_sandbox_provider_mounts.py::TestReadOnlyPath::test_bash_write_to_projected_copy_does_not_mutate_source`：main 上原本就失败，见 PR #13 一节；
+    - `test_aio_sandbox_local_backend.py::test_aio_1_11_image_starts_with_fowner_capability`：本机没有 AIO 1.11.0 镜像，起容器失败。本 PR 没碰沙箱代码；
+  - 前端：check 通过，单测 2,797 通过、45 跳过；能力中心、业务插件、集成、图标、MCP 设置、侧边栏 6 个 e2e 文件 38/38；
+  - ruff 通过；agent guidance 检查 0 错误；
+  - 独立审查：CRITICAL、HIGH 为 0。MEDIUM 两条：插件放给所有登录用户，是用户的决定；飞书群通知可能被外部内容诱导发送，已用上面的读后拦截处理。
+- 部署后由用户做：
+  - gateway 和前端都要部署，时间与另一会话协调。前端部署目前暂停。
+  - 在能力中心填真实凭据，每填一项看一次检测结果：
+    - GitHub：细粒度只读令牌；
+    - Jira：组织管理员先在 Rovo 设置里开启 API 令牌认证，再填账号邮箱和作用域令牌；
+    - 飞书文档：自建应用开通 `docx:document:readonly`、`wiki:wiki:readonly` 并发布版本，再把应用加为文档协作者或知识库成员；
+    - 飞书群通知：群里添加自定义机器人并开启签名校验；
+    - Exa、Firecrawl：填 API Key。
+- 后续：
+  - lark-cli 个人授权；
+  - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定。
