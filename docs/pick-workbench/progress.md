@@ -538,3 +538,47 @@
     - 「剧场规则」模板问 DramaBox：`pick_search_knowledge` 返回规则文档整篇（第 1 行起、134 行、2,786 字，没有 `truncated`、`omitted`，整条结果 3,347 字），回答列出 YouTube、报备、标签（未知）与核对日期。
     - 核对时新建了两个会话（KalosTV 那一问与 DramaBox 规则），留在用户的会话列表里。
 - `pick-deploy-guard target=gateway commit=3040bd877a5cb34f9105756680e3ab0b8e0d3e02 prod_head=0007 chain_head=0007 at=2026-09-30T11:58:46Z`
+
+## 飞书个人授权（lark-cli）第一期：只读文档与消息（2026-09-29，未合并、未部署）
+
+- 起因：PR #20 把飞书 CLI 标成 `hidden`，个人授权单独做。设计见 [lark-personal-auth.md](lark-personal-auth.md)，定的是方案 A：gateway 内一个专用的只读 `lark_cli` 工具，第一期开放文档类与消息。
+- 分支 `feat/lark-personal-auth` 20:24 从 ggwork/main 6919eb5 切出，22:05 变基到 #20 合并后的 fbda69f，变基没有冲突。推送前又变基到 b5c9dd9，main 上只多了 #20 gateway 上线的记录。和 #20 的整合（插件放行规则、目录 `hidden`）放在变基之后补。写中间件的会话 22:06 留下两个未提交文件后就不在了，所以先把整个分支打包，再动历史。包里有一个 WIP 提交，还有变基前的原提交。包存在 `~/.gstack/projects/ggwork-deerflow/artifacts/lark-personal-auth-2026-09-29.bundle`。
+- 改动：
+  - 镜像：`Dockerfile.pick-gateway` 内置 lark-cli v1.0.96，版本和两种架构的 sha256 写死；新增无特权用户 `larkrun`。设置了 `DEER_FLOW_LARK_CLI_RUN_AS` 时，入口会去掉 `DEER_FLOW_HOME` 的其他用户权限（755→750）。
+  - 上游 `lark_cli.py` 加固定版本模式：不调 npm，不查 latest，技能用二进制内置的，子进程用精简环境。另加 `peek_lark_app_config`，只读不写。
+  - `lark_cli` 工具：argv 白名单，只放行 `Risk: read`，以 `larkrun` 身份运行，凭据只给副本。
+  - 选剧对话：
+    - 只有已在能力中心连接飞书的用户能看到 `lark_cli`，每轮单独 8 次；
+    - 调用过它就算本轮读过外部内容，按 #20 的读后拦截处理。lark-cli 自带的帮助、schema 和技能文本不算；
+    - 运行配置注册了 `lark_cli`，工具组 `lark`。
+  - 能力中心：飞书 / Lark 取消 `hidden`，文案改成第一期的只读范围。生产前端的目录从 gateway 读，所以这一项跟着 gateway 部署生效。
+- 独立审查：CRITICAL 0。
+  - HIGH 1，已修：值前加空白、`-q` 错位，这两种写法能让 lark-cli 读本地文件。审查用本机 lark-cli 1.0.93 复现过。现在值去掉首尾空白后再检查，jq 表达式只有写成 `--jq=` 一个参数时才豁免。
+  - MEDIUM 3，都已修：
+    - 连接检查原来在每次模型调用时都写一遍凭据目录，现在不写了；
+    - 飞书命令改在工具自己的 4 个线程上排队，不再占网关共用的默认线程池；还没开始就被取消的调用不会再执行；
+    - 先限时拿用户自己的凭据锁，再拿全局槽。某个用户正在授权时，只有他自己的命令在等，到本轮截止就放弃；其他人不受影响。上游 `lark_credential_lock` 因此加了可选的 `deadline`，不传时行为不变。
+  - LOW 7，都已修：
+    - 目录文案原来承诺了日历，改成第一期的只读范围；
+    - `skills read` 这类指南命令原来会误触发读后拦截，现在不算外部内容；
+    - 运行锁文件打不开时，原来抛原始异常，现在返回「不可用」；
+    - 「不可用」时的说明里带着网关路径、权限和用户名。现在只给模型一句通用说明，原因写进网关日志；排队超时、该用户正在授权这两种情况仍把原话告诉模型；
+    - 输出原来整段读进内存再截断。现在每个流最多读入约 160 KB，其余读出后丢弃，退出码照实；超时时杀掉整个进程组；
+    - 执行层透传的代理变量补上了小写形式；
+    - 名字以 `pick_` 开头的 MCP 工具原来计入选剧额度，还能绕过读后拦截（#20 起就这样）。现在只有配置里的选剧工具计入选剧额度。
+- 测试（最后一轮，含全部审查修复；三段按顺序跑，没有并发负载）：
+  - 扩展全套：SQLite 加全 scram 的 PG 17，3,923 通过、21 跳过，跳过的都是方言专属，含 `test_managed_copy`；
+    - 前一轮在并发负载下，mirror 有一条计时用例超了门槛：0.76 秒对 0.65 秒。本分支没碰 mirror，单独重跑 5 次都通过，这一轮也通过了；
+  - 新增的并发用例（限时凭据锁、授权中不拖累他人、专用线程排队与取消）在负载下连跑 10 次，都通过。进程组用例还做了反证：只杀子进程时孙进程会活下来；
+  - 入口、JSON 净化、create_user：SQLite 和 PG 共 108 通过；
+  - 后端全套：18,504 通过、80 跳过，1 条失败：`test_local_sandbox_provider_mounts.py::TestReadOnlyPath::test_bash_write_to_projected_copy_does_not_mutate_source`，ggwork/main 上原本就失败（见 PR #13 一节），本 PR 没碰沙箱；
+  - blocking-io 149 通过；ruff、`uv lock --check`、agent guidance 通过；
+  - 前端：
+    - format、lint、typecheck、build 通过；
+    - 单测 2,797 通过、45 跳过；
+    - e2e 默认套件 282 通过，auth 套件 6 通过。修复后重跑了能力中心、集成、插件图标三个文件，23/23；最后两轮都没改前端。
+- 部署时要注意：
+  - 合并不会触发任何 Vercel 构建：接着本仓库的 Vercel 项目 `ggwork` 已在 09-30 删除（见上面 #20 一节）。生产站 ggwork-deerflow.vercel.app 只经守卫发布。这次前端只改了静态演示用的目录快照和测试，生产前端的目录从 gateway 读，所以不用发布前端。
+  - gateway 要经守卫部署才生效，时间由用户定。生产 gateway 已是 3040bd87（09-30 11:58Z 经守卫上线，含 #16、#24），这次部署只多出本 PR 的改动。镜像构建时会从 GitHub 下载 lark-cli 发布包并校验 sha256，下载失败则构建失败，线上不受影响。
+  - 部署后先在能力中心看飞书 / Lark 是否显示「已安装版本：v1.0.96」。然后用自己的账号走一遍：连接、授权，再在对话里读一篇自己的文档。PersonalAgent 应用注册可能要租户管理员放行。
+- 后续：写操作放第二期。

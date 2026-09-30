@@ -20,7 +20,7 @@ from app.gateway.routers import mcp
 from deerflow.capabilities.catalog import load_catalog
 from deerflow.config.extensions_config import ExtensionsConfig
 
-HIDDEN = {"lark", "dingtalk", "wecom", "tencent-docs", "notion", "browser"}
+HIDDEN = {"dingtalk", "wecom", "tencent-docs", "notion", "browser"}
 GOOD_TOKEN = "good-token-123456"
 
 
@@ -89,7 +89,7 @@ def test_hidden_entries_leave_discovery_and_cannot_be_installed(connect_client):
     client, path = connect_client
     listed = {item["id"] for item in client.get("/api/capabilities/catalog").json()}
     assert not listed & HIDDEN
-    assert {"feishu-bot", "feishu-docs", "google-docs", "github", "atlassian", "web-search"} <= listed
+    assert {"lark", "feishu-bot", "feishu-docs", "google-docs", "github", "atlassian", "web-search"} <= listed
     assert {item.id for item in load_catalog(include_hidden=True)} >= HIDDEN
     before = path.read_bytes()
     response = client.post("/api/capabilities/installations", json={"plugin_id": "dingtalk", "name": "d", "configuration": {"access_token": "robot-token", "sign_secret": "SEC-secret"}})

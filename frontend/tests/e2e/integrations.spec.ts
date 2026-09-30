@@ -2,10 +2,6 @@ import { expect, test } from "@playwright/test";
 
 import { mockLangGraphAPI } from "./utils/mock-api";
 
-// Lark is withdrawn from plugin discovery until personal authorization ships;
-// the settings flow still exists, so these tests reveal its catalog entry.
-const REVEAL_LARK = { revealedPlugins: ["lark"] };
-
 function configuredLarkStatus() {
   return {
     installed: true,
@@ -43,7 +39,7 @@ test.describe("Integrations settings", () => {
   test("opens the Lark plugin from a capability deep link", async ({
     page,
   }) => {
-    mockLangGraphAPI(page, REVEAL_LARK);
+    mockLangGraphAPI(page);
 
     await page.goto("/workspace/capabilities?tab=plugins&plugin=lark");
 
@@ -70,7 +66,7 @@ test.describe("Integrations settings", () => {
         },
       });
     });
-    mockLangGraphAPI(page, REVEAL_LARK);
+    mockLangGraphAPI(page);
 
     const configuredStatus = configuredLarkStatus();
     await page.route("**/api/integrations/lark/status", async (route) => {
@@ -148,7 +144,7 @@ test.describe("Integrations settings", () => {
   test("closes the plugin dialog before opening general settings", async ({
     page,
   }) => {
-    mockLangGraphAPI(page, REVEAL_LARK);
+    mockLangGraphAPI(page);
 
     // Deep link opens the shared dialog on Integrations.
     await page.goto("/workspace/capabilities?tab=plugins&plugin=lark");
@@ -184,7 +180,7 @@ test.describe("Integrations settings", () => {
   test("can install the Lark integration skill pack from the capability center", async ({
     page,
   }) => {
-    mockLangGraphAPI(page, REVEAL_LARK);
+    mockLangGraphAPI(page);
     let authStartRequest: unknown;
     const authCompleteRequests: unknown[] = [];
     let authCompleteCount = 0;
@@ -304,7 +300,7 @@ test.describe("Integrations settings", () => {
   test("can switch the Lark app by entering new credentials", async ({
     page,
   }) => {
-    mockLangGraphAPI(page, REVEAL_LARK);
+    mockLangGraphAPI(page);
 
     // A configured + CLI-available account is the precondition for surfacing
     // the "Change Lark app" control.
@@ -417,7 +413,7 @@ test.describe("Integrations settings", () => {
   test("keeps selected permissions when re-registering the Lark app", async ({
     page,
   }) => {
-    mockLangGraphAPI(page, REVEAL_LARK);
+    mockLangGraphAPI(page);
     const configuredStatus = configuredLarkStatus();
     await page.route("**/api/integrations/lark/status", async (route) => {
       await route.fulfill({

@@ -81,6 +81,7 @@ test("brand icons load locally for both recommendations and configured MCP serve
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/workspace/capabilities");
   for (const name of [
+    "lark",
     "feishu-bot",
     "feishu-docs",
     "google-docs",
@@ -105,7 +106,7 @@ test("brand icons load locally for both recommendations and configured MCP serve
   // A generic database capability does not assert a specific vendor brand.
   await expect(page.locator('img[data-plugin-icon="postgres"]')).toHaveCount(0);
   // Withdrawn manifests keep their assets but never reach the page.
-  for (const name of ["lark", "dingtalk", "wecom", "tencent-docs", "notion"])
+  for (const name of ["dingtalk", "wecom", "tencent-docs", "notion"])
     await expect(page.locator(`img[data-plugin-icon="${name}"]`)).toHaveCount(
       0,
     );

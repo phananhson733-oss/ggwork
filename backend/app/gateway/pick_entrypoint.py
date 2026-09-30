@@ -9,6 +9,7 @@ timeouts are ``$PICK_LLM_*`` placeholders in the template too, so Railway variab
 import json
 import math
 import os
+import stat
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -22,6 +23,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_HOME = "/data"
 RUNTIME_CONFIG = "pick-runtime.yaml"
 EXTENSIONS_CONFIG = "extensions_config.json"
+# Set by the image when lark-cli runs as its own user (docs/pick-workbench/lark-personal-auth.md); the home is then
+# closed to other users. ggwork_pick.lark_runner.RUN_AS_ENV names the same variable.
+LARK_CLI_RUN_AS_ENV = "DEER_FLOW_LARK_CLI_RUN_AS"
 BACKENDS = ("sqlite", "postgres")
 # One URL feeds asyncpg (through SQLAlchemy) and libpq (psycopg); each rejects the other's SSL query
 # parameter, so TLS comes from PGSSLMODE, which both read.
@@ -153,6 +157,9 @@ def main() -> None:
         if Path(paths[name]).resolve() != owned:
             _exit(f"{name} must be unset or {owned}; the entrypoint generates that file.")
     prepare_config(home, PROJECT_ROOT / "config.pick.example.yaml", backend)
+    if os.environ.get(LARK_CLI_RUN_AS_ENV):
+        # lark-cli runs as its own unprivileged user and needs nothing here (ggwork_pick.lark_runner checks this).
+        home.chmod(stat.S_IMODE(home.stat().st_mode) & ~0o007)
     os.environ.update(paths)
     os.environ.update(model_settings)
     # The gateway behind the JSON body sanitizer: NUL and lone surrogates in a message would pass the routes and

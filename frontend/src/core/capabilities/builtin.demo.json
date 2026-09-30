@@ -4,8 +4,8 @@
     "category": "office",
     "name": { "en-US": "Lark / Feishu", "zh-CN": "飞书 / Lark" },
     "description": {
-      "en-US": "Connect documents, messages, calendars, and tables.",
-      "zh-CN": "连接文档、消息、日历与多维表格。"
+      "en-US": "Read your own documents, wikis, sheets, bases, and messages with your Feishu authorization.",
+      "zh-CN": "用自己的飞书授权只读查询文档、知识库、表格、多维表格与消息。"
     },
     "setup": {
       "en-US": "Install the managed integration and connect your account.",
@@ -24,8 +24,7 @@
       "type": "object",
       "properties": {},
       "additionalProperties": false
-    },
-    "hidden": true
+    }
   },
   {
     "schema_version": 1,

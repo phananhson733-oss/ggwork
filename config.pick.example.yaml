@@ -49,9 +49,13 @@ tools:
   # Keyless public web tools, shown as enabled in the capability center; PickToolGate budgets them as plugins.
   - {name: web_search, group: web, use: 'deerflow.community.ddg_search.tools:web_search_tool', max_results: 5}
   - {name: web_fetch, group: web, use: 'deerflow.community.jina_ai.tools:web_fetch_tool', timeout: 10}
+  # Read-only Feishu commands under each user's own authorization (docs/pick-workbench/lark-personal-auth.md).
+  # PickModelGate offers it only to a user who connected Feishu in the capability center; PickToolGate budgets it apart.
+  - {name: lark_cli, group: lark, use: 'ggwork_pick.lark_tool:lark_cli_tool'}
 tool_groups:
   - {name: pick}
   - {name: web}
+  - {name: lark}
 plugins:
   - name: ggwork-pick
     use: 'ggwork_pick:install'
@@ -90,7 +94,7 @@ authorization:
       roles:
         admin:
           # MCP tool names come from the servers an admin enables in the capability center, so they cannot be
-          # listed here; the pick middleware admits pick tools, web_search/web_fetch and enabled MCP tools only.
+          # listed here; the pick middleware admits pick tools, web_search/web_fetch, lark_cli and enabled MCP tools only.
           tools:
             allow: '*'
             deny: [present_files, review_skill_package, list_uploaded_files, task, task_status, batch_task, batch_status, cancel_batch, list_background_tasks, cancel_background_task, invoke_acp_agent]
@@ -100,7 +104,7 @@ authorization:
           skills: {allow: [pick-drama]}
         user:
           # MCP tool names come from the servers an admin enables in the capability center, so they cannot be
-          # listed here; the pick middleware admits pick tools, web_search/web_fetch and enabled MCP tools only.
+          # listed here; the pick middleware admits pick tools, web_search/web_fetch, lark_cli and enabled MCP tools only.
           tools:
             allow: '*'
             deny: [present_files, review_skill_package, list_uploaded_files, task, task_status, batch_task, batch_status, cancel_batch, list_background_tasks, cancel_background_task, invoke_acp_agent]

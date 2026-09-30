@@ -1,9 +1,31 @@
 # Personal pick runtime: only the Python host and its locked Azure Responses dependencies,
 # plus the locked postgres extra (asyncpg, psycopg, psycopg-pool, langgraph-checkpoint-postgres)
 # that PICK_DB_BACKEND=postgres needs.
-# Business tools cannot execute shell, MCP, Docker or Feishu commands.
+# Business tools cannot execute shell, MCP or Docker commands. Feishu commands run only through the
+# read-only lark_cli tool, as the unprivileged larkrun user (docs/pick-workbench/lark-personal-auth.md).
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.1
+# One lark-cli release, checked against the digests pinned here; nothing is downloaded at runtime.
+# Bump the version and both digests together (from the release's checksums.txt).
+ARG LARK_CLI_VERSION=v1.0.96
+ARG LARK_CLI_SHA256_AMD64=5d1fa96832307b13298fdb11c477ab3f31c3e98026fec585b4b2eb7f63960c36
+ARG LARK_CLI_SHA256_ARM64=a83124bad70ddb5a42c8d10a80e8d52f49913b1cb397c7a0a835bd0ddb65f3e2
 FROM ${UV_IMAGE} AS uv-source
+FROM python:3.12-slim-bookworm AS lark-cli
+ARG LARK_CLI_VERSION
+ARG LARK_CLI_SHA256_AMD64
+ARG LARK_CLI_SHA256_ARM64
+# The stage's own architecture, so the classic builder (which leaves TARGETARCH unset) picks the right asset too.
+RUN set -eu; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in amd64) digest="$LARK_CLI_SHA256_AMD64" ;; arm64) digest="$LARK_CLI_SHA256_ARM64" ;; *) echo "no pinned lark-cli for $arch" >&2; exit 1 ;; esac; \
+    asset="lark-cli-${LARK_CLI_VERSION#v}-linux-${arch}.tar.gz"; \
+    python -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' \
+      "https://github.com/larksuite/cli/releases/download/${LARK_CLI_VERSION}/${asset}" /tmp/lark-cli.tar.gz; \
+    echo "${digest}  /tmp/lark-cli.tar.gz" | sha256sum -c -; \
+    mkdir /tmp/lark-cli; \
+    tar -xzf /tmp/lark-cli.tar.gz -C /tmp/lark-cli lark-cli; \
+    install -m 0755 /tmp/lark-cli/lark-cli /usr/local/bin/lark-cli; \
+    LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 /usr/local/bin/lark-cli --version | grep -qF "${LARK_CLI_VERSION#v}"
 FROM python:3.12-slim-bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
 COPY --from=uv-source /uv /uvx /usr/local/bin/
@@ -11,8 +33,12 @@ WORKDIR /app
 COPY backend ./backend
 RUN cd backend && uv sync --locked --no-dev --extra postgres
 FROM python:3.12-slim-bookworm
+ARG LARK_CLI_VERSION
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONIOENCODING=utf-8
 COPY --from=uv-source /uv /uvx /usr/local/bin/
+COPY --from=lark-cli /usr/local/bin/lark-cli /usr/local/bin/lark-cli
+RUN useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin larkrun
+ENV DEER_FLOW_LARK_CLI_PINNED_VERSION=${LARK_CLI_VERSION} DEER_FLOW_LARK_CLI_RUN_AS=larkrun
 WORKDIR /app
 COPY --from=builder /app/backend ./backend
 COPY config.pick.example.yaml ./config.pick.example.yaml
