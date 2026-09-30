@@ -209,6 +209,15 @@
   - 两轮的自检行相同：`selfcheck ok: collector=obs-collector-v1 head=0007 role=pick_observer package=sha256:811dafd9f45a20f49a5e9c7007b954e673abca5eddaaf8c83dbe01c7ab7b3e94`，摘要等于检出里源码与托管副本算出的值，`at` 在镜像的 site-packages 下，没有「这个服务不读」的警告。预检也相同：target_date 2026-09-30、`canary1`、`user` 节奏，`reasons` 与 `refused_by` 为空，计划请求 204（下限 176）、92 个单元，正对照匹配 9（下限 8，09-28 是 10），共享剧库批次 12,508 部、近期 227 部，无熔断估算覆盖率 1。`missing_first`（只记 identity）5 个：
     - `realshort-pick` `ZmxhcmVmbG93LTY2NzkxNQ` en；`cmVlbHNob3J0LTZhOGQyZDc5ODdjOTM0M2M3YTA1YTc5OA` es；`cmVlbHNob3J0LTZhOGU3YzIyN2NmOTI1YzI0YTA1NDIzMw` pl；`cmVlbHNob3J0LTZhNzk0YjFkNGYwM2ZmNGM1YzA2OTk0OQ` es；`cmVlbHNob3J0LTZhNmRhMmMwYmQ1ZDhlYmYxNzBmMTU4OQ` zh-hant
   - 下一步：在 UTC 02:00–17:00 内从最新 main 的干净检出重走一遍，守卫仍带首次记录参数；两次部署之间约 20 分钟，这段时间里别的会话推 main（哪怕只改本文件）都会让第二次部署前的守卫被拒，要先和在推 main 的会话约好这段时间不推。切到 cron 并核对之后才追加守卫记录行；这两轮守卫打印的记录行都不追加。
+- **切 cron 完成（S5/S6 收尾，2026-09-30 11:21–11:41 UTC）**：前一天两轮没切成（上一条）。这次从 `ggwork/main` 9667ea36 的干净检出重走 packaging.md 第 5 节第 4 步，守卫带首次记录参数通过（生产迁移头 0007，链头 0007）。开工前请两个可能推 main 的会话暂停到 12:20 UTC，两个都回复照办。变量沿用前一天：`PICK_OBS_TRENDS_MODE=canary1`、`PICK_OBS_TRENDS_ROUTE=b_only`、`PICK_OBS_TRENDS_GRANULARITY=H`、`PICK_OBS_TRENDS_PACE` 不设（即 `user`）；市场对照词表 sha256 `c2689da2cf597699ca828596b3f238ae5a0ab5789b4a3ada9d64561539f96f64` 不变。
+  - 自检配置部署 `ec8366f5-36bc-444a-ae24-4a959f60977f`：`check --deployment` 一致；`selfcheck ok: collector=obs-collector-v1 head=0007 role=pick_observer package=sha256:e2c4a3e3e92f181f9e0f9085302c3fc5def761ba8743f90c436b651c1cec619a`，摘要等于检出里源码与托管副本算出的值，`at` 在镜像的 site-packages 下，没有「这个服务不读」的警告。预检：target_date 2026-10-01、`canary1`、`user` 节奏，`reasons` 与 `refused_by` 为空，计划请求 204（下限 176）、92 个单元，正对照匹配 9（下限 8），共享剧库批次 12,519 部、近期 191 部，无熔断估算覆盖率 1。`missing_first`（只记 identity）5 个：
+    - `realshort-pick` `ZmxhcmVmbG93LTY2NzkxNQ` en；`cmVlbHNob3J0LTZhOGU3YzIyN2NmOTI1YzI0YTA1NDIzMw` pl；`cmVlbHNob3J0LTZhOGU3YzIyN2NmOTI1YzI0YTA1NDIzNQ` ro；`cmVlbHNob3J0LTZhNzk0YjFkNGYwM2ZmNGM1YzA2OTk0OQ` es；`cmVlbHNob3J0LTZhNmRhMmMwYmQ1ZDhlYmYxNzBmMTU4OQ` zh-hant
+  - 切 cron 的前两次 `railway up`（`ea950856-80a9-4fcc-9260-c2e8903de5af`、`1dfc5db3-f0f4-42b3-89a0-0f21388c8068`）都在 Railway 生成代码快照时失败（部署元数据 `configErrors`：「Failed to create code snapshot … try again」），没有构建、没有运行，CLI 报 `operation timed out`；Railway 状态页当时全部正常。每次失败后都把服务设置 `apply` 回自检配置。第三次重试成功，所以是 Railway 的瞬时故障，与 cron 配置无关。
+  - 其间试过用 API `deploymentRedeploy`（`usePreviousImageTag`）重部署 ec8366f5（新部署 `8b309b63-d98b-4d20-aa79-7d67e24ae5a7`），想不重新上传就换上 cron 配置。结果不行：重部署沿用原部署的清单（自检启动命令、没有 cron 计划），只是把自检与预检又跑了一遍（两行都过）。**重部署拿不到新的服务设置**，切换配置只能靠新的 `railway up`。
+  - cron 配置部署 `4d1d6e5b-c62a-4859-96f4-a8b4e30818b1`（同一检出、同一提交；上传前守卫 11:39:46Z 重跑通过）：`check --deployment` 一致，cron 计划 `*/30 17-23,0-1 * * *`、重启 `NEVER`、没有健康检查、Dockerfile 是 gateway 那一份；部署后没有立即运行（没有日志）；镜像 config 摘要与 ec8366f5 相同（`sha256:1b0572f90b71…`），今晚跑的就是上面核对过包摘要的镜像。服务的 source 为空、没有 repoTriggers，没开推送自动部署。
+  - 金丝雀的用途按 [简化版范围](../plans/2026-09-30-trends-radar-simplified-scope.md) 第 10 节缩成只验证出口：累计 3 个有效夜晚（通过负载闸门并实际发出请求），没有验证码或同意页，没有因限流被停用；出现验证码或同意页就停 cron。
+  - canary1 首晚：2026-09-30 21:00 UTC 起跑（target_date 2026-10-01），S7 开始。17:00 那次触发的日志应是「还没到 canary1 的起跑时刻」；21:00 起的 `selfcheck ok` 一行的 `package=` 应与上面相同。首晚之后在 gateway 容器里看 `python -m ggwork_pick.observe.trends status`。
+- `pick-deploy-guard target=cron:trends commit=9667ea36e18c9397604a0acb2a2c94ef4fe0d658 prod_head=0007 chain_head=0007 at=2026-09-30T11:39:46Z`
 
 
 ## 选剧资料审查修复与数据恢复（2026-09-28）
@@ -497,10 +506,34 @@
 - 后续：
   - lark-cli 个人授权；
   - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定；
-  - PR #16 合并后再经守卫部署一次 gateway；它若改了前端，前端也要经守卫发布；
+  - PR #16 合并后再经守卫部署一次 gateway：2026-09-30 随 PR #24 一起上线（见文末「答案核对与知识检索修复」），两个 PR 都没改前端；
   - Vercel 项目 `ggwork`：2026-09-30 按用户要求先断开 Git 集成，再用 `vercel project rm` 删除，ggwork-nine.vercel.app 现在返回 404。本团队里已经没有项目接着这个仓库，推 main 不会再触发任何 Vercel 构建。
 - `pick-deploy-guard target=gateway commit=fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5 prod_head=0007 chain_head=0007 at=2026-09-29T15:20:55Z`
 - `pick-deploy-guard target=frontend commit=7d33058427c457446a8a676e317da391aa824144 at=2026-09-29T16:09:56Z`
+
+## 答案核对与知识检索修复（PR #16、#24，2026-09-30 上线）
+
+- PR #16（9667ea36）与 PR #24（3040bd87）一起上线。
+  - PR #16：答案核对跨句借主语、账号查询误报；知识检索多文档互相挤掉。
+  - PR #24：#16「已知局限」里的 MEDIUM。答案核对认全逗号分隔的片名列表、排除说法与更多"没发过"说法，构造的长回答也按线性时间核对；知识检索每条按自己的元数据计费，带 `truncated` 与 `omitted`，并修掉 casefold 后切片的偏移。
+  - 两个 PR 都只改 `ggwork_pick` 与托管副本，没有新迁移，迁移头仍是 0007；依赖、`uv.lock`、Dockerfile 不变。前端没改，不用发布；cron 不用重部署。
+- gateway 经守卫后，从 `git archive` 导出的目录 `railway up`，部署 `fd2cf0eb-2530-4319-90e1-629cafe3dc10`，SUCCESS。导出目录是 3040bd87 的 3,845 个跟踪文件。
+  - 第一次上传（11:56Z）连接被对端重置，只留下一个没有构建、没有运行的 FAILED 部署 `bb0efe00-c93c-4cf6-b59f-56e2e6949df6`，生产不受影响。重跑守卫后第二次上传成功，下面的记录行是这次的。
+- 部署前在守卫检出（3040bd87，检出自己的 venv）里做四格的 gateway 一列：
+  - 扩展全套 3,758 通过、21 跳过，含 `test_managed_copy`。测试库是一次性的全 scram PG 17 加 SQLite，跳过的都是方言专属，没有 `PICK_TEST_PG_URL is not set`；
+  - gateway 四格的 4 个文件 35 条通过，两种库都有，0 跳过。
+- 部署后核对：
+  - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`。没有 Traceback，没有 `service start() failed`，也没有 `Running upgrade`。唯一的 WARNING 仍是 GitHub webhook 路由未挂载。
+  - 容器内（`railway ssh`）：
+    - `observe.selfcheck`、`observe.grants` 能导入；
+    - site-packages 里的 `answer_check`、`knowledge_excerpts` 是新代码；
+    - `regrant --check` 授权齐全：schema 7、表 31、列 4、序列 12，已发布镜像版本 5 个（pickm_v000001、v000010、v000012、v000013、v000015），与上次相同。
+  - 守卫读到的生产迁移头是 0007。
+  - **待用户以登录用户核对**：
+    - `/api/pick/sync` 返回 200，资料页能打开，一次选剧对话正常；
+    - 四格手工格：有旧卡的会话能展开；「我的选剧」里改动前保存的条目能展开；
+    - 问一句带排除的"没发过"，看提示是否只针对其余的剧；用「剧场规则」模板问一个剧场，看规则文档是否整篇返回、没有多余的 omitted。
+- `pick-deploy-guard target=gateway commit=3040bd877a5cb34f9105756680e3ab0b8e0d3e02 prod_head=0007 chain_head=0007 at=2026-09-30T11:58:46Z`
 
 ## 飞书个人授权（lark-cli）第一期：只读文档与消息（2026-09-29，未合并、未部署）
 
@@ -542,7 +575,6 @@
     - e2e 默认套件 282 通过，auth 套件 6 通过。修复后重跑了能力中心、集成、插件图标三个文件，23/23；最后两轮都没改前端。
 - 部署时要注意：
   - 合并不会触发任何 Vercel 构建：接着本仓库的 Vercel 项目 `ggwork` 已在 09-30 删除（见上面 #20 一节）。生产站 ggwork-deerflow.vercel.app 只经守卫发布。这次前端只改了静态演示用的目录快照和测试，生产前端的目录从 gateway 读，所以不用发布前端。
-  - 切 cron 要求两次部署之间 main 不前进（见上面「切 cron 未完成」），合并本 PR 要避开那段时间。
-  - gateway 要经守卫部署才生效，时间由用户定。生产 gateway 已是 fbda69f（09-29 15:20Z 经守卫上线，含 #14、#20），这次部署只多出本 PR 的改动。和 #16 谁先部署由用户定。镜像构建时会从 GitHub 下载 lark-cli 发布包并校验 sha256，下载失败则构建失败，线上不受影响。
+  - gateway 要经守卫部署才生效，时间由用户定。生产 gateway 已是 3040bd87（09-30 11:58Z 经守卫上线，含 #16、#24），这次部署只多出本 PR 的改动。镜像构建时会从 GitHub 下载 lark-cli 发布包并校验 sha256，下载失败则构建失败，线上不受影响。
   - 部署后先在能力中心看飞书 / Lark 是否显示「已安装版本：v1.0.96」。然后用自己的账号走一遍：连接、授权，再在对话里读一篇自己的文档。PersonalAgent 应用注册可能要租户管理员放行。
 - 后续：写操作放第二期。

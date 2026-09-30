@@ -367,6 +367,397 @@ def test_a_title_this_run_returned_is_recognized_without_its_brackets():
     ]
 
 
+def test_a_list_of_titles_before_a_summing_up_claim_is_judged_whole():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Big Boss", matched=True, posts=2), _item("Lost Heir", matched=True), _item("Other", matched=True)])
+    known = {"Big Boss", "Lost Heir", "Other"}
+    posted = ["发布记录显示《Big Boss》发过，不能说没发过。"]
+    # Titles listed with a comma, a semicolon or a line break, as with 、, are what "都没发过" after the last one sums up.
+    for text in (
+        "《Big Boss》、《Lost Heir》都没发过。",
+        "《Big Boss》，《Lost Heir》都没发过。",
+        "《Big Boss》,《Lost Heir》都没发过。",
+        "《Big Boss》；《Lost Heir》都没发过。",
+        "《Big Boss》\n《Lost Heir》都没发过。",
+        "1. 《Big Boss》\n2. 《Lost Heir》都没发过",
+        "《Lost Heir》，《Big Boss》和《Other》都没发过。",
+        "Big Boss，Lost Heir 都没发过。",
+        "《Big Boss》，《Lost Heir》，和《Other》都没发过。",
+        "《Big Boss》，以及《Lost Heir》都没发过。",
+    ):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
+    # A clause saying something of its own, a sentence end or a blank line ends the list.
+    for text in (
+        "《Big Boss》发过，《Lost Heir》都没发过。",
+        "《Big Boss》在 B 账号发过，《Lost Heir》和《Other》都没发过。",
+        "《Big Boss》。《Lost Heir》都没发过。",
+        "《Big Boss》\n\n《Lost Heir》都没发过。",
+        "推荐《Big Boss》，《Lost Heir》都没发过。",
+    ):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == [], text
+
+
+def test_every_way_of_leaving_titles_out_sums_up_the_rest():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Big Boss", matched=True, posts=2), _item("Lost Heir", matched=True)])
+    known = {"Big Boss", "Lost Heir"}
+    for text in (
+        "除《Big Boss》外都没发过。",
+        "除《Big Boss》以外，都没发过。",
+        "都没发过（《Big Boss》除外）。",
+        "Big Boss 以外都没发过。",
+        "除 Big Boss 外都没发过。",
+        "Big Boss 除外，都没发过。",
+        "除了《Big Boss》，都没发过。",
+        "《Big Boss》以外，团队都没发过。",
+    ):
+        for checked in (False, True):
+            assert check_answer(text, known_titles=known, posted_checked=checked, posted_seen=seen) == [], (text, checked)
+    # The rest still stands on the records returned for it.
+    three = with_posted(seen, [_item("No Match", matched=False)])
+    for text in ("除了《Big Boss》，都没发过。", "都没发过（《Big Boss》除外）。", "Big Boss 以外都没发过。"):
+        notes = check_answer(text, known_titles=known | {"No Match"}, posted_checked=True, posted_seen=three)
+        assert notes == ["《No Match》的发布记录没有对上，只能说“发布记录里没有”，不能说没发过。"], text
+
+
+def test_leaving_titles_out_still_judges_the_titles_named_before_and_beside():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Big Boss", matched=True, posts=2), _item("Lost Heir", matched=True), _item("Alpha", matched=True, posts=1)])
+    known = {"Big Boss", "Lost Heir", "Alpha"}
+    posted = ["发布记录显示《Big Boss》发过，不能说没发过。"]
+    # Only the titles left out are left out: titles named earlier, or claimed beside them, are still judged.
+    for text in (
+        "推荐《Big Boss》。除了《Alpha》，都没发过。",
+        "推荐《Big Boss》。除了《Alpha》都没发过。",
+        "推荐《Big Boss》。除了《Alpha》，其余都没发过。",
+        "推荐《Big Boss》。除《Alpha》外，其他都没发过。",
+        "《Big Boss》《Lost Heir》都没发过（《Alpha》除外）。",
+        "《Lost Heir》和《Big Boss》都没发过，《Alpha》除外。",
+    ):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
+    # Left out after the claim, or with 不包括, as well as before it.
+    for text in ("都没发过，《Big Boss》和《Alpha》除外。", "不包括《Big Boss》和《Alpha》，都没发过。", "除了《Big Boss》和《Alpha》都没发过。"):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == [], text
+
+
+def test_the_rest_once_every_record_is_named_stands_on_nothing():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Lost Heir", matched=True)])
+    # The second "其余" comes after the only record is named: nothing returned backs it.
+    notes = check_answer("其余都没发过。《Lost Heir》。其余都没发过。", known_titles={"Lost Heir"}, posted_checked=False, posted_seen=seen)
+    assert notes == ["本轮查询没有按发布记录过滤，不能据此断言没发过。"]
+    assert check_answer("其余都没发过。", known_titles={"Lost Heir"}, posted_checked=False, posted_seen=seen) == []
+
+
+def test_not_counting_something_that_is_no_title_leaves_no_title_out():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Big Boss", matched=True, posts=2), _item("Lost Heir", matched=True)])
+    known = {"Big Boss", "Lost Heir"}
+    posted = ["发布记录显示《Big Boss》发过，不能说没发过。"]
+    for text in (
+        "推荐《Big Boss》《Lost Heir》。这两部（不含已保存的）都没发过。",
+        "推荐《Big Boss》。不算热度，都没发过。",
+        "推荐《Big Boss》。不含已保存的，这些都没发过。",
+        "推荐《Big Boss》。不包括已保存的剧，都没发过。",
+    ):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
+    # "除了这部" still leaves out the titles named: the rest is every other card.
+    assert check_answer("推荐《Big Boss》。除了这部，其他都没发过。", known_titles=known, posted_checked=True, posted_seen=seen) == []
+
+
+def test_a_list_before_a_clause_with_its_own_subject_is_not_summed_up():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Big Boss", matched=True, posts=2), _item("Lost Heir", matched=True), _item("Alpha", matched=True)])
+    known = {"Big Boss", "Lost Heir", "Alpha"}
+    # Starting otherwise than with its titles, or naming again titles listed before it, a clause picks from the list.
+    for text in (
+        "1. 《Big Boss》\n2. 《Lost Heir》\n3. 《Alpha》\n其中《Alpha》都没发过。",
+        "《Big Boss》，《Lost Heir》，但《Alpha》都没发过。",
+        "《Big Boss》\n只有《Alpha》都没发过。",
+        "- 《Big Boss》\n- 《Lost Heir》\n- 《Alpha》\n《Alpha》和《Lost Heir》都没发过。",
+    ):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == [], text
+
+
+def test_titles_listed_right_before_those_left_out_are_left_out_too():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Big Boss", matched=True, posts=2), _item("Beta", matched=True, posts=1), _item("Lost Heir", matched=True)])
+    known = {"Big Boss", "Beta", "Lost Heir"}
+    for text in ("《Big Boss》，《Beta》除外，都没发过。", "《Big Boss》，《Beta》以外都没发过。", "《Big Boss》，《Beta》以外，都没发过。"):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == [], text
+
+
+def test_where_or_by_whom_must_end_before_the_verb():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Big Boss", matched=True, posts=2, accounts=["B"])])
+    known = {"Big Boss"}
+    # Another verb, or a noun after 发布, is what the negation is about: no claim.
+    for text in (
+        "本轮没有在查询里加发布过滤，所以不能说没发过。",
+        "《Big Boss》暂无发布状态。",
+        "《Big Boss》没有在卡片上显示发布日期。",
+        "《Big Boss》没在平台发货。",
+        "《Big Boss》没有被授权发行。",
+        "暂无发布信息。",
+        "尚无发布计划。",
+        "没有发布数据。",
+        "《Big Boss》暂无发布详情。",
+        "《Big Boss》暂无发布结果，请稍后重试。",
+        "《Big Boss》没有在 B 账号发表过评论。",
+        # A window of time is not "never".
+        "《Big Boss》没有在近30天内发布过。",
+        # Another verb starting with 发, or a record, news or version of posting.
+        "《Big Boss》没有在海外发酵。",
+        "《Big Boss》没有在国内发力。",
+        "《Big Boss》没有在国内发售。",
+        "《Big Boss》没有在B站发布的记录。",
+        "《Big Boss》尚无在海外发布的消息。",
+        "《Big Boss》没有公开发布的渠道。",
+        "《Big Boss》没有正式发布的通知。",
+        "《Big Boss》没有被官方发布的消息。",
+        "《Big Boss》没有发布过的记录。",
+        "《Big Boss》没有在这个端发布新版本。",
+    ):
+        for checked in (False, True):
+            assert check_answer(text, known_titles=known, posted_checked=checked, posted_seen=seen) == [], (text, checked)
+    # 被 needs no one after it.
+    for text in ("这部剧没有被发到 B 账号。", "《Big Boss》没被发布过。"):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == ["发布记录显示《Big Boss》发过，不能说没发过。"], text
+
+
+def test_leaving_an_account_out_is_not_leaving_titles_out():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    # posted_account=A returned Big Boss; account B posted it, and account A posted Other Show.
+    seen = with_posted({}, [_item("Big Boss", matched=True, posts=2, accounts=["B"]), _item("Lost Heir", matched=True)], account="A")
+    seen = with_posted(seen, [_item("Other Show", matched=True, posts=1, accounts=["A"])])
+    known = {"Big Boss", "Lost Heir", "Other Show"}
+    posted = ["发布记录显示《Big Boss》发过，不能说没发过。"]
+    for text in ("《Big Boss》除了 A 账号都没发过。", "《Big Boss》除了 A 账号以外都没发过。", "除了 A 账号，《Big Boss》都没发过。"):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
+    # "A 账号发过的《Other Show》" is the title left out: the rest is every other card.
+    for text in ("除了 A 账号发过的《Other Show》其余都没发过。", "除了 A 账号发过的《Other Show》，其余都没发过。"):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
+
+
+def test_more_ways_of_saying_not_posted_are_claims():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    # posted_account=A returned Big Boss; account B posted it.
+    seen = with_posted({}, [_item("Big Boss", matched=True, posts=2, accounts=["B"])], account="A")
+    known = {"Big Boss"}
+    posted = ["发布记录显示《Big Boss》发过，不能说没发过。"]
+    for text in (
+        "《Big Boss》没在 B 账号发过。",
+        "《Big Boss》没有在 YouTube 上发布过。",
+        "《Big Boss》没有被团队发布过。",
+        "《Big Boss》未被任何账号发过。",
+        "《Big Boss》不曾发布过。",
+        "《Big Boss》尚无发布。",
+        "《Big Boss》暂无发布。",
+        "《Big Boss》没有在团队发布过。",
+        "《Big Boss》从未在团队发布过。",
+        "《Big Boss》并未在公司发布过。",
+        "《Big Boss》没在美区发过。",
+        "《Big Boss》没在中文站发过。",
+        "《Big Boss》没在官网发过。",
+        "《Big Boss》没在这个剧场发过。",
+        "《Big Boss》没有在任何渠道发布过。",
+        "《Big Boss》没有在其他地方发布过。",
+        "《Big Boss》没有在海外发布过。",
+        "《Big Boss》没有在移动端发布过。",
+        "《Big Boss》没有被我们发布过。",
+        "《Big Boss》没有被他们发过。",
+        "《Big Boss》没被运营发布过。",
+        "《Big Boss》没有被官方发布过。",
+        "《Big Boss》没有被团队正式发布过。",
+        "《Big Boss》没有正式发布过。",
+        "《Big Boss》没在抖音发过。",
+        "《Big Boss》没有在油管发布过。",
+        "《Big Boss》没在美国发过。",
+        "《Big Boss》没在欧美发过。",
+        "《Big Boss》没在主页发过。",
+        "《Big Boss》没在这儿发过。",
+        "《Big Boss》还没有发布的剧就是它。",
+    ):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == posted, text
+    for text in ("《Big Boss》没在 A 账号发过。", "《Big Boss》没有被这个账号发布过。"):
+        assert check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen) == [], text
+    # Where or by whom never reaches past a clause, a record or a found item.
+    for text in ("尚无发布记录。", "暂无发布记录，无法核对是否发过。", "没在清单里发现它。", "未在剧库中发现同名剧。", "没在清单里，发给你看看。"):
+        assert check_answer(text, known_titles=known, posted_checked=False, posted_seen=seen) == [], text
+    # Not posted again, or anew, says it was posted before.
+    for text in ("《Big Boss》之后没有再发过。", "《Big Boss》没有重新发布过。"):
+        assert check_answer(text, known_titles=known, posted_checked=False, posted_seen=seen) == [], text
+
+
+def _best_of_three(check) -> float:
+    import time
+
+    timings = []
+    for _ in range(3):
+        started = time.perf_counter()
+        check()
+        timings.append(time.perf_counter() - started)
+    return min(timings)
+
+
+def test_titles_sharing_their_first_words_are_found_in_linear_time():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    # As many titles as a run returns, all starting with one word: each position used to try every length.
+    titles = ["the " + " ".join(["word"] * length) for length in range(1, 161)]
+    seen = with_posted({}, [_item(title, matched=True) for title in titles])
+    assert _best_of_three(lambda: check_answer("the " * 25_000 + "没发过", known_titles=set(titles), posted_checked=False, posted_seen=seen)) < 0.5
+    # The longest title at a position still wins.
+    assert check_answer("the word word 没发过。", known_titles=set(titles), posted_checked=False, posted_seen=seen) == []
+    two = with_posted(seen, [_item("the word word", matched=True, posts=1)])
+    notes = check_answer("the word word 没发过。", known_titles=set(titles), posted_checked=False, posted_seen=two)
+    assert notes == ["发布记录显示《the word word》发过，不能说没发过。"]
+
+
+def test_many_accounts_or_unknown_titles_are_checked_in_linear_time():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    # Every returned title posted from its own accounts; the answer names each account in its own claim.
+    accounts = [f"acc{index}" for index in range(5_000)]
+    items = [_item(f"Drama {index}", matched=True, posts=1, accounts=accounts[index * 2 : index * 2 + 2]) for index in range(2_000)]
+    seen = with_posted({}, items, account="acc0")
+    text = "".join(f"在 {name} 账号都没发过，" for name in accounts)
+    known = {item["title"] for item in items}
+    assert _best_of_three(lambda: check_answer(text, known_titles=known, posted_checked=True, posted_seen=seen)) < 0.5
+    # Thousands of titles left out, or named, and every claim after them borrowing them, each about another account.
+    left_out = "除了" + "".join(f"《X{index}》" for index in range(3_000)) + "，都没发过" + "，没发过" * 20_000
+    assert _best_of_three(lambda: check_answer(left_out, known_titles=known, posted_checked=True, posted_seen=seen)) < 0.5
+    named = "".join(f"《{item['title']}》" for item in items) + "都没发过" + "".join(f"，在 {name} 账号没发过" for name in accounts[:3_000])
+    assert _best_of_three(lambda: check_answer(named, known_titles=known, posted_checked=True, posted_seen=seen)) < 0.5
+    unknown = "".join(f"《U{index}》" for index in range(50_000))
+    assert _best_of_three(lambda: check_answer(unknown, known_titles=set(), posted_checked=True)) < 0.5
+    assert check_answer("《U1》《U2》《U1》", known_titles=set(), posted_checked=True) == ["正文提到的《U1》、《U2》不在本轮查询结果中，请以候选卡为准。"]
+
+
+def _status(entry, mentioned):
+    """What a record says to a claim about these accounts: nothing against it when queries cleared them all."""
+    from ggwork_pick.answer_check import UNPOSTED, _cleared
+
+    return UNPOSTED if _cleared(entry, mentioned) else entry.status
+
+
+class _PlainJudge:
+    """What answer_check._Judge finds, the plain way: every claim reads every record it stands on."""
+
+    def __init__(self, seen, posted_checked, owns):
+        self.seen, self.posted_checked, self.owns = seen, posted_checked, owns
+        self.unmatched, self.posted, self.unfiltered = {}, {}, False
+        self.above = {}
+
+    def _order(self, index):
+        """The titles named up to the clause at index, each where it was first named."""
+        from ggwork_pick.answer_check import _norm
+
+        order = {}
+        for titles in self.owns[: index + 1]:
+            for title in titles:
+                order.setdefault(_norm(title), title)
+        return list(order.items())
+
+    def _judge(self, entries, unknown):
+        from ggwork_pick.answer_check import POSTED, UNKNOWN, UNMATCHED
+
+        for norm, title, status in entries:
+            if status == UNMATCHED:
+                self.unmatched.setdefault(norm, title)
+            elif status == POSTED:
+                self.posted.setdefault(norm, title)
+        self.unfiltered |= not self.posted_checked and (unknown or any(status == UNKNOWN for _, _, status in entries))
+
+    def _stand(self, entries, unknown):
+        if entries:
+            self._judge(entries, unknown)
+        else:
+            self.unfiltered |= not self.posted_checked
+
+    def _records(self, mentioned, skip=frozenset()):
+        return [(norm, entry.title, _status(entry, mentioned)) for norm, entry in self.seen.items() if norm not in skip]
+
+    def _named(self, titles, mentioned):
+        from ggwork_pick.answer_check import UNKNOWN, Seen, _norm
+
+        return [(_norm(title), title, _status(self.seen.get(_norm(title), Seen("", UNKNOWN)), mentioned)) for title in titles]
+
+    def claim(self, subject, mentioned, index):
+        from ggwork_pick.answer_check import ABOVE, EXCEPT, REST
+
+        order = self._order(index)
+        if subject.summary == REST and not subject.titles:
+            self._stand(self._records(mentioned, frozenset(norm for norm, _ in order)), subject.unknown)
+        elif subject.summary == EXCEPT:
+            self._stand(self._records(mentioned, subject.excepted), subject.unknown)
+        elif subject.summary == ABOVE and order:
+            begin = self.above.get((mentioned, subject.unknown), 0)
+            if begin < len(order):
+                self._stand(self._named([title for _, title in order[begin:]], mentioned), subject.unknown)
+                self.above[(mentioned, subject.unknown)] = len(order)
+            if len(order) < subject.least:
+                self._everything(subject, mentioned)
+        elif subject.titles:
+            self._judge(self._named(subject.titles, mentioned), subject.unknown)
+        else:
+            self._everything(subject, mentioned)
+
+    def _everything(self, subject, mentioned):
+        from ggwork_pick.answer_check import UNPOSTED
+
+        entries = self._records(mentioned)
+        if subject.summary is not None or self.posted_checked:
+            self._stand(entries, subject.unknown)
+        elif subject.unknown or not entries or any(status != UNPOSTED for _, _, status in entries):
+            self.unfiltered = True
+
+
+def test_the_judge_finds_what_reading_every_record_for_every_claim_finds():
+    import random
+
+    from ggwork_pick import answer_check
+    from ggwork_pick.answer_check import with_posted
+
+    rng = random.Random(20260930)
+    titles = ["Lost Heir", "Big Boss", "No Match", "Other Show", "The CEO", "The CEO Wife"]
+    pieces = [
+        *(f"《{title}》" for title in titles), "Lost Heir", "the ceo wife", "《Unknown One》", "Zeta Drama", "在 A 账号", "在 B 账号", "C 账号",
+        "团队", "其他账户", "这个账号", "A 以外的账号", "都", "以上", "以上3部", "以上全部", "其余", "除了", "以外", "除外", "除", "外",
+        "不包括", "没发过", "还没发过", "从未发布", "没在 B 账号发过", "发过", "和", "、", "，", "；", "。", "\n", "\n   ", "\n\n", "1. ",
+    ]  # fmt: skip
+    for _ in range(3_000):
+        seen = {}
+        for _ in range(rng.randint(0, 4)):
+            items = [
+                _item(title, matched=rng.random() > 0.2, posts=rng.choice([0, 0, 1, 2]), accounts=rng.sample(["A", "B", "C"], rng.randint(0, 2)))
+                for title in rng.sample(titles, rng.randint(1, 4))
+            ]
+            seen = with_posted(seen, items, account=rng.choice([None, "A", "B"]))
+        text, checked = "".join(rng.choice(pieces) for _ in range(rng.randint(1, 16))), rng.random() < 0.5
+        masked = answer_check._TITLE.sub(lambda match: "《" + answer_check._MASK * len(match.group(1)) + "》", text)
+        clauses = answer_check._clauses(text, masked, seen)
+        judge, plain = answer_check._Judge(seen, checked, clauses.owns), _PlainJudge(seen, checked, clauses.owns)
+        for start in answer_check._claim_starts(answer_check._NOT_POSTED, masked):
+            index = answer_check.bisect_right(clauses.starts, start) - 1
+            judge.claim(clauses.subjects[index], clauses.mentions[index], index)
+            plain.claim(clauses.subjects[index], clauses.mentions[index], index)
+        # In order: the notes list the titles as the claims came to them.
+        found = judge.findings
+        ours = (list(found.unmatched.items()), list(found.posted.items()), found.unfiltered)
+        assert ours == (list(plain.unmatched.items()), list(plain.posted.items()), plain.unfiltered), (text, seen, checked)
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -377,8 +768,13 @@ def test_a_title_this_run_returned_is_recognized_without_its_brackets():
         "lost heir " * 4_999 + "没发过",
         "《" * 50_000,
         "《a》没发过" * 7_142,
+        " " * 49_997 + "没发过",
+        "\n" + "\t" * 49_996 + "没发过",
+        "和 " * 24_998 + "没发过",
+        "+" * 49_997 + "没发过",
+        "- 、" * 16_665 + "没发过",
     ],
-    ids=["one-word", "one-word-claim", "words", "clauses", "bare-titles", "brackets", "titled-claims"],
+    ids=["one-word", "one-word-claim", "words", "clauses", "bare-titles", "brackets", "titled-claims", "spaces", "tabs", "joins", "pluses", "bullets"],
 )
 def test_a_long_answer_is_checked_in_linear_time(text):
     import time
