@@ -506,7 +506,31 @@
 - 后续：
   - lark-cli 个人授权；
   - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定；
-  - PR #16 合并后再经守卫部署一次 gateway；它若改了前端，前端也要经守卫发布；
+  - PR #16 合并后再经守卫部署一次 gateway：2026-09-30 随 PR #24 一起上线（见文末「答案核对与知识检索修复」），两个 PR 都没改前端；
   - Vercel 项目 `ggwork`：2026-09-30 按用户要求先断开 Git 集成，再用 `vercel project rm` 删除，ggwork-nine.vercel.app 现在返回 404。本团队里已经没有项目接着这个仓库，推 main 不会再触发任何 Vercel 构建。
 - `pick-deploy-guard target=gateway commit=fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5 prod_head=0007 chain_head=0007 at=2026-09-29T15:20:55Z`
 - `pick-deploy-guard target=frontend commit=7d33058427c457446a8a676e317da391aa824144 at=2026-09-29T16:09:56Z`
+
+## 答案核对与知识检索修复（PR #16、#24，2026-09-30 上线）
+
+- PR #16（9667ea36）与 PR #24（3040bd87）一起上线。
+  - PR #16：答案核对跨句借主语、账号查询误报；知识检索多文档互相挤掉。
+  - PR #24：#16「已知局限」里的 MEDIUM。答案核对认全逗号分隔的片名列表、排除说法与更多"没发过"说法，构造的长回答也按线性时间核对；知识检索每条按自己的元数据计费，带 `truncated` 与 `omitted`，并修掉 casefold 后切片的偏移。
+  - 两个 PR 都只改 `ggwork_pick` 与托管副本，没有新迁移，迁移头仍是 0007；依赖、`uv.lock`、Dockerfile 不变。前端没改，不用发布；cron 不用重部署。
+- gateway 经守卫后，从 `git archive` 导出的目录 `railway up`，部署 `fd2cf0eb-2530-4319-90e1-629cafe3dc10`，SUCCESS。导出目录是 3040bd87 的 3,845 个跟踪文件。
+  - 第一次上传（11:56Z）连接被对端重置，只留下一个没有构建、没有运行的 FAILED 部署 `bb0efe00-c93c-4cf6-b59f-56e2e6949df6`，生产不受影响。重跑守卫后第二次上传成功，下面的记录行是这次的。
+- 部署前在守卫检出（3040bd87，检出自己的 venv）里做四格的 gateway 一列：
+  - 扩展全套 3,758 通过、21 跳过，含 `test_managed_copy`。测试库是一次性的全 scram PG 17 加 SQLite，跳过的都是方言专属，没有 `PICK_TEST_PG_URL is not set`；
+  - gateway 四格的 4 个文件 35 条通过，两种库都有，0 跳过。
+- 部署后核对：
+  - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`。没有 Traceback，没有 `service start() failed`，也没有 `Running upgrade`。唯一的 WARNING 仍是 GitHub webhook 路由未挂载。
+  - 容器内（`railway ssh`）：
+    - `observe.selfcheck`、`observe.grants` 能导入；
+    - site-packages 里的 `answer_check`、`knowledge_excerpts` 是新代码；
+    - `regrant --check` 授权齐全：schema 7、表 31、列 4、序列 12，已发布镜像版本 5 个（pickm_v000001、v000010、v000012、v000013、v000015），与上次相同。
+  - 守卫读到的生产迁移头是 0007。
+  - **待用户以登录用户核对**：
+    - `/api/pick/sync` 返回 200，资料页能打开，一次选剧对话正常；
+    - 四格手工格：有旧卡的会话能展开；「我的选剧」里改动前保存的条目能展开；
+    - 问一句带排除的"没发过"，看提示是否只针对其余的剧；用「剧场规则」模板问一个剧场，看规则文档是否整篇返回、没有多余的 omitted。
+- `pick-deploy-guard target=gateway commit=3040bd877a5cb34f9105756680e3ab0b8e0d3e02 prod_head=0007 chain_head=0007 at=2026-09-30T11:58:46Z`
