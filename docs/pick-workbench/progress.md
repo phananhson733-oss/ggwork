@@ -582,3 +582,20 @@
   - gateway 要经守卫部署才生效，时间由用户定。生产 gateway 已是 3040bd87（09-30 11:58Z 经守卫上线，含 #16、#24），这次部署只多出本 PR 的改动。镜像构建时会从 GitHub 下载 lark-cli 发布包并校验 sha256，下载失败则构建失败，线上不受影响。
   - 部署后先在能力中心看飞书 / Lark 是否显示「已安装版本：v1.0.96」。然后用自己的账号走一遍：连接、授权，再在对话里读一篇自己的文档。PersonalAgent 应用注册可能要租户管理员放行。
 - 后续：写操作放第二期。
+
+## 选剧 Agent 第一批修复（2026-09-30）
+
+- 起因：2026-09-30 对「对话框敲一行需求后整套 Agent 如何运作」做了端到端评估（基线 `c91b647a`，gpt-6-astra 五路并行审计交叉核实），结论是当作候选池筛选加个人保存工具基本符合，当作每天的主力工作台还不符合。评估列了五件「改动小、先堵住会误导人的口子」的事，本批先修这些。评估报告没进仓库。
+- 评估期间 `ggwork/main` 前进到 `9667ea36`（PR #16）。按新基线重新核对：第 3 项「发布核对整轮标记」（做过一次发布筛选后，没用书名号点名的「没发过」不再核对）已由 PR #16 重写的 `answer_check.py` 修掉，总括性的「都没发过」按本轮返回的每条记录判断；本批不再动它。其余四项仍成立。
+- 改动（一个 PR，四个改动各一个提交，另有托管副本一个提交）：
+  - 选剧工具豁免宿主工具输出预算。宿主 `ToolOutputBudgetMiddleware` 默认把超过 12,000 字符的工具结果外置并换成文本摘要（30,000 以上无论如何截断），候选结果 8 到 10 部就超过：候选卡解析失败显示「选剧查询未完成」，模型只看到摘要并被指引用被闸门拒绝的 `read_file`。用宿主函数实跑确认过（10 部 13,242 字符被替换），线上没复现。`config.pick.example.yaml` 新增 `tool_output.exempt_tools`，保留宿主默认的 `read_file` 一对，加五个选剧工具；`pick_entrypoint` 直接读这份模板，生产同步生效。给模型的 JSON 瘦身（去掉 `source_ref`、`citation_id`、`detail_url` 等）留到后面。
+  - 查询与计数返回 `data_notices`。资料页有四类过期提示，Agent 一条没有。新模块 `ggwork_pick/freshness.py` 用同样的阈值给出句子：批次采集超过 14 小时、剧单导入超过 36 小时、问到某张榜（`signal_kind` 是 kd/qc/qr/kw 或 `hot_only`）时该榜最新一期在采集时已超过 2 天（周榜 14 天）。只在有提示时出现，只给模型看，不进 `data_as_of`（前端 strict schema）也不进存储快照；提示词与技能各加一句要求如实转述。详见 `realshort-sync.md` 的「给模型的数据时效提示」。
+  - 候选卡不再被步骤折叠，最新候选按线程读取。一轮里的多个工具调用合成一组，默认只渲染最后一个；候选卡不是最后一个调用时不挂载，也就不登记为「最新候选」，下一条追问绑错卡或不带引用，对比类提问只露最后一张卡。`message-group.tsx` 把选剧卡当作助手文本一样始终可见；`pick-context.tsx` 新增 `useObservePickThread`，用此前没有调用方的 `listPickResults` 按线程读服务端候选并登记，回答结束时重新读取，`ChatBox` 调用它。
+  - 换一批排除整条候选链。排除集只含个人已选和父卡条目，A → B → C 时 C 又给回 A。现在沿 `parent_result_id` 向上走整条链并入各级条目；只并条目不并各级 `excluded_json`（那里混着当时的个人已选）；链在另一线程的祖先处停下，最多 100 级。
+- 验证（本机，GitHub Actions 状态见推送后的检查）：
+  - 扩展全套 SQLite：2,942 通过、822 跳过（跳过均为 PostgreSQL 专属），托管副本刷新前只有 `test_managed_copy` 失败，刷新后通过。PostgreSQL（`initdb --auth=scram-sha-256 -E UTF8` 的一次性 PG 17）：3,744 通过、21 跳过。第一次 PG 跑用 `--no-locale` 建库，服务端编码成了 SQL_ASCII，35 失败 12 错误全是环境问题（psycopg 返回 bytes、ICU 排序规则不存在），重建 UTF8 集群后全过。rebase 到 `3040bd87`（PR #24）后两种库合跑一次：3,777 通过、21 跳过；再 rebase 到 `a6b8bcb1`（PR #22）后：4,001 通过、21 跳过。
+  - 宿主 `test_pick_cloud_entrypoint.py` 与 `test_compose_default_bind_host.py` 67 通过；`ruff check`、`ruff format --check` 通过；agent guidance 检查 0 错误 0 警告。
+  - 前端 `pnpm check` 通过；`pick`、`messages` 目录单测 297 通过；改动文件 prettier 通过。
+  - 托管副本 `diff -rq` 为空，`uv.lock` 不变。
+- 上线后由用户在工作台核对：问一次「给我 10 部英语剧」看卡片是否完整；问一次 KalosTV 日榜看回答是否转述时效提示；连续换两批看第三批是否还回到第一批。e2e-pick 需要真实模型和数据库，本批没跑。
+- 后续（第二批候选）：条件摘要补渠道、确认可发、标签、关键词；0 结果诊断和 `data_notices` 上卡；重新生成和编辑重发带 `pick_reference`；候选条目投影保留 tags、listed_at、channel_rules；回答核对扩到书名号以外的剧名。
