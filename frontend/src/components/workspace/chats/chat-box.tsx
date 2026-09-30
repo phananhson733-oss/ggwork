@@ -30,7 +30,11 @@ import { useArtifacts } from "../artifacts/context";
 import { useMaybeBrowserView } from "../browser-view/context";
 import { useThread } from "../messages/context";
 import { CandidatePanel } from "../pick/candidate-panel";
-import { usePickContext, useRestorePick } from "../pick/pick-context";
+import {
+  useObservePickThread,
+  usePickContext,
+  useRestorePick,
+} from "../pick/pick-context";
 import { useMaybeSidecar } from "../sidecar/context";
 
 function RightPanelLoading() {
@@ -83,6 +87,7 @@ const ChatBox: React.FC<{
   const { thread } = useThread();
   const pick = usePickContext();
   useRestorePick(threadId);
+  useObservePickThread(threadId, thread.isLoading);
   const isMobile = useIsMobile();
   const pathname = usePathname();
   const threadIdRef = useRef(threadId);

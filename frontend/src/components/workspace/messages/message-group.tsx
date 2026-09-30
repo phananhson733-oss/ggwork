@@ -142,9 +142,11 @@ function MessageGroupComponent({
       .slice(index + 1)
       .filter((step) => step.type === "assistantText");
   }, [lastToolCallStep, stepIndexByStep, steps]);
+  // Assistant text and candidate cards stay visible while the steps above the
+  // last tool call are collapsed: a card that never mounts never registers as
+  // the latest candidate, and a comparison turn would show one card of two.
   const collapsibleAboveLastToolCallSteps = useMemo(
-    () =>
-      aboveLastToolCallSteps.filter((step) => step.type !== "assistantText"),
+    () => aboveLastToolCallSteps.filter((step) => !isAlwaysVisibleStep(step)),
     [aboveLastToolCallSteps],
   );
   const lastReasoningStep = useMemo(() => {
@@ -376,9 +378,7 @@ function MessageGroupComponent({
           {(lastToolCallStep
             ? showAbove
               ? aboveLastToolCallSteps
-              : aboveLastToolCallSteps.filter(
-                  (step) => step.type === "assistantText",
-                )
+              : aboveLastToolCallSteps.filter(isAlwaysVisibleStep)
             : steps.filter(
                 (step) =>
                   step.type === "assistantText" &&
@@ -601,6 +601,14 @@ function browserToolLabel(
     default:
       return t.toolCalls.useTool(name);
   }
+}
+
+/** A step the "more steps" toggle never hides: assistant text, and the candidate card a pick tool call renders. */
+function isAlwaysVisibleStep(step: CoTStep) {
+  return (
+    step.type === "assistantText" ||
+    (step.type === "toolCall" && getToolCallKind(step.name) === "pick")
+  );
 }
 
 // Shared routing for result conversion and specialized rendering.

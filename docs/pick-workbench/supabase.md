@@ -269,7 +269,7 @@ SELECT pg_size_pretty(pg_total_relation_size('deerflow.checkpoints')) AS checkpo
 
    `pan_scan` 查两处磁盘，`grep -z` 把整个文件当成一行（手工导入的 CSV 原样存盘，带引号的字段可以跨行，逐行找会漏掉「密码」换行「：ab12」）：
    - `[原始 feed 文件]`：`/data/pick` 下含命中的原始 feed 文件。
-   - `[线程]`：外置的工具输出里含命中的线程，逗号隔开，没有命中时是空行。工具输出超过阈值（默认 12000 字，pick 的配置没改 `tool_output`）时，宿主把全文写进 `/data/users/<属主>/threads/<线程>/user-data/outputs/.tool-results/`，checkpoint 里只留预览和文件引用，命中可能只在文件里。分支对话会把整个 `user-data` 复制到新线程，新线程单独列出；旧布局 `/data/threads/<线程>/` 下的也算。上传目录不查（见下面的范围）。
+   - `[线程]`：外置的工具输出里含命中的线程，逗号隔开，没有命中时是空行。工具输出超过阈值（默认 12000 字；pick 的配置只把五个选剧工具列进 `tool_output.exempt_tools`，web_search、web_fetch 和 MCP 工具的输出照旧外置）时，宿主把全文写进 `/data/users/<属主>/threads/<线程>/user-data/outputs/.tool-results/`，checkpoint 里只留预览和文件引用，命中可能只在文件里。分支对话会把整个 `user-data` 复制到新线程，新线程单独列出；旧布局 `/data/threads/<线程>/` 下的也算。上传目录不查（见下面的范围）。
    - 最后一行必须是 `pan_scan 退出码 0`，名单才完整。它不跟随符号链接，所以先列出 `/data/pick`、`/data/users`、`/data/threads` 下的所有符号链接（这三个目录本身是链接也算，`/data/threads` 是断开或者绕圈的链接也算，不会被当成不存在跳过）；有符号链接、读不了的文件或目录、遍历出错时，它把这些路径打出来、退出码 2，不给名单。这时空名单也不能当成干净：符号链接停下来另议，读不了的查清原因再扫。
 
    再在本机以表的属主 `deerflow_app` 查库，连法与 2.3 相同，密码在提示时粘贴。`disk_threads` 填 `[线程]` 下面那一行，是空行就填 `''`（只有 `pan_scan` 退出码 0 时才能这样填）；不填，脚本直接报错：
