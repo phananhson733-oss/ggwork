@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
   useCallback,
@@ -11,7 +12,7 @@ import {
 } from "react";
 
 import { useAuth } from "@/core/auth/AuthProvider";
-import { getPickResult } from "@/core/pick/api";
+import { getPickResult, listPickResults } from "@/core/pick/api";
 import { bindPickReference, chooseReference } from "@/core/pick/references";
 import type { PickResult } from "@/core/pick/types";
 
@@ -204,4 +205,41 @@ export function useRestorePick(threadId: string) {
     }
     return () => abort.abort();
   }, [threadId, ownerId, show, current]);
+}
+
+/**
+ * Register the thread's finished candidates as they exist on the server, so the newest one is the follow-up
+ * target even when its card never mounted (collapsed above a later tool call, or scrolled out of the list).
+ * Reads once the answer stops streaming, when the result the turn produced has been stored.
+ */
+export function useObservePickThread(threadId: string, isLoading: boolean) {
+  const pick = usePickContext();
+  const client = useQueryClient();
+  const ownerId = pick?.ownerId;
+  const observe = pick?.observe;
+  const enabled =
+    Boolean(ownerId && ownerId !== "anonymous" && threadId) && !isLoading;
+  const query = useQuery({
+    queryKey: ["pick-results", ownerId, threadId],
+    queryFn: ({ signal }) => listPickResults(threadId, signal),
+    enabled,
+    staleTime: 30_000,
+    retry: false,
+  });
+  // Re-enabling may already have started that fetch, so join it rather than cancel it.
+  const wasLoading = useRef(isLoading);
+  useEffect(() => {
+    if (wasLoading.current && !isLoading)
+      void client.invalidateQueries(
+        { queryKey: ["pick-results", ownerId, threadId] },
+        { cancelRefetch: false },
+      );
+    wasLoading.current = isLoading;
+  }, [client, isLoading, ownerId, threadId]);
+  const results = query.data;
+  useEffect(() => {
+    if (!results || !observe) return;
+    for (const result of results)
+      if (result.thread_id === threadId) observe(result);
+  }, [observe, results, threadId]);
 }

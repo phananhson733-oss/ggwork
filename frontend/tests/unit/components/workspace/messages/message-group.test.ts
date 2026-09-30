@@ -26,13 +26,109 @@ rs.mock("@/components/workspace/artifacts", () => ({
   }),
 }));
 
+// The card itself needs auth and a query client (pick-tool-card.dom.test.tsx covers it); here only whether the
+// group mounts it.
+rs.mock("@/components/workspace/pick/pick-tool-card", () => ({
+  PickToolCard: ({ result }: { result: unknown }) =>
+    createElement("div", { "data-pick-card": JSON.stringify(result) }),
+}));
+
 afterEach(() => {
   artifactsMockState.autoOpen = false;
   artifactsMockState.autoSelect = false;
   rs.restoreAllMocks();
 });
 
+function pickTurn(): Message[] {
+  return [
+    {
+      id: "ai-1",
+      type: "ai",
+      content: "",
+      tool_calls: [
+        {
+          id: "call-1",
+          name: "pick_query_candidates",
+          args: { filters: { language: "en", limit: 3 } },
+        },
+      ],
+    } as Message,
+    {
+      id: "tool-1",
+      type: "tool",
+      name: "pick_query_candidates",
+      tool_call_id: "call-1",
+      content: '{"id":"result-1","items":[]}',
+    } as Message,
+    {
+      id: "ai-2",
+      type: "ai",
+      content: "",
+      tool_calls: [
+        {
+          id: "call-2",
+          name: "pick_get_drama_detail",
+          args: { result_id: "result-1", item_id: "item-1" },
+        },
+      ],
+    } as Message,
+    {
+      id: "tool-2",
+      type: "tool",
+      name: "pick_get_drama_detail",
+      tool_call_id: "call-2",
+      content: '{"item":{"title":"Example"}}',
+    } as Message,
+  ];
+}
+
 describe("MessageGroup", () => {
+  // 2026-09-30: a group renders only its last tool call; a candidate card earlier in the turn never mounted, so it
+  // never registered as the latest candidate and a comparison question showed one card of two.
+  it("keeps a candidate card mounted when a later tool call collapses the steps above it", () => {
+    const html = renderGroup(pickTurn(), { threadId: "thread-1" });
+
+    expect(html).toContain("data-pick-card=");
+    expect(html).toContain("&quot;id&quot;:&quot;result-1&quot;");
+    expect(html).toContain("pick_get_drama_detail");
+    expect(html).not.toContain("more step");
+  });
+
+  it("still counts other collapsed steps above a candidate card", () => {
+    const [query, queryResult, ...rest] = pickTurn();
+    const html = renderGroup(
+      [
+        {
+          id: "ai-0",
+          type: "ai",
+          content: "",
+          tool_calls: [
+            {
+              id: "call-0",
+              name: "web_search",
+              args: { query: "hidden query" },
+            },
+          ],
+        } as Message,
+        {
+          id: "tool-0",
+          type: "tool",
+          name: "web_search",
+          tool_call_id: "call-0",
+          content: "[]",
+        } as Message,
+        query!,
+        queryResult!,
+        ...rest,
+      ],
+      { threadId: "thread-1" },
+    );
+
+    expect(html).toContain("data-pick-card=");
+    expect(html).not.toContain("hidden query");
+    expect(html).toContain("1 more step");
+  });
+
   it("renders unresolved streaming assistant text before a tool call arrives", () => {
     const html = renderGroup(
       [
