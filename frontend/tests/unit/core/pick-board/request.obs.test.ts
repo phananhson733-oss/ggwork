@@ -97,3 +97,16 @@ test("解析与写回来回一致", () => {
   assert.equal(pickQuery(parse(query.slice(1))), query);
   assert.equal(pickQuery(parse("tab=trends")), "?tab=trends");
 });
+
+// 简化版趋势表（2026-09-30）：ts= 只收 change、order，默认按变化；只在 trends tab 写回，别的 tab 丢掉
+test("趋势表的排序 ts：白名单、默认按变化、只属于 trends", () => {
+  assert.equal(parse("tab=trends").trendsSort, "change");
+  assert.equal(parse("tab=trends&ts=order").trendsSort, "order");
+  assert.equal(parse("tab=trends&ts=value").trendsSort, "change");
+  assert.equal(parse("tab=trends&ts=ORDER").trendsSort, "change");
+  assert.equal(pickQuery(parse("tab=trends&ts=order")), "?tab=trends&ts=order");
+  assert.equal(pickQuery(parse("tab=trends&ts=change")), "?tab=trends");
+  const sorted = parse("tab=trends&ts=order");
+  for (const tab of ["pick", "search", "rank", "imports"] as const)
+    assert.doesNotMatch(pickQuery(sorted, { tab }), /ts=/, tab);
+});

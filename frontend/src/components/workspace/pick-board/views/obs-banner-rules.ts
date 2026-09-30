@@ -1,6 +1,8 @@
 // 工作台新建（TR-24，D10）：资料页的趋势雷达横幅，ggwork_pick/observe/status_rules.channel_banners 的 TS 双实现。
 // 资料页不经 gateway，直接读 pick_obs.run_status 与当前 live 集合，按请求时刻算：最新一次运行写下的全部状态码，
-// 加三个按时间算的码。stale_26h（只看 Trends）：当前 live 集合发布超过 26 小时，恰好 26 小时不算；没有 live 集合不算。
+// 加三个按时间算的码。stale_26h（只看 Trends）：当前 live 集合发布超过 26 小时，恰好 26 小时不算；没有 live 集合不算；
+// 或者简化版趋势表（不发集合）最新采完的批次 tableThrough 早于应到日期；从没采完过时，第一个表批次 tableSince
+// 已经应到（首晚就崩的情况）；两种都要 run_missed 不成立，一个表批次都没有不算。
 // run_missed：Trends 从 02:30 UTC 起应到的是当天的批次（之前是前一天），最新批次的 target_date 更早就算；GSC 最新轮次
 // 开始超过 4 小时就算；从没运行过的通道不算（上线前的常态，页面写「还没有运行记录」）。shadow_mode：最新一次运行发成影子。
 // 每个码只出现一次，先按级别（red、warn、info）再按 STATUS_CODES 的顺序排。时间按微秒比较（obs-instants.ts）：
@@ -47,6 +49,20 @@ export function trendsSetStale(
   );
 }
 
+/**
+ * The newest finished table batch (tableThrough) is for a target date before the one due at `now`; or none ever
+ * finished although the first table batch (tableSince) was due by now. No table batch at all is not stale.
+ */
+export function trendsTableStale(
+  tableThrough: string | null,
+  now: Now,
+  tableSince: string | null = null,
+): boolean {
+  const due = trendsDueDate(now);
+  if (tableThrough !== null) return tableThrough < due;
+  return tableSince !== null && tableSince <= due;
+}
+
 /** The target date whose Trends batch must exist by now: today from 02:30 UTC, yesterday before it. */
 export function trendsDueDate(now: Now): string {
   const moment = instantMicros(now);
@@ -88,19 +104,36 @@ function byBannerOrder(a: string, b: string): number {
   );
 }
 
-/** One channel's banners at `now`: the latest run's codes and the three time-based ones, each once, in banner order. */
+/**
+ * One channel's banners at `now`: the latest run's codes and the three time-based ones, each once, in banner order.
+ * tableThrough is the target date of the newest finished table batch, tableSince that of the first table batch,
+ * finished or not (Trends only; null or absent before the first).
+ */
 export function channelBanners(
   channel: ObsChannel,
   input: Readonly<{
     latestRun: LatestRunInput | null;
     livePublishedAt: string | null;
     now: Now;
+    tableThrough?: string | null;
+    tableSince?: string | null;
   }>,
 ): ChannelBanner[] {
   const { latestRun, livePublishedAt, now } = input;
+  const tableThrough = input.tableThrough ?? null;
+  const tableSince = input.tableSince ?? null;
+  if ((tableThrough !== null || tableSince !== null) && channel !== "trends")
+    throw new Error("tableThrough、tableSince 只属于 Trends");
+  const missed = runMissed(channel, latestRun, now);
+  const tableBehind =
+    trendsTableStale(tableThrough, now, tableSince) && !missed;
   const computed: [string, boolean][] = [
-    ["stale_26h", channel === "trends" && trendsSetStale(livePublishedAt, now)],
-    ["run_missed", runMissed(channel, latestRun, now)],
+    [
+      "stale_26h",
+      channel === "trends" &&
+        (trendsSetStale(livePublishedAt, now) || tableBehind),
+    ],
+    ["run_missed", missed],
     ["shadow_mode", latestRun?.mode === "shadow"],
   ];
   const codes = new Set([

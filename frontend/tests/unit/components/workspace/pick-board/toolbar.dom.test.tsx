@@ -164,10 +164,11 @@ describe("the search word across tabs", () => {
   });
 });
 
-// TR-24: the radar's two tabs sit after the four list tabs. A pinned set (obs)
+// TR-24: the radar's tabs sit after the four list tabs. A pinned set (obs)
 // belongs to one channel and a detail identity (oid) to one page, so every tab
-// link drops both; the search word never follows into them.
-describe("the radar's two tabs", () => {
+// link drops both; the search word never follows into them. The simplified
+// radar (2026-09-30) shelves GSC: search is listed only while it is open.
+describe("the radar's tabs", () => {
   const SET = "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c";
 
   function labels(root: Element): string[] {
@@ -183,7 +184,7 @@ describe("the radar's two tabs", () => {
     return query(link?.getAttribute("href"));
   }
 
-  it("are listed after the list tabs, before the rules", () => {
+  it("list Google 趋势 after the list tabs, before the rules, and hide search", () => {
     const root = render(<Tabs req={request()} />).container;
     expect(labels(root)).toEqual([
       "选剧",
@@ -191,12 +192,26 @@ describe("the radar's two tabs", () => {
       "榜单",
       "发布记录",
       "Google 趋势",
-      "搜索表现（GSC）",
       "剧场规则",
       "同步与导入",
     ]);
     expect(hrefOf(root, "Google 趋势").get("tab")).toBe("trends");
-    expect(hrefOf(root, "搜索表现（GSC）").get("tab")).toBe("search");
+  });
+
+  it("list search at the end only while an old link has it open", () => {
+    const root = render(<Tabs req={request({ tab: "search" })} />).container;
+    expect(labels(root).at(-1)).toBe("搜索表现（GSC）");
+    expect(root.querySelector('a[aria-current="page"]')?.textContent).toBe(
+      "搜索表现（GSC）",
+    );
+  });
+
+  it("keep the trends sort on the trends link only", () => {
+    const root = render(
+      <Tabs req={request({ tab: "trends", ts: "order" })} />,
+    ).container;
+    expect(hrefOf(root, "Google 趋势").get("ts")).toBe("order");
+    expect(hrefOf(root, "选剧").has("ts")).toBe(false);
   });
 
   it("drop the pinned set, the identity and the search word on every link", () => {
@@ -210,7 +225,6 @@ describe("the radar's two tabs", () => {
       expect(params.has("obs"), label).toBe(false);
       expect(params.has("oid"), label).toBe(false);
     }
-    expect(hrefOf(root, "搜索表现（GSC）").has("q")).toBe(false);
     expect(hrefOf(root, "Google 趋势").has("q")).toBe(false);
     expect(root.querySelector('a[aria-current="page"]')?.textContent).toBe(
       "Google 趋势",

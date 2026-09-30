@@ -65,7 +65,7 @@ Railway 已经不读服务的 `railway.toml`：Config as Code 已弃用，2026-0
 | 21:30–01:30 | 会话在跑就跳过；崩溃了就续跑（`window_end` 与任务清单不重算）；已做完就退出 0 | 同左 | 同左 |
 | 01:45 | 硬截止：之后不再发请求，会话收尾退出 | 同左 | 同左 |
 
-起跑时刻由 G3 从 20:30、22:00 提前到上表（计划第 9 节）：生产节奏（`PICK_OBS_TRENDS_PACE` 默认 `user`）下，原来的 stable、canary2 放不进窗口，canary1 的 22:00 刚过线、午夜后崩溃一次只剩 86%。`window_end` 随之变早（建批次那个整点减 3 小时，`trends-session.md`）。
+起跑时刻由 G3 从 20:30、22:00 提前到上表（计划第 9 节）：生产节奏（`PICK_OBS_TRENDS_PACE` 默认 `user`）下，原来的 stable、canary2 放不进窗口，canary1 的 22:00 刚过线、午夜后崩溃一次只剩 86%。`window_end` 随之变早（小时级是建批次那个整点减 3 小时；简化版 stable 的日级是建批次那天的 UTC 零点，`trends-session.md`）。
 
 - Railway cron 在上一轮没退出时跳过下一次触发，也不会替程序终止上一轮，所以程序自己在 01:45 停（设计 3.1）。会话中途崩溃，最多隔 30 分钟由下一次触发接着跑；01:30 是最后一次，离截止 15 分钟。
 - 触发不保证准到分钟，02:00 是目标和监测指标，不是保证。
@@ -109,7 +109,7 @@ Railway 已经不读服务的 `railway.toml`：Config as Code 已弃用，2026-0
 - S0–S4 已完成：0007 已在生产，`pick_observer` 已建（S2）且授权核对过（S4），带 0007 的 gateway 已上线并核对过。
 - 要部署的提交在 main 上，main 上的 CI 绿（含 `test_managed_copy`），`deploy/pick-obs/trends/` 两份配置都在 main 上（守卫的 cron 模式会查）。
 - TR-05 的 `canary_controls.json` 已随包进 main，而且每个要查的 geo 都有市场序列（`trends-session.md`「金丝雀的任务来源」）。缺了，S6 的自检会以 2 退出并点名这个文件。
-- G2 已定阶段 0 的去向与粒度，决定 `PICK_OBS_TRENDS_ROUTE`、`PICK_OBS_TRENDS_GRANULARITY` 怎么设；金丝雀期间不改（计划第 9 节）。2026-09-29 G2 定为 `b_only`、`H`（计划第 8.1 节）：S5 写入的暂定值是 `both`、`H`，第 5 节第 4 步切 cron 之前把 ROUTE 改成 `b_only`。
+- G2 已定阶段 0 的去向与粒度，决定 `PICK_OBS_TRENDS_ROUTE`、`PICK_OBS_TRENDS_GRANULARITY` 怎么设；金丝雀期间不改（计划第 9 节）。2026-09-29 G2 定为 `b_only`、`H`（计划第 8.1 节）：S5 写入的暂定值是 `both`、`H`，第 5 节第 4 步切 cron 之前把 ROUTE 改成 `b_only`。2026-09-30 简化范围第 9 节改了 G2：切到简化版任务来源的那次部署（经用户同意后单独做，在 UTC 02:00–17:00 之间）三个变量一起改成 `PICK_OBS_TRENDS_MODE=stable`、`PICK_OBS_TRENDS_ROUTE=a_only`、`PICK_OBS_TRENDS_GRANULARITY=D`。只改模式不改另外两个，每次触发都以 2 拒跑，报错写明要改的两个变量；金丝雀照旧用 `H`，所以金丝雀期间不要提前改粒度。
 - U13（出口回显服务）批准与否已知。
 
 ## 5. 建服务与部署（S5）
@@ -128,9 +128,9 @@ Railway 已经不读服务的 `railway.toml`：Config as Code 已弃用，2026-0
 | `PICK_OBS_STATE_KEY_FILE` | 不设 | — | cron 没有卷；与 `PICK_OBS_STATE_KEY` 同时设会被拒（退出 2） |
 | `PICK_OBS_EXPECTED_COLLECTOR` | 所部署提交的 `versions.COLLECTOR_VERSION`，目前是 `obs-collector-v1` | 代理 | 必填。与镜像里的常量不符，自检以 2 退出 |
 | `PICK_OBS_EXPECTED_ROLE` | `pick_observer` | 代理 | 必填。与连上的 `current_user` 不符，自检以 2 退出 |
-| `PICK_OBS_TRENDS_MODE` | `canary1`；金丝雀阶段 2 改 `canary2`；S10 改 `stable` | 代理 | 必填 |
-| `PICK_OBS_TRENDS_GRANULARITY` | G2 定的粒度：`H`（默认）、`D` 或 `HD`；2026-09-29 定为 `H`，显式写入 | 代理 | 可选，金丝雀期间不改 |
-| `PICK_OBS_TRENDS_ROUTE` | 第 8 节的去向：`both`（默认）、`a_only`、`b_only`；2026-09-29 定为 `b_only`，显式写入 | 代理 | 可选，金丝雀期间不改；`neither` 会被拒，Trends 不上线。对金丝雀，`b_only` 与 `both` 行为相同（都混 relatedsearches） |
+| `PICK_OBS_TRENDS_MODE` | `canary1`；金丝雀阶段 2 改 `canary2`；简化版上线时改 `stable`（与下面两个变量同一次部署） | 代理 | 必填 |
+| `PICK_OBS_TRENDS_GRANULARITY` | G2 定的粒度：`H`（默认）、`D` 或 `HD`；2026-09-29 定为 `H`，显式写入；简化版的 stable 必须是 `D` | 代理 | 可选，金丝雀期间不改 |
+| `PICK_OBS_TRENDS_ROUTE` | 第 8 节的去向：`both`（默认）、`a_only`、`b_only`；2026-09-29 定为 `b_only`，显式写入；简化版的 stable 必须是 `a_only` | 代理 | 可选，金丝雀期间不改；`neither` 会被拒，Trends 不上线。对金丝雀，`b_only` 与 `both` 行为相同（都混 relatedsearches） |
 | `PICK_OBS_TRENDS_PACE` | 不设（即 `user`：令牌桶 4、每分钟补 2） | — | 可选，金丝雀期间不改。`design`（桶 8、每分钟补 4）是设计 4.2 的原值，只在计划第 9 节按它重排之后才用；取值不认识，或模式在这个节奏下放不进窗口，以 2 拒跑 |
 | `PICK_DB_SIZE_CAP_BYTES` | 与 gateway 相同 | 代理 | 计划 S5 列了它，给 TR-20 的发布前容量检查用；TR-20 之前没有代码读它，设了也不生效 |
 | `PICK_OBS_PUBLISH` | 不设 | — | D11：不设就是 shadow；金丝雀无论如何不发布。S12b 才设 `1` |

@@ -4,7 +4,7 @@ list and units, the window end, the weekly contract check and the summary's code
 
 import json
 from dataclasses import replace
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta, timezone
 
 import pytest
 
@@ -143,6 +143,16 @@ def test_window_end_is_the_creation_hour_less_three():
     assert window_end_of(datetime(2026, 9, 25, 17, 30, tzinfo=UTC)) == datetime(2026, 9, 25, 14, 0, tzinfo=UTC)
     assert window_end_of(datetime(2026, 9, 25, 22, 10, tzinfo=UTC)) == datetime(2026, 9, 25, 19, 0, tzinfo=UTC)
     assert window_end_of(datetime(2026, 9, 26, 0, 20, tzinfo=UTC)) == datetime(2026, 9, 25, 21, 0, tzinfo=UTC)
+    assert window_end_of(datetime(2026, 9, 25, 21, 0, tzinfo=UTC), "HD") == datetime(2026, 9, 25, 18, 0, tzinfo=UTC)
+
+
+def test_daily_window_end_is_the_utc_day_boundary():
+    """Daily units (simplified scope, section 6 item 2): the UTC day boundary the batch was created after, whatever
+    the hour; a batch created after midnight ends its window at that midnight."""
+    assert window_end_of(datetime(2026, 9, 25, 17, 30, tzinfo=UTC), "D") == datetime(2026, 9, 25, 0, 0, tzinfo=UTC)
+    assert window_end_of(datetime(2026, 9, 25, 23, 59, 59, tzinfo=UTC), "D") == datetime(2026, 9, 25, 0, 0, tzinfo=UTC)
+    assert window_end_of(datetime(2026, 9, 26, 0, 20, tzinfo=UTC), "D") == datetime(2026, 9, 26, 0, 0, tzinfo=UTC)
+    assert window_end_of(datetime(2026, 9, 26, 3, 0, tzinfo=timezone(timedelta(hours=8))), "D") == datetime(2026, 9, 25, 0, 0, tzinfo=UTC)
 
 
 # ---- the task list (design 4.5) -----------------------------------------------------------------------------------

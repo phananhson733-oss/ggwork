@@ -1,5 +1,5 @@
 // PORTED_FROM: realshort@816ca2e src/lib/pick/request.ts
-// 本地改动：TABS 加 imports，趋势雷达加 trends、search（TR-24）与只属于这两个 tab 的 obs、oid；PickRequest 加 v（钉住的镜像版本）与 result（回放的候选结果），解析与 pickQuery 同步；
+// 本地改动：TABS 加 imports，趋势雷达加 trends、search（TR-24）与只属于这两个 tab 的 obs、oid；简化版趋势表的排序 trendsSort（ts=，只属于 trends）；PickRequest 加 v（钉住的镜像版本）与 result（回放的候选结果），解析与 pickQuery 同步；
 // RS_RANK_LABELS.rs_ledger 改叫「订单对账」；parsePickRequest 的取值闭包拆成 paramReader（函数 <50 行）；resolveWeek 的 hits[0] 改成先取再判（noUncheckedIndexedAccess）；
 // isRowKey / ROW_KEY_MAX 拆到 row-key.ts、QUEYU_INDEX / queyuHref 拆到 queyu.ts（client 组件不必带进本模块）。
 // 静态 IN_USE 只作类型参照：查询与组件一律用版本规则 rules.inUse（boundaries.test.ts 守住）。
@@ -14,6 +14,8 @@
  * 它的候选条件是三种依据、它的七张榜加分成对账在榜单 tab 里。ReelShort 那一侧的白名单
  * （排序 / 上线分桶）沿用 lib/observe/metrics.ts 的，不另抄一份。
  */
+import { TREND_SORTS, type TrendSort } from "@/core/pick/trends-table";
+
 import {
   BUCKETS,
   GROWTH_LIMIT,
@@ -407,6 +409,8 @@ export interface PickRequest {
   obs: string;
   /** 观测 tab 的详情页要看的身份（`oid=`，工作台身份原样，最长 512）；空串 = 列表 */
   oid: string;
+  /** 简化版趋势表（trends tab）的排序（`ts=`）：按变化（默认）或按入选顺序 */
+  trendsSort: TrendSort;
 }
 
 function pick<T extends string>(
@@ -542,6 +546,7 @@ export function parsePickRequest(params: PickParams): PickRequest {
     result: cleanResult(get("result")),
     obs: cleanObsSet(get("obs")),
     oid: cleanIdentity(get("oid")),
+    trendsSort: pick(get("ts"), TREND_SORTS, "change"),
   };
 }
 
@@ -596,6 +601,8 @@ export function pickQuery(
     if (r.obs) p.set("obs", r.obs);
     if (r.oid) p.set("oid", r.oid);
   }
+  if (r.tab === "trends" && r.trendsSort !== "change")
+    p.set("ts", r.trendsSort);
   const s = p.toString();
   return s ? `?${s}` : "";
 }

@@ -280,7 +280,6 @@ describe("each tab takes its branch", () => {
       "榜单",
       "发布记录",
       "Google 趋势",
-      "搜索表现（GSC）",
       "剧场规则",
       "同步与导入",
     ]);
@@ -366,7 +365,6 @@ describe("the resolved version", () => {
       "榜单",
       "发布记录9",
       "Google 趋势",
-      "搜索表现（GSC）",
       "剧场规则",
       "同步与导入",
     ]);
@@ -487,7 +485,6 @@ describe("when the mirror cannot answer", () => {
   // The tabs that read no mirror version: the radar's two (TR-24) and imports.
   const MIRRORLESS = [
     "/workspace/pick-data?tab=trends",
-    "/workspace/pick-data?tab=search",
     "/workspace/pick-data?tab=imports",
   ];
 
@@ -628,21 +625,26 @@ describe("the radar's two tabs (TR-24, D9)", () => {
   const IDENTITY =
     '["realshort","UkVFTFNIT1JUOjY1MGExYjJjM2Q0ZTVmNmE3YjhjOWQwZQ","en"]';
 
-  it("each opens after the visitor check alone: no version, no gateway, one radar read", async () => {
-    for (const tab of ["trends", "search"] as const) {
-      state.calls = [];
-      const root = await renderPage({ tab, v: "5" });
-      expect(state.calls).toEqual(["requireBoardUser", "loadObsTab"]);
-      expect(root.querySelector(`[data-obs-view="${tab}"]`)).toBeTruthy();
-      const active = tabLinks(root).find((a) => a.getAttribute("aria-current"));
-      expect(active?.textContent).toBe(
-        tab === "trends" ? "Google 趋势" : "搜索表现（GSC）",
-      );
-      cleanup();
-    }
+  it("trends opens after the visitor check alone: no version, no pick_obs read, one gateway read", async () => {
+    const root = await renderPage({ tab: "trends", v: "5" });
+    expect(state.calls).toEqual(["requireBoardUser", "loadTrendsTable"]);
+    expect(root.querySelector('[data-trends-view="table"]')).toBeTruthy();
+    const active = tabLinks(root).find((a) => a.getAttribute("aria-current"));
+    expect(active?.textContent).toBe("Google 趋势");
+    expect(tabLinks(root).map((a) => a.textContent)).not.toContain(
+      "搜索表现（GSC）",
+    );
   });
 
-  it("passes the tab, the pinned set and the identity; the detail opens from either tab", async () => {
+  it("search, hidden from the tab bar, still opens from an old link with one radar read", async () => {
+    const root = await renderPage({ tab: "search", v: "5" });
+    expect(state.calls).toEqual(["requireBoardUser", "loadObsTab"]);
+    expect(root.querySelector('[data-obs-view="search"]')).toBeTruthy();
+    const active = tabLinks(root).find((a) => a.getAttribute("aria-current"));
+    expect(active?.textContent).toBe("搜索表现（GSC）");
+  });
+
+  it("search passes the pinned set and the identity to its detail; trends ignores both", async () => {
     const obs = "7a1c0e9b5d3f4a2e8b6c1d0f9e8a7b6c";
     const seen: unknown[] = [];
     const answer = state.loaders.loadObsTab;
@@ -650,9 +652,24 @@ describe("the radar's two tabs (TR-24, D9)", () => {
       seen.push(req);
       return answer?.(req);
     };
-    const root = await renderPage({ tab: "trends", obs, oid: IDENTITY });
-    expect(seen).toEqual([{ tab: "trends", obs, oid: IDENTITY }]);
+    const root = await renderPage({ tab: "search", obs, oid: IDENTITY });
+    expect(seen).toEqual([{ tab: "search", obs, oid: IDENTITY }]);
     expect(root.querySelector('[data-obs-view="detail"]')).toBeTruthy();
+    cleanup();
+    const trends = await renderPage({ tab: "trends", obs, oid: IDENTITY });
+    expect(seen).toHaveLength(1);
+    expect(trends.querySelector('[data-trends-view="table"]')).toBeTruthy();
+  });
+
+  it("trends: a signed-out gateway answer goes to the login and back; any other is a notice", async () => {
+    state.loaders.loadTrendsTable = () => ({ kind: "unauthenticated" });
+    await expect(
+      PickDataPage({ searchParams: Promise.resolve({ tab: "trends" }) }),
+    ).rejects.toThrow(/NEXT_REDIRECT .*tab%3Dtrends/);
+    state.loaders.loadTrendsTable = () => ({ kind: "unavailable" });
+    const root = await renderPage({ tab: "trends" });
+    expect(screen.getByRole("alert").textContent).toMatch(/趋势表暂时读不了/);
+    expect(tabLinks(root).length).toBe(7);
   });
 
   it("titles both tabs", async () => {
@@ -670,7 +687,7 @@ describe("the radar's two tabs (TR-24, D9)", () => {
   it("still opens when the mirror cannot answer: the radar is not a mirror version", async () => {
     state.resolved = new errors.MirrorMisconfigured("permission", "42501");
     const root = await renderPage({ tab: "trends" });
-    expect(root.querySelector('[data-obs-view="trends"]')).toBeTruthy();
+    expect(root.querySelector('[data-trends-view="table"]')).toBeTruthy();
     expect(dataCalls().some((call) => call.startsWith("resolveBoard"))).toBe(
       false,
     );
@@ -702,7 +719,13 @@ describe("the radar's two tabs (TR-24, D9)", () => {
       throw new Error("boom");
     };
     await expect(
-      PickDataPage({ searchParams: Promise.resolve({ tab: "trends" }) }),
+      PickDataPage({ searchParams: Promise.resolve({ tab: "search" }) }),
     ).rejects.toThrow("boom");
+    state.loaders.loadTrendsTable = () => {
+      throw new Error("bang");
+    };
+    await expect(
+      PickDataPage({ searchParams: Promise.resolve({ tab: "trends" }) }),
+    ).rejects.toThrow("bang");
   });
 });

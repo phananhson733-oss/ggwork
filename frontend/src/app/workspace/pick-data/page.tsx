@@ -85,6 +85,7 @@ import {
 
 import { guarded } from "./notice-of";
 import { obsRoute } from "./obs-route";
+import { trendsRoute } from "./trends-route";
 
 /**
  * 选剧资料：RealShort 选剧台的七个 tab，读工作台库里 P2 写的镜像版本（pickm_vN），一个请求钉一个版本。
@@ -94,7 +95,8 @@ import { obsRoute } from "./obs-route";
  * 镜像读不了（没配、没版本、授权缺失、忙、版本刚被清理）是提示，不进 error.tsx；别的错误照常抛给 error.tsx。
  * 回放（tab=pick&result=…，P4-2）：先问 gateway 的 /replay（名单）与 /results/{id}（条件），再按结果配对的镜像版本
  * 钉住（批判 B11：它优先于链接的 v），只取这一页的行、一次查全名单的缺行（B10）。别的 tab 带着 result 一律忽略。
- * 趋势雷达的两个 tab（trends、search，TR-24）在鉴权之后早分支进 obs-route.tsx（D9）：不解析镜像版本，镜像读不了也能看。
+ * 趋势雷达的两个 tab 在鉴权之后早分支（D9）：不解析镜像版本，镜像读不了也能看。trends 是简化版趋势表（2026-09-30），
+ * 进 trends-route.tsx 问 gateway；search（GSC，先隐藏）照旧进 obs-route.tsx 读 pick_obs 视图。
  */
 
 export const dynamic = "force-dynamic";
@@ -171,7 +173,7 @@ async function loadTab(req: PickRequest): Promise<TabData> {
       return { kind: "rules" };
     case "trends":
     case "search":
-      // 两个观测 tab 在 PickDataPage 里经 obsRoute 早分支出去（D9），不读镜像版本；走到这里就是分支漏了
+      // 两个观测 tab 在 PickDataPage 里经 trendsRoute、obsRoute 早分支出去（D9），不读镜像版本；走到这里就是分支漏了
       throw new Error(`观测 tab 不经镜像版本：${req.tab}`);
     default: {
       const [page, facets] = await Promise.all([
@@ -410,6 +412,7 @@ export default async function PickDataPage({
         <ImportsView />
       </NoticePage>
     );
+  if (req0.tab === "trends") return trendsRoute(req0, nextPath);
   if (isObsTab(req0.tab)) return obsRoute({ ...req0, tab: req0.tab });
   if (isReplay(req0)) return replayRoute(req0, nextPath);
   const [resolved, sync] = await Promise.all([

@@ -62,7 +62,7 @@ export const OBS_STATUS_LEVELS: Readonly<Record<ObsStatusCode, BannerLevel>> = {
 
 export const OBS_STATUS_TEXT: Readonly<Record<ObsStatusCode, string>> = {
   stale_26h:
-    "当前生效的 Trends 集合已超过 26 小时：带趋势条件的查询返回「数据陈旧」，不给加码建议",
+    "Trends 数据过期：到 02:30 UTC 还没有采完当天的趋势表批次（或当前生效的集合已超过 26 小时），表里是更早的结果",
   not_published_low_coverage:
     "A 档覆盖率低于 80%，本批没有发布，上一个集合继续生效",
   extinguished_today:

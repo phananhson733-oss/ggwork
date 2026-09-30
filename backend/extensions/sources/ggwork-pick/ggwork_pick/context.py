@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from deerflow.runtime.user_context import resolve_runtime_user_id
 from deerflow_extension_api import TaskInfo, task_store_from_runtime
 
+from ggwork_pick.answer_check import Seen
 from ggwork_pick.pin import Pin
 from ggwork_pick.repository import PickRepository
 
@@ -47,8 +48,8 @@ class PickTask:
     produced_result_ids: set[str] = field(default_factory=set)
     known_titles: set[str] = field(default_factory=set)
     posted_checked: bool = False
-    # Normalized title -> what the posted summary of an item a tool returned says (answer_check.with_posted).
-    posted_seen: dict[str, str] = field(default_factory=dict)
+    # Normalized title -> what the posted summaries of items a tool returned say (answer_check.with_posted).
+    posted_seen: dict[str, Seen] = field(default_factory=dict)
     versions_refreshed: bool = False
     execution_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     initialized: bool = False

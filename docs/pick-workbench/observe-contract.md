@@ -1012,10 +1012,24 @@ withheld 指跑完但没有发布（例如 A 档覆盖率不足 80%，上一个�
 #### 枚举 `STATUS_CODES`
 取值：`stale_26h`、`not_published_low_coverage`、`extinguished_today`、`disabled_7d`、`canary_terminated`、`usertype_changed`、`all_zero_jump`、`legacy_unmapped_2pct`、`legacy_snapshot_missing`、`gsc_gap_exceeded`、`gsc_unverifiable`、`run_missed`、`shadow_mode`、`db_size_cap`、`parse_error`
 
-前十四个是 TR-10 的清单（含 `legacy_snapshot_missing`）。`run_missed` 指 02:30 UTC 仍没有当天的 Trends 批次，或 GSC 超过 4 小时没有新轮次。`parse_error` 是 TR-14 每周线上合同检查的告警码，解析失败只写这个码，不写值。
+前十四个是 TR-10 的清单（含 `legacy_snapshot_missing`）。`stale_26h` 只属于 Trends，两种情况任一成立就亮：当前生效的 live 集合发布超过 26 小时（恰好 26 小时不算）；或者简化版趋势表（2026-09-30，不发布集合）落后：最新一个采完的表批次（stable、有 `window_end`、`finished_at` 不为空）的 target_date 早于 02:30 UTC 起应到的日期，或者一个都没采完过而第一个表批次（不论采没采完）已经应到，且 `run_missed` 没有成立（`status_rules.trends_table_stale`，`obs_status_cases.json` 的 `trends_table_*` 用例，字段 `table_through`、`table_since`）。`run_missed` 指 02:30 UTC 仍没有当天的 Trends 批次，或 GSC 超过 4 小时没有新轮次。`parse_error` 是 TR-14 每周线上合同检查的告警码，解析失败只写这个码，不写值。
 
 #### 枚举 `BANNER_LEVELS`
 取值：`red`、`warn`、`info`
+
+#### 简化版趋势表 `TrendsTable`（`GET /api/pick/obs/trends-table`，2026-09-30）
+
+不属于本合同的集合与判定：简化版只读参考表的接口（`ggwork_pick/observe/trends_table.py`，前端的双实现是 `frontend/src/core/pick/trends-table-schema.ts`，契约夹具 `frontend/tests/unit/core/pick/fixtures/backend-trends-table.json` 由 `test_trends_table.py` 从真实回答写出）。要登录；读失败返回 503，只写固定文案。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `checked_at` | 时间戳 | 计算横幅所用的 now |
+| `banners` | `ObsBanner` 列表 | Trends 通道的横幅，去掉 `shadow_mode` |
+| `batch` | 对象或 null | 最新的 stable 表批次（`top_dramas` 任务来源）：id、target_date、模式、outcome、`collecting`（还在跑且没过 01:45 截止）、开始与结束时刻、`window_end`、剧库批次、取剧来源（各榜那一期与部数、收入补足）、计数（计划、有数据、未返回数据、未查到、还在查）；还没有这样的批次为 null |
+| `rows` | 列表，至多 200 行 | 任务清单上的每部剧，按入选顺序：身份、剧名、平台、语种、查询词、geo、时间范围、入选依据（榜、那一期的日期、名次；或收入名次与快照日）、`result`（`data`：`ok` 或 `ok_zero` 且至少一天有值；`no_data`：Google 的空回答；`not_fetched`：失败、截断、熔断或截止跳过、没轮到；`pending`：还没有原始行也没有停止原因、批次还在采）、`status`（取数状态或停下的原因）、`series`（日期、0–100 的值或 null、是否不完整；没有原始行时为 null） |
+| `row_limit`、`truncated` | 整数、布尔 | 行数上限，是否有行没列出 |
+
+均值、变化、标签与链接不在接口里，由前端按 `trends-table.ts` 的门槛计算。
 
 ---
 

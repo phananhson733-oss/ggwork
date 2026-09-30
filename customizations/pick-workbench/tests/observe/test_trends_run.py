@@ -116,7 +116,8 @@ async def test_market_series_missing_refuses_the_canary(obs_url, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_stable_waits_for_its_task_source(obs_url, tmp_path):
+async def test_stable_refused_at_the_canarys_granularity_and_route(obs_url, tmp_path):
+    """stable runs the simplified radar's source at D and a_only only (test_trends_stable_night covers it)."""
     _, controls = await _night(obs_url, tmp_path)
     clock = ManualClock(at(EVE, 21, 0))
     google = FakeGoogle(clock)

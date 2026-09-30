@@ -1,8 +1,10 @@
 # Trends 夜间会话与 cron 入口（TR-14）
 
-代码：`ggwork_pick/observe/trends/{__main__,run,executor,units,canary,admission,capacity,preflight,contract_check,settings,session_rows,session_summary}.py`，以及两个 cron 共用的 `ggwork_pick/observe/{cron,cron_status}.py`。设计 3.2、4.2–4.5、4.9–4.11、6.3；计划 TR-14、第 8 节、第 9 节、D10、D11、D23、D34；反例 1、2、10。
+代码：`ggwork_pick/observe/trends/{__main__,run,executor,units,canary,top_dramas,admission,capacity,preflight,contract_check,settings,session_rows,session_summary}.py`，以及两个 cron 共用的 `ggwork_pick/observe/{cron,cron_status}.py`。设计 3.2、4.2–4.5、4.9–4.11、6.3；计划 TR-14、第 8 节、第 9 节、D10、D11、D23、D34；反例 1、2、10。
 
 启动顺序（自检、租约、库内状态）与退出码的来历见 `lease-and-selfcheck.md`；客户端与执行器的接口见 `trends-client.md`。本页只讲会话本身。
+
+**简化版（2026-09-30）**：范围以 `docs/plans/2026-09-30-trends-radar-simplified-scope.md` 为准。stable 模式每晚查我们最热的 100 部剧，结果由 gateway 的只读接口给资料页的趋势表，不发布集合。见本页「简化版的任务来源」「趋势表与排错」两节；金丝雀的部分不变。
 
 ## 命令
 
@@ -27,7 +29,7 @@
 |---|---|---|
 | 0 | 跑完了；或者不到起跑时刻、已过 01:45 截止、当天批次已结束或已发布，什么都不做 | 无 |
 | 1 | 中途失败：租约在别的进程手里、启动时等锁或语句超时、跑到一半租约被接管（`LeaseLost`） | 下一次触发自动接着跑 |
-| 2 | 拒跑，一个请求都没发：配置不对（包括模式在所设节奏下放不进窗口，见「容量」）、金丝雀对照清单缺失或不合格式、清单缺某个要查的 geo 的市场序列、没有已发布的共享剧库批次、金丝雀负载不够（`not_published_low_coverage`）、自检不过、stable 还没有任务来源、`disabled_7d`、`canary_terminated`；`preflight` 预演到今晚会被拒跑 | 看报错一行；负载不够见「金丝雀的负载闸门」，后两种见下文 |
+| 2 | 拒跑，一个请求都没发：配置不对（包括模式在所设节奏下放不进窗口，见「容量」）、金丝雀对照清单缺失或不合格式、清单缺某个要查的 geo 的市场序列、没有已发布的共享剧库批次、金丝雀负载不够（`not_published_low_coverage`）、自检不过、stable 的粒度或去向不是 `D`、`a_only`、`disabled_7d`、`canary_terminated`；`preflight` 预演到今晚会被拒跑 | 看报错一行；负载不够见「金丝雀的负载闸门」，后两种见下文 |
 | 3 | 库内状态或运行时行读不回来（D34）；当天批次的 `plan_json` 读不回来 | 按 `lease-and-selfcheck.md` 处理，不要删运行时行；`plan_json` 坏了先查那一行，程序不会另起任务清单（反例 1） |
 | 130 | 被中断 | 重跑是安全的 |
 
@@ -59,11 +61,11 @@ target_date 是这晚要供给的那次 02:00 UTC 发布的日期：起跑到次
 | `canary2` | 18:30 | 约 300 | 450 | 285 | 01:45 |
 | `stable` | 17:30 | ≤350（暂定） | 525 | 330 | 01:45 |
 
-「单元可用」是计划减去预热、探针、重试的预留（15、15、20，设计 4.5；`budget.plan_budget`），任务清单按它截断。熔断当天的上限减半由 TR-03 的 `budget.day_limits` 决定。canary2 与 stable 的上限是计划的 1.5 倍。stable 的数字是暂定的：TR-18 接上任务来源、G4 定稳定期参数时重定（计划第 9 节）。
+「单元可用」是计划减去预热、探针、重试的预留（15、15、20，设计 4.5；`budget.plan_budget`），任务清单按它截断。熔断当天的上限减半由 TR-03 的 `budget.day_limits` 决定。canary2 与 stable 的上限是计划的 1.5 倍。stable 的数字是暂定的：G4 定稳定期参数时重定（计划第 9 节）。简化版每晚 100 部剧、每部 2 个请求，共 200 个，放得下；单元可用的 330 个请求最多容 165 部（简化范围第 7 节第 2 条）。
 
 cron 每 30 分钟触发一次（17:00 到 01:30，TR-15 配置）。早于起跑时刻的触发、01:45 及之后的触发，退出码 0，不取租约、不连库做任何事。01:45 是硬截止：会话里任何请求都不会在它之后发出，剩下的单元记 `deadline`。
 
-**`window_end`**（设计 4.9）是建批次那个整点减 3 小时。按时起跑时：canary1 21:00 建批次，`window_end` 18:00；canary2 18:30 建，15:00；stable 17:30 建，14:00。起跑那次触发晚了几分钟不影响（21:10 建的也是 18:00）；会话崩溃后续跑不重算（D23）。
+**`window_end`**（设计 4.9）按粒度定。小时级（`H`、`HD`）是建批次那个整点减 3 小时。按时起跑时：canary1 21:00 建批次，`window_end` 18:00；canary2 18:30 建，15:00。起跑那次触发晚了几分钟不影响（21:10 建的也是 18:00）。日级（`D`，简化版的 stable）是建批次那天的 UTC 零点：stable 17:30 建批次，`window_end` 是当天 00:00，这一天及以后都算不完整的日子，最后一个完整日是前一天（`run.window_end_of`，预检用同一个函数）。无论哪种，会话崩溃后续跑都不重算（D23）。
 
 **换起跑时刻的第一天**：改模式就换了起跑时刻，换后第一天的 `window_end` 与前一天的间隔不再是 24 小时：canary1 → canary2 是 21 小时（18:00 → 次日 15:00），canary2 → stable 是 23 小时（15:00 → 次日 14:00）。设计 4.9 第 6 条的 `confirmed` 要求相邻两天的 `window_end` 前移 20–28 小时，所以这两次切换当天仍可确认；以后 TR-18、G4 重定 stable 的起跑时，前后两个起跑相差超过 4 小时，换后第一天只能记 `first`，不会自动确认。金丝雀期间改节奏（`PICK_OBS_TRENDS_PACE`）、起跑时刻或负载，都从改后的第一天起重新数验收（计划第 9 节「金丝雀期间不换参数」）。
 
@@ -86,6 +88,7 @@ cron 每 30 分钟触发一次（17:00 到 01:30，TR-15 配置）。早于起�
 | `canary1`（21:00，220） | 91 | 127 分钟，100% | 230 分钟，98.9% | 250 分钟，98.9% |
 | `canary2`（18:30，300） | 126 | 175 分钟，100% | 321 分钟，99.2% | 同左（午夜前已跑完） |
 | `stable`（17:30，350） | 146 | 206 分钟，100% | 372 分钟，99.3% | 同左 |
+| `stable` 简化版（17:30，100 部 × 2） | 100 | 125 分钟，100% | 225 分钟，99% | 同左（午夜前已跑完） |
 
 G3 之前的参数在这个节奏下放不进窗口：canary2 22:00 起 430 个请求，无熔断只覆盖 89%、一次 429 只有 47%；stable 20:30 起 650 个，无熔断 81%；canary1 22:00 起一次 429 覆盖 96%，刚过线，午夜后再崩溃一次只剩 86%。
 
@@ -96,7 +99,7 @@ G3 之前的参数在这个节奏下放不进窗口：canary2 22:00 起 430 个�
 2. 自检、取租约、在租约之下读状态（`lease.collector_session`）。
 3. 拒跑检查：熔断停用（`disabled_7d`），或金丝雀已终止（`canary_terminated`），就把这个码写到当天的批次行上再以 2 退出（见「拒跑行」）。
 4. 取当天批次：
-   - 没有就新建。`window_end` 在建批次时写定（建批次那个整点减 3 小时，设计 4.9；21:10 建的是 18:00），任务清单在这时展开、排序、截断，一并写进 `plan_json`（被截断的单元按截断顺序另列在 `truncated`，概览在 `notes.admission`）。金丝雀的任务清单要先过负载闸门（「金丝雀的负载闸门」），不过就写拒跑行、以 2 退出，不建批次。更早的、还在 running 的批次一并记成 failed。
+   - 没有就新建。`window_end` 在建批次时写定（小时级是建批次那个整点减 3 小时，设计 4.9，21:10 建的是 18:00；日级是那天的 UTC 零点），任务清单在这时展开、排序、截断，一并写进 `plan_json`（被截断的单元按截断顺序另列在 `truncated`，概览在 `notes.admission`）。金丝雀的任务清单要先过负载闸门（「金丝雀的负载闸门」），不过就写拒跑行、以 2 退出，不建批次。更早的、还在 running 的批次一并记成 failed。
    - 已有而没结束的，原样接着跑：`window_end` 与任务清单都不重算（反例 1），已完成的单元跳过。
    - 已结束（有 finished_at）或已发布的：退出 0。拒跑行不算，见「拒跑行」。
 5. 执行器逐个单元跑（下一节）。
@@ -136,7 +139,27 @@ G3 之前的参数在这个节奏下放不进窗口：canary2 22:00 起 430 个�
 - 按截断顺序每第 4 个剧目单元加 relatedsearches，去向为 `a_only` 时不加；
 - 对照清单里的 identity 在当前批次里找不到的，记在 `plan_json.notes.missing_controls`，不中断；各组对照的列出数与匹配数记在 `notes.controls`，近 14 天剧目数记在 `notes.recent_dramas`。
 
-stable 模式的任务来源是 TR-18 的 `WatchTaskSource`，本任务里还没接上：`PICK_OBS_TRENDS_MODE=stable` 以 2 拒跑，报错说明要等 TR-18。
+stable 模式的任务来源见下一节。
+
+## 简化版的任务来源（stable，`top_dramas.py`）
+
+2026-09-30 简化范围第 3 节、第 6 节第 1 项。`PICK_OBS_TRENDS_MODE=stable` 用 `TopDramasTaskSource`，只在 `PICK_OBS_TRENDS_GRANULARITY=D` 且 `PICK_OBS_TRENDS_ROUTE=a_only` 时跑，其余组合以 2 拒跑，报错写明这两个变量（`__main__.source_for`）。金丝雀的任务来源、负载闸门与 `canary_controls.json` 都不受影响。
+
+**取剧**（至多 100 部，`TARGET_DRAMAS`）：
+
+1. 当前共享剧库批次（最新一个已发布的 `system:shared` catalog 批次，只读）里 `payload_json.signals[]` 带名次的三个榜，按鹊娱转化榜 `qc`、鹊娱收入榜 `qr`、Kalos 日榜 `kd` 的顺序各取各的最新一期。一期是这个 kind 在全部行里 `observed_at` 最大的那一天，只取那一天上榜的行；同一行在一期里有几个名次时取最好的一个。不同榜的名次不混排。每行的信号只保留最后一次上榜，资料页「依据」徽标上的数是历来上过榜、现在还在剧库里的行数，不是最新一期的行数。
+2. 不够 100 部时，用 ReelShort 的收入补足：最新一个已发布的镜像版本，在它的快照日（`latest_snapshot`，不晚于当天 UTC 日期）读 `pick_mirror.series.revenue_cents` 那一天的值，按从高到低取公开的规范剧（`is_public_canonical`），收入为 0 的不取，剧名与语种来自该版本的 `rs_ids`，最多读 200 个名次。这个数是 RealShort 的滚动 30 天收入快照，只读一天，不相加也不相减。只有 PostgreSQL 有镜像；没有已发布版本、表读不了或没有授权时不补，原因记在 notes 里，只用榜单照跑。
+3. 去重只按身份（identity，`[source, source_id, language]`，一行就是一部剧的一个语种版本）。同一行上了几个榜，只占一个单元，几个依据都记下。不同身份一律各占一行，清洗后查询词相同也不合并（简化范围第 3、5 节：每个语种剧名各占一行，不自动归并），各自向 Google 查一次；不跨语种合并。ReelShort 行在剧库里的身份是 `["realshort-pick", base64url("reelshort-<id>"), 语种]`，所以榜单上的 ReelShort 剧与收入补足的是同一个身份。
+
+一部剧也取不到时以 2 拒跑（这一晚什么都量不到）。
+
+**单元**：每部剧一个日级单元，地区为全球（`WW`），时间范围 `today 1-m`，只要序列，不查相关搜索，每部 2 个请求（explore、multiline）。查询词是完整剧名经 NFKC 规范化，去掉配音标记（括号里的，或剧名末尾的 dub、dubbed、doblado、dublado、doublé、synchronisiert、doppiato、配音、译制等，整词匹配，所以 Dubai 不受影响），标点与符号换成空格（词中间的撇号保留并统一成 `'`），空白合并。清洗后为空、超过 200 个字符或含不可打印字符的剧名不查，计入 `unusable_titles`。单元的优先级就是入选顺序，截断按这个顺序。
+
+**记在批次上的东西**：`plan_json.source` 为 `top_dramas`，`plan_json.notes.top_dramas` 记目标部数、实际取到的部数、各榜（kind、那一期的日期、列出的部数）、收入补足（是否可用、原因、镜像版本、快照日、补了几部）、不能用的剧名个数，以及按单元 key 记的每部剧（入选顺序、身份、剧名、平台、语种、依据列表）。gateway 的趋势表只读这一份，不另查剧库，所以表里的入选依据就是那一晚取剧时的样子。
+
+**授权**：采集角色本来就能读这些（`observe/grants.py`：共享剧库批次、`pick_mirror.versions` 与 `series`、各镜像版本的 `rs_ids`），不加新授权。读镜像前先查 schema 与表的权限，缺授权时只是不补收入，不会让整个事务因报错中止。
+
+**2026-09-30 的生产数据**（另一会话以 `pick_observer` 只读核实，批次 `5b590062`，12,519 行）：`kd` 最新一期 09-28，10 行；`qc`、`qr` 最新一期 09-30，各 25 行；合计 60 行，去重后 52 行，所以 100 部里约 48 部靠收入补足。Kalos 日榜 09-28 之后没有更新（上游榜单采集还没恢复），表头与入选依据都写出每一期的日期。
 
 ## 金丝雀的负载闸门（`admission.py`）
 
@@ -202,9 +225,31 @@ TR-30 修复原因后要重跑金丝雀：设 `PICK_OBS_CANARY_SINCE=YYYY-MM-DD`
 - 两个都拿到解析得了的答复（`ok`、`ok_zero`、`no_data`）：通过，清掉上一批次带来的 `parse_error`；
 - 其余情况（限流、5xx、超时、HTML、验证码，或有一个没跑到）：没有结论，`parse_error` 照旧沿用，不会因为周一被限流就把改版告警清掉一周。
 
+## 趋势表与排错（gateway 只读接口）
+
+资料页的「Google 趋势」tab 读 gateway 的 `GET /api/pick/obs/trends-table`（`ggwork_pick/observe/trends_table.py`，要登录，每个登录用户看到同一份）。不加迁移，不给前端的库角色加授权；gateway 本来就拥有这些表。
+
+- **读哪一晚**：最新的 stable 批次，要求 `window_end` 不为空（拒跑行没有），且 `plan_json.source` 为 `top_dramas`。金丝雀批次与拒跑行都不算。
+- **每行**：任务清单上的每个单元（包括被截断的），按入选顺序，最多 200 行，每行最多 40 个点。采集结果只看这一晚这个单元的裸序列原始行：`ok`、`ok_zero` 且至少有一天有值为有数据（全是 0 的曲线是 Google 的相对指数，照样画线、照样算均值，通常落在「数据太少」，不当成「未返回」，也不当成搜索量为 0）；`no_data`，或者一天有值的都没有，为 Google 未返回数据；其余失败状态、被截断（`truncated`）、熔断或截止跳过、没轮到（`not_reached`）为这晚未查到。单元还没有原始行时：汇总里已记下停止原因的（`skipped_breaker`、`deadline`、`truncated`）直接按这晚未查到显示，即使批次还在跑；没有原因、批次还在跑且没过 01:45 截止的为还在查。表头的 `collecting` 只在批次还在跑且没过截止时为真；过了截止还停在 running（进程死了、还没有触发把它收尾），页面写「没有采完：采集中途停了」。原始行只在单元结束时写，所以没查到的剧没有曲线，**不会拿前几晚的曲线顶替**。原始行读不懂的记一行警告（只写单元 key），按未查到显示。
+- **曲线**：Google 返回的序列，`hasData` 为 false 的那天是 null，不补 0；`isPartial` 为 true 或日期不早于 `window_end` 那天的点标为不完整。
+- **横幅**：与 `/sync` 的 Trends 横幅同一套规则（`status.banners_of`），去掉 `shadow_mode`（简化版不发布集合，发布开关与表无关）。`stale_26h` 对表是按批次判的：最新一个采完（`finished_at` 不为空）的表批次的 target_date 早于 02:30 UTC 起应到的日期；或者一个都没采完过，而第一个表批次的 target_date 已经应到（首晚就崩的情况）；两种都要 `run_missed` 没有成立（`status_rules.trends_table_stale`）。一个表批次都没有时不亮。
+- **读失败**：返回 503「趋势表暂时读不了，稍后再试」，日志只写异常类名。页面显示同一句话，页签外壳照留；401 转去登录页。
+- **两段均值与标签**在前端算（`frontend/src/core/pick/trends-table.ts`），门槛（±25%、少于 3 个不为 0 的天）只在 `TREND_RULES` 一处，改门槛只需要发前端。
+
+**排错**：
+
+| 现象 | 查什么 |
+|---|---|
+| 页面写「还没有趋势表」 | 还没有一晚 stable 跑过，或最新的 stable 批次不是 `top_dramas`。跑 `python -m ggwork_pick.observe.trends status` 看最近的批次与 `plan` 行；服务变量要是 `MODE=stable`、`GRANULARITY=D`、`ROUTE=a_only`，否则每次触发都以 2 拒跑 |
+| 红色「Trends 数据过期」或「采集没有按时运行」 | 看 Railway 上 `pick-obs-trends` 最近几次触发的退出码与日志；`status` 的最近批次是否停在 running（续跑失败）或是拒跑行（`disabled_7d` 等，见「状态码与拒跑行」） |
+| 大量「这晚未查到」 | 看行上的原因：`rate_limited` 等是被限流，`deadline` 是 01:45 前没跑完，`truncated` 是超出当晚预算。`status` 的预算行与熔断状态说明当晚发生了什么 |
+| 大量「Google 未返回数据」 | Google 没有返回可用的曲线（`no_data`，或曲线一天有值的都没有）。可能与剧名在全球范围的搜索量不足有关，但不能据此判断没有需求，也不能单凭它排除采集或解析的问题：先看同一晚其他行是否正常有数据，再用行尾链接在 Google Trends 上手动查几部对照。第一周查到数据的比例很低时，按简化范围第 10 节第 4 步考虑改地区 |
+| 收入没有补足 | 表头的来源一行写了原因：没有已发布的镜像版本、镜像读不了（授权缺失时跑 `admin regrant --check`）、或榜单已凑满 |
+| 页面写「趋势表暂时读不了」 | gateway 日志里 `[pick-obs] reading the trends table failed:` 那一行的异常类名；gateway 自己连不上库时 `/sync` 也会同时报错 |
+
 ## 发布接缝（TR-20）
 
-两个接缝，本任务里都不接（金丝雀从不发布；stable 还没有任务来源），收尾一律记 withheld：
+两个接缝，本任务里都不接（金丝雀从不发布；简化版的 stable 也不发布集合，结果由 gateway 的趋势表接口直接读），收尾一律记 withheld：
 
 - `refetch`（`executor.Refetch`）：任务清单跑完之后、客户端关闭之前调用，拿到一个「再跑一个单元」的函数。设计 4.9 第 6 条对 first 命中的一致性复取要发 HTTP，而收尾步骤里不能发请求，所以放在这里；复取的每个请求照样等限速器、扣预算、写请求行。
 - `publish`：在收尾那个租约步骤里调用，拿到 `Finishing`（批次、任务清单与进度、状态机、汇总文档、会话得出的状态码，以及 `uncovered_dramas`：按合同 `UncoveredUnit` 的形状列出没覆盖的剧目单元，市场序列与合同检查单元没有 identity，已滤掉），返回 `Published`（集合 id 或 None，外加它要加的状态码，比如 80% 覆盖门槛没过时的 `not_published_low_coverage`；只收合同 `STATUS_CODES` 里的码）。有 id 记 published，否则 withheld，码并进批次行。
@@ -220,3 +265,7 @@ TR-30 修复原因后要重跑金丝雀：设 `PICK_OBS_CANARY_SINCE=YYYY-MM-DD`
 `test_trends_run.py::test_batch_keeps_the_pace_it_ran_at`、`test_a_night_admitted_after_a_refusal_is_marked_late`：批次的 `plan_json.notes` 记下节奏（`user` 与 `design` 各一遍）与 `late_admission`（按时建的 `false`；21:00 被负载闸门拒、补齐后 22:30 接管的 `true`，`window_end` 19:00），`status` 的 plan 行显示两项。
 
 `test_night_as_the_observer`：以按 TR-12 授权的观测角色（生产里是 `pick_observer`）连库跑一整晚（含一次重跑与一次暂停）再跑 `status`，授权够用。
+
+`test_trends_stable_night.py`：stable 简化版一晚，走真实的入口与执行器（ManualClock、FakeGoogle），生产节奏 `user`：100 部 × 2 个请求，无熔断 19:24 全部查完（估算 125 分钟），第 56 个请求 429 时 21:04 查完 99 部（估算 225 分钟，99%），远早于 01:45；熔断当天上限减半后也放得下。`window_end` 为建批次那天的 UTC 零点，预检给出同一个值。
+
+`test_trends_table.py`：gateway 的趋势表在本机 SQLite 与 PostgreSQL 上各跑一遍：任务清单驱动、有数据与未返回数据与未查到分开计数、没轮到的剧不拿前一晚的曲线顶替、按批次判过期、金丝雀与拒跑行不算表批次、读失败 503 不带原文；并写出前端契约夹具 `frontend/tests/unit/core/pick/fixtures/backend-trends-table.json`（`PICK_WRITE_CONTRACT=1` 时重写）。

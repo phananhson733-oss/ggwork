@@ -201,6 +201,14 @@
 - **S6、S6a（2026-09-28 16:10 UTC）**：`selfcheck ok: collector=obs-collector-v1 head=0007 role=pick_observer package=sha256:dcd93ed1a342f409be49fc1c13589d272b28c3d2813eb22ac347eda5b4b3b6de`，摘要等于检出里源码与托管副本算出的值，`at` 在镜像的 site-packages 下；没有「这个服务不读」的警告。预检：target_date 2026-09-29、`canary1`、`user` 节奏，`reasons` 与 `refused_by` 为空，计划请求 204（下限 176）、92 个单元，正对照匹配 10（下限 8），无熔断估算覆盖率 1。`check --deployment` 核对这次部署的清单与自检配置一致。共享剧库批次里找不到的对照（`missing_first`，只记 identity）5 个：
   - `realshort-pick` `ZmxhcmVmbG93LTY2NzkxNQ` en；`cmVlbHNob3J0LTZhOGQyZDc5ODdjOTM0M2M3YTA1YTc5OA` es；`cmVlbHNob3J0LTZhOGU3YzIyN2NmOTI1YzI0YTA1NDIzMw` pl；`cmVlbHNob3J0LTZhNmRhMmMwYmQ1ZDhlYmYxNzBmMTU4OQ` zh-hant；`cmVlbHNob3J0LTZhN2FjMjRmMTgxZjc3NTg0MzAwYTgyNw` es
 - **停在自检配置，不开 cron**：服务没有 cron 计划，今晚不跑。阶段 0 第二天 09-28 15:29 UTC 跑完，定稿报告的结论是闸门 A 小时级不过、日级未定（只观测到 7 部正对照），闸门 B 过，路线未定。等 G2 据此定 ROUTE、粒度与节奏，再按 packaging.md 第 5 节第 4 步从最新 main 重走一遍（守卫仍带首次记录参数），切到 cron 配置并核对之后才追加守卫记录行。
+- **切 cron 未完成（2026-09-29 15:46–16:24 UTC）**：G2 定了 `b_only`、`H`、`user`（计划第 8.1 节），按 packaging.md 第 5 节第 4 步重走，两轮都在第二次部署前重跑守卫时被拒，服务仍停在自检配置，没有 cron 计划，今晚 canary1 不跑，S7 没有开始。
+  - 变量：`PICK_OBS_TRENDS_ROUTE` 由暂定的 `both` 改为 `b_only`（`--skip-deploys`，随下面的部署生效）；`PICK_OBS_TRENDS_GRANULARITY=H` 显式保留；`PICK_OBS_TRENDS_PACE` 不设（即 `user`）；其余变量未动。
+  - 市场对照词表：用户没有批准小样本验证，按现有 `canary_controls.json` 冻结（计划第 14.3 节两路的 B），sha256 `c2689da2cf597699ca828596b3f238ae5a0ab5789b4a3ada9d64561539f96f64`，源码与托管副本相同。
+  - 第一轮：fbda69ff，守卫 15:46Z 通过（生产迁移头 0007，链头 0007），`apply` 自检配置，部署 `fb8a2cc4-f645-436a-afd4-4b582558e70b`，`check --deployment` 一致，自检与预检两行都过。之后重跑守卫被拒：`ggwork/main` 前进到 7d33058（本文件补记 gateway fbda69f 上线）。
+  - 第二轮：7d33058，守卫 16:09Z 通过，部署 `3acd3d97-29b2-414e-996d-8b97a5216e28`，`check --deployment` 一致，两行都过。之后重跑守卫又被拒：`ggwork/main` 前进到 98a683d（本文件补记前端 7d33058 上线）。离 17:00 只剩约 35 分钟，按第 7 节不再重走。
+  - 两轮的自检行相同：`selfcheck ok: collector=obs-collector-v1 head=0007 role=pick_observer package=sha256:811dafd9f45a20f49a5e9c7007b954e673abca5eddaaf8c83dbe01c7ab7b3e94`，摘要等于检出里源码与托管副本算出的值，`at` 在镜像的 site-packages 下，没有「这个服务不读」的警告。预检也相同：target_date 2026-09-30、`canary1`、`user` 节奏，`reasons` 与 `refused_by` 为空，计划请求 204（下限 176）、92 个单元，正对照匹配 9（下限 8，09-28 是 10），共享剧库批次 12,508 部、近期 227 部，无熔断估算覆盖率 1。`missing_first`（只记 identity）5 个：
+    - `realshort-pick` `ZmxhcmVmbG93LTY2NzkxNQ` en；`cmVlbHNob3J0LTZhOGQyZDc5ODdjOTM0M2M3YTA1YTc5OA` es；`cmVlbHNob3J0LTZhOGU3YzIyN2NmOTI1YzI0YTA1NDIzMw` pl；`cmVlbHNob3J0LTZhNzk0YjFkNGYwM2ZmNGM1YzA2OTk0OQ` es；`cmVlbHNob3J0LTZhNmRhMmMwYmQ1ZDhlYmYxNzBmMTU4OQ` zh-hant
+  - 下一步：在 UTC 02:00–17:00 内从最新 main 的干净检出重走一遍，守卫仍带首次记录参数；两次部署之间约 20 分钟，这段时间里别的会话推 main（哪怕只改本文件）都会让第二次部署前的守卫被拒，要先和在推 main 的会话约好这段时间不推。切到 cron 并核对之后才追加守卫记录行；这两轮守卫打印的记录行都不追加。
 
 
 ## 选剧资料审查修复与数据恢复（2026-09-28）
@@ -401,7 +409,7 @@
   - 同一线程页面里第二次断流不会再自动重新加入。
 - `pick-deploy-guard target=frontend commit=7c73ac9c0c7fe8c1613caff519512bd7e1b0019e at=2026-09-29T12:57:15Z`
 
-## 能力中心：目录裁剪、插件打通与连接检测（PR #20，2026-09-29，未部署）
+## 能力中心：目录裁剪、插件打通与连接检测（PR #20，2026-09-29 上线）
 
 - 起因：用户提了三点。智能体还没实现，入口先屏蔽。IM 只留飞书；文档加飞书和 Google Docs，腾讯文档、Notion 先屏蔽。其余入口要真的能连上，GitHub 这类当时都没打通。用户截图里 GitHub 配置框的「服务地址」被浏览器自动填成了登录邮箱，「授权请求头」填成了登录密码。
 - 用户定的范围：
@@ -445,8 +453,41 @@
   - 前端：check 通过，单测 2,797 通过、45 跳过；能力中心、业务插件、集成、图标、MCP 设置、侧边栏 6 个 e2e 文件 38/38；
   - ruff 通过；agent guidance 检查 0 错误；
   - 独立审查：CRITICAL、HIGH 为 0。MEDIUM 两条：插件放给所有登录用户，是用户的决定；飞书群通知可能被外部内容诱导发送，已用上面的读后拦截处理。
+- 上线：
+  - 更正：这里原先写「#20 合并后 Vercel Git 集成在 14:03Z 自动把前端推上 Production」，不对。
+    - 那次 Git 集成的部署，去的是同一团队里另一个 Vercel 项目 `ggwork`，别名 ggwork-nine.vercel.app。这个站的 `/api` 转发到私有主机名（Vercel 报 `DNS_HOSTNAME_RESOLVED_PRIVATE`），没连生产 gateway。
+    - 生产站 ggwork-deerflow.vercel.app 一直是守卫发布的 7c73ac9c（`dpl_5XZsx8urqbnfYrfFx8xrJd8s75Dc`），直到下面的前端发布。
+    - 所以 gateway 上线后、前端发布前，是 gateway 领先前端：侧边栏仍是灰色「智能体」，能力中心仍是旧表单。
+    - 以后判断生产前端版本，看 `vercel inspect ggwork-deerflow.vercel.app`，不看 GitHub 上的 deployment 状态。
+    - #20 合并为 `fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5`。
+  - gateway 经守卫后，从 `git archive` 导出的目录 `railway up`，部署 `8372055f-4d7a-4cc0-90c4-fb5db1eb0631`，SUCCESS。导出目录只有该提交的 3,845 个跟踪文件，链接到同一项目和服务。#14（账号条件被拒时列出可选账号、给出清空写法）的 gateway 改动也在这次上线。#14、#20 都没有新迁移，迁移头仍是 0007；依赖、`uv.lock` 与 Dockerfile 不变。
+  - 部署前在守卫检出（fbda69ff）里验证：
+    - 扩展全套 3,699 通过、21 跳过，用一次性 PG 17 加 SQLite，跳过的都是方言专属，含 `test_managed_copy`。部署后又在 fbda69ff 上用 `initdb --auth=scram-sha-256` 建的全 scram 集群重跑一遍，结果相同。这个集群的 pg_hba 里 local 与 127.0.0.1 都是 scram，没有 trust；
+    - gateway 四格 35 条，两种库都有，0 跳过；全 scram 集群上重跑结果相同；
+    - 宿主用例 466 通过：入口、JSON 净化、create_user（含 PG 那条）、能力中心与业务插件、MCP 缓存、RBAC；
+    - 镜像依赖集（`--no-dev --extra postgres`）里有 ddgs、langchain-mcp-adapters、mcp、readabilipy。没有 Node 时，`web_fetch` 的正文提取走 readabilipy 的纯 Python 回退。
+  - 部署后核对：
+    - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`。没有 Traceback，没有 `service start() failed`，也没有 `Running upgrade`。唯一的 WARNING 仍是 GitHub webhook 路由未挂载。
+    - 以管理员登录后请求，GET `/api/capabilities/connections/check` 从 404 变为 405（`Allow: POST`），`/api/pick/sync` 返回 200。`/api/capabilities/catalog` 不再列出 lark、dingtalk、wecom、tencent-docs、notion、browser，新增 feishu-bot、feishu-docs、google-docs。
+    - 跑了一轮选剧对话：模型先反问选榜，再按 KalosTV 日榜作答。两个 run 都 success，日志没有报错。
+    - 容器内 `regrant --check`（用户执行，本会话的 `railway ssh` 被 auto mode 拦下）：授权齐全，schema 7、表 31、列 4、序列 12，已发布镜像版本 5 个（pickm_v000001、v000010、v000012、v000013、v000015）。比 PR #10 那次多一个版本，schema 和表因此各多一个。`observe.selfcheck` 能否导入没有在容器里单独核对，#14、#20 没有改它。
+  - 前端：经守卫从 `git archive` 导出的目录发布 7d330584（前端与 fbda69ff 相同），部署 `dpl_DdQ17qjH5Fro3jkoFhrB6QDwG2zR`，生产别名 ggwork-deerflow.vercel.app 指向它。导出目录里是 `frontend/` 的 1,033 个跟踪文件，另外只放了 `.vercel/project.json`。构建带 `NEXT_PUBLIC_APP_VERSION=20260930-7d33058`。gateway 这次没动。
+  - 部署前在守卫检出（7d330584）里验证：
+    - 四格 5/5，含 hot card 格；
+    - 合同夹具 12/12；
+    - 前端全套 2,797 通过、45 跳过；
+    - typecheck 通过，检出干净。
+  - 部署后核对：
+    - `/` 307 到 `/workspace`；
+    - 未登录访问 `/workspace/chats/new`、`/workspace/capabilities` 307 到 `/login`；
+    - 带 `RSC: 1` 的请求只返回到 `/login` 的 `NEXT_REDIRECT`；
+    - `/login` 带 `X-Robots-Tag: noindex, nofollow`。
+  - 以管理员登录后核对：
+    - 侧边栏不再显示「智能体」；
+    - 能力中心列出飞书群通知、飞书文档、Google Docs，网页搜索与网页读取显示已启用；
+    - GitHub 弹窗只有连接名称和个人访问令牌两项，令牌框没有被浏览器自动填充；
+    - 关于页的版本号是 20260930-7d33058。
 - 部署后由用户做：
-  - gateway 和前端都要部署，时间与另一会话协调。前端部署目前暂停。
   - 在能力中心填真实凭据，每填一项看一次检测结果：
     - GitHub：细粒度只读令牌；
     - Jira：组织管理员先在 Rovo 设置里开启 API 令牌认证，再填账号邮箱和作用域令牌；
@@ -455,7 +496,11 @@
     - Exa、Firecrawl：填 API Key。
 - 后续：
   - lark-cli 个人授权；
-  - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定。
+  - 插件每轮 8 次的上限写死在代码里，和选剧工具上限一样，要不要改成 Railway 变量由用户定；
+  - PR #16 合并后再经守卫部署一次 gateway；它若改了前端，前端也要经守卫发布；
+  - Vercel 项目 `ggwork`：2026-09-30 按用户要求先断开 Git 集成，再用 `vercel project rm` 删除，ggwork-nine.vercel.app 现在返回 404。本团队里已经没有项目接着这个仓库，推 main 不会再触发任何 Vercel 构建。
+- `pick-deploy-guard target=gateway commit=fbda69ff3cea78be5bbcbff6f2131dfbe7dfa8d5 prod_head=0007 chain_head=0007 at=2026-09-29T15:20:55Z`
+- `pick-deploy-guard target=frontend commit=7d33058427c457446a8a676e317da391aa824144 at=2026-09-29T16:09:56Z`
 
 ## 趋势雷达：TR-25 只读部分与 TR-24 资料页两个 tab（分支 `feat/trends-radar-tr-25-24`，2026-09-30，未合并、未部署）
 
@@ -502,3 +547,18 @@
   - pick 与 pick-board 下任意 `obs-*` 文件、`obs/` 目录里的 `"use client"` 文件，都要登记并写理由。认 `"use client"` 按 AST 的指令序言。
   - 资料页的雷达视图必须是服务端组件。它们的导入按 tsconfig 解析，顺着本地模块一直追下去，只能碰到登记过的 client 组件；解析不了的本地导入也会报出来。
   - 现在登记的只有 `obs-status-panel.tsx`。
+
+## 趋势雷达简化版：只读参考表（分支 `feat/trends-simple`，2026-09-30，未合并、未部署）
+
+范围见 `docs/plans/2026-09-30-trends-radar-simplified-scope.md` 第 6 节第 1 到 8 项；第 9 项部署另经用户同意单独做。金丝雀（`canary.py`、负载闸门、`canary_controls.json`）行为不变，没有新迁移（生产头仍是 0007），没有新授权。
+
+- 任务来源（第 1 项，`observe/trends/top_dramas.py`）：共享剧库批次里 `qc`、`qr`、`kd` 三个榜各取最新一期，名次不混排，按身份去重；不够 100 部时按最新镜像版本快照日的 ReelShort 滚动 30 天收入补足（只读一天，不相加减），剧名与语种取该版本的 `rs_ids`。不同身份一律各占一行，查询词相同也不合并。每部剧一个单元：全球、日级、不查相关搜索、完整剧名去标点与配音标记，每部 2 个请求。入选依据记在 `plan_json.notes.top_dramas`。stable 只在 `GRANULARITY=D`、`ROUTE=a_only` 时跑，否则以 2 拒跑并点名两个变量。
+- 日级 `window_end`（第 2 项）：按建批次那天的 UTC 零点；小时级不变。预检用同一个函数。
+- 预算与容量（第 3 项）：100 部 × 2 个请求放得进 stable 的 330（最多 165 部），熔断减半后也放得下；生产节奏下估算无熔断 125 分钟、一次 429 225 分钟 99%，真跑分别 19:24、21:04 完成。
+- gateway 只读接口（第 4 项，`observe/trends_table.py`，`GET /api/pick/obs/trends-table`）：要登录，读最新的 stable 表批次，任务清单驱动，至多 200 行，每行只看当晚的原始行，没查到的剧写「这晚未查到」，不拿旧曲线顶替；读失败 503 只写类名。托管副本经 uv 0.11.1 刷新。
+- 前端（第 5、7 项）：trends tab 改走 `trends-route.tsx` 读这个接口，不解析镜像版本；表格十列（剧、入选依据、近 30 天小曲线、近 7 日与前 7 日均值、变化、标签、采集结果、短剧名提示、Trends 链接），按变化或入选顺序排序（`ts=`），表头写采集日期与各类部数，空状态各一句。两段均值与标签是纯函数（`core/pick/trends-table.ts`），±25% 与「少于 3 天」只在 `TREND_RULES` 一处，比较用整数精确判定。search tab 从页签栏隐藏，旧链接打开时才列出；横幅与页签外壳照旧。
+- 过期提示按批次判（第 6 项）：`stale_26h` 另加一种情况：最新一个采完的表批次早于应到日期，或一个都没采完过而第一个表批次已经应到（首晚就崩），且 `run_missed` 不成立。Python 与 TS 双实现共用 `obs_status_cases.json`（新增 7 个用例）。
+- 文档（第 8 项）：`observe-runbook/trends-session.md` 加简化版任务来源、趋势表与排错两节；`packaging.md` 写明上线那次部署一起改 `MODE=stable`、`ROUTE=a_only`、`GRANULARITY=D`；`observe-contract.md` 写 `stale_26h` 的新定义与 `TrendsTable` 形状；范围文档第 7 节第 9 条按 09-30 生产数据更正（最新一期合计 60 行，去重后 52 行）。
+- 写路径闸门（`tests/observe/test_write_paths.py`）按包边界认采集器：原来的字符串前缀把 gateway 的 `observe/trends_table.py` 当成了采集器。它不在 `observe/trends` 包里，和 `observe/status.py` 一样经仓储读库。其余 54 个采集器模块照查，新增一个同名前缀兄弟模块的用例。
+- 审查：gpt-6-astra 只读三轮。第一轮 1 条 P1、3 条 P2、1 条 P3，都已修：同查询词的不同身份被合并、首晚就崩不亮过期、已记停止原因仍显示还在查、全零曲线当成未返回、变化四舍五入跨门槛。第二轮确认五条都已解决，另提两条 P3 文案，也已修：+25.0% 未必是上升，「数据太少」先判；未返回数据不断言是搜索量小。第三轮 P0 到 P3 均无。
+- 验证（本地，PostgreSQL 17 自建集群）：pick 全套 3829 通过、25 跳过、0 失败。CI 第二步（entrypoint、sanitizer、create_user）106 通过。ruff check 与 format 通过。pick-board 集成 4 个文件 53 例全过、0 跳过。前端 `pnpm check` 通过，`pnpm test` 304 个文件 3121 例：3068 通过、53 跳过、0 失败。agent guidance 检查 0 个错误；前端 AGENTS 链超软上限的警告在 `ggwork/main` 上已有。

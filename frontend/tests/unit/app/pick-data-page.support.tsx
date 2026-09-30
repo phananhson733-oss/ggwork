@@ -30,6 +30,7 @@ import {
   searchData,
   trendsData,
 } from "../components/workspace/pick-board/obs-fixtures";
+import trendsTable from "../core/pick/fixtures/backend-trends-table.json";
 
 export type Loader = (...args: unknown[]) => unknown;
 
@@ -62,6 +63,7 @@ const LOADERS = [
   "loadRowsByKeys",
   "loadMissingKeys",
   "loadObsTab",
+  "loadTrendsTable",
 ] as const;
 
 function recorded(state: PageState, name: string): Loader {
@@ -344,6 +346,7 @@ export function defaultLoaders(): Record<string, Loader> {
     loadRowsByKeys: () => [pickRow()],
     loadMissingKeys: () => [],
     loadObsTab: (req: unknown) => obsAnswer(req),
+    loadTrendsTable: () => ({ kind: "ok", table: trendsTable }),
   };
 }
 

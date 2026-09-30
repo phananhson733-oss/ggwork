@@ -33,7 +33,9 @@ def set_row(n: int, channel: str, mode: str, published_at: str, *, status: str =
     }
 
 
-def batch_row(batch_id: str, channel: str, mode: str, started_at: str, *, target_date: str | None, codes: list[str]) -> dict:
+def batch_row(batch_id: str, channel: str, mode: str, started_at: str, *, target_date: str | None, codes: list[str], **table: object) -> dict:
+    """A batch row; `table` sets the columns a table batch of the simplified radar has (collect_mode, window_end,
+    finished_at, outcome, plan_json, summary_json)."""
     return {
         "id": batch_id,
         "channel": channel,
@@ -44,7 +46,16 @@ def batch_row(batch_id: str, channel: str, mode: str, started_at: str, *, target
         "started_at": started_at,
         "outcome": "published",
         "status_codes_json": codes,
+        **table,
     }
+
+
+def table_batch_row(batch_id: str, target_date: str, started_at: str, *, finished_at: str | None, codes: list[str] | None = None, **extra: object) -> dict:
+    """A stable-mode, planned batch: one night of the simplified radar's table."""
+    window_end = f"{target_date[:8]}{int(target_date[8:]) - 1:02d}T00:00:00.000000+00:00"  # the eve's 00:00 UTC, as a 17:30 start has it
+    outcome = "withheld" if finished_at is not None else "running"
+    values = {"collect_mode": "stable", "window_end": window_end, "finished_at": finished_at, "outcome": outcome}
+    return batch_row(batch_id, "trends", "shadow", started_at, target_date=target_date, codes=codes or [], **{**values, **extra})
 
 
 async def insert_rows(session_factory, *, sets: Iterable[dict] = (), batches: Iterable[dict] = ()) -> None:
@@ -52,5 +63,5 @@ async def insert_rows(session_factory, *, sets: Iterable[dict] = (), batches: It
     async with session_factory() as session, session.begin():
         if sets:
             await session.execute(insert(obs_sets), sets)
-        if batches:
-            await session.execute(insert(obs_batches), batches)
+        for batch in batches:  # one at a time: a table batch sets columns the others leave out
+            await session.execute(insert(obs_batches).values(**batch))
