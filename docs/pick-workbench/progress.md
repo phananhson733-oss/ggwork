@@ -559,3 +559,6 @@
 - 前端（第 5、7 项）：trends tab 改走 `trends-route.tsx` 读这个接口，不解析镜像版本；表格十列（剧、入选依据、近 30 天小曲线、近 7 日与前 7 日均值、变化、标签、采集结果、短剧名提示、Trends 链接），按变化或入选顺序排序（`ts=`），表头写采集日期与各类部数，空状态各一句。两段均值与标签是纯函数（`core/pick/trends-table.ts`），±25% 与「少于 3 天」只在 `TREND_RULES` 一处，比较用整数精确判定。search tab 从页签栏隐藏，旧链接打开时才列出；横幅与页签外壳照旧。
 - 过期提示按批次判（第 6 项）：`stale_26h` 另加一种情况：最新一个采完的表批次早于应到日期，或一个都没采完过而第一个表批次已经应到（首晚就崩），且 `run_missed` 不成立。Python 与 TS 双实现共用 `obs_status_cases.json`（新增 7 个用例）。
 - 文档（第 8 项）：`observe-runbook/trends-session.md` 加简化版任务来源、趋势表与排错两节；`packaging.md` 写明上线那次部署一起改 `MODE=stable`、`ROUTE=a_only`、`GRANULARITY=D`；`observe-contract.md` 写 `stale_26h` 的新定义与 `TrendsTable` 形状；范围文档第 7 节第 9 条按 09-30 生产数据更正（最新一期合计 60 行，去重后 52 行）。
+- 写路径闸门（`tests/observe/test_write_paths.py`）按包边界认采集器：原来的字符串前缀把 gateway 的 `observe/trends_table.py` 当成了采集器。它不在 `observe/trends` 包里，和 `observe/status.py` 一样经仓储读库。其余 54 个采集器模块照查，新增一个同名前缀兄弟模块的用例。
+- 审查：gpt-6-astra 只读三轮。第一轮 1 条 P1、3 条 P2、1 条 P3，都已修：同查询词的不同身份被合并、首晚就崩不亮过期、已记停止原因仍显示还在查、全零曲线当成未返回、变化四舍五入跨门槛。第二轮确认五条都已解决，另提两条 P3 文案，也已修：+25.0% 未必是上升，「数据太少」先判；未返回数据不断言是搜索量小。第三轮 P0 到 P3 均无。
+- 验证（本地，PostgreSQL 17 自建集群）：pick 全套 3829 通过、25 跳过、0 失败。CI 第二步（entrypoint、sanitizer、create_user）106 通过。ruff check 与 format 通过。pick-board 集成 4 个文件 53 例全过、0 跳过。前端 `pnpm check` 通过，`pnpm test` 304 个文件 3121 例：3068 通过、53 跳过、0 失败。agent guidance 检查 0 个错误；前端 AGENTS 链超软上限的警告在 `ggwork/main` 上已有。
