@@ -109,22 +109,24 @@ def _candidate(identity: str, title: str, kind: str = "qc", rank: int = 1) -> Ca
     return Candidate(identity, title, "DramaBox", "en", Basis(kind, BOARD_ISSUE, rank))
 
 
-def test_merged_keeps_order_and_joins_the_same_identity_or_term():
+def test_merged_keeps_order_and_joins_the_same_identity_only():
+    """One identity is one language version of one drama: a second rank of it joins its basis; another identity is a
+    pick of its own even when its title cleans to the same term (scope sections 3 and 5: no automatic merging)."""
     picks, unusable = merged(
         [
             _candidate("a", "Alpha Bride", "qc", 1),
             _candidate("b", "Second One", "qc", 2),
             _candidate("a", "Alpha Bride", "qr", 5),  # the same identity on another board
-            _candidate("c", "alpha bride!", "kd", 1),  # another drama asking Google the same term
             _candidate("d", "???", "kd", 2),
+            _candidate("c", "alpha bride!", "kd", 1),  # another drama asking Google the same term: its own row
             _candidate("e", "Third", "kd", 3),
         ],
         target=3,
     )
-    assert [pick.identity for pick in picks] == ["a", "b", "e"] and unusable == 1
-    first = picks[0]
-    assert first.term == "Alpha Bride"
-    assert first.basis == (Basis("qc", BOARD_ISSUE, 1), Basis("qr", BOARD_ISSUE, 5), Basis("kd", BOARD_ISSUE, 1, identity="c"))
+    assert [pick.identity for pick in picks] == ["a", "b", "c"] and unusable == 1
+    assert picks[0].term == "Alpha Bride" and picks[2].term == "alpha bride"
+    assert picks[0].basis == (Basis("qc", BOARD_ISSUE, 1), Basis("qr", BOARD_ISSUE, 5))
+    assert picks[2].basis == (Basis("kd", BOARD_ISSUE, 1),)
 
 
 def test_merged_stops_at_the_target_but_still_joins_the_basis():
@@ -186,7 +188,7 @@ BOARD_CATALOG = [
     board_drama(2, title="Conversion Two", boards={"qc": 2}),
     board_drama(3, title="Conversion One", boards={"qc": 1, "qr": 3}),
     board_drama(4, title="Revenue One", boards={"qr": 1}),
-    board_drama(5, title="conversion one!", boards={"kd": 2}, theater="KalosTV"),  # the same term as drama 3
+    board_drama(5, title="conversion one!", boards={"kd": 2}, theater="KalosTV"),  # the same term as drama 3, its own row
     board_drama(6, title="Old Issue", boards={"qc": 1}, issue=date(2026, 9, 1)),
     board_drama(7, title="No Board"),
 ]
@@ -194,28 +196,33 @@ BOARD_CATALOG = [
 
 @pytest.mark.asyncio
 async def test_boards_in_their_order_each_by_rank(obs_url):
-    """qc, then qr, then kd, each on its latest issue by its own rank; a drama on two boards and a drama asking the same
-    term take one unit, the other bases joined; the notes keep every pick's basis for the table."""
+    """qc, then qr, then kd, each on its latest issue by its own rank; a drama on two boards takes one unit, its other
+    basis joined; a drama asking the same term is a row of its own; the notes keep every pick's basis for the table."""
     batch = await seed_catalog(obs_url, BOARD_CATALOG)
     found = await _units(obs_url)
     assert found.catalog_batch_id == batch
     picks = found.notes["top_dramas"]["picks"]
     ordered = [picks[unit.key] for unit in found.units]
-    assert [(pick["order"], pick["title"]) for pick in ordered] == [(1, "Conversion One"), (2, "Conversion Two"), (3, "Revenue One"), (4, "Kalos Hit")]
-    assert ordered[0]["basis"] == [
-        {"kind": "qc", "board_date": "2026-09-24", "rank": 1},
-        {"kind": "qr", "board_date": "2026-09-24", "rank": 3},
-        {"kind": "kd", "board_date": "2026-09-24", "rank": 2, "identity": board_identity(5)},
+    assert [(pick["order"], pick["title"]) for pick in ordered] == [
+        (1, "Conversion One"),
+        (2, "Conversion Two"),
+        (3, "Revenue One"),
+        (4, "Kalos Hit"),
+        (5, "conversion one!"),
     ]
+    assert ordered[0]["basis"] == [{"kind": "qc", "board_date": "2026-09-24", "rank": 1}, {"kind": "qr", "board_date": "2026-09-24", "rank": 3}]
+    assert ordered[4]["basis"] == [{"kind": "kd", "board_date": "2026-09-24", "rank": 2}] and ordered[4]["identity"] == board_identity(5)
     assert ordered[3]["platform"] == "KalosTV" and ordered[0]["identity"] == board_identity(3)
-    assert [unit.priority for unit in found.units] == [1, 2, 3, 4]
+    assert [unit.priority for unit in found.units] == [1, 2, 3, 4, 5]
+    assert (found.units[0].terms, found.units[4].terms) == (("Conversion One",), ("conversion one",))
+    assert found.units[0].key != found.units[4].key  # two units asking Google the same term, one per identity
     notes = found.notes["top_dramas"]
     assert notes["boards"] == [
         {"kind": "qc", "board_date": "2026-09-24", "listed": 2},
         {"kind": "qr", "board_date": "2026-09-24", "listed": 2},
         {"kind": "kd", "board_date": "2026-09-24", "listed": 2},
     ]
-    assert (notes["target"], notes["picked"], notes["unusable_titles"], found.notes["catalog_dramas"]) == (100, 4, 0, 7)
+    assert (notes["target"], notes["picked"], notes["unusable_titles"], found.notes["catalog_dramas"]) == (100, 5, 0, 7)
     expected = "sqlite" if not is_postgres(obs_url) else "no_version"
     assert notes["revenue"] == {"available": False, "reason": expected, "mirror_version": None, "day": None, "filled": 0}
 
@@ -258,7 +265,7 @@ MIRROR = [
 async def test_revenue_fills_after_the_boards(obs_url):
     """Short of the target, ReelShort's canonical dramas by revenue on the version's snapshot day (latest_snapshot, not
     as_of's later day): ranks count every canonical drama with revenue that day; one without a point that day, with
-    zero, or not canonical is not ranked; a title a board drama already asks joins its basis."""
+    zero, or not canonical is not ranked; a title a board drama already asks is a row of its own."""
     if not is_postgres(obs_url):
         pytest.skip("the mirror is PostgreSQL's")
     await seed_catalog(obs_url, BOARD_CATALOG[:3])
@@ -271,13 +278,15 @@ async def test_revenue_fills_after_the_boards(obs_url):
         ("Kalos Hit", "KalosTV", "en"),
         ("RS Top", "ReelShort", "en"),
         ("RS Second", "ReelShort", "es"),
+        ("Conversion One", "ReelShort", "en"),
         ("RS Third", "ReelShort", "en"),
     ]
     assert picks[3]["basis"] == [{"kind": "revenue", "board_date": "2026-09-28", "rank": 1}]
-    assert picks[5]["basis"] == [{"kind": "revenue", "board_date": "2026-09-28", "rank": 4}]
-    assert picks[0]["basis"][-1] == {"kind": "revenue", "board_date": "2026-09-28", "rank": 3, "identity": top.rs_identity("rs-3", "en")}
-    assert picks[3]["identity"] == top.rs_identity("rs-1", "en")
-    assert found.notes["top_dramas"]["revenue"] == {"available": True, "reason": None, "mirror_version": 1, "day": "2026-09-28", "filled": 3}
+    assert picks[5]["basis"] == [{"kind": "revenue", "board_date": "2026-09-28", "rank": 3}]
+    assert picks[6]["basis"] == [{"kind": "revenue", "board_date": "2026-09-28", "rank": 4}]
+    assert picks[0]["basis"] == [{"kind": "qc", "board_date": "2026-09-24", "rank": 1}, {"kind": "qr", "board_date": "2026-09-24", "rank": 3}]
+    assert (picks[3]["identity"], picks[5]["identity"]) == (top.rs_identity("rs-1", "en"), top.rs_identity("rs-3", "en"))
+    assert found.notes["top_dramas"]["revenue"] == {"available": True, "reason": None, "mirror_version": 1, "day": "2026-09-28", "filled": 4}
 
 
 @pytest.mark.asyncio

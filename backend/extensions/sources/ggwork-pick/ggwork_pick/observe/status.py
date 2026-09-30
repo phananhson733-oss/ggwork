@@ -5,9 +5,9 @@ tables (the gateway owns them; the pick_obs views are the data page's):
 - live: the current live set, the latest published one with mode live (published_at, then id, breaks ties);
 - latest: the latest published set of either mode, so a shadow-only rollout shows what it produced;
 - last_run_at: when the channel's latest run (ggwp_obs_batches, by started_at, then id) started.
-Pruned sets never count. For Trends, also the target date of the newest finished batch of the simplified radar's table
-(table_batch: the stable mode's planned batches; a refusal row has no window_end). status_rules.channel_banners turns the
-latest run, the live set and that date into banners at `now`.
+Pruned sets never count. For Trends, also the target dates of the newest finished batch and of the first batch of the
+simplified radar's table (table_batch: the stable mode's planned batches; a refusal row has no window_end).
+status_rules.channel_banners turns the latest run, the live set and those dates into banners at `now`.
 
 Before the crons run every field is null and there is no banner: a channel that never ran is not "missed" (status_rules),
 and nothing here stands for a count. The six values of both channels come from one statement, one snapshot, so a set
@@ -57,6 +57,11 @@ def _table_through():
     return select(obs_batches.c.target_date).where(where).order_by(obs_batches.c.target_date.desc()).limit(1).scalar_subquery()
 
 
+def _table_since():
+    """The target date of the first table batch, finished or not: from when on a table is due."""
+    return select(obs_batches.c.target_date).where(table_batch()).order_by(obs_batches.c.target_date.asc()).limit(1).scalar_subquery()
+
+
 def _latest_run(channel: str, column: str):
     order = (obs_batches.c.started_at.desc(), obs_batches.c.id.desc())
     return select(obs_batches.c[column]).where(obs_batches.c.channel == channel).order_by(*order).limit(1).scalar_subquery()
@@ -69,7 +74,7 @@ def _statement():
         columns += [_latest_set(channel, name, live_only=True).label(f"{channel}_live_{name}") for name in ("id", "published_at")]
         columns += [_latest_set(channel, name, live_only=False).label(f"{channel}_latest_{name}") for name in _SET_FIELDS]
         columns += [_latest_run(channel, name).label(f"{channel}_run_{name}") for name in _RUN_FIELDS]
-    return select(*columns, _table_through().label("trends_table_through"))
+    return select(*columns, _table_through().label("trends_table_through"), _table_since().label("trends_table_since"))
 
 
 def _latest_run_of(channel: str, row: Mapping[str, Any]) -> LatestRun | None:
@@ -89,10 +94,13 @@ def _latest_run_of(channel: str, row: Mapping[str, Any]) -> LatestRun | None:
 
 def banners_of(channel: str, row: Mapping[str, Any], now: datetime):
     """The channel's banners from one row of the statement."""
-    through = row["trends_table_through"] if channel == "trends" else None
-    through = date.fromisoformat(through) if through is not None else None
+    through, since = (_day(row[f"trends_table_{name}"]) if channel == "trends" else None for name in ("through", "since"))
     live = row[f"{channel}_live_published_at"]
-    return channel_banners(channel, latest_run=_latest_run_of(channel, row), live_published_at=live, now=now, table_through=through)
+    return channel_banners(channel, latest_run=_latest_run_of(channel, row), live_published_at=live, now=now, table_through=through, table_since=since)
+
+
+def _day(value: str | None) -> date | None:
+    return date.fromisoformat(value) if value is not None else None
 
 
 async def status_row(session, now: datetime) -> Mapping[str, Any]:

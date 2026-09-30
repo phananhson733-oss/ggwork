@@ -36,9 +36,9 @@ def _at(text: str) -> datetime:
     return datetime.fromisoformat(text)
 
 
-def table_through(case: dict) -> date | None:
-    """The case's table_through: absent or null before the first table batch."""
-    found = case.get("table_through")
+def table_day(case: dict, name: str) -> date | None:
+    """The case's table_through or table_since: absent or null before the first table batch."""
+    found = case.get(name)
     return None if found is None else date.fromisoformat(found)
 
 
@@ -49,7 +49,8 @@ def _banners(case: dict) -> list[dict]:
         latest_run=None if run is None else LatestRun.from_mapping(case["channel"], run),
         live_published_at=case["live_published_at"],
         now=_at(case["now"]),
-        table_through=table_through(case),
+        table_through=table_day(case, "table_through"),
+        table_since=table_day(case, "table_since"),
     )
     assert all(isinstance(banner, ObsBanner) for banner in banners)
     return [banner.model_dump() for banner in banners]
@@ -104,12 +105,23 @@ def test_trends_table_stale_boundary():
     assert not trends_table_stale(None, datetime(2026, 9, 30, 4, 0, tzinfo=UTC))
 
 
+def test_a_first_table_night_that_never_finished_is_behind_once_due():
+    """No table batch ever finished: behind once the first one (table_since) is due, not before."""
+    since = date(2026, 9, 26)
+    assert not trends_table_stale(None, datetime(2026, 9, 26, 2, 29, 59, 999999, tzinfo=UTC), since)
+    assert trends_table_stale(None, datetime(2026, 9, 26, 2, 30, tzinfo=UTC), since)
+    # a finished batch decides alone: table_since only speaks when none finished
+    assert not trends_table_stale(date(2026, 9, 26), datetime(2026, 9, 26, 4, 0, tzinfo=UTC), date(2026, 9, 20))
+
+
 def test_table_through_is_trends_only():
     now = datetime(2026, 9, 26, 4, 0, tzinfo=UTC)
     with pytest.raises(ValueError, match="Trends"):
         channel_banners("gsc", latest_run=None, live_published_at=None, now=now, table_through=date(2026, 9, 25))
     with pytest.raises(ValueError, match="date"):
         channel_banners("trends", latest_run=None, live_published_at=None, now=now, table_through="2026-09-25")
+    with pytest.raises(ValueError, match="Trends"):
+        channel_banners("gsc", latest_run=None, live_published_at=None, now=now, table_since=date(2026, 9, 25))
 
 
 def test_trends_due_date():

@@ -7,10 +7,11 @@
     }
   ],
   "batch": {
-    "batch_id": "trends-2026-09-26-a3660b26",
+    "batch_id": "trends-2026-09-26-d8f53a0e",
     "target_date": "2026-09-26",
     "collect_mode": "stable",
     "outcome": "withheld",
+    "collecting": false,
     "started_at": "2026-09-25T17:30:00.000000+00:00",
     "finished_at": "2026-09-25T18:02:38.017012+00:00",
     "window_end": "2026-09-25T00:00:00.000000+00:00",
@@ -35,7 +36,7 @@
       ],
       "revenue": {
         "available": false,
-        "reason": "sqlite",
+        "reason": "no_version",
         "mirror_version": null,
         "day": null,
         "filled": 0
@@ -43,8 +44,8 @@
     },
     "counts": {
       "planned": 5,
-      "data": 3,
-      "no_data": 1,
+      "data": 4,
+      "no_data": 0,
       "not_fetched": 1,
       "pending": 0
     }
@@ -64,8 +65,7 @@
         {
           "kind": "qc",
           "board_date": "2026-09-24",
-          "rank": 1,
-          "identity": null
+          "rank": 1
         }
       ],
       "result": "data",
@@ -237,8 +237,7 @@
         {
           "kind": "qc",
           "board_date": "2026-09-24",
-          "rank": 2,
-          "identity": null
+          "rank": 2
         }
       ],
       "result": "data",
@@ -410,11 +409,10 @@
         {
           "kind": "qc",
           "board_date": "2026-09-24",
-          "rank": 3,
-          "identity": null
+          "rank": 3
         }
       ],
-      "result": "no_data",
+      "result": "data",
       "status": "ok_zero",
       "series": [
         {
@@ -583,8 +581,7 @@
         {
           "kind": "qc",
           "board_date": "2026-09-24",
-          "rank": 4,
-          "identity": null
+          "rank": 4
         }
       ],
       "result": "not_fetched",
@@ -605,8 +602,7 @@
         {
           "kind": "qc",
           "board_date": "2026-09-24",
-          "rank": 5,
-          "identity": null
+          "rank": 5
         }
       ],
       "result": "data",

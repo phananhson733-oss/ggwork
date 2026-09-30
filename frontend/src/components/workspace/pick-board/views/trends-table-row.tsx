@@ -1,5 +1,6 @@
 // 工作台新建（简化版趋势雷达，2026-09-30）：趋势表的一行。列与顺序见简化范围第 2 节：剧、入选依据、走势、近 7 日
-// 与前 7 日均值、变化、标签、采集结果、提示、链接。均值、变化与标签只在「有数据」的行上算（trends-table.ts）；
+// 与前 7 日均值、变化、标签、采集结果、提示、链接。均值、变化与标签只在「有数据」的行上算（trends-table.ts；全是 0 的曲线
+// 也算有数据，它是 Google 的相对指数，不是搜索量为 0）；
 // 别的行这几列写「—」，走势写采集结果，不拿别的夜晚的曲线顶替。同步、纯展示。
 import {
   SHORT_TERM_HINT,
@@ -65,7 +66,7 @@ function Basis({ row }: { row: TrendsTableRow }) {
 }
 
 function Result({ row }: { row: TrendsTableRow }) {
-  const detail = row.result === "data" ? "" : fetchStatusText(row.status);
+  const detail = row.status === "ok" ? "" : fetchStatusText(row.status);
   return (
     <td className={TD} data-trends-result={row.result}>
       {RESULT_TEXT[row.result]}
@@ -98,7 +99,7 @@ export function TrendsTableRowView({
       </td>
       <td className={NUMBER}>{formatMean(stats?.recentMean ?? null)}</td>
       <td className={NUMBER}>{formatMean(stats?.priorMean ?? null)}</td>
-      <td className={NUMBER}>{formatChange(stats?.change ?? null)}</td>
+      <td className={NUMBER}>{formatChange(stats?.changeTenths ?? null)}</td>
       <td className={TD} data-trends-label={stats?.label ?? ""}>
         {stats ? (
           <span className={LABEL_TONE[stats.label]}>

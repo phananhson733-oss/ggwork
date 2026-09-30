@@ -113,6 +113,14 @@ const ROWS: TrendsTableRow[] = [
     title: "Quiet Queen Returns",
     term: "Quiet Queen Returns",
     result: "no_data",
+    status: "no_data",
+    series: null,
+  }),
+  row({
+    order: 6,
+    unit: "u6",
+    title: "Zero Curve Nights",
+    term: "Zero Curve Nights",
     status: "ok_zero",
     series: series(0, 0),
   }),
@@ -159,6 +167,7 @@ describe("the table", () => {
       "Stay",
       "Rising Heir",
       "Flat Bride",
+      "Zero Curve Nights",
       "Lost Night",
       "Quiet Queen Returns",
     ]);
@@ -172,6 +181,7 @@ describe("the table", () => {
       "Lost Night",
       "Stay",
       "Quiet Queen Returns",
+      "Zero Curve Nights",
     ]);
     const change = screen.getByRole("link", { name: "按变化" });
     expect(change.getAttribute("href")).toBe("/workspace/pick-data?tab=trends");
@@ -184,7 +194,7 @@ describe("the table", () => {
     expect(cells.map((td) => td.textContent).slice(3, 7)).toEqual([
       "20.0",
       "10.0",
-      "+100%",
+      "+100.0%",
       "上升",
     ]);
     expect(
@@ -219,7 +229,19 @@ describe("the table", () => {
     const quiet = rowOf(show(table(ROWS)), 5);
     expect(
       quiet.querySelector('[data-trends-result="no_data"]')?.textContent,
-    ).toBe("Google 未返回数据Google 返回的近 30 天曲线全是 0");
+    ).toBe("Google 未返回数据Google 没有返回曲线");
+    expect(quiet.querySelector("svg")).toBeNull();
+  });
+
+  it("draws a curve of zeros as data: Google's index, too little to judge, never 'no data'", () => {
+    const zero = rowOf(show(table(ROWS)), 6);
+    expect(zero.querySelector('[data-trends-result="data"]')?.textContent).toBe(
+      "有数据Google 返回的近 30 天曲线全是 0",
+    );
+    expect(zero.querySelector('[data-trends-spark="line"]')).toBeTruthy();
+    expect(
+      zero.querySelector('[data-trends-label="too_little"]')?.textContent,
+    ).toBe("数据太少");
   });
 
   it("hints at a short title and links the term on Google Trends", () => {
@@ -263,13 +285,13 @@ describe("the header", () => {
       `${BASE.batch?.target_date} 的趋势表（已采完）`,
     );
     expect(root.querySelector('[data-trends-counts="true"]')?.textContent).toBe(
-      "这晚计划查 5 部：有数据 3 部，Google 未返回数据 1 部，这晚未查到 1 部。",
+      "这晚计划查 5 部：有数据 4 部，Google 未返回数据 0 部，这晚未查到 1 部。",
     );
     expect(header?.textContent).toContain("最后一个完整日是 2026-09-24（UTC）");
     expect(
       root.querySelector('[data-trends-sources="true"]')?.textContent,
     ).toBe(
-      "剧的来源：鹊娱 7 日转化率榜 2026-09-24 期 5 部；鹊娱 7 日总收入榜没有可用的一期；KalosTV 日榜没有可用的一期。ReelShort 收入：本地库没有镜像，收入读不了。",
+      "剧的来源：鹊娱 7 日转化率榜 2026-09-24 期 5 部；鹊娱 7 日总收入榜没有可用的一期；KalosTV 日榜没有可用的一期。ReelShort 收入：还没有已发布的镜像版本。",
     );
   });
 
@@ -279,6 +301,7 @@ describe("the header", () => {
     const running = {
       ...batch,
       outcome: "running",
+      collecting: true,
       finished_at: null,
       counts: { ...batch.counts, pending: 2 },
     };
@@ -287,6 +310,21 @@ describe("the header", () => {
       root.querySelector('[data-trends-counts="true"]')?.textContent,
     ).toContain("，还在查 2 部。");
     expect(root.querySelector("h2")?.textContent).toContain("（还在采集）");
+  });
+
+  it("says a night left running past its deadline stopped short", () => {
+    const batch = BASE.batch;
+    if (!batch) throw new Error("the fixture has a batch");
+    const stopped = {
+      ...batch,
+      outcome: "running",
+      collecting: false,
+      finished_at: null,
+    };
+    const root = show(table(ROWS, { batch: stopped }));
+    expect(root.querySelector("h2")?.textContent).toContain(
+      "（没有采完：采集中途停了）",
+    );
   });
 
   it("shows the gateway's banners, red first", () => {

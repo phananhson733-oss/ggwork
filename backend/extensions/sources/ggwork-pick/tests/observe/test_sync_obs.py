@@ -156,9 +156,11 @@ async def test_obs_status_follows_every_status_case(service):
             if run is None
             else [batch_row(f"b-{number}", channel, run["mode"], run["started_at"], target_date=run["target_date"], codes=run["status_codes"])]
         )
-        through = case.get("table_through")
+        through, since = case.get("table_through"), case.get("table_since")
         if through is not None:  # the newest finished table batch, older than the latest run or that run itself
             batches = _with_table_batch(batches, number, through)
+        elif since is not None:  # the first table night, still unfinished: the latest run itself
+            batches = [{**table_batch_row(batches[0]["id"], since, run["started_at"], finished_at=None), "mode": run["mode"]}]
         await _insert(service, sets=sets, batches=batches)
         obs = await obs_status(_shared(service), now=datetime.fromisoformat(case["now"]))
         assert _channel(obs, channel)["banners"] == case["expected"], case["name"]
@@ -170,6 +172,7 @@ async def test_obs_status_follows_every_status_case(service):
             live_published_at=case["live_published_at"],
             now=datetime.fromisoformat(case["now"]),
             table_through=None if through is None else date.fromisoformat(through),
+            table_since=None if since is None else date.fromisoformat(since),
         )
         assert _channel(obs, channel)["banners"] == [banner.model_dump() for banner in expected], case["name"]
 
@@ -268,3 +271,26 @@ async def test_a_run_row_the_rules_cannot_read_fails_closed(app_client):
     body = (await client.get("/api/pick/sync", headers={"test-owner": "alice"})).json()
     assert body["obs"] == {"error": "ValueError"}
     assert body["runs"] == []
+
+
+@pytest.mark.asyncio
+async def test_table_since_is_the_first_stable_table_batch_only(service):
+    """The first table night is due by its own target date: an older canary night does not make the table due earlier,
+    and a first night that never finished is behind once it is due."""
+    canary = batch_row(
+        "c-24",
+        "trends",
+        "shadow",
+        "2026-09-23T21:00:02.000000+00:00",
+        target_date="2026-09-24",
+        codes=[],
+        collect_mode="canary1",
+        window_end="2026-09-23T18:00:00.000000+00:00",
+        finished_at="2026-09-23T23:00:00.000000+00:00",
+    )
+    first = table_batch_row("s-27", "2026-09-27", "2026-09-26T17:30:02.000000+00:00", finished_at=None)
+    await _insert(service, batches=[canary, first])
+    evening = await obs_status(_shared(service), now=datetime(2026, 9, 26, 20, 0, tzinfo=UTC))
+    assert _channel(evening, "trends")["banners"] == [{"code": "shadow_mode", "level": "info"}]
+    morning = await obs_status(_shared(service), now=datetime(2026, 9, 27, 3, 0, tzinfo=UTC))
+    assert _channel(morning, "trends")["banners"] == [{"code": "stale_26h", "level": "red"}, {"code": "shadow_mode", "level": "info"}]

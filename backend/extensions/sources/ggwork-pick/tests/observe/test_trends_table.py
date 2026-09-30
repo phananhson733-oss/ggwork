@@ -98,8 +98,9 @@ async def test_a_failed_read_is_a_503_naming_nothing(app_client, monkeypatch, ca
 
 @pytest.mark.asyncio
 async def test_the_table_is_the_nights_task_list(world, tmp_path):
-    """Every pick in its order with its basis; data, no data (a series of zeros) and not fetched (a 429 lost the unit)
-    kept apart; the counts add up; the curve's last day is partial; no shadow_mode banner."""
+    """Every pick in its order with its basis; data (a curve of zeros included: Google's index, not "no data") and not
+    fetched (a 429 lost the unit) kept apart; the counts add up; the curve's last day is partial; no shadow_mode
+    banner."""
     client, service, url = world
     clock = ManualClock(at(EVE, 17, 30))
     # warm-up 1, then two requests a unit: the 4th unit's multiline is request 9
@@ -109,17 +110,19 @@ async def test_the_table_is_the_nights_task_list(world, tmp_path):
     body = TABLE.validate_python(response.json()).model_dump(mode="json")
     assert [row["title"] for row in body["rows"]] == TITLES and [row["order"] for row in body["rows"]] == [1, 2, 3, 4, 5]
     rows = _by_title(body)
-    assert rows["Alpha Bride"]["basis"] == [{"kind": "qc", "board_date": "2026-09-24", "rank": 1, "identity": None}]
+    assert rows["Alpha Bride"]["basis"] == [{"kind": "qc", "board_date": "2026-09-24", "rank": 1}]
     assert (rows["Alpha Bride"]["term"], rows["Alpha Bride"]["geo"], rows["Alpha Bride"]["time_range"]) == ("Alpha Bride", "WW", "today 1-m")
     assert (rows["Alpha Bride"]["result"], rows["Alpha Bride"]["status"]) == ("data", "ok")
-    assert (rows["Zero Interest"]["result"], rows["Zero Interest"]["status"]) == ("no_data", "ok_zero")
+    assert (rows["Zero Interest"]["result"], rows["Zero Interest"]["status"]) == ("data", "ok_zero")
+    assert {point["value"] for point in rows["Zero Interest"]["series"]} == {0}
     assert (rows["Fourth Wall"]["result"], rows["Fourth Wall"]["status"], rows["Fourth Wall"]["series"]) == ("not_fetched", "rate_limited", None)
     series = rows["Alpha Bride"]["series"]
     assert len(series) == 30 and series[-1]["partial"] and not series[0]["partial"] and all(point["value"] is not None for point in series)
     assert [point["date"] for point in series] == sorted(point["date"] for point in series)
     header = body["batch"]
     assert (header["target_date"], header["collect_mode"], header["outcome"]) == (f"{TARGET:%Y-%m-%d}", "stable", "withheld")
-    assert header["counts"] == {"planned": 5, "data": 3, "no_data": 1, "not_fetched": 1, "pending": 0}
+    assert header["counts"] == {"planned": 5, "data": 4, "no_data": 0, "not_fetched": 1, "pending": 0}
+    assert header["collecting"] is False
     assert header["sources"]["boards"][0] == {"kind": "qc", "board_date": "2026-09-24", "listed": 5}
     assert header["window_end"] == "2026-09-25T00:00:00.000000+00:00"
     # The route reads the wall clock (long past this night: run_missed and stale); at the night's own morning the
@@ -147,13 +150,16 @@ async def test_a_drama_the_night_did_not_get_never_shows_an_older_curve(world, t
 
     second = FakeGoogle(clock, script={5: "429"}, on_request=crash)
     assert await _night(url, tmp_path, second, clock) == ExitCode.FAILED
-    rows = _by_title(await _table(service, clock.now()))
+    during = await _table(service, clock.now())
+    rows = _by_title(during)
+    assert during["batch"]["collecting"] is True
     assert (rows["Second Chance"]["result"], rows["Second Chance"]["series"]) == ("not_fetched", None)
     assert (rows["Fifth Night"]["result"], rows["Fifth Night"]["status"], rows["Fifth Night"]["series"]) == ("pending", None, None)
     assert rows["Alpha Bride"]["result"] == "data"
     later = await _table(service, datetime.combine(TARGET + timedelta(days=1), datetime.min.time(), UTC) + timedelta(hours=2))
     assert (_by_title(later)["Fifth Night"]["result"], _by_title(later)["Fifth Night"]["status"]) == ("not_fetched", "not_reached")
     assert later["batch"]["target_date"] == f"{TARGET + timedelta(days=1):%Y-%m-%d}" and later["batch"]["outcome"] == "running"
+    assert later["batch"]["collecting"] is False  # past 01:45 nothing more comes: the night stopped short
     assert [banner["code"] for banner in later["banners"]] == []  # 02:00: night one is the newest finished, and due
     due = await _table(service, datetime.combine(TARGET + timedelta(days=1), datetime.min.time(), UTC) + timedelta(hours=2, minutes=30))
     assert [banner["code"] for banner in due["banners"]] == ["stale_26h"]
@@ -190,11 +196,31 @@ async def test_the_table_matches_the_frontend_fixture(world, tmp_path):
     assert await _night(url, tmp_path, google, clock) == ExitCode.OK
     answer = await _table(service, at(TARGET + timedelta(days=1), 3))
     assert [banner["code"] for banner in answer["banners"]] == ["run_missed"]
-    assert [row["result"] for row in answer["rows"]] == ["data", "data", "no_data", "not_fetched", "data"]
+    assert [row["result"] for row in answer["rows"]] == ["data", "data", "data", "not_fetched", "data"]
     assert answer["batch"]["finished_at"] is not None and answer["batch"]["sources"]["revenue"] is not None
     if os.environ.get("PICK_WRITE_CONTRACT"):
         TABLE_FIXTURE.write_text(json.dumps(answer, ensure_ascii=False, indent=2) + "\n")
     assert _shape(json.loads(TABLE_FIXTURE.read_text())) == _shape(answer)
+
+
+@pytest.mark.asyncio
+async def test_a_first_night_that_dies_is_stale_once_due(world, tmp_path):
+    """The very first stable night dies before its last unit and no night ever finished: from 02:30 the table is behind
+    (stale_26h), the night is no longer collecting, and the unit it never reached is not fetched."""
+    _, service, url = world
+    clock = ManualClock(at(EVE, 17, 30))
+
+    def crash(ordinal: int, phase: str) -> None:
+        if ordinal == 10:  # the 5th unit's explore
+            raise RuntimeError("synthetic crash")
+
+    assert await _night(url, tmp_path, FakeGoogle(clock, on_request=crash), clock) == ExitCode.FAILED
+    before = await _table(service, at(TARGET, 2))
+    assert [banner["code"] for banner in before["banners"]] == []
+    after = await _table(service, at(TARGET, 2, 30))
+    assert [banner["code"] for banner in after["banners"]] == ["stale_26h"]
+    assert after["batch"]["outcome"] == "running" and after["batch"]["collecting"] is False
+    assert (_by_title(after)["Fifth Night"]["result"], _by_title(after)["Fifth Night"]["status"]) == ("not_fetched", "not_reached")
 
 
 # ---- the pure parts ---------------------------------------------------------------------------------------------------
@@ -252,3 +278,55 @@ def test_units_cut_from_the_plan_are_rows_too():
         ("Title 2", "not_fetched", "truncated"),
     ]
     assert header["counts"]["planned"] == 2 and cut is False and header["catalog_batch_id"] == "cat-1"
+
+
+def _plan_batch(units: list[QueryUnit], picks, **patch) -> dict:
+    notes = {"top_dramas": {"picks": {unit.key: pick.to_note(n) for n, (unit, pick) in enumerate(zip(units, picks, strict=True), start=1)}}}
+    plan = SessionPlan("top_dramas", "D", False, TaskList(tuple(units), ()), "cat-1", notes)
+    batch = {
+        "id": "b",
+        "target_date": "2026-09-26",
+        "collect_mode": "stable",
+        "outcome": "running",
+        "started_at": "2026-09-25T17:30:00.000000+00:00",
+        "finished_at": None,
+        "window_end": "2026-09-25T00:00:00.000000+00:00",
+        "plan_json": plan.to_dict(),
+        "summary_json": {"units": {}, "uncovered_units": []},
+    }
+    return {**batch, **patch}
+
+
+def _two_units():
+    picks, _ = top.merged([top.Candidate(f"id-{n}", f"Title {n}", "DramaBox", "en", top.Basis("qc", date(2026, 9, 24), n)) for n in (1, 2)])
+    return [top.query_unit(pick, order) for order, pick in enumerate(picks, start=1)], picks
+
+
+def test_a_recorded_stop_reason_is_final_while_the_night_still_runs():
+    """No raw line yet: a unit whose stop is recorded (skipped_breaker) is not fetched with that reason even while the
+    batch runs before its deadline; one without a recorded reason is pending."""
+    units, picks = _two_units()
+    summary = {"units": {units[0].key: {"reason": "skipped_breaker"}}, "uncovered_units": []}
+    header, rows, _ = table_of(_plan_batch(units, picks, summary_json=summary), {}, datetime(2026, 9, 25, 20, 0, tzinfo=UTC))
+    assert [(row["result"], row["status"]) for row in rows] == [("not_fetched", "skipped_breaker"), ("pending", None)]
+    assert header["collecting"] is True and header["counts"]["pending"] == 1
+
+
+def test_a_curve_of_zeros_is_data_and_an_answer_without_values_is_not():
+    """ok_zero with values (all 0) is data, curve kept; ok or ok_zero without a single day with a value, and no_data,
+    are Google's empty answers."""
+    units, picks = _two_units()
+    start = int(datetime(2026, 9, 20, tzinfo=UTC).timestamp())
+    times = [str(start + index * 86400) for index in range(3)]
+
+    def line(status: str, values: list[int], has_data: list[bool]) -> dict:
+        return {"status": status, "data": {"time": times, "value": values, "isPartial": [False] * 3, "hasData": has_data}}
+
+    now = datetime(2026, 9, 26, 3, 0, tzinfo=UTC)
+    zeros = {units[0].key: line("ok_zero", [0, 0, 0], [True] * 3), units[1].key: line("ok", [0, 0, 0], [False] * 3)}
+    _, rows, _ = table_of(_plan_batch(units, picks, outcome="withheld"), zeros, now)
+    assert [(row["result"], row["status"]) for row in rows] == [("data", "ok_zero"), ("no_data", "ok")]
+    assert [point["value"] for point in rows[0]["series"]] == [0, 0, 0]
+    empty = {units[0].key: {"status": "no_data", "data": None}}
+    _, rows, _ = table_of(_plan_batch(units, picks, outcome="withheld"), empty, now)
+    assert (rows[0]["result"], rows[0]["status"], rows[0]["series"]) == ("no_data", "no_data", None)

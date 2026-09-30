@@ -6,9 +6,10 @@ A channel's banners are every status code its latest run wrote, plus three compu
     actionability; no live set is "not ready yet" for the agent, not stale;
   - the simplified radar's table (simplified scope 2026-09-30, section 6 item 6; it publishes no set) is behind: from
     02:30 UTC the due target date is today (before it, yesterday), and the newest finished table batch
-    (status.table_batch: stable, planned, finished) is for an earlier target date. Judged on batches, since there is no
-    set; not raised on top of run_missed, which says the same first. Before the first table batch there is nothing to
-    call stale (the canary's nights feed no table).
+    (status.table_batch: stable, planned, finished) is for an earlier target date; or no table batch ever finished
+    although the first one (table_since, finished or not) was due by now, as when the very first night dies. Judged on
+    batches, since there is no set; not raised on top of run_missed, which says the same first. Before the first table
+    night is due there is nothing to call stale (the canary's nights feed no table).
 - run_missed: for Trends, from 02:30 UTC the due target date is today (before it, yesterday) and the latest run's
   target_date is earlier; for GSC, the latest round started more than 4 hours ago. A channel that never ran has none:
   before the cron exists that is the rollout, and the page shows last_run_at as empty.
@@ -123,9 +124,13 @@ def trends_set_stale(live_published_at: str | datetime | None, now: datetime) ->
     return live_published_at is not None and instant(now) - instant(live_published_at) > TRENDS_STALE_AFTER
 
 
-def trends_table_stale(table_through: date | None, now: datetime) -> bool:
-    """The newest finished table batch is for a target date before the one due at `now`; none yet is not stale."""
-    return table_through is not None and table_through < trends_due_date(now)
+def trends_table_stale(table_through: date | None, now: datetime, table_since: date | None = None) -> bool:
+    """The newest finished table batch (table_through) is for a target date before the one due at `now`; or none ever
+    finished although the first table batch (table_since) was due by now. No table batch at all is not stale."""
+    due = trends_due_date(now)
+    if table_through is not None:
+        return table_through < due
+    return table_since is not None and table_since <= due
 
 
 def trends_due_date(now: datetime) -> date:
@@ -157,15 +162,18 @@ def channel_banners(
     live_published_at: str | datetime | None,
     now: datetime,
     table_through: date | None = None,
+    table_since: date | None = None,
 ) -> tuple[ObsBanner, ...]:
     """One channel's banners at `now`: the latest run's codes and the three time-based ones, each once, in banner order.
-    table_through is the target date of the newest finished table batch (Trends only; None before the first)."""
+    table_through is the target date of the newest finished table batch, table_since that of the first table batch,
+    finished or not (Trends only; None before the first)."""
     _check_run(channel, latest_run)
-    if table_through is not None and (channel != "trends" or type(table_through) is not date):
-        raise ValueError("table_through 只属于 Trends，是 date")
+    for value in (table_through, table_since):
+        if value is not None and (channel != "trends" or type(value) is not date):
+            raise ValueError("table_through、table_since 只属于 Trends，是 date")
     moment = instant(now)
     missed = run_missed(channel, latest_run, moment)
-    table_behind = trends_table_stale(table_through, moment) and not missed
+    table_behind = trends_table_stale(table_through, moment, table_since) and not missed
     computed = {
         "stale_26h": channel == "trends" and (trends_set_stale(live_published_at, moment) or table_behind),
         "run_missed": missed,

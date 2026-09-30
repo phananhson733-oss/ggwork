@@ -23,6 +23,7 @@ type Case = Readonly<{
   now: string;
   live_published_at: string | null;
   table_through?: string | null;
+  table_since?: string | null;
   latest_run: LatestRunInput | null;
   expected: { code: string; level: string }[];
 }>;
@@ -41,6 +42,7 @@ describe("channelBanners", () => {
         livePublishedAt: c.live_published_at,
         now: c.now,
         tableThrough: c.table_through ?? null,
+        tableSince: c.table_since ?? null,
       }),
     ).toEqual(c.expected);
   });
@@ -139,6 +141,24 @@ describe("the three time rules", () => {
     expect(trendsTableStale(null, "2030-01-01T00:00:00.000000+00:00")).toBe(
       false,
     );
+  });
+
+  it("a first table night that never finished is behind once it is due", () => {
+    const since = "2026-09-26";
+    expect(
+      trendsTableStale(null, "2026-09-26T02:29:59.999999+00:00", since),
+    ).toBe(false);
+    expect(
+      trendsTableStale(null, "2026-09-26T02:30:00.000000+00:00", since),
+    ).toBe(true);
+    // a finished batch decides alone
+    expect(
+      trendsTableStale(
+        "2026-09-26",
+        "2026-09-26T04:00:00.000000+00:00",
+        "2026-09-20",
+      ),
+    ).toBe(false);
   });
 
   it("tableThrough belongs to Trends only", () => {

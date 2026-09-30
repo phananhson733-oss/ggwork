@@ -7,9 +7,11 @@ carries the pick's basis from plan_json.notes.top_dramas, and what that night fe
 - the bare line's raw row (ggwp_obs_raw) of that batch, the series as Google answered it: a day without data
   (hasData false) is null, never 0; `partial` marks a day that is not a complete UTC day (isPartial, or on or after the
   batch's window_end);
-- result: data (the line is ok), no_data (ok_zero or no_data: Google answered, with nothing), not_fetched (a failed
-  request, a unit cut from the plan, stopped by the breaker or the deadline, or never reached), pending (the batch is
-  still running and its deadline has not passed); status names the fetch status or the stop reason.
+- result: data (ok or ok_zero with at least one day that has a value: a curve of zeros is Google's index, not "no
+  data", and not a search volume of zero either), no_data (no_data, or an answer without a single day with a value),
+  not_fetched (a failed request, a unit cut from the plan, stopped by the breaker or the deadline, or never reached),
+  pending (no line and no recorded reason yet while the batch is still running before its deadline); status names the
+  fetch status or the stop reason.
 A unit the night never got to has no raw row (run.py writes raw rows at the end of a unit), so it is not_fetched: an
 older night's curve never stands in for it. Averages, change, labels and links are the page's (frontend
 core/pick/trends-table.ts), so a threshold changes with a frontend deploy only.
@@ -45,7 +47,7 @@ ROW_LIMIT = 200  # stable's plan holds 165 such units at most (budget.plan_budge
 MAX_POINTS = 40  # today 1-m answers 30 or 31 days
 HIDDEN_BANNERS = frozenset({"shadow_mode"})
 DATA, NO_DATA, NOT_FETCHED, PENDING = "data", "no_data", "not_fetched", "pending"
-ANSWERED_EMPTY = frozenset({"ok_zero", "no_data"})
+JUDGEABLE = frozenset({"ok", "ok_zero"})  # trends/source.JUDGEABLE: a complete series
 NOT_REACHED = "not_reached"  # a unit a night that ended (or died) never got to, with no reason recorded
 UNREADABLE = "unreadable"  # a raw row the table cannot read: logged, shown as not fetched
 
@@ -59,7 +61,6 @@ class TableBasis(Frozen):
     kind: BasisKind
     board_date: Day | None
     rank: Annotated[int, Field(ge=0, le=1_000_000)]
-    identity: Identity | None = None
 
 
 class TablePoint(Frozen):
@@ -116,6 +117,9 @@ class TableBatch(Frozen):
     target_date: Day
     collect_mode: Short
     outcome: Short
+    # still collecting: running and before its night's deadline. A batch left running past it (the process died and no
+    # trigger closed it yet) is not, so the page says the night stopped short instead of "still collecting".
+    collecting: bool
     started_at: Stamp
     finished_at: Stamp | None
     window_end: Stamp
@@ -183,7 +187,7 @@ def series_of(data: object, window_end: date) -> list[dict[str, Any]]:
             raise ValueError("a value is 0 to 100")
         missing = index < len(has_data) and has_data[index] is False
         cut = (index < len(partial) and partial[index] is True) or day >= window_end
-        points.append({"date": day.isoformat(), "value": None if missing else value, "partial": cut})
+        points.append({"date": f"{day:%Y-%m-%d}", "value": None if missing else value, "partial": cut})
     return points[-MAX_POINTS:]
 
 
@@ -194,20 +198,20 @@ def _outcome(
     if truncated:
         return {"result": NOT_FETCHED, "status": "truncated", "series": None}
     if line is None:
-        return (
-            {"result": PENDING, "status": None, "series": None}
-            if pending
-            else {"result": NOT_FETCHED, "status": reasons.get(unit.key, NOT_REACHED), "series": None}
-        )
+        # a recorded reason (skipped_breaker, deadline, truncated) is final even while the batch still runs
+        if unit.key in reasons:
+            return {"result": NOT_FETCHED, "status": reasons[unit.key], "series": None}
+        return {"result": PENDING, "status": None, "series": None} if pending else {"result": NOT_FETCHED, "status": NOT_REACHED, "series": None}
     status, data = line["status"], line["data"]
     try:
         series = series_of(data, window_end) if data is not None else None
     except (ValueError, TypeError, OverflowError, OSError):
         logger.warning("[pick-obs] trends table: unit %s has a raw line the table cannot read", unit.key)
         return {"result": NOT_FETCHED, "status": UNREADABLE, "series": None}
-    if status == "ok" and series is not None:
-        return {"result": DATA, "status": status, "series": series}
-    return {"result": NO_DATA if status in ANSWERED_EMPTY else NOT_FETCHED, "status": status, "series": series}
+    valued = series is not None and any(point["value"] is not None for point in series)
+    if status in JUDGEABLE:
+        return {"result": DATA if valued else NO_DATA, "status": status, "series": series}
+    return {"result": NO_DATA if status == "no_data" else NOT_FETCHED, "status": status, "series": series}
 
 
 def _row(order: int, unit: QueryUnit, pick: Mapping[str, Any], outcome: Mapping[str, Any]) -> dict[str, Any]:
@@ -261,6 +265,7 @@ def table_of(batch: Mapping[str, Any], lines: Mapping[str, Mapping[str, Any]], n
         "target_date": batch["target_date"],
         "collect_mode": batch["collect_mode"],
         "outcome": batch["outcome"],
+        "collecting": pending,
         "started_at": stamp(instant(batch["started_at"])),
         "finished_at": stamp(instant(batch["finished_at"])) if batch["finished_at"] is not None else None,
         "window_end": stamp(instant(batch["window_end"])),

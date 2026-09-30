@@ -8,7 +8,9 @@
     "canary_terminated as a run row of its own), plus three computed from time: stale_26h (Trends only: now - live",
     "published_at > 26 h, exactly 26 h is not stale, no live set no stale_26h; or, for the simplified radar's table, which",
     "publishes no set, table_through (the target date of the newest finished table batch; absent or null: none yet) is",
-    "earlier than the due target date and run_missed does not already hold), run_missed (Trends: from 02:30 UTC the due",
+    "earlier than the due target date, or no table batch ever finished and table_since (the target date of the first",
+    "table batch, finished or not; absent or null: none) is not later than it; and run_missed does not already hold),",
+    "run_missed (Trends: from 02:30 UTC the due",
     "target date is today, before it yesterday, and the latest run's target_date is earlier than the due date; GSC: now -",
     "latest started_at > 4 h; exactly 4 h is not missed; a channel that never ran has no run_missed) and shadow_mode (the",
     "latest run's mode is shadow). Each code once, ordered by level (red, warn, info) and then by STATUS_CODES order.",
@@ -197,6 +199,7 @@
       "now": "2026-09-26T04:00:00.000000+00:00",
       "live_published_at": null,
       "table_through": "2026-09-26",
+      "table_since": "2026-09-26",
       "latest_run": {"started_at": "2026-09-25T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": []},
       "expected": []
     },
@@ -206,6 +209,7 @@
       "now": "2026-09-26T02:29:59.999999+00:00",
       "live_published_at": null,
       "table_through": "2026-09-25",
+      "table_since": "2026-09-25",
       "latest_run": {"started_at": "2026-09-25T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": []},
       "expected": []
     },
@@ -215,6 +219,7 @@
       "now": "2026-09-26T02:30:00.000000+00:00",
       "live_published_at": null,
       "table_through": "2026-09-25",
+      "table_since": "2026-09-25",
       "latest_run": {"started_at": "2026-09-25T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": []},
       "expected": [{"code": "stale_26h", "level": "red"}]
     },
@@ -224,6 +229,7 @@
       "now": "2026-09-26T04:00:00.000000+00:00",
       "live_published_at": null,
       "table_through": "2026-09-25",
+      "table_since": "2026-09-25",
       "latest_run": {"started_at": "2026-09-25T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": ["disabled_7d"]},
       "expected": [{"code": "stale_26h", "level": "red"}, {"code": "disabled_7d", "level": "red"}]
     },
@@ -233,8 +239,29 @@
       "now": "2026-09-26T04:00:00.000000+00:00",
       "live_published_at": null,
       "table_through": "2026-09-24",
+      "table_since": "2026-09-24",
       "latest_run": {"started_at": "2026-09-24T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-25", "status_codes": []},
       "expected": [{"code": "run_missed", "level": "red"}]
+    },
+    {
+      "name": "trends_table_first_night_never_finished",
+      "channel": "trends",
+      "now": "2026-09-26T04:00:00.000000+00:00",
+      "live_published_at": null,
+      "table_through": null,
+      "table_since": "2026-09-26",
+      "latest_run": {"started_at": "2026-09-25T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": []},
+      "expected": [{"code": "stale_26h", "level": "red"}]
+    },
+    {
+      "name": "trends_table_first_night_not_due_yet",
+      "channel": "trends",
+      "now": "2026-09-25T20:00:00.000000+00:00",
+      "live_published_at": null,
+      "table_through": null,
+      "table_since": "2026-09-26",
+      "latest_run": {"started_at": "2026-09-25T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": []},
+      "expected": []
     },
     {
       "name": "gsc_fresh",

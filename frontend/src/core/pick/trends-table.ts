@@ -8,7 +8,9 @@
  *   the series is left out, never read as 0.
  * - The label, first that holds: too little (fewer than minNonZeroDays non-zero days among the recent 7, or no prior
  *   day with data to compare against), new (prior mean 0, recent mean above 0), rising (change at least
- *   +changePercent), falling (at most -changePercent), flat. The comparisons are exact (integer sums), so a change of
+ *   +changePercent), falling (at most -changePercent), flat. The comparisons are exact (integer sums), and the change
+ *   shown is cut toward zero at one decimal from the same integers, so a row reads +25.0% only when it is rising and
+ *   a flat row never reads ±25.0%. A change of
  *   exactly 25% is 25%, not 24.999...
  * - The short-title hint, the Trends link and the two sort orders.
  *
@@ -67,8 +69,10 @@ export type TrendStats = Readonly<{
   recentDays: number;
   priorDays: number;
   nonZeroRecent: number;
-  /** percent; null when the prior mean is 0 or missing, or the recent one missing */
+  /** percent, for sorting; null when the prior mean is 0 or missing, or the recent one missing */
   change: number | null;
+  /** the change in tenths of a percent, cut toward zero, exactly (what the page shows); null as change */
+  changeTenths: number | null;
   label: TrendLabel;
 }>;
 
@@ -128,6 +132,14 @@ function labelOf(recent: Window, prior: Window): TrendLabel {
   return "flat";
 }
 
+/** 1000 * (r - p) / p in whole tenths of a percent, cut toward zero, from the integer sums alone. */
+function tenthsOf(recent: Window, prior: Window): number | null {
+  const denominator = prior.sum * recent.days;
+  if (prior.days === 0 || recent.days === 0 || denominator === 0) return null;
+  const numerator = 1000 * (recent.sum * prior.days - prior.sum * recent.days);
+  return (numerator - (numerator % denominator)) / denominator;
+}
+
 /** The two means, the change and the label of one series, ending at `lastComplete` (YYYY-MM-DD). */
 export function trendStats(
   points: readonly TrendPoint[],
@@ -157,6 +169,7 @@ export function trendStats(
     priorDays: prior.days,
     nonZeroRecent: recent.nonZero,
     change,
+    changeTenths: tenthsOf(recent, prior),
     label: labelOf(recent, prior),
   };
 }
@@ -165,11 +178,12 @@ export function formatMean(mean: number | null): string {
   return mean === null ? "—" : mean.toFixed(1);
 }
 
-export function formatChange(change: number | null): string {
-  if (change === null) return "—";
-  const whole = Math.round(change);
-  if (whole === 0) return "0%";
-  return whole > 0 ? `+${whole}%` : `−${-whole}%`;
+/** The change as the page shows it, from TrendStats.changeTenths: +24.9%, −25.0%, 0.0%. */
+export function formatChange(tenths: number | null): string {
+  if (tenths === null) return "—";
+  const text = `${(Math.abs(tenths) / 10).toFixed(1)}%`;
+  if (tenths === 0) return text;
+  return tenths > 0 ? `+${text}` : `−${text}`;
 }
 
 /** Scripts written without spaces between words: a title there is measured in characters. */

@@ -99,6 +99,7 @@ describe("trendStats", () => {
     expect(s.priorDays).toBe(7);
     expect(s.nonZeroRecent).toBe(7);
     expect(s.change).toBe(100);
+    expect(s.changeTenths).toBe(1000);
     expect(s.label).toBe("rising");
   });
 
@@ -150,6 +151,7 @@ describe("the label, top to bottom, the first that holds", () => {
     const s = stats(flat(0), [0, 0, 0, 0, 10, 20, 30]);
     expect(s.label).toBe("new");
     expect(s.change).toBeNull();
+    expect(s.changeTenths).toBeNull();
   });
 
   it("too little: no prior day with data, so there is nothing to compare", () => {
@@ -182,6 +184,7 @@ describe("the label, top to bottom, the first that holds", () => {
     expect(thirds.recentMean).toBe(2);
     expect(((2 - 8 / 3) / (8 / 3)) * 100).toBeGreaterThan(-25);
     expect(thirds.label).toBe("falling");
+    expect(thirds.changeTenths).toBe(-250);
     const up = stats(
       [1, 2, 5, null, null, null, null],
       [3, 3, 4, null, null, null, null],
@@ -197,12 +200,27 @@ describe("formatting", () => {
     expect(formatMean(null)).toBe("—");
   });
 
-  it("writes the change as a signed whole percent, and none as a dash", () => {
-    expect(formatChange(100)).toBe("+100%");
-    expect(formatChange(-25)).toBe("−25%");
-    expect(formatChange(0)).toBe("0%");
-    expect(formatChange(24.6)).toBe("+25%");
+  it("writes the change in tenths with a sign, and none as a dash", () => {
+    expect(formatChange(1000)).toBe("+100.0%");
+    expect(formatChange(-250)).toBe("−25.0%");
+    expect(formatChange(0)).toBe("0.0%");
+    expect(formatChange(247)).toBe("+24.7%");
     expect(formatChange(null)).toBe("—");
+  });
+
+  it("cuts the change toward zero, so the text never contradicts the label near the threshold", () => {
+    // 75 * 6 + 74 over 7 against 60: +24.76%; rounding would print +25% next to a flat label
+    const near = stats(flat(60), [74, 75, 75, 75, 75, 75, 75]);
+    expect(near.label).toBe("flat");
+    expect(formatChange(near.changeTenths)).toBe("+24.7%");
+    const down = stats(flat(60), [46, 45, 45, 45, 45, 45, 45]);
+    expect(down.label).toBe("flat");
+    expect(formatChange(down.changeTenths)).toBe("−24.7%");
+    const exact = stats(flat(4), flat(5));
+    expect([exact.label, formatChange(exact.changeTenths)]).toEqual([
+      "rising",
+      "+25.0%",
+    ]);
   });
 });
 

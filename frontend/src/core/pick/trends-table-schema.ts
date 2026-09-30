@@ -38,7 +38,6 @@ const basisSchema = z.object({
   kind: z.enum(BASIS_KINDS),
   board_date: day.nullable(),
   rank: z.number().int().min(0).max(1_000_000),
-  identity: z.string().min(1).max(IDENTITY_MAX).nullable().optional(),
 });
 
 const pointSchema = z.object({
@@ -57,8 +56,8 @@ const rowSchema = z.object({
   term: z.string().min(1).max(200),
   geo: z.string().regex(/^(WW|[A-Z]{2})$/),
   time_range: short,
-  /** a pick joins the basis of every drama asking Google the same term; no cap on the backend, a sanity one here */
-  basis: z.array(basisSchema).max(1000),
+  /** one entry per board and the revenue fill at most; a sanity cap */
+  basis: z.array(basisSchema).max(8),
   result: z.enum(TABLE_RESULTS),
   status: short.nullable(),
   series: z.array(pointSchema).max(TABLE_MAX_POINTS).nullable(),
@@ -83,6 +82,8 @@ const batchSchema = z.object({
   target_date: day,
   collect_mode: short,
   outcome: short,
+  /** running and before its night's deadline; a batch left running past it stopped short */
+  collecting: z.boolean(),
   started_at: stamp,
   finished_at: stamp.nullable(),
   window_end: stamp,

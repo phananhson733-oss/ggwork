@@ -45,17 +45,14 @@ export const BASIS_TEXT: Readonly<Record<BasisKind, string>> = {
   revenue: "ReelShort 近 30 天收入",
 };
 
-export const SAME_TERM_NOTE = "（同名的另一部剧）";
-
 /** One basis: a board, its issue and the rank; or the revenue rank and its snapshot day. */
 export function basisText(basis: TrendsTableBasis): string {
-  const other = basis.identity ? SAME_TERM_NOTE : "";
   if (basis.kind === "revenue") {
     const day = basis.board_date ? `（${basis.board_date} 快照）` : "";
-    return `${BASIS_TEXT.revenue}第 ${basis.rank} 名${day}${other}`;
+    return `${BASIS_TEXT.revenue}第 ${basis.rank} 名${day}`;
   }
   const issue = basis.board_date ? `${basis.board_date} 期` : "日期不详的一期";
-  return `${BASIS_TEXT[basis.kind]} ${issue}第 ${basis.rank} 名${other}`;
+  return `${BASIS_TEXT[basis.kind]} ${issue}第 ${basis.rank} 名`;
 }
 
 /** The night's batch as the table reads it: it publishes nothing, so a night that ended without failing is done. */
@@ -66,7 +63,11 @@ export const NIGHT_OUTCOME_TEXT: Readonly<Record<string, string>> = {
   failed: "中途失败",
 };
 
-export function nightOutcomeText(outcome: string): string {
+export const STOPPED_SHORT = "没有采完：采集中途停了";
+
+/** A night still running past its deadline (the process died, nothing closed it yet) stopped short. */
+export function nightOutcomeText(outcome: string, collecting: boolean): string {
+  if (outcome === "running" && !collecting) return STOPPED_SHORT;
   return textOf(NIGHT_OUTCOME_TEXT, outcome);
 }
 

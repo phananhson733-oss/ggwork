@@ -7,9 +7,11 @@ Who is in, in this order, TARGET_DRAMAS at most:
 2. short of TARGET_DRAMAS, ReelShort's canonical dramas by revenue on the snapshot day of the latest published mirror
    version. pick_mirror.series.revenue_cents is RealShort's rolling-30-day figure as of each day: it is read on one day,
    never summed or subtracted. Titles and languages come from that version's rs_ids.
-A drama already in (the same identity), or a title that asks Google the same thing (the same cleaned term), takes no
-second unit: its basis joins the pick already in. Every pick keeps its basis (the board, its issue and the rank; or the
-revenue rank and day) in plan_json's notes under NOTES_KEY, which the gateway's table reads (observe/trends_table.py).
+A drama already in (the same identity: one language version of one drama) takes no second unit: its basis joins the
+pick already in. Two identities never merge, even when their titles clean to the same term (scope sections 3 and 5: each
+language title is its own row, nothing is merged automatically); each asks Google on its own. Every pick keeps its basis
+(the board, its issue and the rank; or the revenue rank and day) in plan_json's notes under NOTES_KEY, which the
+gateway's table reads (observe/trends_table.py).
 
 The unit: the full title with punctuation and dub markers cleaned (search_term), worldwide (WW), daily (today 1-m),
 the series only: two requests, explore and multiline. The entry runs this source only with GRANULARITY=D and ROUTE=a_only
@@ -101,17 +103,14 @@ def search_term(title: str) -> str | None:
 
 @dataclass(frozen=True)
 class Basis:
-    """Why a drama is in: a board, its issue (the day) and the rank; or revenue, its snapshot day and the rank. identity
-    is set when the basis belongs to another drama that asks Google the same term."""
+    """Why a drama is in: a board, its issue (the day) and the rank; or revenue, its snapshot day and the rank."""
 
     kind: str
     board_date: date | None
     rank: int
-    identity: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        found = {"kind": self.kind, "board_date": self.board_date.isoformat() if self.board_date else None, "rank": self.rank}
-        return {**found, "identity": self.identity} if self.identity is not None else found
+        return {"kind": self.kind, "board_date": _day_text(self.board_date), "rank": self.rank}
 
 
 @dataclass(frozen=True)
@@ -148,9 +147,9 @@ class Pick:
 
 def merged(candidates: Iterable[Candidate], *, target: int = TARGET_DRAMAS) -> tuple[tuple[Pick, ...], int]:
     """The picks in the candidates' order, at most `target`, and how many candidates had no usable title. A candidate
-    whose identity or cleaned term is in already joins its basis to that pick, also once `target` is reached."""
+    whose identity is in already joins its basis to that pick, also once `target` is reached; other identities are
+    picks of their own, whatever their term."""
     picks: dict[str, Pick] = {}
-    by_term: dict[str, str] = {}
     unusable = 0
     for candidate in candidates:
         if candidate.identity in picks:
@@ -159,14 +158,14 @@ def merged(candidates: Iterable[Candidate], *, target: int = TARGET_DRAMAS) -> t
         term = search_term(candidate.title)
         if term is None:
             unusable += 1
-            continue
-        same = by_term.get(term.casefold())
-        if same is not None:
-            picks = {**picks, same: picks[same].joined(replace(candidate.basis, identity=candidate.identity))}
         elif len(picks) < target:
             pick = Pick(candidate.identity, candidate.title.strip(), candidate.platform, candidate.language, term, (candidate.basis,))
-            picks, by_term = {**picks, candidate.identity: pick}, {**by_term, term.casefold(): candidate.identity}
+            picks = {**picks, candidate.identity: pick}
     return tuple(picks.values()), unusable
+
+
+def _day_text(value: date | None) -> str | None:
+    return f"{value:%Y-%m-%d}" if value is not None else None
 
 
 # ---- the boards ------------------------------------------------------------------------------------------------------
@@ -222,7 +221,7 @@ class Board:
     candidates: tuple[Candidate, ...]
 
     def note(self) -> dict[str, Any]:
-        return {"kind": self.kind, "board_date": self.issue.isoformat() if self.issue else None, "listed": len(self.candidates)}
+        return {"kind": self.kind, "board_date": _day_text(self.issue), "listed": len(self.candidates)}
 
 
 def board(entries: Sequence[CatalogEntry], kind: str) -> Board:
@@ -272,7 +271,7 @@ class Revenue:
     reason: str | None = None  # why there is none: sqlite, no_version, unreadable
 
     def note(self, filled: int) -> dict[str, Any]:
-        day = self.day.isoformat() if self.day else None
+        day = _day_text(self.day)
         return {"available": self.reason is None, "reason": self.reason, "mirror_version": self.version, "day": day, "filled": filled}
 
 
