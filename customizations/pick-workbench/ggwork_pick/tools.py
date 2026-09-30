@@ -204,8 +204,8 @@ async def prepare_selection_tool(
     return await _answer(work)
 
 
-# The host externalizes a tool result over 12,000 characters (ToolOutputBudgetMiddleware), and the pick agent has no
-# read_file to open it; the whole serialized result stays within this.
+# The pick tools are exempt from the host's output budget (config.pick.example.yaml tool_output.exempt_tools), so
+# nothing truncates this result; the cap keeps a knowledge search a fraction of the model's context on its own.
 _KNOWLEDGE_OUTPUT_CHARS = 10_000
 # What a title (500 characters at import) and a source ref (2,048) may take once JSON-escaped. Only control characters
 # escape past these (six characters each); such a field is cut, so an entry always leaves the excerpts room.
