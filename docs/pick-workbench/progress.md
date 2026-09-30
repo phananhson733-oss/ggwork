@@ -535,3 +535,15 @@
   - 第二轮只审 `007b1a0c..2da54bb6`：五条都已解决，没有新的 P0–P3。它提到一处测试边界：标题靠 condition 里的固定短语，前端测试只核对了 `rules.py` 源码里有这句。后端 `test_gsc_rules.py` 第 84、154 行断言规则跑完的 condition 全文，前端用的是同一句，两头已接上，不另补。
 - 合同夹具待 G 定：`sync_obs.json` 的 `nothing_published_yet` 里 trends 的 `last_run_at` 为 null 却带 `run_missed`，与 `status_rules`「从没运行过的通道不算」相反。它只是形状示例，本批没改；改合同要 G 审批。
 - 后续：TR-25b（写接口与交互组件），S11 上线，cron 切换（另一会话）。
+
+## 趋势雷达简化版：只读参考表（分支 `feat/trends-simple`，2026-09-30，未合并、未部署）
+
+范围见 `docs/plans/2026-09-30-trends-radar-simplified-scope.md` 第 6 节第 1 到 8 项；第 9 项部署另经用户同意单独做。金丝雀（`canary.py`、负载闸门、`canary_controls.json`）行为不变，没有新迁移（生产头仍是 0007），没有新授权。
+
+- 任务来源（第 1 项，`observe/trends/top_dramas.py`）：共享剧库批次里 `qc`、`qr`、`kd` 三个榜各取最新一期，名次不混排，按身份去重；不够 100 部时按最新镜像版本快照日的 ReelShort 滚动 30 天收入补足（只读一天，不相加减），剧名与语种取该版本的 `rs_ids`。不同身份一律各占一行，查询词相同也不合并。每部剧一个单元：全球、日级、不查相关搜索、完整剧名去标点与配音标记，每部 2 个请求。入选依据记在 `plan_json.notes.top_dramas`。stable 只在 `GRANULARITY=D`、`ROUTE=a_only` 时跑，否则以 2 拒跑并点名两个变量。
+- 日级 `window_end`（第 2 项）：按建批次那天的 UTC 零点；小时级不变。预检用同一个函数。
+- 预算与容量（第 3 项）：100 部 × 2 个请求放得进 stable 的 330（最多 165 部），熔断减半后也放得下；生产节奏下估算无熔断 125 分钟、一次 429 225 分钟 99%，真跑分别 19:24、21:04 完成。
+- gateway 只读接口（第 4 项，`observe/trends_table.py`，`GET /api/pick/obs/trends-table`）：要登录，读最新的 stable 表批次，任务清单驱动，至多 200 行，每行只看当晚的原始行，没查到的剧写「这晚未查到」，不拿旧曲线顶替；读失败 503 只写类名。托管副本经 uv 0.11.1 刷新。
+- 前端（第 5、7 项）：trends tab 改走 `trends-route.tsx` 读这个接口，不解析镜像版本；表格十列（剧、入选依据、近 30 天小曲线、近 7 日与前 7 日均值、变化、标签、采集结果、短剧名提示、Trends 链接），按变化或入选顺序排序（`ts=`），表头写采集日期与各类部数，空状态各一句。两段均值与标签是纯函数（`core/pick/trends-table.ts`），±25% 与「少于 3 天」只在 `TREND_RULES` 一处，比较用整数精确判定。search tab 从页签栏隐藏，旧链接打开时才列出；横幅与页签外壳照旧。
+- 过期提示按批次判（第 6 项）：`stale_26h` 另加一种情况：最新一个采完的表批次早于应到日期，或一个都没采完过而第一个表批次已经应到（首晚就崩），且 `run_missed` 不成立。Python 与 TS 双实现共用 `obs_status_cases.json`（新增 7 个用例）。
+- 文档（第 8 项）：`observe-runbook/trends-session.md` 加简化版任务来源、趋势表与排错两节；`packaging.md` 写明上线那次部署一起改 `MODE=stable`、`ROUTE=a_only`、`GRANULARITY=D`；`observe-contract.md` 写 `stale_26h` 的新定义与 `TrendsTable` 形状；范围文档第 7 节第 9 条按 09-30 生产数据更正（最新一期合计 60 行，去重后 52 行）。
