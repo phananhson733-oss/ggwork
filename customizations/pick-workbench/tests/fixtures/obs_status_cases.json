@@ -6,7 +6,9 @@
     "started_at (a pick_obs.run_status row, only the fields that decide a banner; null: the channel never ran).",
     "Banners: every status code of the latest run (collectors write them, including a refusal such as disabled_7d or",
     "canary_terminated as a run row of its own), plus three computed from time: stale_26h (Trends only: now - live",
-    "published_at > 26 h; exactly 26 h is not stale; no live set, no stale_26h), run_missed (Trends: from 02:30 UTC the due",
+    "published_at > 26 h, exactly 26 h is not stale, no live set no stale_26h; or, for the simplified radar's table, which",
+    "publishes no set, table_through (the target date of the newest finished table batch; absent or null: none yet) is",
+    "earlier than the due target date and run_missed does not already hold), run_missed (Trends: from 02:30 UTC the due",
     "target date is today, before it yesterday, and the latest run's target_date is earlier than the due date; GSC: now -",
     "latest started_at > 4 h; exactly 4 h is not missed; a channel that never ran has no run_missed) and shadow_mode (the",
     "latest run's mode is shadow). Each code once, ordered by level (red, warn, info) and then by STATUS_CODES order.",
@@ -35,7 +37,7 @@
     "parse_error": "red"
   },
   "texts": {
-    "stale_26h": "当前生效的 Trends 集合已超过 26 小时：带趋势条件的查询返回「数据陈旧」，不给加码建议",
+    "stale_26h": "Trends 数据过期：到 02:30 UTC 还没有采完当天的趋势表批次（或当前生效的集合已超过 26 小时），表里是更早的结果",
     "not_published_low_coverage": "A 档覆盖率低于 80%，本批没有发布，上一个集合继续生效",
     "extinguished_today": "今天的直连采集已熄火（限流、验证页或同意墙），剩余单元未采",
     "disabled_7d": "7 天内熄火 3 次，直连已停用，人工重置后才恢复",
@@ -188,6 +190,51 @@
         "status_codes": ["shadow_mode", "extinguished_today", "extinguished_today"]
       },
       "expected": [{"code": "extinguished_today", "level": "red"}, {"code": "shadow_mode", "level": "info"}]
+    },
+    {
+      "name": "trends_table_fresh",
+      "channel": "trends",
+      "now": "2026-09-26T04:00:00.000000+00:00",
+      "live_published_at": null,
+      "table_through": "2026-09-26",
+      "latest_run": {"started_at": "2026-09-25T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": []},
+      "expected": []
+    },
+    {
+      "name": "trends_table_not_due_before_0230",
+      "channel": "trends",
+      "now": "2026-09-26T02:29:59.999999+00:00",
+      "live_published_at": null,
+      "table_through": "2026-09-25",
+      "latest_run": {"started_at": "2026-09-25T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": []},
+      "expected": []
+    },
+    {
+      "name": "trends_table_behind_a_night_still_running",
+      "channel": "trends",
+      "now": "2026-09-26T02:30:00.000000+00:00",
+      "live_published_at": null,
+      "table_through": "2026-09-25",
+      "latest_run": {"started_at": "2026-09-25T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": []},
+      "expected": [{"code": "stale_26h", "level": "red"}]
+    },
+    {
+      "name": "trends_table_behind_a_refused_night",
+      "channel": "trends",
+      "now": "2026-09-26T04:00:00.000000+00:00",
+      "live_published_at": null,
+      "table_through": "2026-09-25",
+      "latest_run": {"started_at": "2026-09-25T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-26", "status_codes": ["disabled_7d"]},
+      "expected": [{"code": "stale_26h", "level": "red"}, {"code": "disabled_7d", "level": "red"}]
+    },
+    {
+      "name": "trends_table_behind_is_run_missed_only",
+      "channel": "trends",
+      "now": "2026-09-26T04:00:00.000000+00:00",
+      "live_published_at": null,
+      "table_through": "2026-09-24",
+      "latest_run": {"started_at": "2026-09-24T17:30:02.000000+00:00", "mode": "live", "target_date": "2026-09-25", "status_codes": []},
+      "expected": [{"code": "run_missed", "level": "red"}]
     },
     {
       "name": "gsc_fresh",
