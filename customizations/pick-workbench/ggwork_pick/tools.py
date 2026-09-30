@@ -80,6 +80,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
     返回持久化的result_id、有序items、matched_total(符合条件总数)、依据、data_as_of(数据时点)；不可自行重排编号。
     matched_total为0时另有zero_diagnosis：去掉每一项条件后各有多少部，据此说明是哪个条件筛空的，不自行推测原因。
     hot_only时另有hot_scope：算作热门依据的信号种类与未算的种类。
+    数据过期时另有data_notices：批次太久没更新、剧单导入太久、榜单最新一期太旧等提示，回答里如实转述。
     """
     task = task_from_runtime(runtime)
     repo = await task.repository(runtime)
@@ -109,7 +110,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
         # P4-1 switch on, and the mirror version its row recorded.
         data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
         # For the model only: the card reads the stored result through /api/pick/results, never these keys.
-        explained = await SelectionService(repo).explain(record)
+        explained = await SelectionService(repo).explain(record, data_as_of=data_as_of)
         return json.dumps({**result, "data_as_of": data_as_of, **explained}, ensure_ascii=False)
 
     return await _answer(work)
@@ -119,7 +120,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
 async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> str:
     """只统计符合条件的剧有多少部（按剧场、语种分组），不生成候选卡。用户问“有多少部/哪个剧场多”时使用。
     filters与pick_query_candidates相同（完整条件；exclude_previous=true时沿用绑定候选），limit无效。
-    同样拒绝剧库里没有的值；total为0时附zero_diagnosis，hot_only时附hot_scope。
+    同样拒绝剧库里没有的值；total为0时附zero_diagnosis，hot_only时附hot_scope，数据过期时附data_notices。
     """
     task = task_from_runtime(runtime)
     repo = await task.repository(runtime)

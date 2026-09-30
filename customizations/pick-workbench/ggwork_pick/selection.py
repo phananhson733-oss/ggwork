@@ -7,6 +7,7 @@ import json
 from uuid import uuid4
 
 from ggwork_pick.contracts import PickConditions
+from ggwork_pick.freshness import RANK_KINDS, data_notices
 from ggwork_pick.pin import Pin, as_pin
 from ggwork_pick.references import check_posted_account, check_references, hot_scope, is_hot_kind, names_account
 from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of, with_mirror_version
@@ -324,13 +325,21 @@ def candidate_item(row, conditions, matched_total: int | None = None):
     return item
 
 
-async def _explanations(rows, conditions: PickConditions, excluded, *, matched: int | None) -> dict:
+async def _explanations(rows, conditions: PickConditions, excluded, *, matched: int | None, data_as_of: dict | None) -> dict:
+    """For the model only: why nothing matched, what counted as hot, and the data page's stale warnings."""
     extra = {}
     if matched == 0:
         extra["zero_diagnosis"] = await asyncio.to_thread(zero_diagnosis, rows, conditions, excluded)
     if conditions.hot_only:
         extra["hot_scope"] = hot_scope(rows)
+    if notices := data_notices(data_as_of, rows, conditions):
+        extra["data_notices"] = notices
     return extra
+
+
+def _judges_boards(conditions: PickConditions) -> bool:
+    """Whether the stale warnings need the batch's rows: only a question standing on a board's edition."""
+    return conditions.hot_only or conditions.signal_kind in RANK_KINDS
 
 
 def _request_hash(conditions: PickConditions, parent_result_id: str | None, use_latest: bool) -> str:
@@ -483,17 +492,16 @@ class SelectionService:
             "by_language": dict(sorted(by_language.items(), key=lambda kv: (-kv[1], kv[0]))),
             "data_as_of": with_mirror_version(await self._pin_data_as_of(pin), pin.mirror_version, emit=emit_mirror_version),
         }
-        return {**counted, **await _explanations(rows, conditions, excluded, matched=len(matches))}
+        return {**counted, **await _explanations(rows, conditions, excluded, matched=len(matches), data_as_of=counted["data_as_of"])}
 
-    async def explain(self, record: dict) -> dict:
-        """What the query tool adds beside a stored result for the model: zero_diagnosis when nothing matched, and
-        hot_scope under hot_only. Read from the result's own batch and exclusions, so a repeated call gets the same."""
+    async def explain(self, record: dict, *, data_as_of: dict | None = None) -> dict:
+        """What the query tool adds beside a stored result for the model: zero_diagnosis when nothing matched,
+        hot_scope under hot_only, and data_notices when the data_as_of the result answers with is stale. Read from the
+        result's own batch and exclusions, so a repeated call gets the same; the rows only when a judgement needs them."""
         conditions = PickConditions.model_validate(record["conditions_json"])
         matched = _matched_total(record)
-        if matched != 0 and not conditions.hot_only:
-            return {}
-        rows = await self.repository.catalog_rows(record["catalog_batch_id"])
-        return await _explanations(rows, conditions, frozenset(record.get("excluded_json") or ()), matched=matched)
+        rows = await self.repository.catalog_rows(record["catalog_batch_id"]) if matched == 0 or _judges_boards(conditions) else []
+        return await _explanations(rows, conditions, frozenset(record.get("excluded_json") or ()), matched=matched, data_as_of=data_as_of)
 
     async def _pin_data_as_of(self, pin: Pin) -> dict | None:
         return pin.data_as_of if pin.data_as_of is not None else await self.repository.data_as_of(pin.catalog_id)
