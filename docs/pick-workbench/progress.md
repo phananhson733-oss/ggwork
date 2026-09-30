@@ -490,3 +490,56 @@
   - 第二轮只审 `007b1a0c..2da54bb6`：五条都已解决，没有新的 P0–P3。它提到一处测试边界：标题靠 condition 里的固定短语，前端测试只核对了 `rules.py` 源码里有这句。后端 `test_gsc_rules.py` 第 84、154 行断言规则跑完的 condition 全文，前端用的是同一句，两头已接上，不另补。
 - 合同夹具待 G 定：`sync_obs.json` 的 `nothing_published_yet` 里 trends 的 `last_run_at` 为 null 却带 `run_missed`，与 `status_rules`「从没运行过的通道不算」相反。它只是形状示例，本批没改；改合同要 G 审批。
 - 后续：TR-25b（写接口与交互组件），S11 上线，cron 切换（另一会话）。
+
+## 趋势雷达：TR-25b 人工决定写接口（分支 `feat/trends-radar-tr-25b`，2026-09-30，已完成，按计划 8.2 搁置，不合并）
+
+- 状态：
+  - 本批做完之后，另一个会话推了 cfa5144f：用户批准把趋势雷达缩减为简化版（只读参考表），计划第 8.2 节把 TR-25 的写接口部分（TR-25b）列为搁置。
+  - 用户选择：整条分支留档不合并；其中前端的 client 组件登记表另开 PR 合进 `feat/trends-radar`，简化版替换 trends 页签时照样用得上。
+  - 以后逐剧路线或人工决定重新立项，从这条分支取用；先 rebase 到当时的集成分支，并重跑下面的测试。
+- 范围（本批开工时用户确认，计划 TR-25 节的 2026-09-30 说明，只在本分支上）：
+  - b_only 下确认、暂停、人工加入写下的决定没有采集服务或视图会读，只做写接口、登记表与真实登录验收；三个交互组件不做。
+- 写接口 `POST /api/pick/obs/decisions`：
+  - `ggwork_pick/observe/decisions.py`：
+    - `append_decision` 在一个事务里依次执行 `lock_for_append`、`read_effective`、查同一操作人的同一 `request_id`、`refusal`、INSERT。
+    - `read_effective` 放在最前，决定表有坏行时，重放也回 503。
+    - `parse_decision` 只报「位置（错误类型）」：多出来的键写成 `<extra>`，不用 pydantic 的 msg，所以 422 不回显原文。
+    - 嵌套超过 4 层回 `body（too_deep）`。
+  - `routes.py`：
+    - 不声明请求体参数，认证依赖跑完才流式读取请求体，超过 16 KB 回 413。没登录时连非 JSON 也回 401。
+  - 回答：
+    - 201：新行，回 `{id, kind, request_id, created_at, replayed}`。
+    - 200：同一操作人重放同样的内容。
+    - 409：生效的人工加入已满 50 条，或 request_id 已用于别的内容。
+    - 422：不合合同。
+    - 503：决定表有坏行（固定文案，日志只记行号与位置），或服务未就绪。
+  - `observe-runbook/decisions.md` 加了「写入接口」一节，合同第 12 节写明 request_id 按操作人区分；这两处改动都只在本分支。
+- client 组件登记表（另开 PR 合入的那部分）：
+  - `contracts.test` 的 `RADAR_CLIENT_COMPONENTS`，判断逻辑在 `client-boundary.ts`。
+  - 按 AST 的指令序言认 `"use client"`。
+  - 范围是 pick 与 pick-board 下任意 `obs-*` 文件和 `obs/` 目录。
+  - 雷达视图的导入按 tsconfig 用 `ts.resolveModuleName` 解析，顺着非 client 的本地模块一直追下去；解析不了的本地导入报出来。
+- 测试（全 scram 的 PG 17 容器）：
+  - `test_decisions_route.py` 在两种库上共 20 条。去掉表锁时并发测试会红，已实测。
+  - pick 扩展全套在 b0b34ce9 上 3737 过、21 跳过。
+    - 60207a4c 上第一次跑有 1 条 `test_mirror_versions` 的计时断言超时：当时机器同时在跑前端测试和验收 gateway。那个文件单独重跑 3 次都过，空闲时再跑全套是干净的。
+  - 前端：`pnpm check` 通过；`pnpm test` 3001 过、53 跳过（跳过的是 4 个没带读者 URL 的集成文件）。
+- 真实登录验收：
+  - 做法：本机 gateway，`local-run.md` 第 3–5 步的做法，一次性库，账号口令只放在 0600 文件里，验收完连库一起删掉。
+  - 在 e0029e35 上 19 项全过：
+    - 没登录、没带 CSRF 的请求被拒（403）。
+    - 人工加入、暂停、确认、撤销、撤回每次只多一行，旧行不变。
+    - 重放回 200，同一 request_id 换内容回 409，请求体带 owner 回 422。
+    - 422 不回显哨兵字符串；PUT、PATCH、DELETE 都是 405。
+    - 每行的操作人都是 `/auth/me` 的 id；最后读到的有效状态与操作一致。
+  - b0b34ce9 只加了嵌套深度检查，没有重做验收。
+- codex 只读审查（三轮）：
+  - 第一轮：没有 P0、P1；4 条 P2、2 条 P3，全部在 e0029e35 修掉：
+    - 422 经 msg、loc 回显输入；
+    - 重放绕过决定表校验；
+    - 登记范围漏了 pick-board 的 `obs-*`，也漏了块注释后面的 `"use client"`；
+    - 导入解析漏了 index.ts、`.js` 说明符和中转模块；
+    - 认证要先于读请求体；
+    - 并发测试的证明不够独立。
+  - 第二轮：六条都已解决，新报 1 条 P2：不到 16 KB 的深层嵌套会让 StrictInput 的递归校验抛 RecursionError，落成 500。在 b0b34ce9 修掉。
+  - 第三轮：已解决，没有新问题。
