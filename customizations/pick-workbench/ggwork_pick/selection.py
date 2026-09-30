@@ -20,6 +20,8 @@ HOT_RANKING_VERSION = "hot-evidence-date-v1"
 RANKING_VERSIONS = frozenset({RANKING_VERSION, RANK_RANKING_VERSION, HOT_RANKING_VERSION})
 # The replay's ordered identity list stops here; total and truncated say how many there were (plan:1620).
 REPLAY_LIMIT = 2000
+# 换一批 walks its chain of parents no further than this; a conversation never gets near it.
+CHAIN_LIMIT = 100
 
 
 class PostedDataUnavailable(ValueError):
@@ -384,11 +386,32 @@ class SelectionService:
             raise ValueError("尚未导入剧库")
         return pin
 
+    async def _chain_items(self, parent: dict) -> set[str]:
+        """The identities every batch on the parent's chain handed out: the parent's, its parent's, and so on.
+
+        Only its items, never its excluded_json (that froze the personal selections of its day, which a later
+        exclude_selected=false must not carry). The chain stops at a result from another thread (a copied
+        conversation's ancestry) and after CHAIN_LIMIT links, so a corrupt cycle cannot spin forever.
+        """
+        identities: set[str] = set()
+        record, thread_id = parent, parent["thread_id"]
+        for _ in range(CHAIN_LIMIT):
+            if record["thread_id"] != thread_id:
+                break
+            identities.update(item["identity"] for item in record["ordered_items_json"])
+            if not record.get("parent_result_id"):
+                break
+            try:
+                record = await self.repository.result(record["parent_result_id"])
+            except LookupError:
+                break
+        return identities
+
     async def _scope(self, filters: dict, parent: dict | None, *, use_latest: bool, pinned_versions):
         """Conditions, data versions and exclusions for one call.
 
         Only 换一批 (exclude_previous) derives from the bound parent: its conditions, its data version
-        and its items. Any other question stands on its own conditions and this run's data.
+        and every item its chain handed out. Any other question stands on its own conditions and this run's data.
         """
         derived = parent is not None and filters.get("exclude_previous") is True
         conditions = PickConditions.model_validate({**parent["conditions_json"], **filters} if derived else filters)
@@ -396,7 +419,7 @@ class SelectionService:
             raise ValueError("换一批需要明确引用上一份候选")
         pin = await self._parent_versions(parent) if derived and not use_latest else await self._current_versions(pinned_versions)
         selected = {r["identity"] for r in await self.repository.selections()} if conditions.exclude_selected else set()
-        previous = {item["identity"] for item in parent["ordered_items_json"]} if derived else set()
+        previous = await self._chain_items(parent) if derived else set()
         return conditions, pin, frozenset(selected | previous)
 
     async def query(
