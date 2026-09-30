@@ -536,6 +536,18 @@
 - 合同夹具待 G 定：`sync_obs.json` 的 `nothing_published_yet` 里 trends 的 `last_run_at` 为 null 却带 `run_missed`，与 `status_rules`「从没运行过的通道不算」相反。它只是形状示例，本批没改；改合同要 G 审批。
 - 后续：TR-25b（写接口与交互组件），S11 上线，cron 切换（另一会话）。
 
+## 趋势雷达：TR-25b 已完成、按计划 8.2 搁置；client 组件登记表单独合入（2026-09-30）
+
+- TR-25b（人工决定写接口 `POST /api/pick/obs/decisions`）在 `feat/trends-radar-tr-25b` 上做完了：
+  - 真实登录验收 19 项、codex 三轮审查都已处理。
+  - 同一天用户批准了简化版范围，计划第 8.2 节把它列为搁置（cfa5144f）。用户选择整条分支留档，不合并。实现、测试数字与审查处置见那条分支上 progress.md 的同名一节。
+  - 以后逐剧路线或人工决定重新立项，就从那条分支取用：先 rebase，再重跑测试。
+- 其中前端的 client 组件登记表单独合进 `feat/trends-radar`（`test(pick-board)` 那个提交），简化版替换 trends 页签时照样适用：
+  - 登记表在 `contracts.test` 的 `RADAR_CLIENT_COMPONENTS`，判断逻辑在 `client-boundary.ts`。
+  - pick 与 pick-board 下任意 `obs-*` 文件、`obs/` 目录里的 `"use client"` 文件，都要登记并写理由。认 `"use client"` 按 AST 的指令序言。
+  - 资料页的雷达视图必须是服务端组件。它们的导入按 tsconfig 解析，顺着本地模块一直追下去，只能碰到登记过的 client 组件；解析不了的本地导入也会报出来。
+  - 现在登记的只有 `obs-status-panel.tsx`。
+
 ## 趋势雷达简化版：只读参考表（分支 `feat/trends-simple`，2026-09-30，未合并、未部署）
 
 范围见 `docs/plans/2026-09-30-trends-radar-simplified-scope.md` 第 6 节第 1 到 8 项；第 9 项部署另经用户同意单独做。金丝雀（`canary.py`、负载闸门、`canary_controls.json`）行为不变，没有新迁移（生产头仍是 0007），没有新授权。
