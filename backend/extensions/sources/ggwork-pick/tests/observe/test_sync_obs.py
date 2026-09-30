@@ -8,12 +8,12 @@ crons run, which is production today, every field is empty and there is no banne
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from obs_status_rows import batch_row, insert_rows, set_id, set_row
+from obs_status_rows import batch_row, insert_rows, set_id, set_row, table_batch_row
 from pydantic import TypeAdapter
 from sqlalchemy import delete
 
@@ -151,9 +151,14 @@ async def test_obs_status_follows_every_status_case(service):
         await _clear(service)
         channel, run = case["channel"], case["latest_run"]
         sets = [] if case["live_published_at"] is None else [set_row(number, channel, "live", case["live_published_at"])]
-        batches = []
-        if run is not None:
-            batches = [batch_row(f"b-{number}", channel, run["mode"], run["started_at"], target_date=run["target_date"], codes=run["status_codes"])]
+        batches = (
+            []
+            if run is None
+            else [batch_row(f"b-{number}", channel, run["mode"], run["started_at"], target_date=run["target_date"], codes=run["status_codes"])]
+        )
+        through = case.get("table_through")
+        if through is not None:  # the newest finished table batch, older than the latest run or that run itself
+            batches = _with_table_batch(batches, number, through)
         await _insert(service, sets=sets, batches=batches)
         obs = await obs_status(_shared(service), now=datetime.fromisoformat(case["now"]))
         assert _channel(obs, channel)["banners"] == case["expected"], case["name"]
@@ -164,8 +169,73 @@ async def test_obs_status_follows_every_status_case(service):
             latest_run=None if run is None else LatestRun.from_mapping(channel, run),
             live_published_at=case["live_published_at"],
             now=datetime.fromisoformat(case["now"]),
+            table_through=None if through is None else date.fromisoformat(through),
         )
         assert _channel(obs, channel)["banners"] == [banner.model_dump() for banner in expected], case["name"]
+
+
+def _with_table_batch(batches: list[dict], number: int, through: str) -> list[dict]:
+    """The case's latest run as the finished table batch of `through` when it is that date's, else a finished table
+    batch of `through` started a day earlier."""
+    run = batches[0]
+    if run["target_date"] == through:
+        finished = table_batch_row(run["id"], through, run["started_at"], finished_at=run["started_at"], codes=run["status_codes_json"])
+        return [{**finished, "mode": run["mode"]}]
+    started = (datetime.fromisoformat(run["started_at"]) - timedelta(days=1)).isoformat(timespec="microseconds")
+    return [table_batch_row(f"table-{number}", through, started, finished_at=started), *batches]
+
+
+@pytest.mark.asyncio
+async def test_table_through_reads_only_finished_planned_stable_batches(service):
+    """The stale banner's date is the newest finished, planned, stable-mode Trends batch: a canary night, a refusal row
+    (no window_end) and a night still running do not move it."""
+    await _insert(
+        service,
+        batches=[
+            table_batch_row("s-24", "2026-09-24", "2026-09-23T17:30:02.000000+00:00", finished_at="2026-09-23T19:40:00.000000+00:00"),
+            batch_row(
+                "c-25",
+                "trends",
+                "shadow",
+                "2026-09-24T21:00:02.000000+00:00",
+                target_date="2026-09-25",
+                codes=[],
+                collect_mode="canary1",
+                window_end="2026-09-24T18:00:00.000000+00:00",
+                finished_at="2026-09-24T23:00:00.000000+00:00",
+            ),
+            table_batch_row("s-26", "2026-09-26", "2026-09-25T17:30:02.000000+00:00", finished_at=None),
+            batch_row(
+                "r-27",
+                "trends",
+                "shadow",
+                "2026-09-26T17:30:02.000000+00:00",
+                target_date="2026-09-27",
+                codes=["disabled_7d"],
+                collect_mode="stable",
+                finished_at="2026-09-26T17:30:02.000000+00:00",
+                outcome="failed",
+            ),
+        ],
+    )
+    obs = await obs_status(_shared(service), now=datetime(2026, 9, 27, 4, 0, tzinfo=UTC))
+    assert _channel(obs, "trends")["banners"] == [
+        {"code": "stale_26h", "level": "red"},
+        {"code": "disabled_7d", "level": "red"},
+        {"code": "shadow_mode", "level": "info"},
+    ]
+    await _clear(service)
+    await _insert(
+        service,
+        batches=[
+            table_batch_row("s-25", "2026-09-25", "2026-09-24T17:30:02.000000+00:00", finished_at="2026-09-24T19:40:00.000000+00:00"),
+            table_batch_row("s-26", "2026-09-26", "2026-09-25T17:30:02.000000+00:00", finished_at=None),
+        ],
+    )
+    fresh = await obs_status(_shared(service), now=datetime(2026, 9, 26, 2, 29, tzinfo=UTC))
+    assert _channel(fresh, "trends")["banners"] == [{"code": "shadow_mode", "level": "info"}]
+    behind = await obs_status(_shared(service), now=datetime(2026, 9, 26, 2, 30, tzinfo=UTC))
+    assert _channel(behind, "trends")["banners"] == [{"code": "stale_26h", "level": "red"}, {"code": "shadow_mode", "level": "info"}]
 
 
 # ---------------------------------------------------------------- 4. a read that fails

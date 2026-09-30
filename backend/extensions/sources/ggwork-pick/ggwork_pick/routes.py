@@ -17,6 +17,7 @@ from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.mirror.status import mirror_status
 from ggwork_pick.observe.status import obs_status
+from ggwork_pick.observe.trends_table import trends_table
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import ReplayGone, ReplayUnrunnable, SelectionService, result_view
 
@@ -45,6 +46,19 @@ async def obs_view(shared: PickRepository) -> dict:
     except Exception as exc:
         logger.warning("[pick-obs] reading the observation status for /sync failed: %s", type(exc).__name__)
         return {"error": type(exc).__name__}
+
+
+TRENDS_TABLE_UNREADABLE = "趋势表暂时读不了，稍后再试"
+
+
+async def trends_table_view(shared: PickRepository) -> dict:
+    """GET /api/pick/obs/trends-table (simplified radar, scope section 6 item 4). A failed read is a 503 with a fixed
+    text, logged by class only (a database message can quote a value)."""
+    try:
+        return await trends_table(shared, now=datetime.now(UTC))
+    except Exception as exc:
+        logger.warning("[pick-obs] reading the trends table failed: %s", type(exc).__name__)
+        raise HTTPException(503, TRENDS_TABLE_UNREADABLE) from None
 
 
 class SaveInput(StrictInput):
@@ -149,6 +163,12 @@ def build_router(service):
         # The radar's status (TR-25): shared like the mirror's, on both dialects; before the crons run every field is null.
         obs = await obs_view(shared)
         return {"configured": service.sync_settings.configured, "current": info, "runs": runs, "mirror": mirror, "obs": obs}
+
+    @router.get("/obs/trends-table")
+    async def obs_trends_table(request: Request):
+        """The simplified radar's read-only table: the same for every signed-in user."""
+        repository(request)
+        return await trends_table_view(PickRepository.shared(service.session_factory))
 
     @router.post("/sync", status_code=202)
     async def sync_now(request: Request):

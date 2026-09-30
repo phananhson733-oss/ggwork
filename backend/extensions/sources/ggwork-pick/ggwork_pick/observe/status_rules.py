@@ -1,8 +1,14 @@
 """Status codes to banners, with the ones that come from time (plan TR-10, D10; design 3.7, 4.10; contract section 13).
 
 A channel's banners are every status code its latest run wrote, plus three computed here from an explicit now:
-- stale_26h (Trends only): the current live set was published more than 26 hours ago. Exactly 26 hours is not stale,
-  matching link actionability; no live set is "not ready yet" for the agent, not stale.
+- stale_26h (Trends only), either of:
+  - the current live set was published more than 26 hours ago. Exactly 26 hours is not stale, matching link
+    actionability; no live set is "not ready yet" for the agent, not stale;
+  - the simplified radar's table (simplified scope 2026-09-30, section 6 item 6; it publishes no set) is behind: from
+    02:30 UTC the due target date is today (before it, yesterday), and the newest finished table batch
+    (status.table_batch: stable, planned, finished) is for an earlier target date. Judged on batches, since there is no
+    set; not raised on top of run_missed, which says the same first. Before the first table batch there is nothing to
+    call stale (the canary's nights feed no table).
 - run_missed: for Trends, from 02:30 UTC the due target date is today (before it, yesterday) and the latest run's
   target_date is earlier; for GSC, the latest round started more than 4 hours ago. A channel that never ran has none:
   before the cron exists that is the rollout, and the page shows last_run_at as empty.
@@ -54,7 +60,7 @@ STATUS_LEVELS = MappingProxyType(
 )
 STATUS_TEXT = MappingProxyType(
     {
-        "stale_26h": "当前生效的 Trends 集合已超过 26 小时：带趋势条件的查询返回「数据陈旧」，不给加码建议",
+        "stale_26h": "Trends 数据过期：到 02:30 UTC 还没有采完当天的趋势表批次（或当前生效的集合已超过 26 小时），表里是更早的结果",
         "not_published_low_coverage": "A 档覆盖率低于 80%，本批没有发布，上一个集合继续生效",
         "extinguished_today": "今天的直连采集已熄火（限流、验证页或同意墙），剩余单元未采",
         "disabled_7d": "7 天内熄火 3 次，直连已停用，人工重置后才恢复",
@@ -117,6 +123,11 @@ def trends_set_stale(live_published_at: str | datetime | None, now: datetime) ->
     return live_published_at is not None and instant(now) - instant(live_published_at) > TRENDS_STALE_AFTER
 
 
+def trends_table_stale(table_through: date | None, now: datetime) -> bool:
+    """The newest finished table batch is for a target date before the one due at `now`; none yet is not stale."""
+    return table_through is not None and table_through < trends_due_date(now)
+
+
 def trends_due_date(now: datetime) -> date:
     """The target date whose batch must exist by now: today from 02:30 UTC, yesterday before it."""
     moment = instant(now)
@@ -139,13 +150,25 @@ def run_missed(channel: Channel, latest_run: LatestRun | None, now: datetime) ->
     return instant(now) - latest_run.started_at > GSC_MISSED_AFTER
 
 
-def channel_banners(channel: Channel, *, latest_run: LatestRun | None, live_published_at: str | datetime | None, now: datetime) -> tuple[ObsBanner, ...]:
-    """One channel's banners at `now`: the latest run's codes and the three time-based ones, each once, in banner order."""
+def channel_banners(
+    channel: Channel,
+    *,
+    latest_run: LatestRun | None,
+    live_published_at: str | datetime | None,
+    now: datetime,
+    table_through: date | None = None,
+) -> tuple[ObsBanner, ...]:
+    """One channel's banners at `now`: the latest run's codes and the three time-based ones, each once, in banner order.
+    table_through is the target date of the newest finished table batch (Trends only; None before the first)."""
     _check_run(channel, latest_run)
+    if table_through is not None and (channel != "trends" or type(table_through) is not date):
+        raise ValueError("table_through 只属于 Trends，是 date")
     moment = instant(now)
+    missed = run_missed(channel, latest_run, moment)
+    table_behind = trends_table_stale(table_through, moment) and not missed
     computed = {
-        "stale_26h": channel == "trends" and trends_set_stale(live_published_at, moment),
-        "run_missed": run_missed(channel, latest_run, moment),
+        "stale_26h": channel == "trends" and (trends_set_stale(live_published_at, moment) or table_behind),
+        "run_missed": missed,
         "shadow_mode": latest_run is not None and latest_run.mode == "shadow",
     }
     codes = {code for code, holds in computed.items() if holds} | set(() if latest_run is None else latest_run.status_codes)
