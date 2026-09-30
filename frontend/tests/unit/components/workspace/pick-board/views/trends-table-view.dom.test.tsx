@@ -244,6 +244,14 @@ describe("the table", () => {
     ).toBe("数据太少");
   });
 
+  it("states the rules in their order, and promises nothing from the change alone", () => {
+    const rules = show(table(ROWS)).querySelector("[data-trends-rules]");
+    const text = rules?.textContent ?? "";
+    expect(text).toContain("先命中的为准");
+    expect(text).toContain("「持平」的行不会显示成 ±25.0%");
+    expect(text).not.toContain("一定");
+  });
+
   it("hints at a short title and links the term on Google Trends", () => {
     const root = show(table(ROWS));
     expect(

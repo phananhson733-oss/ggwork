@@ -243,7 +243,7 @@ TR-30 修复原因后要重跑金丝雀：设 `PICK_OBS_CANARY_SINCE=YYYY-MM-DD`
 | 页面写「还没有趋势表」 | 还没有一晚 stable 跑过，或最新的 stable 批次不是 `top_dramas`。跑 `python -m ggwork_pick.observe.trends status` 看最近的批次与 `plan` 行；服务变量要是 `MODE=stable`、`GRANULARITY=D`、`ROUTE=a_only`，否则每次触发都以 2 拒跑 |
 | 红色「Trends 数据过期」或「采集没有按时运行」 | 看 Railway 上 `pick-obs-trends` 最近几次触发的退出码与日志；`status` 的最近批次是否停在 running（续跑失败）或是拒跑行（`disabled_7d` 等，见「状态码与拒跑行」） |
 | 大量「这晚未查到」 | 看行上的原因：`rate_limited` 等是被限流，`deadline` 是 01:45 前没跑完，`truncated` 是超出当晚预算。`status` 的预算行与熔断状态说明当晚发生了什么 |
-| 大量「Google 未返回数据」 | 这是 Google 的真实回答，不是故障：剧名在全球范围搜索量太小。第一周查到数据的比例很低时，按简化范围第 10 节第 4 步考虑改地区 |
+| 大量「Google 未返回数据」 | Google 没有返回可用的曲线（`no_data`，或曲线一天有值的都没有）。可能与剧名在全球范围的搜索量不足有关，但不能据此判断没有需求，也不能单凭它排除采集或解析的问题：先看同一晚其他行是否正常有数据，再用行尾链接在 Google Trends 上手动查几部对照。第一周查到数据的比例很低时，按简化范围第 10 节第 4 步考虑改地区 |
 | 收入没有补足 | 表头的来源一行写了原因：没有已发布的镜像版本、镜像读不了（授权缺失时跑 `admin regrant --check`）、或榜单已凑满 |
 | 页面写「趋势表暂时读不了」 | gateway 日志里 `[pick-obs] reading the trends table failed:` 那一行的异常类名；gateway 自己连不上库时 `/sync` 也会同时报错 |
 

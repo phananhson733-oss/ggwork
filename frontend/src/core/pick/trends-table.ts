@@ -9,9 +9,8 @@
  * - The label, first that holds: too little (fewer than minNonZeroDays non-zero days among the recent 7, or no prior
  *   day with data to compare against), new (prior mean 0, recent mean above 0), rising (change at least
  *   +changePercent), falling (at most -changePercent), flat. The comparisons are exact (integer sums), and the change
- *   shown is cut toward zero at one decimal from the same integers, so a row reads +25.0% only when it is rising and
- *   a flat row never reads ±25.0%. A change of
- *   exactly 25% is 25%, not 24.999...
+ *   shown is cut toward zero at one decimal from the same integers, so a flat row never reads ±25.0%. A change of
+ *   exactly 25% is 25%, not 24.999... Too little comes first, so a row with too few days can read +25.0% or more.
  * - The short-title hint, the Trends link and the two sort orders.
  *
  * Every number the scope asks to tune after the first week sits in TREND_RULES. Pure: no clock, no server module.

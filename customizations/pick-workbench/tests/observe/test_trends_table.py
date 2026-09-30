@@ -327,6 +327,11 @@ def test_a_curve_of_zeros_is_data_and_an_answer_without_values_is_not():
     _, rows, _ = table_of(_plan_batch(units, picks, outcome="withheld"), zeros, now)
     assert [(row["result"], row["status"]) for row in rows] == [("data", "ok_zero"), ("no_data", "ok")]
     assert [point["value"] for point in rows[0]["series"]] == [0, 0, 0]
+    # ok_zero without a day with a value is empty too; zeros with a gap are data, the gap kept null
+    mixed = {units[0].key: line("ok_zero", [0, 0, 0], [False] * 3), units[1].key: line("ok_zero", [0, 0, 0], [True, False, True])}
+    _, rows, _ = table_of(_plan_batch(units, picks, outcome="withheld"), mixed, now)
+    assert [(row["result"], row["status"]) for row in rows] == [("no_data", "ok_zero"), ("data", "ok_zero")]
+    assert [point["value"] for point in rows[1]["series"]] == [0, None, 0]
     empty = {units[0].key: {"status": "no_data", "data": None}}
     _, rows, _ = table_of(_plan_batch(units, picks, outcome="withheld"), empty, now)
     assert (rows[0]["result"], rows[0]["status"], rows[0]["series"]) == ("no_data", "no_data", None)

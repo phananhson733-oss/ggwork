@@ -222,6 +222,15 @@ describe("formatting", () => {
       "+25.0%",
     ]);
   });
+
+  it("decides too little before the change, so +25.0% alone does not mean rising", () => {
+    // two non-zero recent days averaging 10 against a prior mean of 8
+    const sparse = stats(flat(8), [35, 35, 0, 0, 0, 0, 0]);
+    expect([sparse.label, formatChange(sparse.changeTenths)]).toEqual([
+      "too_little",
+      "+25.0%",
+    ]);
+  });
 });
 
 describe("isShortTerm", () => {

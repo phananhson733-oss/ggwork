@@ -164,8 +164,9 @@ function Rules() {
       0、近 {r.windowDays} 日大于 0 为「{t.new}」；变化不低于 +{r.changePercent}
       % 为「{t.rising}」，不高于 −{r.changePercent}% 为「
       {t.falling}」，其余「{t.flat}」。按这个顺序判，先命中的为准；Google
-      没有返回值的日子不参与均值。变化按一位小数向零截断显示，所以显示 +
-      {r.changePercent}.0% 的一定是「{t.rising}」。
+      没有返回值的日子不参与均值。变化按一位小数向零截断显示，所以「
+      {t.flat}」的行不会显示成 ±{r.changePercent}.0%；「{t.too_little}
+      」先判，它的变化可以超过 ±{r.changePercent}%。
     </p>
   );
 }
