@@ -1,6 +1,6 @@
 # 飞书个人授权（lark-cli）上线设计
 
-2026-09-29 定稿：选方案 A，第一期只读，开放文档类与消息（im）。分支 `feat/lark-personal-auth` 从 `ggwork/main` 6919eb5 切出，能力中心精简（PR #20）合并后变基到 fbda69f，再补中间件放行、运行配置注册与取消 `hidden`。
+2026-09-29 定稿：选方案 A，第一期只读，开放文档类与消息（im）。分支 `feat/lark-personal-auth` 从 `ggwork/main` 6919eb5 切出，能力中心精简（PR #20）合并后变基到 fbda69f，再补中间件放行、运行配置注册与取消 `hidden`。2026-09-30 经 PR #22 合并（a6b8bcb1），gateway 经守卫上线（部署 `6f8dece5`），记录见 [progress.md](progress.md)「飞书个人授权」一节。
 
 实现位置：上游 `deerflow/integrations/lark_cli.py`（固定版本模式）；`ggwork_pick/lark_policy.py`（参数策略）、`lark_runner.py`（执行）、`lark_credentials.py`（凭据副本）、`lark_tool.py`（工具入口，参数名 `argv`）；`middleware.py`（按用户放行与计数）；`config.pick.example.yaml`（注册 `lark_cli`，工具组 `lark`）；`docker/Dockerfile.pick-gateway`；`backend/app/gateway/pick_entrypoint.py`（收起数据目录）。
 

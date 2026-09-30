@@ -539,7 +539,7 @@
     - 核对时新建了两个会话（KalosTV 那一问与 DramaBox 规则），留在用户的会话列表里。
 - `pick-deploy-guard target=gateway commit=3040bd877a5cb34f9105756680e3ab0b8e0d3e02 prod_head=0007 chain_head=0007 at=2026-09-30T11:58:46Z`
 
-## 飞书个人授权（lark-cli）第一期：只读文档与消息（2026-09-29，未合并、未部署）
+## 飞书个人授权（lark-cli）第一期：只读文档与消息（PR #22，2026-09-30 上线）
 
 - 起因：PR #20 把飞书 CLI 标成 `hidden`，个人授权单独做。设计见 [lark-personal-auth.md](lark-personal-auth.md)，定的是方案 A：gateway 内一个专用的只读 `lark_cli` 工具，第一期开放文档类与消息。
 - 分支 `feat/lark-personal-auth` 20:24 从 ggwork/main 6919eb5 切出，22:05 变基到 #20 合并后的 fbda69f，变基没有冲突。推送前又变基到 b5c9dd9，main 上只多了 #20 gateway 上线的记录。和 #20 的整合（插件放行规则、目录 `hidden`）放在变基之后补。写中间件的会话 22:06 留下两个未提交文件后就不在了，所以先把整个分支打包，再动历史。包里有一个 WIP 提交，还有变基前的原提交。包存在 `~/.gstack/projects/ggwork-deerflow/artifacts/lark-personal-auth-2026-09-29.bundle`。
@@ -577,11 +577,36 @@
     - format、lint、typecheck、build 通过；
     - 单测 2,797 通过、45 跳过；
     - e2e 默认套件 282 通过，auth 套件 6 通过。修复后重跑了能力中心、集成、插件图标三个文件，23/23；最后两轮都没改前端。
-- 部署时要注意：
-  - 合并不会触发任何 Vercel 构建：接着本仓库的 Vercel 项目 `ggwork` 已在 09-30 删除（见上面 #20 一节）。生产站 ggwork-deerflow.vercel.app 只经守卫发布。这次前端只改了静态演示用的目录快照和测试，生产前端的目录从 gateway 读，所以不用发布前端。
-  - gateway 要经守卫部署才生效，时间由用户定。生产 gateway 已是 3040bd87（09-30 11:58Z 经守卫上线，含 #16、#24），这次部署只多出本 PR 的改动。镜像构建时会从 GitHub 下载 lark-cli 发布包并校验 sha256，下载失败则构建失败，线上不受影响。
-  - 部署后先在能力中心看飞书 / Lark 是否显示「已安装版本：v1.0.96」。然后用自己的账号走一遍：连接、授权，再在对话里读一篇自己的文档。PersonalAgent 应用注册可能要租户管理员放行。
+- 合并与上线（2026-09-30）：
+  - PR #22 于 12:22Z 合并，合并提交 a6b8bcb1。合并前两次把 main 并进分支（先是 #16 的 9667ea36，再是 #24 与文档到 39d4d94a），都没有强推。
+  - 前端只改了静态演示用的目录快照和测试，生产前端的目录从 gateway 读，所以不用发布前端。合并也不会触发 Vercel 构建。没有新迁移，迁移头仍是 0007，cron 不用重部署。
+- gateway 经守卫部署 `6f8dece5-b45a-4e74-ac34-e6a001e88c57`，SUCCESS：12:33:15Z 开始构建，12:34:03Z 上线。生产此前是 3040bd87（含 #16、#24），这次只多出本 PR 的改动。
+  - 前三次上传都失败了：从完整的 `git archive` 导出目录上传，压缩后约 27MB。两次上传超时，一次 Cloudflare 524。每次各留下一个没有构建、没有运行的 FAILED 部署（`775483cb-4cd6-4372-9eb8-817d790d02fd`、`343f6341-6b50-492d-8493-976e4479f356`、`402e5f6b-a442-4c97-a96a-f321605624e9`），生产不受影响。每次重传前都重跑了守卫。
+  - 第四次只导出镜像用到的路径：`backend`、`docker`、`config.pick.example.yaml`、`skills/public/pick-drama`、`railway.toml`、`.dockerignore`。共 2,088 个文件，压缩后 7.3MB，每个路径都和完整导出比对过，逐字节相同。Dockerfile 只 COPY 这些路径，所以镜像内容与完整导出一样。上传时设了 `RAILWAY_HTTP_TIMEOUT=600`，29 秒传完。下面的记录行来自这次上传前的守卫。
+  - 构建日志里，lark-cli 发布包的 sha256 校验通过（`/tmp/lark-cli.tar.gz: OK`）。
+- 部署前在要部署的树上做四格的 gateway 一列：
+  - 用的是分支 5baebfc0 的树，它和 a6b8bcb1 只差 progress.md。差的这部分，在守卫检出 a6b8bcb1 里重跑了读 progress.md 的用例（守卫、cron 部署流程、上线计划）和托管副本用例，135 通过、0 跳过；
+  - 扩展全套 3,982 通过、21 跳过，含 `test_managed_copy`。测试库是一次性的全 scram PG 17 加 SQLite，跳过的都是方言专属，没有 `PICK_TEST_PG_URL is not set`；
+  - gateway 四格的 4 个文件 35 条通过，两种库都有，0 跳过；
+  - 入口、JSON 净化、create_user 108 通过；
+  - GitHub Actions 已恢复，5baebfc0 上 pick-workbench-tests 与 pick-board-integration 都通过。
+- 部署后核对：
+  - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`。没有 Traceback，没有 `service start() failed`，也没有 `Running upgrade`。唯一的 WARNING 仍是 GitHub webhook 路由未挂载。
+  - 容器内（`railway ssh`）：
+    - `lark-cli version 1.0.96`，`larkrun`（uid 999）存在；`DEER_FLOW_LARK_CLI_PINNED_VERSION=v1.0.96`，`DEER_FLOW_LARK_CLI_RUN_AS=larkrun`；
+    - `/data` 已由入口收成 750（root:root）；
+    - 运行配置 `/data/pick-runtime.yaml` 注册了 `lark_cli` 与工具组 `lark`；
+    - `lark_tool`、`lark_runner`、`lark_policy`、`lark_credentials`、`observe.selfcheck`、`observe.grants` 都能导入，来自镜像的 site-packages；
+    - 固定版本探针认出 `/usr/local/bin/lark-cli` 1.0.96，能列出内置技能 28 个；能力目录可见 13 项，含飞书 / Lark；
+    - `regrant --check` 授权齐全：schema 7、表 31、列 4、序列 12，已发布镜像版本 5 个，与上次相同。
+  - 守卫读到的生产迁移头是 0007。
+  - **待用户以登录用户核对**：
+    - 能力中心的飞书 / Lark 显示「已安装版本：v1.0.96」，且不提示新版本；
+    - 用自己的账号走「连接飞书 → 授权」（PersonalAgent 应用注册可能要租户管理员放行），再在对话里读一篇自己的文档，或搜一次消息；
+    - 读完飞书内容后让助手发飞书群通知，应该先要你确认，而不是直接发；
+    - `/api/pick/sync` 返回 200，一次选剧对话正常；四格手工格：有旧卡的会话能展开，「我的选剧」里改动前保存的条目能展开。
 - 后续：写操作放第二期。
+- `pick-deploy-guard target=gateway commit=a6b8bcb1f7871f32c8bba0e5993f87a5d60466f4 prod_head=0007 chain_head=0007 at=2026-09-30T12:32:02Z`
 
 ## 选剧 Agent 第一批修复（2026-09-30）
 
