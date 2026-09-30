@@ -21,9 +21,10 @@ import "server-only";
  * result's conditions; loadRowsByKeys and loadMissingKeys read that list's
  * rows from the pinned version.
  *
- * The radar (TR-24): loadObsTab reads the pick_obs views for the trends and
- * search tabs and an identity's detail, with no mirror version; its failures
- * are the Obs* errors.
+ * The radar (TR-24): loadObsTab reads the pick_obs views for the search tab
+ * and an identity's detail, with no mirror version; its failures are the Obs*
+ * errors. The simplified radar's table (the trends tab, 2026-09-30) is the
+ * gateway's: loadTrendsTable asks GET /api/pick/obs/trends-table.
  */
 
 export {
@@ -117,6 +118,7 @@ export {
   type SearchParamsRecord,
 } from "./auth";
 export { type GatewayResult, getPickSync } from "./gateway";
+export { loadTrendsTable, type TrendsTableLoad } from "./trends-table";
 export {
   loadReplay,
   REPLAY_LIMIT,

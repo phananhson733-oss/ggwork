@@ -6,14 +6,18 @@ night did not get shows "not fetched" and never an older night's curve, a day wi
 /sync's without shadow_mode, and a read that fails is a 503 naming nothing.
 """
 
+import json
 import logging
+import os
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from cryptography.fernet import Fernet
 from obs_db_helpers import execute, migrated
 from pydantic import TypeAdapter
+from test_frontend_contract import _shape
 from top_dramas_fixtures import board_drama
 from trends_fake_google import FakeGoogle
 from trends_session_helpers import EVE, TARGET, at, batches, seed_catalog, trends_env, trigger
@@ -31,6 +35,9 @@ ALICE = {"test-owner": "alice"}
 TABLE = TypeAdapter(TrendsTable)
 STABLE = {"PICK_OBS_TRENDS_GRANULARITY": "D", "PICK_OBS_TRENDS_ROUTE": "a_only"}
 TITLES = ["Alpha Bride", "Second Chance", "Zero Interest", "Fourth Wall", "Fifth Night"]
+# The frontend's trends-table-schema parses this answer (frontend/tests/unit/core/pick/trends-table-contract.test.ts).
+# After a shape change, regenerate with PICK_WRITE_CONTRACT=1 and this test.
+TABLE_FIXTURE = Path(__file__).resolve().parents[4] / "frontend/tests/unit/core/pick/fixtures/backend-trends-table.json"
 
 
 @pytest_asyncio.fixture
@@ -171,6 +178,23 @@ async def test_canary_and_refused_nights_are_not_the_table(world, tmp_path):
     assert [banner["code"] for banner in table["banners"]] == ["disabled_7d"]
     (first, _) = await batches(url)
     assert first["collect_mode"] == "stable"
+
+
+@pytest.mark.asyncio
+async def test_the_table_matches_the_frontend_fixture(world, tmp_path):
+    """The real answer the frontend parses: a finished night with data, no data and not fetched rows, read the next
+    morning when no night ran (a run_missed banner). The fixture pins every key and value type."""
+    _, service, url = world
+    clock = ManualClock(at(EVE, 17, 30))
+    google = FakeGoogle(clock, zero=["Zero Interest"], script={9: "429"})
+    assert await _night(url, tmp_path, google, clock) == ExitCode.OK
+    answer = await _table(service, at(TARGET + timedelta(days=1), 3))
+    assert [banner["code"] for banner in answer["banners"]] == ["run_missed"]
+    assert [row["result"] for row in answer["rows"]] == ["data", "data", "no_data", "not_fetched", "data"]
+    assert answer["batch"]["finished_at"] is not None and answer["batch"]["sources"]["revenue"] is not None
+    if os.environ.get("PICK_WRITE_CONTRACT"):
+        TABLE_FIXTURE.write_text(json.dumps(answer, ensure_ascii=False, indent=2) + "\n")
+    assert _shape(json.loads(TABLE_FIXTURE.read_text())) == _shape(answer)
 
 
 # ---- the pure parts ---------------------------------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 // 工作台新建：资料页的 tab 栏外壳。有镜像版本时就是 toolbar 的 Tabs（带徽标，imports 不带；徽标来自版本的新鲜度）；
-// 镜像读不了时只有不经镜像的三个能点：趋势雷达的两个 tab（TR-24，读 pick_obs）与「同步与导入」；其余 tab 只显示名字
-// （点进去也只会看到同一条提示）。顺序与 Tabs 一致。
+// 镜像读不了时只有不经镜像的两个能点：Google 趋势（简化版趋势表，问 gateway）与「同步与导入」；其余 tab 只显示名字
+// （点进去也只会看到同一条提示）。顺序与 Tabs 一致；搜索表现（GSC）先隐藏（简化范围第 5 节）。
 import Link from "next/link";
 
 import {
@@ -23,7 +23,6 @@ const MIRRORLESS_TABS: readonly (readonly [
   ["rank", null],
   ["posted", null],
   ["trends", `${BOARD_PATH}?tab=trends`],
-  ["search", `${BOARD_PATH}?tab=search`],
   ["rules", null],
   ["imports", IMPORTS_HREF],
 ];

@@ -1,6 +1,6 @@
 // PORTED_FROM: realshort@816ca2e src/components/admin/pick/toolbar.tsx
 // 本地改动：pickHref 的前缀改成 /workspace/pick-data；Tabs 加「同步与导入」（imports），tab 链接清掉回放的 result（C27）；
-// Tabs 加趋势雷达的「Google 趋势」「搜索表现（GSC）」（TR-24），tab 链接同样清掉钉住的集合 obs 与详情身份 oid；
+// Tabs 加趋势雷达的「Google 趋势」「搜索表现（GSC）」（TR-24），tab 链接同样清掉钉住的集合 obs 与详情身份 oid；简化版（2026-09-30）先隐藏 search，只在正看它时列出；
 // 在用剧场与依据标签改读版本规则（rules.inUse / rules.basisLabels），原来模块级的「其他剧场」挪进 PlatformChips 现算；
 // 搜索表单加隐藏的 v；所有 Link 加 prefetch={false}；Filters 拆成几个小组件（函数 <50 行），文案与链接逐条不变。
 // GGWork 样式：当前 tab 用 link 色下划线；chip 默认白底、虚线开关用 line-strong、行间距 8；搜索框聚焦用 link 边框加
@@ -175,10 +175,12 @@ export function Tabs({
     { t: "rank", label: TAB_LABELS.rank },
     { t: "posted", label: TAB_LABELS.posted, count: counts.posted },
     { t: "trends", label: TAB_LABELS.trends },
-    { t: "search", label: TAB_LABELS.search },
     { t: "rules", label: TAB_LABELS.rules },
     { t: "imports", label: TAB_LABELS.imports },
   ];
+  // GSC 整条线搁置（简化范围第 5 节）：search 不进 tab 栏，旧链接打开它时才列出，免得当前 tab 没有高亮
+  if (req.tab === "search")
+    tabs.push({ t: "search", label: TAB_LABELS.search });
   if (req.tab === "row") tabs.push({ t: "row", label: TAB_LABELS.row });
   return (
     <div className="border-line mb-4 flex flex-wrap gap-1 border-b">

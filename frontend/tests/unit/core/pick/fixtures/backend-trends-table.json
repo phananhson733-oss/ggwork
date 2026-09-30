@@ -1,0 +1,770 @@
+{
+  "checked_at": "2026-09-27T03:00:00.000000+00:00",
+  "banners": [
+    {
+      "code": "run_missed",
+      "level": "red"
+    }
+  ],
+  "batch": {
+    "batch_id": "trends-2026-09-26-a3660b26",
+    "target_date": "2026-09-26",
+    "collect_mode": "stable",
+    "outcome": "withheld",
+    "started_at": "2026-09-25T17:30:00.000000+00:00",
+    "finished_at": "2026-09-25T18:02:38.017012+00:00",
+    "window_end": "2026-09-25T00:00:00.000000+00:00",
+    "catalog_batch_id": "cat-1",
+    "sources": {
+      "boards": [
+        {
+          "kind": "qc",
+          "board_date": "2026-09-24",
+          "listed": 5
+        },
+        {
+          "kind": "qr",
+          "board_date": null,
+          "listed": 0
+        },
+        {
+          "kind": "kd",
+          "board_date": null,
+          "listed": 0
+        }
+      ],
+      "revenue": {
+        "available": false,
+        "reason": "sqlite",
+        "mirror_version": null,
+        "day": null,
+        "filled": 0
+      }
+    },
+    "counts": {
+      "planned": 5,
+      "data": 3,
+      "no_data": 1,
+      "not_fetched": 1,
+      "pending": 0
+    }
+  },
+  "rows": [
+    {
+      "order": 1,
+      "unit": "top:a4f47b6bd703",
+      "identity": "[\"realshort-pick\",\"sid0001\",\"en\"]",
+      "title": "Alpha Bride",
+      "platform": "DramaBox",
+      "language": "en",
+      "term": "Alpha Bride",
+      "geo": "WW",
+      "time_range": "today 1-m",
+      "basis": [
+        {
+          "kind": "qc",
+          "board_date": "2026-09-24",
+          "rank": 1,
+          "identity": null
+        }
+      ],
+      "result": "data",
+      "status": "ok",
+      "series": [
+        {
+          "date": "2026-09-10",
+          "value": 12,
+          "partial": false
+        },
+        {
+          "date": "2026-09-11",
+          "value": 19,
+          "partial": false
+        },
+        {
+          "date": "2026-09-12",
+          "value": 26,
+          "partial": false
+        },
+        {
+          "date": "2026-09-13",
+          "value": 33,
+          "partial": false
+        },
+        {
+          "date": "2026-09-14",
+          "value": 40,
+          "partial": false
+        },
+        {
+          "date": "2026-09-15",
+          "value": 47,
+          "partial": false
+        },
+        {
+          "date": "2026-09-16",
+          "value": 54,
+          "partial": false
+        },
+        {
+          "date": "2026-09-17",
+          "value": 1,
+          "partial": false
+        },
+        {
+          "date": "2026-09-18",
+          "value": 8,
+          "partial": false
+        },
+        {
+          "date": "2026-09-19",
+          "value": 15,
+          "partial": false
+        },
+        {
+          "date": "2026-09-20",
+          "value": 22,
+          "partial": false
+        },
+        {
+          "date": "2026-09-21",
+          "value": 29,
+          "partial": false
+        },
+        {
+          "date": "2026-09-22",
+          "value": 36,
+          "partial": false
+        },
+        {
+          "date": "2026-09-23",
+          "value": 43,
+          "partial": false
+        },
+        {
+          "date": "2026-09-24",
+          "value": 50,
+          "partial": false
+        },
+        {
+          "date": "2026-09-25",
+          "value": 57,
+          "partial": true
+        },
+        {
+          "date": "2026-09-26",
+          "value": 4,
+          "partial": true
+        },
+        {
+          "date": "2026-09-27",
+          "value": 11,
+          "partial": true
+        },
+        {
+          "date": "2026-09-28",
+          "value": 18,
+          "partial": true
+        },
+        {
+          "date": "2026-09-29",
+          "value": 25,
+          "partial": true
+        },
+        {
+          "date": "2026-09-30",
+          "value": 32,
+          "partial": true
+        },
+        {
+          "date": "2026-10-01",
+          "value": 39,
+          "partial": true
+        },
+        {
+          "date": "2026-10-02",
+          "value": 46,
+          "partial": true
+        },
+        {
+          "date": "2026-10-03",
+          "value": 53,
+          "partial": true
+        },
+        {
+          "date": "2026-10-04",
+          "value": 60,
+          "partial": true
+        },
+        {
+          "date": "2026-10-05",
+          "value": 7,
+          "partial": true
+        },
+        {
+          "date": "2026-10-06",
+          "value": 14,
+          "partial": true
+        },
+        {
+          "date": "2026-10-07",
+          "value": 21,
+          "partial": true
+        },
+        {
+          "date": "2026-10-08",
+          "value": 28,
+          "partial": true
+        },
+        {
+          "date": "2026-10-09",
+          "value": 35,
+          "partial": true
+        }
+      ]
+    },
+    {
+      "order": 2,
+      "unit": "top:44917dc4c93f",
+      "identity": "[\"realshort-pick\",\"sid0002\",\"en\"]",
+      "title": "Second Chance",
+      "platform": "DramaBox",
+      "language": "en",
+      "term": "Second Chance",
+      "geo": "WW",
+      "time_range": "today 1-m",
+      "basis": [
+        {
+          "kind": "qc",
+          "board_date": "2026-09-24",
+          "rank": 2,
+          "identity": null
+        }
+      ],
+      "result": "data",
+      "status": "ok",
+      "series": [
+        {
+          "date": "2026-09-10",
+          "value": 14,
+          "partial": false
+        },
+        {
+          "date": "2026-09-11",
+          "value": 21,
+          "partial": false
+        },
+        {
+          "date": "2026-09-12",
+          "value": 28,
+          "partial": false
+        },
+        {
+          "date": "2026-09-13",
+          "value": 35,
+          "partial": false
+        },
+        {
+          "date": "2026-09-14",
+          "value": 42,
+          "partial": false
+        },
+        {
+          "date": "2026-09-15",
+          "value": 49,
+          "partial": false
+        },
+        {
+          "date": "2026-09-16",
+          "value": 56,
+          "partial": false
+        },
+        {
+          "date": "2026-09-17",
+          "value": 3,
+          "partial": false
+        },
+        {
+          "date": "2026-09-18",
+          "value": 10,
+          "partial": false
+        },
+        {
+          "date": "2026-09-19",
+          "value": 17,
+          "partial": false
+        },
+        {
+          "date": "2026-09-20",
+          "value": 24,
+          "partial": false
+        },
+        {
+          "date": "2026-09-21",
+          "value": 31,
+          "partial": false
+        },
+        {
+          "date": "2026-09-22",
+          "value": 38,
+          "partial": false
+        },
+        {
+          "date": "2026-09-23",
+          "value": 45,
+          "partial": false
+        },
+        {
+          "date": "2026-09-24",
+          "value": 52,
+          "partial": false
+        },
+        {
+          "date": "2026-09-25",
+          "value": 59,
+          "partial": true
+        },
+        {
+          "date": "2026-09-26",
+          "value": 6,
+          "partial": true
+        },
+        {
+          "date": "2026-09-27",
+          "value": 13,
+          "partial": true
+        },
+        {
+          "date": "2026-09-28",
+          "value": 20,
+          "partial": true
+        },
+        {
+          "date": "2026-09-29",
+          "value": 27,
+          "partial": true
+        },
+        {
+          "date": "2026-09-30",
+          "value": 34,
+          "partial": true
+        },
+        {
+          "date": "2026-10-01",
+          "value": 41,
+          "partial": true
+        },
+        {
+          "date": "2026-10-02",
+          "value": 48,
+          "partial": true
+        },
+        {
+          "date": "2026-10-03",
+          "value": 55,
+          "partial": true
+        },
+        {
+          "date": "2026-10-04",
+          "value": 2,
+          "partial": true
+        },
+        {
+          "date": "2026-10-05",
+          "value": 9,
+          "partial": true
+        },
+        {
+          "date": "2026-10-06",
+          "value": 16,
+          "partial": true
+        },
+        {
+          "date": "2026-10-07",
+          "value": 23,
+          "partial": true
+        },
+        {
+          "date": "2026-10-08",
+          "value": 30,
+          "partial": true
+        },
+        {
+          "date": "2026-10-09",
+          "value": 37,
+          "partial": true
+        }
+      ]
+    },
+    {
+      "order": 3,
+      "unit": "top:863db83f277a",
+      "identity": "[\"realshort-pick\",\"sid0003\",\"en\"]",
+      "title": "Zero Interest",
+      "platform": "DramaBox",
+      "language": "en",
+      "term": "Zero Interest",
+      "geo": "WW",
+      "time_range": "today 1-m",
+      "basis": [
+        {
+          "kind": "qc",
+          "board_date": "2026-09-24",
+          "rank": 3,
+          "identity": null
+        }
+      ],
+      "result": "no_data",
+      "status": "ok_zero",
+      "series": [
+        {
+          "date": "2026-09-10",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-11",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-12",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-13",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-14",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-15",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-16",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-17",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-18",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-19",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-20",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-21",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-22",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-23",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-24",
+          "value": 0,
+          "partial": false
+        },
+        {
+          "date": "2026-09-25",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-09-26",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-09-27",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-09-28",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-09-29",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-09-30",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-10-01",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-10-02",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-10-03",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-10-04",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-10-05",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-10-06",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-10-07",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-10-08",
+          "value": 0,
+          "partial": true
+        },
+        {
+          "date": "2026-10-09",
+          "value": 0,
+          "partial": true
+        }
+      ]
+    },
+    {
+      "order": 4,
+      "unit": "top:9278a22c1318",
+      "identity": "[\"realshort-pick\",\"sid0004\",\"en\"]",
+      "title": "Fourth Wall",
+      "platform": "DramaBox",
+      "language": "en",
+      "term": "Fourth Wall",
+      "geo": "WW",
+      "time_range": "today 1-m",
+      "basis": [
+        {
+          "kind": "qc",
+          "board_date": "2026-09-24",
+          "rank": 4,
+          "identity": null
+        }
+      ],
+      "result": "not_fetched",
+      "status": "rate_limited",
+      "series": null
+    },
+    {
+      "order": 5,
+      "unit": "top:20a7e4f7e81c",
+      "identity": "[\"realshort-pick\",\"sid0005\",\"en\"]",
+      "title": "Fifth Night",
+      "platform": "DramaBox",
+      "language": "en",
+      "term": "Fifth Night",
+      "geo": "WW",
+      "time_range": "today 1-m",
+      "basis": [
+        {
+          "kind": "qc",
+          "board_date": "2026-09-24",
+          "rank": 5,
+          "identity": null
+        }
+      ],
+      "result": "data",
+      "status": "ok",
+      "series": [
+        {
+          "date": "2026-09-10",
+          "value": 12,
+          "partial": false
+        },
+        {
+          "date": "2026-09-11",
+          "value": 19,
+          "partial": false
+        },
+        {
+          "date": "2026-09-12",
+          "value": 26,
+          "partial": false
+        },
+        {
+          "date": "2026-09-13",
+          "value": 33,
+          "partial": false
+        },
+        {
+          "date": "2026-09-14",
+          "value": 40,
+          "partial": false
+        },
+        {
+          "date": "2026-09-15",
+          "value": 47,
+          "partial": false
+        },
+        {
+          "date": "2026-09-16",
+          "value": 54,
+          "partial": false
+        },
+        {
+          "date": "2026-09-17",
+          "value": 1,
+          "partial": false
+        },
+        {
+          "date": "2026-09-18",
+          "value": 8,
+          "partial": false
+        },
+        {
+          "date": "2026-09-19",
+          "value": 15,
+          "partial": false
+        },
+        {
+          "date": "2026-09-20",
+          "value": 22,
+          "partial": false
+        },
+        {
+          "date": "2026-09-21",
+          "value": 29,
+          "partial": false
+        },
+        {
+          "date": "2026-09-22",
+          "value": 36,
+          "partial": false
+        },
+        {
+          "date": "2026-09-23",
+          "value": 43,
+          "partial": false
+        },
+        {
+          "date": "2026-09-24",
+          "value": 50,
+          "partial": false
+        },
+        {
+          "date": "2026-09-25",
+          "value": 57,
+          "partial": true
+        },
+        {
+          "date": "2026-09-26",
+          "value": 4,
+          "partial": true
+        },
+        {
+          "date": "2026-09-27",
+          "value": 11,
+          "partial": true
+        },
+        {
+          "date": "2026-09-28",
+          "value": 18,
+          "partial": true
+        },
+        {
+          "date": "2026-09-29",
+          "value": 25,
+          "partial": true
+        },
+        {
+          "date": "2026-09-30",
+          "value": 32,
+          "partial": true
+        },
+        {
+          "date": "2026-10-01",
+          "value": 39,
+          "partial": true
+        },
+        {
+          "date": "2026-10-02",
+          "value": 46,
+          "partial": true
+        },
+        {
+          "date": "2026-10-03",
+          "value": 53,
+          "partial": true
+        },
+        {
+          "date": "2026-10-04",
+          "value": 60,
+          "partial": true
+        },
+        {
+          "date": "2026-10-05",
+          "value": 7,
+          "partial": true
+        },
+        {
+          "date": "2026-10-06",
+          "value": 14,
+          "partial": true
+        },
+        {
+          "date": "2026-10-07",
+          "value": 21,
+          "partial": true
+        },
+        {
+          "date": "2026-10-08",
+          "value": 28,
+          "partial": true
+        },
+        {
+          "date": "2026-10-09",
+          "value": 35,
+          "partial": true
+        }
+      ]
+    }
+  ],
+  "row_limit": 200,
+  "truncated": false
+}
