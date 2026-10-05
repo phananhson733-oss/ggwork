@@ -41,7 +41,7 @@ def drama(i):
     }
 
 
-async def twenty_drama_result(tmp_path):
+async def twenty_drama_result(tmp_path, *, wrapped=False):
     from ggwork_pick.context import PickLifecycle
     from ggwork_pick.imports import Importer
     from ggwork_pick.repository import PickRepository
@@ -56,7 +56,30 @@ async def twenty_drama_result(tmp_path):
     await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task1", "run1", "thread1", "lead"))
     runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="call1")
     try:
-        return await query_candidates_tool.coroutine(filters={"language": "en", "limit": 20}, runtime=runtime)
+        if not wrapped:
+            return await query_candidates_tool.coroutine(filters={"language": "en", "limit": 20}, runtime=runtime)
+        from deerflow.agents.middlewares.tool_error_handling_middleware import ToolErrorHandlingMiddleware
+        from deerflow.agents.middlewares.tool_output_budget_middleware import ToolOutputBudgetMiddleware
+
+        from ggwork_pick.context import task_from_runtime
+        from ggwork_pick.middleware import PickToolGate
+
+        request = SimpleNamespace(runtime=runtime, tool_call={"name": "pick_query_candidates", "id": "call1"})
+
+        async def execute(request):
+            output = await query_candidates_tool.coroutine(filters={"language": "en", "limit": 20}, runtime=request.runtime)
+            return ToolMessage(content=output, name="pick_query_candidates", tool_call_id="call1")
+
+        async def budgeted(request):
+            return await ToolOutputBudgetMiddleware(pick_tool_output_config()).awrap_tool_call(request, execute)
+
+        async def gated(request):
+            return await PickToolGate().awrap_tool_call(request, budgeted)
+
+        message = await ToolErrorHandlingMiddleware().awrap_tool_call(request, gated)
+        assert message.status == "success"
+        assert task_from_runtime(runtime).tool_calls == 1
+        return message.content
     finally:
         await engine.dispose()
 
@@ -79,3 +102,12 @@ async def test_a_twenty_drama_result_reaches_the_model_untouched_only_because_of
     assert replaced is not message
     with pytest.raises(ValueError):
         json.loads(replaced.content)
+
+
+@pytest.mark.asyncio
+async def test_twenty_projected_items_survive_real_host_wrapper_composition(tmp_path):
+    text = await twenty_drama_result(tmp_path, wrapped=True)
+    payload = json.loads(text)
+    assert len(payload["items"]) == 20
+    assert all(len(item["evidence"]) == len(KINDS) for item in payload["items"])
+    assert payload["id"] and payload["matched_total"] == 20

@@ -11,6 +11,7 @@ from ggwork_pick.answer_check import with_posted
 from ggwork_pick.context import task_from_runtime
 from ggwork_pick.contracts import PickConditions
 from ggwork_pick.knowledge_excerpts import MAX_EXCERPTS, choose_excerpts, fit
+from ggwork_pick.model_projection import model_payload
 from ggwork_pick.selection import PostedDataUnavailable, SelectionService
 
 
@@ -112,7 +113,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
         data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
         # For the model only: the card reads the stored result through /api/pick/results, never these keys.
         explained = await SelectionService(repo).model_view(record, data_as_of=data_as_of)
-        return json.dumps({**result, "data_as_of": data_as_of, **explained}, ensure_ascii=False)
+        return json.dumps(model_payload({**result, "data_as_of": data_as_of, **explained}), ensure_ascii=False, separators=(",", ":"))
 
     return await _answer(work)
 
@@ -164,7 +165,7 @@ async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) 
         task.known_titles.add(detail["item"]["title"])
         account = PickConditions.model_validate(record["conditions_json"]).posted_account
         task.posted_seen = with_posted(task.posted_seen, [detail["item"]], account=account)
-        return json.dumps({**detail, "data_as_of": data_as_of}, ensure_ascii=False)
+        return json.dumps(model_payload({**detail, "data_as_of": data_as_of}), ensure_ascii=False, separators=(",", ":"))
 
     return await _answer(work)
 
