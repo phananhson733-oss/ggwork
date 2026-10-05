@@ -1036,10 +1036,11 @@ After installation, users can click **Connect Lark** to open a browser
 authorization link; no terminal authorization is required. The same UI can
 request additional permission domains such as Calendar, Docs, or Drive, or a
 specific OAuth scope reported by `lark-cli`. A cheap status refresh only
-inspects the local credential tree, so the UI reports **Credentials configured
-(not live-verified)** until an explicit browser completion performs live token
-verification. The action then remains **Reconnect Lark** so users can replace
-or extend authorization. If an agent hits missing Lark authorization during a
+inspects the local credential tree: while the user's token is valid or still
+refreshable the UI reports **Lark is connected**, and an expired or missing
+token reports **Not connected**. A browser completion additionally performs a
+live token check and shows **Lark authorization is live-verified**. The action
+then remains **Reconnect Lark** so users can replace or extend authorization. If an agent hits missing Lark authorization during a
 conversation, the managed `lark-shared` guidance points the user back to the
 same plugin configuration with `/workspace/capabilities?tab=plugins&plugin=lark`.
 

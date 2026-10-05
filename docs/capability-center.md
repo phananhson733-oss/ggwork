@@ -180,8 +180,10 @@ service's authorization and validation; never add a provider branch to the galle
 Discovery excludes MCP endpoints, commands, environment variables, headers,
 OAuth secrets, and per-user credential mappings. `configured` means credentials
 are present; it does not mean a connection test succeeded. `health: unknown`
-is deliberate when no live check has run. Lark's existing configuration dialog
-owns live account verification.
+is deliberate when no live check has run. Lark reports `connected` while the
+user's token is locally valid or refreshable (no live call), and `required`
+once it is missing or expired; its configuration dialog owns live account
+verification.
 
 ## Compatibility and execution
 

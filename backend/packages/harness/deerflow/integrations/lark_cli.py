@@ -1653,11 +1653,12 @@ def _probe_lark_cli_at_path(path: str) -> LarkCliProbe:
 def probe_lark_auth(user_id: str, *, verify: bool = False) -> LarkAuthProbe:
     """Probe the user's Lark authorization state.
 
-    By default this only checks local token presence (``auth status --json``),
-    which is cheap and offline — suitable for the frequently-polled status
-    endpoint. Pass ``verify=True`` to add ``--verify`` for a live token check
-    against Lark; reserve that for the explicit "complete authorization" step
-    since it costs a network round-trip on every call.
+    By default this only checks the local token (``auth status --json``): a
+    valid or refreshable user token counts as authenticated. That is cheap and
+    offline — suitable for the frequently-polled status endpoint. Pass
+    ``verify=True`` to add ``--verify`` for a live token check against Lark;
+    reserve that for the explicit "complete authorization" step since it costs a
+    network round-trip on every call.
     """
     path = _resolve_lark_cli_path()
     if path is None:
@@ -1695,15 +1696,21 @@ def probe_lark_auth(user_id: str, *, verify: bool = False) -> LarkAuthProbe:
         message = _auth_error_message(data) if data else raw
         return LarkAuthProbe(status="not_authorized", message=message or "Lark user authorization is not configured")
 
+    user_info = _user_identity(data)
+    # lark-cli exits 0 whenever the app config loads, so the user's token state
+    # (valid, refreshable, expired, missing, failed live check) lives in
+    # identities.user.available. Older CLIs omit it; keep trusting the exit code there.
+    unusable = user_info is not None and "available" in user_info and not user_info.get("available")
+    failed_live_check = verify and user_info is not None and user_info.get("verified") is False
+    if user_info is not None and (unusable or failed_live_check):
+        message = str(user_info.get("message") or "") or "Lark user authorization is not configured"
+        return LarkAuthProbe(status="not_authorized", message=message, verified=False)
+
     user = None
-    if data:
-        identities = data.get("identities")
-        if isinstance(identities, dict):
-            user_info = identities.get("user")
-            if isinstance(user_info, dict):
-                user = str(user_info.get("userName") or user_info.get("openId") or "") or None
-        if user is None and data.get("userName"):
-            user = str(data["userName"])
+    if user_info is not None:
+        user = str(user_info.get("userName") or user_info.get("openId") or "") or None
+    if user is None and data and data.get("userName"):
+        user = str(data["userName"])
     if verify:
         return LarkAuthProbe(
             status="authenticated",
@@ -1711,12 +1718,21 @@ def probe_lark_auth(user_id: str, *, verify: bool = False) -> LarkAuthProbe:
             message="Lark/Feishu authorization is live-verified.",
             verified=True,
         )
-    return LarkAuthProbe(
-        status="authenticated",
-        user=user,
-        message="Lark/Feishu credentials are configured locally but not live-verified.",
-        verified=False,
-    )
+    if user_info is not None and user_info.get("status") == "needs_refresh":
+        message = "Lark/Feishu user token will refresh automatically on next use (not live-verified)."
+    else:
+        message = "Lark/Feishu user token is valid locally (not live-verified)."
+    return LarkAuthProbe(status="authenticated", user=user, message=message, verified=False)
+
+
+def _user_identity(data: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not data:
+        return None
+    identities = data.get("identities")
+    if not isinstance(identities, dict):
+        return None
+    user_info = identities.get("user")
+    return user_info if isinstance(user_info, dict) else None
 
 
 def _resolve_sandbox_runtime_readiness(

@@ -1536,9 +1536,6 @@ export const enUS: Translations = {
         runtimeVersionMismatch:
           "Skill pack version differs from the Gateway runtime lark-cli; admin reinstall attempts to update the managed Gateway CLI and realign the skill pack",
         authNotConfigured: "Not connected",
-        authConfigured: "Credentials configured (not live-verified)",
-        authConfiguredFor: (user) =>
-          `${user} · credentials configured (not live-verified)`,
         connect: "Connect Lark",
         authStarting: "Opening connection link...",
         checkingConnection: "Checking connection...",
@@ -1657,10 +1654,6 @@ export const enUS: Translations = {
             description:
               "Objectives, key results, alignments, indicators, and progress.",
           },
-          event: {
-            label: "Events",
-            description: "Subscribe to and consume real-time platform events.",
-          },
           apps: {
             label: "Apps",
             description:
@@ -1702,9 +1695,9 @@ export const enUS: Translations = {
         cliNextTitle: "Install Gateway CLI",
         cliNextDescription:
           "The skill pack is installed, but the Gateway cannot find lark-cli. Admin reinstall attempts to download the managed Gateway CLI; offline deployments can use an image with @larksuite/cli built in.",
-        configuredTitle: "Lark credentials are configured locally",
+        configuredTitle: "Lark is connected",
         configuredDescription:
-          "Credentials are present, but their current validity has not been checked with Lark. Reconnect to refresh and live-verify authorization.",
+          "Your authorization is valid locally and refreshes automatically when used. To add permissions, pick domains below and reconnect.",
         connectedTitle: "Lark authorization is live-verified",
         connectedDescription:
           "The current user's authorization was verified with Lark during this connection flow. Reconnect whenever you need to refresh it or add permissions.",

@@ -1297,8 +1297,6 @@ export interface Translations {
         updateAvailable: (version: string) => string;
         runtimeVersionMismatch: string;
         authNotConfigured: string;
-        authConfigured: string;
-        authConfiguredFor: (user: string) => string;
         connect: string;
         authStarting: string;
         checkingConnection: string;
@@ -1332,7 +1330,6 @@ export interface Translations {
           | "contact"
           | "docs"
           | "drive"
-          | "event"
           | "im"
           | "mail"
           | "markdown"

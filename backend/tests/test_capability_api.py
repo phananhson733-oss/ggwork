@@ -86,10 +86,14 @@ def test_only_admin_may_install_and_bad_configuration_is_422(capability_client):
     assert path.read_bytes() == before
 
 
-def test_adapter_failure_is_isolated_and_lark_configured_is_not_verified(capability_client, monkeypatch):
+def test_adapter_failure_is_isolated_and_lark_local_token_is_connected(capability_client, monkeypatch):
     client, _ = capability_client
+    # "authenticated" already means the user's token is locally valid or refreshable;
+    # a live verification is not required to show the plugin as connected.
     monkeypatch.setattr(capabilities, "get_lark_integration_status", lambda *args: SimpleNamespace(installed=True, manifest_version="1", auth=SimpleNamespace(status="authenticated", verified=False)))
-    assert client.get("/api/capabilities/installations/lark").json()["items"][0]["auth_status"] == "configured"
+    assert client.get("/api/capabilities/installations/lark").json()["items"][0]["auth_status"] == "connected"
+    monkeypatch.setattr(capabilities, "get_lark_integration_status", lambda *args: SimpleNamespace(installed=True, manifest_version="1", auth=SimpleNamespace(status="not_authorized", verified=False)))
+    assert client.get("/api/capabilities/installations/lark").json()["items"][0]["auth_status"] == "required"
     assert client.get("/api/capabilities/installations/unknown").status_code == 422
     assert client.get("/api/capabilities/catalog").status_code == 200
     assert client.get("/api/capabilities/installations/mcp").status_code == 200
