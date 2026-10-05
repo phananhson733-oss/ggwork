@@ -894,13 +894,11 @@ for (const item of manifest.cases as Document[]) {
             }
           });
           await page
-            .getByRole("button", { name: /^确认保存（/ })
-            .last()
+            .getByRole("button", { name: `确认保存（${expected.item_ids.length}）`, exact: true })
             .click();
-          await expect(page.getByRole("alert").last()).toBeVisible();
+          await expect(page.getByRole("alert").filter({ hasText: "Failed to fetch" })).toBeVisible();
           await page
-            .getByRole("button", { name: /^确认保存（/ })
-            .last()
+            .getByRole("button", { name: `确认保存（${expected.item_ids.length}）`, exact: true })
             .click();
           await expect.poll(() => receipts.length).toBe(2);
           const authority = await get(
