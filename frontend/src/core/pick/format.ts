@@ -70,8 +70,17 @@ export function conditionsLine(conditions: PickConditions): string {
   const parts = [
     conditions.theater?.trim() ? conditions.theater : "全部剧场",
     conditions.language?.trim() ? conditions.language : "全部语种",
-    conditions.exclude_selected ? "排除我的已选" : "包含我的已选",
   ];
+  // confirmed_eligible_only filters only with a channel; the gateway's default is true.
+  if (conditions.channel)
+    parts.push(
+      `${conditions.channel} ${conditions.confirmed_eligible_only === false ? "只排除明确禁用" : "只要确认可发"}`,
+    );
+  if (conditions.query?.trim()) parts.push(`关键词「${conditions.query}」`);
+  if (conditions.tags?.length) parts.push(`标签 ${conditions.tags.join("、")}`);
+  parts.push(conditions.exclude_selected ? "排除我的已选" : "包含我的已选");
+  if (conditions.exclude_previous)
+    parts.push("换一批（排除这条候选链看过的剧）");
   if (conditions.signal_kind)
     parts.push(
       `${conditions.sort === "rank" ? "按榜单名次" : "只看榜单"} ${conditions.signal_kind}`,

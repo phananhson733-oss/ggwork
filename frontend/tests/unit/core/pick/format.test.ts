@@ -108,6 +108,45 @@ describe("pick display lines", () => {
       "全部剧场 · 全部语种 · 排除我的已选 · 按榜单名次 kd · 排除团队已发 · 排除账号 acc 已发",
     );
   });
+  // Evaluation batch 2 (2026-10-05): the card left out the channel, its
+  // confirmed-only switch, tags, the keyword and 换一批, so a user could not
+  // see why a result was narrower than asked.
+  it("spells out the channel, tags, keyword and 换一批", () => {
+    expect(
+      conditionsLine({
+        limit: 5,
+        exclude_selected: true,
+        language: "en",
+        channel: "youtube",
+        confirmed_eligible_only: true,
+        query: "boss",
+        tags: ["复仇", "豪门"],
+        exclude_previous: true,
+      }),
+    ).toBe(
+      "全部剧场 · en · youtube 只要确认可发 · 关键词「boss」 · 标签 复仇、豪门 · 排除我的已选 · 换一批（排除这条候选链看过的剧）",
+    );
+  });
+  it("says a channel that only excludes explicit denials, and takes an absent switch as the default", () => {
+    const base = {
+      limit: 5,
+      exclude_selected: false,
+      channel: "tiktok" as const,
+    };
+    expect(
+      conditionsLine({ ...base, confirmed_eligible_only: false }),
+    ).toContain("tiktok 只排除明确禁用");
+    expect(conditionsLine(base)).toContain("tiktok 只要确认可发");
+    expect(
+      conditionsLine({
+        limit: 5,
+        exclude_selected: false,
+        confirmed_eligible_only: true,
+        query: " ",
+        tags: [],
+      }),
+    ).toBe("全部剧场 · 全部语种 · 包含我的已选");
+  });
 });
 
 // Plan TR-16: evidenceLine hands obs_* kinds to obs-format; conditionsLine
