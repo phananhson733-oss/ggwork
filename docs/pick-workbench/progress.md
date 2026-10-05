@@ -1,6 +1,6 @@
 # 当前发布状态（2026-10-06，PR #33）
 
-当前产品源码为 `148fff7b08d22c1112fd142e62f0076698862fd3`，前端实际版本 `20261006-148fff7`。Gateway 与前端已发布，正式域名、限定源码核验和普通 QA 只读浏览器验收均通过；最终 PR CI 与 main CI 均 SUCCESS。四条已选记录及旧十部候选保持，新单次取消用量观察验收仍待执行。发布身份、守卫原文和验收边界见文末「取消用量观察后续发布」。模型输入格式与雷达范围仍待用户选择，完整后续目标未完成。
+当前产品源码为 `148fff7b08d22c1112fd142e62f0076698862fd3`，前端实际版本 `20261006-148fff7`。Gateway 与前端已发布，正式域名、限定源码核验和普通 QA 只读浏览器验收均通过；最终 PR CI 与 main CI 均 SUCCESS。四条已选记录及旧十部候选保持，新单次取消功能及用量观察持久化验收已通过；provider 用量仍诚实标为 unknown。发布身份、守卫原文和验收边界见文末「取消用量观察后续发布」。模型输入格式与雷达范围仍待用户选择，完整后续目标未完成。
 
 ---
 
@@ -750,7 +750,9 @@ PR [#31](https://github.com/phananhson733-oss/ggwork/pull/31) 已合并，生产
 - 最终本地宿主 offline 18,449 passed / 166 skipped / 3 deselected；blocking-I/O 149 passed。业务双库 4,351 passed / 21 skipped；前端 2,874 passed，另行真实 PostgreSQL reader 45 passed / 0 skipped，check/build 通过。早期失败轮次保持原记录。
 - 专用普通 QA 只读快照与浏览器 canary PASS：旧十部候选的条目、来源时点与历史核对保持，四条已选记录的 identity、快照、备注、状态和版本保持，刷新后正常；新的「已记录 Token 用量」说明可读。所有导航 HTTP 200，About 首次可操作 5.66 秒、已选刷新首次可操作 2.525 秒，console/page errors 均为 0，没有新增模型 run 或业务保存。
 - 验收脚本初轮因默认守卫拦住只读 threads/search POST 而 UNVERIFIED；独立核实端点与 store 均只读，加入严格路径、字段和 SDK 读取参数白名单后复验通过。原失败保留，不归为产品故障，也不放宽其他写入或模型调度。
-- 待完成：新 manifest 下唯一一次真实取消运行的持久化用量观察验收。统一账本仍 36/40，旧 Q19 的不可恢复 provider 用量保持 unknown；不能由本次浏览器通过推定新取消验收或计费验证通过。
+- 新独立 manifest 下唯一一次取消运行已实际执行，Playwright 1 passed（21.5 秒）：Stop 前记录 `calls_started=1`，精确 POST cancel 返回 202，权威状态 interrupted；观测 finalized，刷新后字段不变，四条清单完整不变，运行用量未进入线程 metadata。供应商没有返回用量，known token 三字段均 null，coverage=unknown，原因保留 `provider_usage_missing` / `call_terminal_callback_missing`；没有终态模型回调，因此不制造 `calls_cancelled=1`。这是功能与本地观测持久化通过，不是 provider 用量或账单通过。统一账本现在 37/40，前 36 次 attempts 和原 reservations 原样保留；旧 Q19 不回填。
 - 模型输入格式与雷达范围仍等待用户选择；团队协作和外部写入交付的是下一阶段规格，功能未实现。本节记录实际产品版本；后续文档提交不作为已部署产品 SHA。
 - `pick-deploy-guard target=gateway commit=148fff7b08d22c1112fd142e62f0076698862fd3 prod_head=0007 chain_head=0007 at=2026-10-05T21:30:00Z`
 - `pick-deploy-guard target=frontend commit=148fff7b08d22c1112fd142e62f0076698862fd3 at=2026-10-05T21:34:05Z`
+
+- 私有 producer 初次在 ESM 模块 collection 阶段失败，尚无认证、reservation 或模型派发。补私有 `package.json` 的 module 边界后，真实 CLI `--list` 独立通过，再执行上述唯一一次 run；初次启动失败保留，不计为模型重试。
