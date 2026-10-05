@@ -50,7 +50,7 @@
 
 修改范围仅为 `customizations/pick-workbench/ggwork_pick/model_projection.py`、必要的 `tools.py` 表示说明与序列化、对应模型投影/工具/前端合同测试及固定合成 benchmark。HTTP、持久化、缓存、排序、回答核对材料、知识检索和准备保存合同保持各自原语义。
 
-1. 将原固定样本及 hash 纳入可重复的合成回归，分别记录 whitespace 与结构改动的贡献。
+1. 原固定样本及 hash 已纳入 `tests/fixtures/model_projection` 合成回归。执行 `backend/.venv/bin/python scripts/pick-model-projection-benchmark.py` 分开报告 whitespace 与结构贡献；加 `--require-target` 时，任一原样本未达到 20% 即退出 2。当前普通 10/20 部仍约 7.79%、结构缩减 0，严格目标未通过；重复长链接样本不能替换该分母。
 2. 按批准方案先写失败测试；覆盖 null/空串/0、bool/int 类型差异、评级、note-only 事实、未知字段、obs 合同和命名碰撞。
 3. 保留源对象不变、引用可定位、5/10/20 部完整候选和证据数量；新字典方案还需无损解码与模型读取说明。
 4. 经过宿主工具预算及前端真实定位/展开/确认合同验证，使用专用 QA 做 20 部查询、详情解释和准备保存的真实验收。
