@@ -624,3 +624,22 @@
   - 托管副本 `diff -rq` 为空，`uv.lock` 不变。
 - 上线后由用户在工作台核对：问一次「给我 10 部英语剧」看卡片是否完整；问一次 KalosTV 日榜看回答是否转述时效提示；连续换两批看第三批是否还回到第一批。e2e-pick 需要真实模型和数据库，本批没跑。
 - 后续（第二批候选）：条件摘要补渠道、确认可发、标签、关键词；0 结果诊断和 `data_notices` 上卡；重新生成和编辑重发带 `pick_reference`；候选条目投影保留 tags、listed_at、channel_rules；回答核对扩到书名号以外的剧名。
+- 上线（2026-10-05，UTC）：PR #26 合并为 `4c4a3853`，gateway 与前端都从这个提交经守卫上线。
+  - 守卫之前，在部署检出（`4c4a3853`）上做完四格的测试部分：
+    - gateway 一列：扩展全套 4,001 通过、21 跳过（一次性全 scram、UTF8 的 PG 17 加 SQLite，跳过原因里没有 `PICK_TEST_PG_URL is not set`）；四个点名文件 35 通过、0 跳过，每个文件两种库都有。
+    - 前端一列：rollback matrix 5 行 ✓（四格加 09-28 的热门卡格），合同夹具 12/12，全量 2,801 通过、45 跳过，typecheck 通过。
+  - gateway 经守卫后，从 `git archive` 导出的目录 `railway up`，部署 `501f3edc-2b5d-4783-b79f-226b961d3d73`，SUCCESS，一次上传成功。导出只含镜像用到的路径（`backend`、`docker`、`config.pick.example.yaml`、`skills/public/pick-drama`、`railway.toml`、`.dockerignore`，2,091 个文件）。迁移头仍是 0007，没有新迁移。
+    - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`，没有 Traceback，没有 `service start() failed`。
+    - 容器内（`railway ssh`，只读）：
+      - site-packages 里有 `ggwork_pick.freshness`（阈值 14、36，榜单 kd、qc、qr、kw），`CHAIN_LIMIT` 是 100，`PICK_INSTRUCTIONS` 含 `data_notices`；
+      - 运行配置 `/data/pick-runtime.yaml` 的 `tool_output.exempt_tools` 含五个选剧工具和 `read_file` 一对；
+      - `observe.selfcheck`、`observe.grants` 能导入；
+      - `regrant --check` 授权齐全：schema 8、表 32、列 4、序列 12，已发布镜像版本 6 个。
+  - 前端经守卫从 `git archive` 导出的目录发布，部署 `dpl_AbuRYui81moWRUkViBhkkRqQ4Rxw`，READY，生产别名 ggwork-deerflow.vercel.app 指向它。导出目录里是 `frontend/` 的 1,034 个跟踪文件，另外只放了 `.vercel/project.json`。构建带 `NEXT_PUBLIC_APP_VERSION=20261005-4c4a385`。
+    - 未登录：`/` 307 到 `/workspace`；`/workspace`、`/workspace/chats/new` 307 到 `/login`；带 `RSC: 1` 的请求只返回到 `/login` 的 `NEXT_REDIRECT`；`/login` 带 `X-Robots-Tag: noindex, nofollow`。
+  - **待用户以登录用户核对**：
+    - 关于页的版本号是 20261005-4c4a385；
+    - 四格手工格：有旧卡的会话能展开；「我的选剧」里改动前保存的条目能展开；
+    - 本批三问：「给我 10 部英语剧」卡片完整；问 KalosTV 日榜，回答转述时效提示；连续换两批，第三批不回到第一批。
+- `pick-deploy-guard target=gateway commit=4c4a385339d8f1959ce9b9329f4061f5feff48aa prod_head=0007 chain_head=0007 at=2026-10-05T08:24:46Z`
+- `pick-deploy-guard target=frontend commit=4c4a385339d8f1959ce9b9329f4061f5feff48aa at=2026-10-05T08:27:50Z`
