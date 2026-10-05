@@ -48,7 +48,11 @@ files are not. Selection rows contain identity. Parent chain is immediate parent
 first, ends with null `parent_result_id`, and each entry contains `id, owner_id,
 thread_id, parent_result_id, items`; derived query/count parents also contain
 `conditions,catalog_batch_id`. Detail/save items contain `item_id,identity` plus
-frozen facts used by that case. An `excluded_json` field is never trusted.
+frozen facts used by that case. The bound parent also requires its original
+`catalog_batch_id,source,data_as_of,rule_version,ranking_version`; parent.source
+is `{catalog_batch_id,source_type,shared,rows_sha256}` independently captured
+for that frozen batch. All of these must match the step's declared source,
+so a foreign historical batch cannot be disguised by correct response metadata. An `excluded_json` field is never trusted.
 
 For a state produced between steps, pre-lock this placeholder in expectations:
 
@@ -79,6 +83,9 @@ these reviewed defaults. A query/count model call uses `raw_arguments.filters`
 and optional `use_latest`; a host-bound parent is `record.bound_result_id`, never
 a fabricated model argument. Derived raw filters are merged over captured parent
 conditions independently before comparing with expected and effective conditions.
+Query/count `response.conditions` is required and normalized independently as
+well; it must agree with the prelocked allowed set, raw-derived conditions and
+actual effective conditions.
 
 ## Captures and complete attempts
 
@@ -121,6 +128,9 @@ regardless of exclude_previous. Save raw arguments use result_id/item_ids or
 host bound_result_id plus positions; positions resolve against frozen item order.
 Omitted choice arguments require independently captured state.selected_item_ids.
 The expected item set/note is checked independently of the tool response.
+Every requested item_id must exist in the frozen result; unknown IDs cannot be
+silently filtered out. Duplicate known IDs follow the product's deduplication
+and frozen ordering behavior.
 
 For save cases, before/after-prepare/after exports include **all** relevant
 selected and removed rows (not only the active list), with `id,owner_id,identity,
@@ -128,6 +138,10 @@ state,version,source_result_id,source_item_id,note,snapshot_json`. Receipt IDs m
 to exact after rows. Created rows are version 1; existing selected rows preserve
 all previous facts; restored rows keep their ID, increment version and take the
 requested source/item/note/snapshot. Unrelated rows must remain unchanged.
+
+All query matched_total, count total/group counts and zero-diagnosis counts
+are strict nonnegative integers; booleans and numerically equal floats are
+invalid. Zero-diagnosis null counts retain their explicit unavailable meaning.
 
 An actual observed error remains FAIL even if its typed response is incomplete.
 This oracle verifies filtering, exclusion, order, counts, selected detail facts,
@@ -147,7 +161,9 @@ facts are separate evidence layers; it does not claim to understand natural lang
 - `performance_evidence` uses the same reference shape; payload requires `run_id,
   input_tokens,output_tokens,elapsed_seconds,tool_calls,model_calls,sample_conditions`.
   Metrics must be finite nonnegative numbers; counts are integers and booleans
-  are invalid. Null or literal "unknown" metrics remain unverified, never zero
+  are invalid. Metrics have explicit `scope:"run"`; tool_calls must equal the
+  distinct complete tool_call_ids in the independent ledger for that run,
+  across any steps. A known inventory contradiction is FAIL. Null or literal "unknown" metrics remain unverified, never zero
   or claimed savings. sample_conditions must be nonempty text. PASS means metrics
   were supplied, not that a statistically significant improvement was demonstrated.
 - `semantic_review:{reviewer,answer_sha256,judgments}` binds exact answer UTF-8 bytes.

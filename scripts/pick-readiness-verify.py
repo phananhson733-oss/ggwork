@@ -56,6 +56,10 @@ def require(condition, message):
         raise Invalid(message)
 
 
+def nonnegative_int(value):
+    require(type(value) is int and value >= 0, "count must be a nonnegative integer")
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -283,7 +287,7 @@ def exclusions(state, base, record, c):
     return excluded, selected, chain
 
 
-def check_external(record, expected, base):
+def check_external(record, expected, base, captures):
     layers = {}
     for layer, field in [
         ("browser", "browser_evidence"),
@@ -350,7 +354,19 @@ def check_external(record, expected, base):
                 )
                 if key != "elapsed_seconds":
                     require(type(value) is int, "count metric must be integer")
-            status = "UNVERIFIED" if unknown else "PASS"
+            require(document.get("scope") == "run", "performance scope must be run")
+            inventory = {
+                call
+                for attempt in captures["attempts"]
+                if attempt["run_id"] == record["run_id"]
+                for call in attempt["tool_call_ids"]
+            }
+            if document["tool_calls"] not in (None, "unknown") and document[
+                "tool_calls"
+            ] != len(inventory):
+                status = "FAIL"
+            else:
+                status = "UNVERIFIED" if unknown else "PASS"
         layers[layer] = {"status": status, "reason_code": "EXTERNAL_EVIDENCE"}
     review = record.get("semantic_review")
     if not review:
@@ -555,6 +571,33 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
     state, dynamic = captured_state(manifest, captures, step, record)
     state_base = cap_base if dynamic else exp_base
     excluded, selected, chain = exclusions(state, state_base, record, c or DEFAULTS)
+    if kind in ("detail", "prepare_save"):
+        bound_parent = next(
+            (parent for parent in chain if parent["id"] == expected["result_id"]), None
+        )
+        require(bound_parent is not None, "missing frozen bound parent")
+        version_ok = (
+            version_ok
+            and bound_parent["catalog_batch_id"] == source["catalog_batch_id"]
+            and all(
+                bound_parent["source"].get(key) == source[key]
+                for key in ("catalog_batch_id", "source_type", "shared", "rows_sha256")
+            )
+        )
+        require(
+            bound_parent.get("data_as_of")
+            and bound_parent.get("rule_version")
+            and bound_parent.get("ranking_version"),
+            "missing parent frozen metadata",
+        )
+        version_ok = (
+            version_ok
+            and bound_parent["data_as_of"] == frozen
+            and all(
+                bound_parent[k] == metadata[k]
+                for k in ("rule_version", "ranking_version")
+            )
+        )
     ok = True
     if kind in ("query", "count", "detail") or "data_as_of" in response:
         require(
@@ -588,8 +631,19 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         if requested not in allowed or requested != actual:
             layers["intent"] = {"status": "FAIL", "reason_code": "RAW_ARGUMENT_INTENT"}
     if kind in ("query", "count"):
+        returned_conditions = conditions(response["conditions"])
+        if (
+            returned_conditions not in allowed
+            or returned_conditions != actual
+            or returned_conditions != requested
+        ):
+            layers["intent"] = {
+                "status": "FAIL",
+                "reason_code": "RESPONSE_CONDITIONS_CONTRADICTION",
+            }
         matches = match_rows(rows, c, excluded)
         if kind == "query":
+            nonnegative_int(response["matched_total"])
             require(
                 response.get("id") and isinstance(response.get("items"), list),
                 "missing query result",
@@ -601,13 +655,26 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
                 and response["matched_total"] == len(matches)
             )
         else:
+            nonnegative_int(response["total"])
             ok = ok and response["total"] == len(matches)
             for field in ("theater", "language"):
+                require(
+                    isinstance(response["by_" + field], dict), "invalid count groups"
+                )
+                for count in response["by_" + field].values():
+                    nonnegative_int(count)
                 ok = ok and response["by_" + field] == dict(
                     Counter(r[field] for r in matches)
                 )
         if not matches:
             actual_diagnosis = response["zero_diagnosis"]
+            nonnegative_int(actual_diagnosis["catalog_rows"])
+            nonnegative_int(actual_diagnosis["delisted_rows"])
+            for relaxation in actual_diagnosis["without_each"]:
+                if relaxation["matched_total"] is not None:
+                    nonnegative_int(relaxation["matched_total"])
+                if relaxation["condition"] == "excluded":
+                    nonnegative_int(relaxation["value"])
             reduced = {
                 "catalog_rows": actual_diagnosis["catalog_rows"],
                 "delisted_rows": actual_diagnosis["delisted_rows"],
@@ -677,6 +744,16 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         elif chosen is None:
             require(target == record.get("bound_result_id"), "unbound UI selection")
             chosen = state["selected_item_ids"]
+        require(
+            isinstance(chosen, list)
+            and chosen
+            and all(isinstance(item_id, str) for item_id in chosen),
+            "invalid chosen item IDs",
+        )
+        require(
+            set(chosen).issubset({item["item_id"] for item in chain[0]["items"]}),
+            "unknown chosen item ID",
+        )
         # Product preserves frozen item order and deduplicates requested IDs.
         ordered_chosen = [
             i["item_id"] for i in chain[0]["items"] if i["item_id"] in chosen
@@ -837,7 +914,7 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         else "UNVERIFIED_DATA_VERSION",
     }
     try:
-        layers.update(check_external(record, expected, cap_base))
+        layers.update(check_external(record, expected, cap_base, captures))
     except (
         Invalid,
         OSError,

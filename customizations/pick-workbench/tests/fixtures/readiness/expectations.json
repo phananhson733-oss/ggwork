@@ -35,7 +35,7 @@
       "selections_before_file": "selections.json",
       "selections_before_sha256": "19f985280dfe34b43923920bdb0c074b6da0814886d92475e56c81ca5c8ac9e3",
       "parent_chain_file": "parents.json",
-      "parent_chain_sha256": "44c693b1a83d608f5782d66d507af1c30667573c97bdc5478649d2b4bc66ff88"
+      "parent_chain_sha256": "4b67289b593d726fb76991cf4956ed7cc3b3fc0f06896a607f6945f3df05af40"
     }
   },
   "cases": [

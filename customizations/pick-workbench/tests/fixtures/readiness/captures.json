@@ -1,6 +1,6 @@
 {
   "spec_version": "pick-readiness-v1.1",
-  "expectations_sha256": "07984b76e21e85e9ef4cf8c6ff3751909ce012cf03ae5f6adadc8969d1e5d6b6",
+  "expectations_sha256": "cac04567ec044bf54e858e5eb0d048342c8d76f069dfba5114ea2b29b17ff984",
   "started_at": "2026-10-05T00:00:01Z",
   "attempts": [
     {
@@ -90,7 +90,23 @@
           "scope": "synthetic-scope"
         },
         "rule_version": "pick-rules-v1",
-        "ranking_version": "evidence-date-v1"
+        "ranking_version": "evidence-date-v1",
+        "conditions": {
+          "theater": null,
+          "language": "en",
+          "channel": null,
+          "query": null,
+          "tags": [],
+          "limit": 2,
+          "exclude_selected": true,
+          "confirmed_eligible_only": true,
+          "exclude_previous": true,
+          "signal_kind": null,
+          "sort": "evidence_date",
+          "exclude_posted": false,
+          "posted_account": null,
+          "hot_only": false
+        }
       },
       "answer": "Synthetic response: two matching candidates; personal selections excluded.",
       "generated_by": "answer-model",
@@ -115,7 +131,7 @@
       },
       "performance_evidence": {
         "evidence_file": "performance.json",
-        "evidence_sha256": "78f33981ebb213ff7bb0b0cca2abcf315a24829d9ca58adbe760764d6566ab6f"
+        "evidence_sha256": "e056440ddc376bd59850402e5c918075570a58569548775414009e9bf10ef71b"
       },
       "bound_result_id": "p"
     }

@@ -128,6 +128,8 @@ def set_type(bundle, kind, expected, response):
     record = cap["records"][0]
     response = {**{k: v for k, v in record["response"].items() if k in ("data_as_of", "rule_version", "ranking_version")}, **response}
     record.update(tool_name=kind, outcome=kind + "_success", response=response)
+    if kind == "count":
+        record["response"]["conditions"] = copy.deepcopy(record["actual_conditions"])
     if kind == "detail":
         record["raw_arguments"] = {k: expected[k] for k in ("result_id", "item_id")}
     refresh_browser(bundle)
@@ -295,6 +297,11 @@ def test_multistep_each_uses_own_state(bundle):
     cap["records"].append({**copy.deepcopy(cap["records"][0]), "step_id": "second", "attempt_id": "second", "tool_call_id": "second"})
     cap["records"][1]["response"].update(items=[{"identity": "selected"}, {"identity": "a"}], matched_total=3)
     cap["attempts"].append({**cap["attempts"][0], "step_id": "second", "attempt_id": "second", "tool_call_ids": ["second"]})
+    metrics = json.loads((root / "performance.json").read_text())
+    metrics["tool_calls"] = 2
+    metric_hash = put(root, "performance.json", metrics)
+    for record in cap["records"]:
+        record["performance_evidence"]["evidence_sha256"] = metric_hash
     cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
     assert run(bundle)["exit_code"] == 0
 
@@ -317,6 +324,7 @@ def test_zero_diagnosis_is_recomputed(bundle):
     c["query"] = "no such synthetic title"
     cap["records"][0]["actual_conditions"] = copy.deepcopy(c)
     cap["records"][0]["raw_arguments"]["filters"] = copy.deepcopy(c)
+    cap["records"][0]["response"]["conditions"] = copy.deepcopy(c)
     cap["records"][0]["response"].update(
         items=[],
         matched_total=0,
@@ -486,4 +494,123 @@ def test_browser_result_binding_is_checked(bundle):
     browser = json.loads((root / "browser.json").read_text())
     browser["result_id"] = "different-result"
     cap["records"][0]["browser_evidence"]["evidence_sha256"] = put(root, "browser.json", browser)
+    assert run(bundle)["exit_code"] == 2
+
+
+@pytest.mark.parametrize("kind", ["detail", "prepare_save"])
+def test_bound_parent_other_batch_rejected(bundle, kind):
+    root, exp, _ = bundle
+    if kind == "detail":
+        set_type(bundle, "detail", dict(result_id="p", item_id="p1", fact_fields=["identity"]), dict(result_id="p", item_id="p1", identity="parent"))
+    else:
+        save_bundle(bundle)
+    parents = json.loads((root / "parents.json").read_text())
+    parents[0]["catalog_batch_id"] = "OTHER-BATCH"
+    exp["states"]["before"]["parent_chain_sha256"] = put(root, "parents.json", parents)
+    assert run(bundle)["exit_code"] != 0
+
+
+def test_response_conditions_contradiction_rejected(bundle):
+    _, _, cap = bundle
+    cap["records"][0]["response"]["conditions"] = {"language": "ko"}
+    assert run(bundle)["exit_code"] != 0
+
+
+def test_performance_tool_calls_match_inventory(bundle):
+    root, _, cap = bundle
+    metrics = json.loads((root / "performance.json").read_text())
+    metrics["tool_calls"] = 0
+    cap["records"][0]["performance_evidence"]["evidence_sha256"] = put(root, "performance.json", metrics)
+    assert run(bundle)["exit_code"] != 0
+
+
+def test_save_unknown_raw_item_cannot_be_filtered_away(bundle):
+    rec = save_bundle(bundle)
+    rec["raw_arguments"].pop("positions")
+    rec["raw_arguments"]["item_ids"] = ["p1", "NONEXISTENT"]
+    assert run(bundle)["exit_code"] != 0
+
+
+@pytest.mark.parametrize("value", [2.0, True])
+def test_matched_total_strict_int(bundle, value):
+    _, _, cap = bundle
+    cap["records"][0]["response"]["matched_total"] = value
+    if value is True:
+        # One-item successful response makes bool/int equality the only defect.
+        cap["records"][0]["response"]["items"] = [{"identity": "a"}]
+    assert run(bundle)["exit_code"] != 0
+
+
+@pytest.mark.parametrize("field", ["total", "by_theater", "by_language"])
+@pytest.mark.parametrize("value", [2.0, True, -1])
+def test_count_fields_strict_nonnegative_integers(bundle, field, value):
+    _, rec = set_type(bundle, "count", {}, dict(total=2, by_theater={"Synthetic Studio": 2}, by_language={"en": 2}))
+    if field == "total":
+        rec["response"][field] = value
+    else:
+        rec["response"][field][next(iter(rec["response"][field]))] = value
+    report = run(bundle)
+    assert report["exit_code"] == 2
+    assert any("nonnegative integer" in error for error in report["errors"])
+
+
+@pytest.mark.parametrize("field", ["catalog_rows", "delisted_rows", "matched_total", "excluded_value"])
+def test_zero_diagnosis_strict_counts(bundle, field):
+    _, exp, cap = bundle
+    c = exp["cases"][0]["expected"]["allowed_condition_sets"][0]
+    c["query"] = "no such synthetic title"
+    rec = cap["records"][0]
+    rec["actual_conditions"] = copy.deepcopy(c)
+    rec["raw_arguments"]["filters"] = copy.deepcopy(c)
+    rec["response"].update(
+        conditions=copy.deepcopy(c),
+        items=[],
+        matched_total=0,
+        zero_diagnosis={
+            "catalog_rows": 5,
+            "delisted_rows": 0,
+            "without_each": [
+                {"condition": "language", "value": "en", "matched_total": 0},
+                {"condition": "query", "value": c["query"], "matched_total": 2},
+                {"condition": "excluded", "value": 3, "matched_total": 0},
+            ],
+        },
+    )
+    diagnosis = rec["response"]["zero_diagnosis"]
+    if field in ("catalog_rows", "delisted_rows"):
+        diagnosis[field] = float(diagnosis[field])
+    elif field == "matched_total":
+        diagnosis["without_each"][0]["matched_total"] = False
+    else:
+        diagnosis["without_each"][2]["value"] = 3.0
+    assert run(bundle)["exit_code"] == 2
+
+
+@pytest.mark.parametrize("field", ["data_as_of", "rule_version", "ranking_version", "source"])
+def test_detail_parent_metadata_cannot_disagree(bundle, field):
+    root, exp, _ = bundle
+    set_type(bundle, "detail", dict(result_id="p", item_id="p1", fact_fields=["identity"]), dict(result_id="p", item_id="p1", identity="parent"))
+    parents = json.loads((root / "parents.json").read_text())
+    if field == "data_as_of":
+        parents[0][field]["source_as_of"] = "2099-01-01"
+    elif field == "source":
+        parents[0][field]["rows_sha256"] = "0" * 64
+    else:
+        parents[0][field] = "unsupported"
+    exp["states"]["before"]["parent_chain_sha256"] = put(root, "parents.json", parents)
+    assert run(bundle)["exit_code"] == 2
+
+
+def test_save_known_duplicate_raw_ids_follow_product_deduplication(bundle):
+    rec = save_bundle(bundle)
+    rec["raw_arguments"].pop("positions")
+    rec["raw_arguments"]["item_ids"] = ["p1", "p1"]
+    assert run(bundle)["exit_code"] == 0
+
+
+def test_performance_unknown_scope_cannot_pass(bundle):
+    root, _, cap = bundle
+    metrics = json.loads((root / "performance.json").read_text())
+    metrics["scope"] = "step"
+    cap["records"][0]["performance_evidence"]["evidence_sha256"] = put(root, "performance.json", metrics)
     assert run(bundle)["exit_code"] == 2
