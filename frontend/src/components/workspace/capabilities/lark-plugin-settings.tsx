@@ -102,6 +102,12 @@ const LARK_AUTH_DOMAINS: LarkAuthDomain[] = [
 ];
 
 const AUTOMATIC_LARK_AUTH_WAIT_SECONDS = 8;
+const MISSING_SCOPE_PREVIEW_COUNT = 3;
+
+function formatMissingScopePreview(scopes: string[]) {
+  const preview = scopes.slice(0, MISSING_SCOPE_PREVIEW_COUNT).join(", ");
+  return scopes.length > MISSING_SCOPE_PREVIEW_COUNT ? `${preview} …` : preview;
+}
 
 function splitScopes(value: string) {
   return value
@@ -489,7 +495,18 @@ function LarkIntegrationCard() {
           queryClient.setQueryData(larkIntegrationQueryKey, result.status);
           if (result.success) {
             clearAuthRetryTimer();
-            toast.success(result.message, toastOptions);
+            const missingScopes = result.missing_scopes ?? [];
+            if (missingScopes.length > 0) {
+              toast.warning(
+                t.settings.integrations.lark.authorizationMissingScopes(
+                  missingScopes.length,
+                  formatMissingScopePreview(missingScopes),
+                ),
+                toastOptions,
+              );
+            } else {
+              toast.success(result.message, toastOptions);
+            }
             authToastIdRef.current = null;
             setPendingFlow(null);
             browserWindowRef.current = null;

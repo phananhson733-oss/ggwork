@@ -159,6 +159,7 @@ class LarkAuthCompleteResponse(BaseModel):
     success: bool
     message: str
     status: LarkIntegrationStatusResponse
+    missing_scopes: list[str] = Field(default_factory=list, description="Requested scopes the user's authorization did not grant")
 
 
 def _cli_probe_to_response(probe: LarkCliProbe) -> LarkCliProbeResponse:
@@ -253,6 +254,7 @@ def _auth_complete_to_response(result: LarkAuthCompleteResult, *, include_host_p
         success=result.success,
         message=result.message,
         status=_status_to_response(result.status, include_host_paths=include_host_paths),
+        missing_scopes=list(result.missing_scopes),
     )
 
 

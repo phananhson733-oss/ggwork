@@ -1320,6 +1320,7 @@ export interface Translations {
         connectionReady: string;
         authStarted: string;
         authorizationStillPending: string;
+        authorizationMissingScopes: (count: number, preview: string) => string;
         permissionTitle: string;
         permissionDescription: string;
         authDomains: Record<

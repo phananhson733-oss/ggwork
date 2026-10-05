@@ -107,6 +107,10 @@ LARK_CONFIG_POLL_TIMEOUT_SECONDS = 45
 LARK_AUTH_COMPLETE_DEFAULT_WAIT_SECONDS = 45
 LARK_AUTH_COMPLETE_MIN_WAIT_SECONDS = 5
 LARK_AUTH_COMPLETE_MAX_WAIT_SECONDS = 45
+# lark-cli exits 3 both for auth failures and, after storing the token, when some
+# requested scopes were not granted (stdout then carries an authorization_complete event).
+LARK_CLI_EXIT_AUTH = 3
+LARK_AUTH_MISSING_SCOPES_PREVIEW = 5
 LARK_CLI_LATEST_VERSION_TTL_SECONDS = 3600
 LARK_CLI_MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 LARK_CLI_MAX_EXTRACTED_BYTES = 256 * 1024 * 1024
@@ -273,6 +277,7 @@ class LarkAuthCompleteResult:
     success: bool
     status: LarkIntegrationStatus
     message: str
+    missing_scopes: tuple[str, ...] = ()
 
 
 class LarkFlowSupersededError(ValueError):
@@ -2253,18 +2258,41 @@ def complete_lark_auth(
     with _lark_credential_lock(user_id):
         _require_lark_flow_generation_locked(user_id, generation)
         path = _require_lark_cli_path()
-        _run_lark_cli_json(
+        data = _run_lark_cli_json(
             [path, "auth", "login", "--device-code", device_code, "--json"],
             user_id=user_id,
             timeout=wait_timeout_seconds,
             allow_empty_success=True,
+            allow_missing_scopes=True,
         )
         status = get_lark_integration_status(user_id, config, verify_auth=True)
+    missing_scopes = _missing_scopes(data)
     return LarkAuthCompleteResult(
         success=status.auth.status == "authenticated",
         status=status,
-        message="Lark/Feishu authorization completed." if status.auth.status == "authenticated" else (status.auth.message or "Lark/Feishu authorization status is still pending."),
+        message=_auth_complete_message(status, missing_scopes),
+        missing_scopes=missing_scopes,
     )
+
+
+def _missing_scopes(data: dict[str, Any]) -> tuple[str, ...]:
+    missing = data.get("missing")
+    if not isinstance(missing, list):
+        return ()
+    return tuple(str(scope) for scope in missing if scope)
+
+
+def _auth_complete_message(status: LarkIntegrationStatus, missing_scopes: tuple[str, ...]) -> str:
+    if status.auth.status != "authenticated":
+        return status.auth.message or "Lark/Feishu authorization status is still pending."
+    if not missing_scopes:
+        return "Lark/Feishu authorization completed."
+    count = len(missing_scopes)
+    preview = ", ".join(missing_scopes[:LARK_AUTH_MISSING_SCOPES_PREVIEW])
+    if count > LARK_AUTH_MISSING_SCOPES_PREVIEW:
+        preview += f" and {count - LARK_AUTH_MISSING_SCOPES_PREVIEW} more"
+    noun = "scope was" if count == 1 else "scopes were"
+    return f"Lark/Feishu authorization completed, but {count} requested {noun} not granted: {preview}. Enable them for the app or ask a tenant admin to approve them, then request them again."
 
 
 def _resolve_lark_cli_path() -> str | None:
@@ -2605,7 +2633,13 @@ def _run_lark_cli_json(
     user_id: str,
     timeout: int,
     allow_empty_success: bool = False,
+    allow_missing_scopes: bool = False,
 ) -> dict[str, Any]:
+    """Run a lark-cli command that prints one JSON object and return it.
+
+    ``allow_missing_scopes`` accepts the partial-grant outcome of ``auth login``: the
+    token is already stored, but some requested scopes were not granted.
+    """
     try:
         try:
             result = subprocess.run(
@@ -2630,6 +2664,8 @@ def _run_lark_cli_json(
     parsed = _parse_json_object(raw)
 
     if result.returncode != 0:
+        if allow_missing_scopes and parsed is not None and _is_partial_scope_grant(result.returncode, parsed):
+            return parsed
         message = _auth_error_message(parsed) if parsed else raw
         raise ValueError(message or f"lark-cli exited with code {result.returncode}")
 
@@ -2640,6 +2676,10 @@ def _run_lark_cli_json(
             return {}
         raise ValueError(raw or "lark-cli did not return JSON output.")
     return parsed
+
+
+def _is_partial_scope_grant(returncode: int, data: dict[str, Any]) -> bool:
+    return returncode == LARK_CLI_EXIT_AUTH and data.get("event") == "authorization_complete"
 
 
 def _parse_json_object(raw: str) -> dict[str, Any] | None:

@@ -141,6 +141,77 @@ test.describe("Integrations settings", () => {
     await expect(page.getByText("Copied to clipboard")).toBeVisible();
   });
 
+  test("warns when Lark authorization completes without every requested scope", async ({
+    page,
+  }) => {
+    mockLangGraphAPI(page);
+
+    const configuredStatus = configuredLarkStatus();
+    await page.route("**/api/integrations/lark/status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...configuredStatus,
+          auth: {
+            status: "not_authorized",
+            message: "Lark user authorization is not configured",
+            user: null,
+            verified: false,
+          },
+        }),
+      });
+    });
+    await page.route("**/api/integrations/lark/auth/start", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          verification_url: "about:blank#lark-auth-missing-scopes",
+          device_code: "missing-scopes-device-code",
+          generation: "missing-scopes-generation",
+          expires_in: 600,
+          user_code: null,
+          hint: null,
+        }),
+      });
+    });
+    await page.route(
+      "**/api/integrations/lark/auth/complete",
+      async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            success: true,
+            message:
+              "Lark/Feishu authorization completed, but 2 requested scopes were not granted.",
+            status: configuredStatus,
+            missing_scopes: [
+              "mail:user_mailbox:readonly",
+              "approval:instance:read",
+            ],
+          }),
+        });
+      },
+    );
+
+    await page.goto("/workspace/capabilities?tab=plugins&plugin=lark");
+    const dialog = page.getByRole("dialog", { name: "Lark / Feishu" });
+    const popupPromise = page.waitForEvent("popup");
+    await dialog.getByRole("button", { name: "Connect Lark" }).click();
+    await (await popupPromise).close();
+
+    await expect(
+      page.getByText(
+        /2 requested permissions were not granted: mail:user_mailbox:readonly, approval:instance:read\./,
+      ),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText("about:blank#lark-auth-missing-scopes"),
+    ).toHaveCount(0);
+  });
+
   test("closes the plugin dialog before opening general settings", async ({
     page,
   }) => {
