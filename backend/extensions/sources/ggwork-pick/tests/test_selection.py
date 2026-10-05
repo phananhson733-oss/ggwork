@@ -99,6 +99,68 @@ async def test_only_a_new_batch_request_inherits_the_parent_conditions_and_data(
         await service.query({}, thread_id="other-thread", run_id="r7", call_id="c7", parent_result_id=old["id"])
 
 
+async def _another_batch(service, parent, **filters):
+    """换一批 on parent, the way the tool sends it: one more run, the parent as the bound reference."""
+    run = f"chain-{parent['id']}"
+    return await service.query({"exclude_previous": True, **filters}, thread_id=parent["thread_id"], run_id=run, call_id=run, parent_result_id=parent["id"])
+
+
+@pytest.mark.asyncio
+async def test_another_batch_leaves_out_every_batch_on_its_chain(workspace):
+    """2026-09-30: only the parent's items were excluded, so the third batch handed back the first batch's dramas."""
+    from ggwork_pick.selection import SelectionService
+
+    repo, _, _, _ = workspace
+    service = SelectionService(repo)
+    first = await service.query({"language": "en", "limit": 1}, thread_id="t1", run_id="r1", call_id="c1")
+    second = await _another_batch(service, first)
+    third = await _another_batch(service, second)
+    titles = [[item["title"] for item in batch["items"]] for batch in (first, second, third)]
+    assert titles == [["合成样例1"], ["合成样例2"], ["合成样例3"]]
+    frozen = (await repo.result(third["id"]))["excluded_json"]
+    assert {first["items"][0]["identity"], second["items"][0]["identity"]} <= set(frozen)
+    fourth = await _another_batch(service, third)
+    assert fourth["items"] == [] and fourth["matched_total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_counting_another_batch_takes_the_whole_chain_away(workspace):
+    from ggwork_pick.selection import SelectionService
+
+    repo, _, _, _ = workspace
+    service = SelectionService(repo)
+    first = await service.query({"language": "en", "limit": 1}, thread_id="t1", run_id="r1", call_id="c1")
+    second = await _another_batch(service, first)
+    counted = await service.count({"exclude_previous": True}, parent=await repo.result(second["id"]))
+    assert counted["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_chain_stops_at_an_ancestor_from_another_thread(workspace):
+    """A copied thread may point at the original's results; their items are that conversation's, not this one's."""
+    from ggwork_pick.repository import stamp
+    from ggwork_pick.selection import RULE_VERSION, SelectionService
+
+    repo, _, batch, _ = workspace
+    service = SelectionService(repo)
+    elsewhere = await service.query({"language": "en", "limit": 1}, thread_id="t0", run_id="r0", call_id="c0")
+    here = await service.query({"language": "en", "limit": 2}, thread_id="t1", run_id="r1", call_id="c1")
+    copied = await repo.add_result(
+        {
+            **await repo.result(here["id"]),
+            "id": "copied",
+            "run_id": "r2",
+            "tool_call_id": "c2",
+            "parent_result_id": elsewhere["id"],
+            "ordered_items_json": here["items"][1:],
+            "created_at": stamp(),
+        }
+    )
+    assert copied["rule_version"] == RULE_VERSION and copied["catalog_batch_id"] == batch["id"]
+    third = await _another_batch(service, copied, limit=5)
+    assert [item["title"] for item in third["items"]] == ["合成样例1", "合成样例3"]
+
+
 @pytest.mark.asyncio
 async def test_save_receipt_is_atomic_idempotent_and_does_not_resurrect_removed(workspace):
     from ggwork_pick.selection import SelectionService

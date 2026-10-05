@@ -7,6 +7,7 @@ import json
 from uuid import uuid4
 
 from ggwork_pick.contracts import PickConditions
+from ggwork_pick.freshness import RANK_KINDS, data_notices
 from ggwork_pick.pin import Pin, as_pin
 from ggwork_pick.references import check_posted_account, check_references, hot_scope, is_hot_kind, names_account
 from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of, with_mirror_version
@@ -19,6 +20,8 @@ HOT_RANKING_VERSION = "hot-evidence-date-v1"
 RANKING_VERSIONS = frozenset({RANKING_VERSION, RANK_RANKING_VERSION, HOT_RANKING_VERSION})
 # The replay's ordered identity list stops here; total and truncated say how many there were (plan:1620).
 REPLAY_LIMIT = 2000
+# 换一批 walks its chain of parents no further than this; a conversation never gets near it.
+CHAIN_LIMIT = 100
 
 
 class PostedDataUnavailable(ValueError):
@@ -324,13 +327,21 @@ def candidate_item(row, conditions, matched_total: int | None = None):
     return item
 
 
-async def _explanations(rows, conditions: PickConditions, excluded, *, matched: int | None) -> dict:
+async def _explanations(rows, conditions: PickConditions, excluded, *, matched: int | None, data_as_of: dict | None) -> dict:
+    """For the model only: why nothing matched, what counted as hot, and the data page's stale warnings."""
     extra = {}
     if matched == 0:
         extra["zero_diagnosis"] = await asyncio.to_thread(zero_diagnosis, rows, conditions, excluded)
     if conditions.hot_only:
         extra["hot_scope"] = hot_scope(rows)
+    if notices := data_notices(data_as_of, rows, conditions):
+        extra["data_notices"] = notices
     return extra
+
+
+def _judges_boards(conditions: PickConditions) -> bool:
+    """Whether the stale warnings need the batch's rows: only a question standing on a board's edition."""
+    return conditions.hot_only or conditions.signal_kind in RANK_KINDS
 
 
 def _request_hash(conditions: PickConditions, parent_result_id: str | None, use_latest: bool) -> str:
@@ -375,11 +386,32 @@ class SelectionService:
             raise ValueError("尚未导入剧库")
         return pin
 
+    async def _chain_items(self, parent: dict) -> set[str]:
+        """The identities every batch on the parent's chain handed out: the parent's, its parent's, and so on.
+
+        Only its items, never its excluded_json (that froze the personal selections of its day, which a later
+        exclude_selected=false must not carry). The chain stops at a result from another thread (a copied
+        conversation's ancestry) and after CHAIN_LIMIT links, so a corrupt cycle cannot spin forever.
+        """
+        identities: set[str] = set()
+        record, thread_id = parent, parent["thread_id"]
+        for _ in range(CHAIN_LIMIT):
+            if record["thread_id"] != thread_id:
+                break
+            identities.update(item["identity"] for item in record["ordered_items_json"])
+            if not record.get("parent_result_id"):
+                break
+            try:
+                record = await self.repository.result(record["parent_result_id"])
+            except LookupError:
+                break
+        return identities
+
     async def _scope(self, filters: dict, parent: dict | None, *, use_latest: bool, pinned_versions):
         """Conditions, data versions and exclusions for one call.
 
         Only 换一批 (exclude_previous) derives from the bound parent: its conditions, its data version
-        and its items. Any other question stands on its own conditions and this run's data.
+        and every item its chain handed out. Any other question stands on its own conditions and this run's data.
         """
         derived = parent is not None and filters.get("exclude_previous") is True
         conditions = PickConditions.model_validate({**parent["conditions_json"], **filters} if derived else filters)
@@ -387,7 +419,7 @@ class SelectionService:
             raise ValueError("换一批需要明确引用上一份候选")
         pin = await self._parent_versions(parent) if derived and not use_latest else await self._current_versions(pinned_versions)
         selected = {r["identity"] for r in await self.repository.selections()} if conditions.exclude_selected else set()
-        previous = {item["identity"] for item in parent["ordered_items_json"]} if derived else set()
+        previous = await self._chain_items(parent) if derived else set()
         return conditions, pin, frozenset(selected | previous)
 
     async def query(
@@ -483,17 +515,16 @@ class SelectionService:
             "by_language": dict(sorted(by_language.items(), key=lambda kv: (-kv[1], kv[0]))),
             "data_as_of": with_mirror_version(await self._pin_data_as_of(pin), pin.mirror_version, emit=emit_mirror_version),
         }
-        return {**counted, **await _explanations(rows, conditions, excluded, matched=len(matches))}
+        return {**counted, **await _explanations(rows, conditions, excluded, matched=len(matches), data_as_of=counted["data_as_of"])}
 
-    async def explain(self, record: dict) -> dict:
-        """What the query tool adds beside a stored result for the model: zero_diagnosis when nothing matched, and
-        hot_scope under hot_only. Read from the result's own batch and exclusions, so a repeated call gets the same."""
+    async def explain(self, record: dict, *, data_as_of: dict | None = None) -> dict:
+        """What the query tool adds beside a stored result for the model: zero_diagnosis when nothing matched,
+        hot_scope under hot_only, and data_notices when the data_as_of the result answers with is stale. Read from the
+        result's own batch and exclusions, so a repeated call gets the same; the rows only when a judgement needs them."""
         conditions = PickConditions.model_validate(record["conditions_json"])
         matched = _matched_total(record)
-        if matched != 0 and not conditions.hot_only:
-            return {}
-        rows = await self.repository.catalog_rows(record["catalog_batch_id"])
-        return await _explanations(rows, conditions, frozenset(record.get("excluded_json") or ()), matched=matched)
+        rows = await self.repository.catalog_rows(record["catalog_batch_id"]) if matched == 0 or _judges_boards(conditions) else []
+        return await _explanations(rows, conditions, frozenset(record.get("excluded_json") or ()), matched=matched, data_as_of=data_as_of)
 
     async def _pin_data_as_of(self, pin: Pin) -> dict | None:
         return pin.data_as_of if pin.data_as_of is not None else await self.repository.data_as_of(pin.catalog_id)

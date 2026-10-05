@@ -56,6 +56,12 @@ tool_groups:
   - {name: pick}
   - {name: web}
   - {name: lark}
+tool_output:
+  # The host budget replaces any tool result over 12,000 characters with a prose summary (30,000 truncates
+  # regardless), which a candidate result reaches at 8 to 10 dramas: the card then fails to parse it and the
+  # model is pointed at read_file, which PickToolGate refuses. Pick results stay whole; the read_file pair is
+  # the host default and stays exempt too.
+  exempt_tools: [read_file, read_file_tool, pick_query_candidates, pick_count_candidates, pick_get_drama_detail, pick_prepare_selection, pick_search_knowledge]
 plugins:
   - name: ggwork-pick
     use: 'ggwork_pick:install'
