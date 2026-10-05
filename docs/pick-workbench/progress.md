@@ -676,3 +676,14 @@
   - 宿主 `test_pick_cloud_entrypoint.py` 与 `test_compose_default_bind_host.py` 69 通过；`ruff check`、`ruff format --check` 通过；agent guidance 检查 0 错误 0 警告。
   - 前端 `pnpm check` 通过；全量单测 2,828 通过、45 跳过。
 - 上线后由用户在工作台核对：问一个筛不出结果的条件看逐项诊断；候选卡每部剧下有标签、上架、渠道一行，问「第 1 部能不能发 YouTube」；勾选后发「保存第 2 部」再点重新生成，仍按同一张卡；模式菜单只有闪速和思考。e2e-pick 需要真实模型和数据库，本批没跑。
+- 上线（2026-10-05，UTC）：PR #29 合并为 `ddbf9f14`，gateway 与前端都从这个提交经守卫上线。合并前 main 前进到 `8b0d8374`（PR #28 飞书授权修复的上线记录），在 PR 分支上合并 main 解决了 progress.md 的冲突（两边都保留），合并后 CI 两项全绿。
+  - 守卫之前，在与 `ddbf9f14` 代码树相同的 `ec0c875a`（PR 分支头，`git diff` 为空）上做完四格的测试部分：
+    - gateway 一列：扩展全套 4,020 通过、21 跳过（一次性全 scram、UTF8 的 PG 17 加 SQLite，跳过原因里没有 `PICK_TEST_PG_URL is not set`）；四个点名文件 35 通过、0 跳过，每个文件两种库都有。
+    - 前端一列：rollback matrix 5 行 ✓，合同夹具 12/12，全量 2,828 通过、45 跳过，typecheck 通过。
+  - gateway 经守卫后，从 `git archive` 导出的目录（镜像用到的路径，2,095 个文件）`railway up`，部署 `87a09df4-f27c-4a6c-b481-730b7c973f54`，SUCCESS，一次上传成功。迁移头仍是 0007，没有新迁移。
+    - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`（含 `/api/pick/results/{result_id}/notes`）、`Application startup complete`，没有 Traceback，没有 `service start() failed`。
+    - 容器内（`railway ssh`，只读）：`ggwork_pick.host_prompt`（三段、两张列表）、`ggwork_pick.item_facts`（tags、listed_at、channel_rules）都在，PickModelGate 调用 `pick_system`，`PICK_INSTRUCTIONS` 含 `channel_rules`，routes 里有 notes 路由；`observe.selfcheck`、`observe.grants` 能导入；`regrant --check` 授权齐全：schema 8、表 32、列 4、序列 12，已发布镜像版本 6 个。
+  - 前端经守卫从 `git archive` 导出的目录发布，部署 `dpl_4UggWbpuuSXkfwTu4FGLWdgzypus`，READY，生产别名 ggwork-deerflow.vercel.app 指向它。导出目录里是 `frontend/` 的跟踪文件，另外只放了 `.vercel/project.json`。构建带 `NEXT_PUBLIC_APP_VERSION=20261005-ddbf9f1`。未登录时 `/` 307 到 `/workspace`，`/workspace`、`/workspace/chats/new` 307 到 `/login`，`/login` 带 `X-Robots-Tag: noindex, nofollow`，`/api/pick/results/x/notes` 返回 401。
+  - **待用户以登录用户核对**：关于页版本号是 20261005-ddbf9f1；四格手工格同上一批；本批五问见上一节「上线后由用户在工作台核对」。
+- `pick-deploy-guard target=gateway commit=ddbf9f14c882052d42dd0217e595a9c90c7694fc prod_head=0007 chain_head=0007 at=2026-10-05T09:47:41Z`
+- `pick-deploy-guard target=frontend commit=ddbf9f14c882052d42dd0217e595a9c90c7694fc at=2026-10-05T09:50:34Z`
