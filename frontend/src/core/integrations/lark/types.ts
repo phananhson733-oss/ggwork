@@ -112,4 +112,5 @@ export interface LarkAuthCompleteResponse {
   success: boolean;
   message: string;
   status: LarkIntegrationStatus;
+  missing_scopes?: string[];
 }

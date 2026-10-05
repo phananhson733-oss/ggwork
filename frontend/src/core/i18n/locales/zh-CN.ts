@@ -1471,6 +1471,8 @@ export const zhCN: Translations = {
         authStarted: "授权页已打开，GGWork 会自动检测授权结果。",
         authorizationStillPending:
           "还没有检测到授权完成。请在浏览器完成授权；GGWork 会继续自动检测。如果页面没有更新，可点击“我已完成授权”。",
+        authorizationMissingScopes: (count: number, preview: string) =>
+          `飞书授权已完成，但有 ${count} 项申请的权限未获授予：${preview}。请先在飞书开放平台为应用开通这些权限（或等管理员审批通过），再点击“申请新权限”补充授权。`,
         permissionTitle: "授权范围",
         permissionDescription:
           "默认只完成基础登录，不会申请任何业务权限。按需在这里勾选要授权的业务域；已连接用户可以重新授权继续追加（scope 会累积）。",

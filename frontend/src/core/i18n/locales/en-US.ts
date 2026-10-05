@@ -1566,6 +1566,8 @@ export const enUS: Translations = {
           "Authorization page opened. GGWork will detect completion automatically.",
         authorizationStillPending:
           'Authorization is not complete yet. Finish it in the browser; GGWork keeps checking automatically. You can click "I completed authorization" if the page does not update.',
+        authorizationMissingScopes: (count: number, preview: string) =>
+          `Lark/Feishu authorization completed, but ${count} requested ${count === 1 ? "permission was" : "permissions were"} not granted: ${preview}. Enable them for the app in the Lark/Feishu developer console (or wait for admin approval) first, then use "Request permissions" to add them.`,
         permissionTitle: "Authorization scope",
         permissionDescription:
           "By default, GGWork only completes the base sign-in and does not request any business permissions. Select the domains you need here; connected users can re-authorize to add more (scopes accumulate).",
