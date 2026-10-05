@@ -273,3 +273,38 @@ async def test_empty_completion_schedules_observation_and_legacy_hydration_stays
     record = await RunManager(store=store).get("legacy")
     assert KEY not in record.metadata
     await journal.close(flush=False)
+
+
+@pytest.mark.anyio
+async def test_observation_preserves_inconsistent_zero_without_legacy_derivation():
+    journal = RunJournal("r", "t", MemoryRunEventStore())
+    rid = uuid4()
+    start(journal, rid)
+    journal.on_llm_end(response({"input_tokens": 7, "output_tokens": 3, "total_tokens": 0}), run_id=rid)
+    data = journal.get_completion_data()
+    assert data["total_tokens"] == 10  # Legacy API's historical fallback stays compatible.
+    observed = data["usage_observation"]
+    assert observed["known_total_tokens"] == 0 and observed["known_input_tokens"] == 7
+    assert observed["coverage"] == "partial" and "inconsistent_provider_usage" in observed["reasons"]
+    await journal.close(flush=False)
+
+
+@pytest.mark.anyio
+async def test_missing_total_is_not_derived_and_known_other_call_is_only_lower_bound():
+    from types import SimpleNamespace
+
+    journal = RunJournal("r", "t", MemoryRunEventStore())
+    first = uuid4()
+    start(journal, first)
+    partial = SimpleNamespace(generations=[[SimpleNamespace(message=SimpleNamespace(usage_metadata={"input_tokens": 7}, response_metadata={}))]])
+    journal.on_llm_error(asyncio.CancelledError(), run_id=first, response=partial)
+    assert journal.get_completion_data()["usage_observation"]["known_total_tokens"] is None
+    second = uuid4()
+    start(journal, second)
+    journal.on_llm_end(response({"input_tokens": 2, "output_tokens": 3, "total_tokens": 5}), run_id=second)
+    observed = journal.get_completion_data()["usage_observation"]
+    assert observed["known_total_tokens"] == 5 and observed["known_input_tokens"] == 9 and observed["known_output_tokens"] == 3
+    assert observed["coverage"] == "partial"
+    journal.record_external_llm_usage_records([{"source_run_id": "ext", "input_tokens": 1, "output_tokens": 2, "total_tokens": 0}])
+    assert journal.get_completion_data()["usage_observation"]["known_total_tokens"] == 5
+    await journal.close(flush=False)

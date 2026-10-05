@@ -302,7 +302,7 @@ class RunJournal(BaseCallbackHandler):
         # LLM request/response tracking
         self._llm_call_index = 0
         self._usage_calls: dict[str, dict[str, Any]] = {}
-        self._external_usage_keys: set[str] = set()
+        self._external_usage_reports: dict[str, dict[str, int]] = {}
         self._seen_llm_starts: set[str] = set()  # langchain run_ids that fired on_chat_model_start
         self._current_run_tool_call_names: dict[str, str] = {}
         self._active_tool_names: dict[str, str] = {}
@@ -609,7 +609,8 @@ class RunJournal(BaseCallbackHandler):
                 metadata = getattr(message, "response_metadata", None) or {}
                 call["model"] = metadata.get("model_name") or metadata.get("model")
                 call["cache_read"] = self._extract_cache_read(dict(usage))
-                call["complete_usage"] = phase == "completed" and len(observed) == 3
+                call["inconsistent_usage"] = len(observed) == 3 and observed["total_tokens"] != observed["input_tokens"] + observed["output_tokens"]
+                call["complete_usage"] = phase == "completed" and len(observed) == 3 and not call["inconsistent_usage"]
                 break
 
     def _usage_observation(self) -> dict:
@@ -623,25 +624,23 @@ class RunJournal(BaseCallbackHandler):
             reasons.append("provider_usage_missing")
         if partial:
             reasons.append("partial_provider_usage")
+        if any(call.get("inconsistent_usage") for call in calls):
+            reasons.append("inconsistent_provider_usage")
         if any(not call["started"] for call in calls):
             reasons.append("start_callback_missing")
         if any(call["phase"] == "started" for call in calls):
             reasons.append("call_not_terminal")
         # External usage lacks a local model callback lifecycle; never label its coverage complete.
-        if self._counted_external_source_ids:
+        if self._external_usage_reports:
             reasons.append("external_call_coverage_unknown")
-        partial_calls = [call for rid, call in self._usage_calls.items() if rid not in self._counted_llm_run_ids]
-        accumulated = {"input_tokens": self._total_input_tokens, "output_tokens": self._total_output_tokens, "total_tokens": self._total_tokens}
-        known = {
-            key: accumulated[key] + sum(call["usage"].get(key, 0) for call in partial_calls) if key in self._external_usage_keys or any(key in call["usage"] for call in calls) else None
-            for key in ("input_tokens", "output_tokens", "total_tokens")
-        }
+        observations = [call["usage"] for call in calls] + list(self._external_usage_reports.values())
+        known = {key: sum(usage[key] for usage in observations if key in usage) if any(key in usage for usage in observations) else None for key in ("input_tokens", "output_tokens", "total_tokens")}
         coverage = "unknown" if not self._track_tokens or all(value is None for value in known.values()) else "partial" if reasons else "complete"
         return {
             "version": 1,
             "finalized": False,
             "call_scope": "local_callback_lifecycle",
-            "external_usage_reports": len(self._counted_external_source_ids),
+            "external_usage_reports": len(self._external_usage_reports),
             "calls_started": sum(call["started"] for call in calls),
             "calls_completed": sum(call["phase"] == "completed" for call in calls),
             "calls_errored": sum(call["phase"] == "error" for call in calls),
@@ -1032,6 +1031,7 @@ class RunJournal(BaseCallbackHandler):
             if source_id in self._counted_external_source_ids:
                 continue
 
+            self._external_usage_reports[source_id] = {key: value for key, value in record.items() if key in ("input_tokens", "output_tokens", "total_tokens") and type(value) is int and value >= 0}
             total_tk = record.get("total_tokens", 0) or 0
             if total_tk <= 0:
                 input_tk = record.get("input_tokens", 0) or 0
@@ -1044,7 +1044,6 @@ class RunJournal(BaseCallbackHandler):
             output_tk = record.get("output_tokens", 0) or 0
 
             self._counted_external_source_ids.add(source_id)
-            self._external_usage_keys.update(key for key in ("input_tokens", "output_tokens", "total_tokens") if type(record.get(key)) is int and record[key] >= 0)
             self._total_input_tokens += input_tk
             self._total_output_tokens += output_tk
             self._total_tokens += total_tk
@@ -1254,7 +1253,7 @@ class RunJournal(BaseCallbackHandler):
         self._llm_start_times.clear()
         self._seen_llm_starts.clear()
         self._usage_calls.clear()
-        self._external_usage_keys.clear()
+        self._external_usage_reports.clear()
         self._current_run_tool_call_names.clear()
         self._persisted_tool_message_identities.clear()
         self._produced_artifacts.clear()
