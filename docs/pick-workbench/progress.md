@@ -643,3 +643,15 @@
     - 本批三问：「给我 10 部英语剧」卡片完整；问 KalosTV 日榜，回答转述时效提示；连续换两批，第三批不回到第一批。
 - `pick-deploy-guard target=gateway commit=4c4a385339d8f1959ce9b9329f4061f5feff48aa prod_head=0007 chain_head=0007 at=2026-10-05T08:24:46Z`
 - `pick-deploy-guard target=frontend commit=4c4a385339d8f1959ce9b9329f4061f5feff48aa at=2026-10-05T08:27:50Z`
+- 飞书授权误报修复上线（2026-10-05，UTC）：PR #28 合并为 `c11d7212`，gateway 与前端都从这个提交经守卫上线。
+  - 起因：能力中心飞书授权弹出 `lark-cli exited with code 3`。lark-cli 在已保存 token、但申请的 scope 没有全部授予时，在 stdout 打出 `authorization_complete` 事件并以退出码 3 静默退出，gateway 把它当成失败。生产上该用户 08:19:53Z 已授权成功（223 个 scope）。修复后部分授予按成功处理，响应带 `missing_scopes`，前端改为黄色提醒。
+  - 守卫之前，在与 `c11d7212` 代码树相同的 `35500150`（PR 分支头，`git diff` 为空）上做完四格的测试部分：
+    - gateway 一列：扩展全套 4,001 通过、21 跳过（一次性全 scram、UTF8 的 PG 17 加 SQLite，跳过原因里没有 `PICK_TEST_PG_URL is not set`）；四个点名文件 35 通过、0 跳过，每个文件两种库都有。
+    - 前端一列：rollback matrix 5 行 ✓，合同夹具 12/12，全量 2,801 通过、45 跳过，typecheck 通过。
+  - gateway 经守卫后，从 `git archive` 导出的目录（镜像用到的路径，2,091 个文件）`railway up`，部署 `27e27a61-399e-4712-ba37-e270a871cd8f`，SUCCESS，一次上传成功。迁移头仍是 0007。
+    - 启动日志有 `Extensions loaded: 1/1`、`Extension routers mounted`、`Application startup complete`，没有 Traceback，没有 `service start() failed`。
+    - 容器内（`railway ssh`，只读）：`LARK_CLI_EXIT_AUTH`、`_run_lark_cli_json(allow_missing_scopes)`、`LarkAuthCompleteResult.missing_scopes`、响应模型的 `missing_scopes` 都在；lark-cli 1.0.96；`observe.selfcheck`、`observe.grants` 能导入；`regrant --check` 授权齐全：schema 8、表 32、列 4、序列 12，已发布镜像版本 6 个。
+  - 前端经守卫从 `git archive` 导出的目录发布，部署 `dpl_3qq6URyqK9osmNkYPeXrHoG2NCeY`，READY，生产别名 ggwork-deerflow.vercel.app 指向它。导出目录里是 `frontend/` 的 1,033 个跟踪文件，另外只放了 `.vercel/project.json`。构建带 `NEXT_PUBLIC_APP_VERSION=20261005-c11d721`。未登录时 `/` 307 到 `/workspace`，`/workspace` 307 到 `/login`。
+  - **待用户以登录用户核对**：关于页版本号是 20261005-c11d721；在能力中心勾选业务域重新授权，部分授予时看到黄色提醒（列出缺失数量与前 3 个 scope），对话框关闭、卡片显示已连接；四格手工格同上一批。
+- `pick-deploy-guard target=gateway commit=c11d72121f975f4de9bda4815f138a739818825d prod_head=0007 chain_head=0007 at=2026-10-05T09:19:36Z`
+- `pick-deploy-guard target=frontend commit=c11d72121f975f4de9bda4815f138a739818825d at=2026-10-05T09:20:15Z`
