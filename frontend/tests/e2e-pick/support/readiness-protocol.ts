@@ -61,6 +61,10 @@ export function readVerified(
 export function redact(value: unknown, secrets: string[] = []): unknown {
   if (typeof value === "string") {
     let text = value
+      .replace(
+        /\b(?:cookie|set-cookie|authorization|proxy-authorization|x-csrf-token):[^\r\n]*/gi,
+        "[REDACTED_HEADER]",
+      )
       .replace(/\bBearer\s+[\w.+\/-]+/gi, "Bearer [REDACTED]")
       .replace(
         /\b(?:postgres(?:ql)?(?:\+\w+)?|mysql|redis|https?):\/\/[^\s"<>]*@[^\s"<>]*/gi,

@@ -724,3 +724,17 @@ it("refuses a prospective offline manifest before credential/runtime evaluation"
   );
   expect(() => loadManifest(path, {})).toThrow("Prospective");
 });
+
+it("redacts embedded Playwright transport headers before writing failure artifacts", () => {
+  const message =
+    "route.fetch failed\n  - cookie: session=private-session; csrf_token=private-csrf\n  - authorization: Bearer private-auth\n  - x-csrf-token: private-header\nother diagnostic";
+  const safe = String(redact(message));
+  for (const secret of [
+    "private-session",
+    "private-csrf",
+    "private-auth",
+    "private-header",
+  ])
+    expect(safe).not.toContain(secret);
+  expect(safe).toContain("other diagnostic");
+});
