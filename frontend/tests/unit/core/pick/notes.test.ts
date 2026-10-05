@@ -1,7 +1,10 @@
 import { describe, expect, it } from "@rstest/core";
 
+import { evidenceDate } from "@/core/pick/format";
 import {
   hotScopeLine,
+  primaryEvidence,
+  pickResultNotesSchema,
   itemFactsLine,
   relaxationLine,
   zeroDiagnosisLines,
@@ -22,7 +25,7 @@ describe("pick result notes", () => {
         },
       }),
     ).toBe(
-      "标签 复仇、豪门 · 上架 2026-09-01 · youtube 可发、tiktok 禁发、facebook 待核实",
+      "标签 复仇、豪门 · 上架 2026-09-01 · youtube 规则允许、tiktok 规则禁用、facebook 待核实",
     );
     expect(
       itemFactsLine({ tags: [], listed_at: null, channel_rules: {} }),
@@ -90,4 +93,82 @@ describe("pick result notes", () => {
       "这批剧库里没有能算作热门依据的榜单",
     );
   });
+});
+
+describe("primary evidence selection", () => {
+  const signal = (kind: string, date: string | null, extra = {}) => ({
+    citation_id: `${kind}/${date}`,
+    kind,
+    observed_at: date,
+    source_ref: "synthetic",
+    value: null,
+    ...extra,
+  });
+  const conditions = { limit: 5, exclude_selected: false };
+  it("chooses the latest day, keeping same-day source order instead of comparing cross-board ranks", () => {
+    const evidence = [
+      signal("qc", "2026-09-30T00:00:00Z", { grade: "S" }),
+      signal("kd", "2026-09-30T12:00:00Z", { rank: 1 }),
+      signal("clk", null, { value: 999 }),
+    ];
+    expect(primaryEvidence({ evidence }, conditions)).toBe(evidence[0]);
+    expect(evidence.map((entry) => entry.kind)).toEqual(["qc", "kd", "clk"]);
+  });
+  it("uses explicit board before other fresh signals and that board's newest signal before rank", () => {
+    const evidence = [
+      signal("clk", "2026-10-05"),
+      signal("kd", "2026-09-30", { rank: 1 }),
+      signal("kd", "2026-10-01", { rank: 20 }),
+    ];
+    expect(
+      primaryEvidence(
+        { evidence },
+        { ...conditions, signal_kind: "kd", sort: "rank" },
+      ),
+    ).toBe(evidence[2]);
+    expect(
+      primaryEvidence({ evidence }, { ...conditions, signal_kind: "missing" }),
+    ).toBeUndefined();
+  });
+  it("uses known hot sources only even while notes are loading", () => {
+    const evidence = [
+      signal("clk", "2026-10-05"),
+      signal("qc", "2026-09-30", { note: "评级说明", grade: "A" }),
+      signal("qr", null),
+    ];
+    expect(
+      primaryEvidence({ evidence }, { ...conditions, hot_only: true }),
+    ).toBe(evidence[1]);
+    expect(
+      primaryEvidence(
+        { evidence: [evidence[0]!] },
+        { ...conditions, hot_only: true },
+      ),
+    ).toBeUndefined();
+  });
+  it("keeps unknown dates unknown and empty evidence empty", () => {
+    const unknown = signal("qc", null, { value: 0 });
+    expect(primaryEvidence({ evidence: [unknown] }, conditions)).toBe(unknown);
+    expect(primaryEvidence({ evidence: [] }, conditions)).toBeUndefined();
+  });
+  it("parses optional notes reference without adding it to result/item", () => {
+    for (const notices_reference_at of [
+      undefined,
+      null,
+      "2026-09-30T12:14:11.000000+00:00",
+    ]) {
+      const parsed = pickResultNotesSchema.parse({
+        item_facts: {},
+        notices_reference_at,
+      });
+      expect(parsed.notices_reference_at).toBe(notices_reference_at);
+    }
+  });
+});
+
+it("preserves source days and renders timestamp evidence in Beijing regardless of host timezone", () => {
+  expect(evidenceDate("2026-09-30")).toBe("2026-09-30");
+  expect(evidenceDate("2026-09-30T23:14:11Z")).toContain("2026/10/1");
+  expect(evidenceDate("2026-09-30T23:14:11Z")).toContain("07:14:11 北京时间");
+  expect(evidenceDate(null)).toBe("日期未知");
 });
