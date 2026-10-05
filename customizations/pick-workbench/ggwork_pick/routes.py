@@ -17,7 +17,7 @@ from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.mirror.status import mirror_status
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
-from ggwork_pick.selection import ReplayGone, ReplayUnrunnable, SelectionService, result_view
+from ggwork_pick.selection import NotesGone, ReplayGone, ReplayUnrunnable, SelectionService, result_view
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +198,21 @@ def build_router(service):
             return await status_view(await repository(request).result(result_id))
         except LookupError as exc:
             raise api_error(exc) from None
+
+    @router.get("/results/{result_id}/notes")
+    async def result_notes(request: Request, result_id: str):
+        """What the query tool told the model beside the result, and each item's row facts, for the card. A separate
+        read so the result keeps the shape the frontend parses strictly; an older frontend never asks for it."""
+        repo = repository(request)
+        try:
+            record = await repo.result(result_id)
+        except LookupError as exc:
+            raise api_error(exc) from None
+        data_as_of = await repo.result_data_as_of(record, emit_mirror_version=False)
+        try:
+            return await SelectionService(repo).notes(record, data_as_of=data_as_of)
+        except NotesGone as exc:
+            raise HTTPException(410, str(exc)) from None
 
     @router.get("/replay")
     async def replay(request: Request, result_id: str = Query(min_length=1, max_length=64)):
