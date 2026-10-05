@@ -768,11 +768,15 @@ def _known_bare_text(text: str, titles) -> str:
     length contract), independent of the number of titles. No regex alternatives or suffix
     rescans. Normalize case and whitespace just as _norm does, retaining original offsets.
     """
+    entries = [(title, _norm(title)) for title in titles]
+    entries = [(title, key) for title, key in entries if key and len(key) <= 500]
+    latin = {title for title, key in entries if " ".join(_LATIN_TOKEN.findall(key)) == key}
+    if len(latin) == len(entries):
+        return text
+    # Mixed-script lists need every known title as a boundary witness. Pure Latin
+    # dictionaries retain the existing word-trie path without this additional scan.
     trie = {}
-    for title in titles:
-        key = _norm(title)
-        if not key or len(key) > 500 or " ".join(_LATIN_TOKEN.findall(key)) == key:
-            continue
+    for title, key in entries:
         node = trie
         for char in key:
             node = node.setdefault(char, {})
@@ -835,6 +839,18 @@ def _known_bare_text(text: str, titles) -> str:
         if before and previous is not None and start - previous <= 2:
             before = folded[previous:start] not in _BARE_CONJUNCTIONS
         if before or not rights[position]:
+            previous = None
+            continue
+        joined_before = previous is not None and start - previous <= 2 and folded[previous:start] in _BARE_CONJUNCTIONS
+        joined_after = (
+            position + 1 < len(candidates)
+            and candidates[position + 1][1] - stop <= 2
+            and folded[stop : candidates[position + 1][1]] in _BARE_CONJUNCTIONS
+            and rights[position + 1]
+        )
+        # Outside an explicit title list, let the legacy scanner resolve Latin words
+        # after account names have been masked (a title named A is not always account A).
+        if title in latin and not (joined_before or joined_after):
             previous = None
             continue
         pieces.extend((text[end : offsets[start][0]], f"《{title}》"))

@@ -1076,3 +1076,42 @@ def test_readiness_conjunction_never_authorizes_a_han_name_fragment(text):
 
     marked = _known_bare_text(text, {"明月", "海", "海上明月"})
     assert "《明月》" not in marked and "《海》" not in marked
+
+
+@pytest.mark.parametrize("join", ["与", "和", "及", "以及"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_readiness_mixed_script_lists_keep_every_title_in_scope(join, reverse):
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    titles = ["长夜微光", "Lost Heir"]
+    seen = with_posted({}, [dict(_item(title, matched=True, posts=int(title == "长夜微光")), identity=title) for title in titles])
+    ordered = list(reversed(titles)) if reverse else titles
+    assert check_answer(join.join(ordered) + "都没发过。", known_titles=set(titles), posted_checked=False, posted_seen=seen) == [
+        "发布记录显示《长夜微光》发过，不能说没发过。"
+    ]
+
+
+@pytest.mark.parametrize(
+    "text", ["明月光与Lost Heir都没发过。", "Lost Heir与明月光都没发过。", "明月与Lost Heirloom都没发过。", "xLost Heir与明月光都没发过。"]
+)
+def test_readiness_mixed_chain_never_matches_known_name_fragments(text):
+    from ggwork_pick.answer_check import _known_bare_text
+
+    marked = _known_bare_text(text, {"明月", "Lost Heir"})
+    assert "《明月》" not in marked
+    if "Heirloom" in text or "xLost" in text:
+        assert "《Lost Heir》" not in marked
+
+
+def test_readiness_mixed_dictionary_keeps_non_title_account_names_for_legacy_scoping():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted(
+        {},
+        [
+            dict(_item("长夜微光", matched=True, posts=1, accounts=["B"]), identity="chinese"),
+            dict(_item("A", matched=True, posts=1, accounts=["B"]), identity="latin"),
+        ],
+        account="A",
+    )
+    assert check_answer("《长夜微光》在 A 账号没发过。", known_titles={"长夜微光", "A"}, posted_checked=True, posted_seen=seen) == []
