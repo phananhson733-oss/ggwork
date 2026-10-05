@@ -69,6 +69,15 @@ describe("pick result notes", () => {
       without_each: [{ condition: "language", value: "en", matched_total: 0 }],
     });
     expect(stuck.caution).toContain("同时调整几项");
+    // gpt-6-astra review: an uncountable step is not a zero.
+    const unknown = zeroDiagnosisLines({
+      ...base,
+      without_each: [
+        { condition: "query", value: "x", matched_total: null },
+        { condition: "language", value: "en", matched_total: 0 },
+      ],
+    });
+    expect(unknown.caution).toBeNull();
     expect(zeroDiagnosisLines({ ...base, without_each: [] }).lead).toContain(
       "没有可以放宽的条件",
     );

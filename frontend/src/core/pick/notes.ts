@@ -131,7 +131,8 @@ export function zeroDiagnosisLines(
       : `这批剧库共 ${diagnosis.catalog_rows} 部（已下架 ${diagnosis.delisted_rows} 部不计入）。逐项去掉一个条件、其余不变时：`;
   const caution =
     steps.length > 0 &&
-    diagnosis.without_each.every((step) => !step.matched_total)
+    // An uncountable step (null) is not a zero: no conclusion then.
+    diagnosis.without_each.every((step) => step.matched_total === 0)
       ? "单放宽一项都没有结果：可能要同时调整几项，也可能这批数据里没有。"
       : null;
   return { lead, steps, caution };

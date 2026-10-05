@@ -18,6 +18,7 @@ import {
   InputBox,
   type InputBoxSubmitOptions,
 } from "@/components/workspace/input-box";
+import { planlessMode } from "@/components/workspace/input-box-helpers";
 import { KnowledgeScopeSelector } from "@/components/workspace/knowledge-scope-selector";
 import {
   MessageList,
@@ -61,7 +62,11 @@ import {
 import { isHiddenFromUIMessage } from "@/core/messages/utils";
 import { useModels } from "@/core/models/hooks";
 import { useNotification } from "@/core/notification/hooks";
-import { PICK_REFERENCE_KEY, turnPickReference } from "@/core/pick/references";
+import {
+  PICK_REFERENCE_KEY,
+  storablePickReference,
+  turnPickReference,
+} from "@/core/pick/references";
 import { useProject } from "@/core/projects";
 import { useLocalSettings, useThreadSettings } from "@/core/settings";
 import { resolveThreadContext } from "@/core/settings/store";
@@ -112,6 +117,15 @@ export default function ChatPage() {
   const [isWelcomeMode, setIsWelcomeMode] = useState(isNewThread);
   const queryClient = useQueryClient();
   const [settings, setSettings] = useThreadSettings(threadId);
+  // The pick agent gets neither plan mode's todo tool nor subagents: its runs
+  // send a stored Pro or Ultra as Thinking, without rewriting the preference.
+  const runContext = useMemo(
+    () =>
+      pick
+        ? { ...settings.context, mode: planlessMode(settings.context.mode) }
+        : settings.context,
+    [pick, settings.context],
+  );
   const [localSettings, setLocalSettings] = useLocalSettings();
   const { enabled: browserControlEnabled } = useBrowserControlEnabled();
   const { tokenUsageEnabled } = useModels();
@@ -191,7 +205,7 @@ export default function ChatPage() {
   } = useThreadStream({
     threadId: isNewThread ? undefined : threadId,
     displayThreadId: threadId,
-    context: settings.context,
+    context: runContext,
     isMock,
     // onSend only animates the UI; do NOT flip `isNewThread` here — the
     // LangGraph SDK eagerly fetches /history the moment it receives a
@@ -314,7 +328,14 @@ export default function ChatPage() {
         ...(currentKnowledgeScopeSnapshot
           ? { [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot }
           : {}),
-        ...(pickReference ? { [PICK_REFERENCE_KEY]: pickReference } : {}),
+        ...(pickReference
+          ? {
+              [PICK_REFERENCE_KEY]: storablePickReference(
+                threadId,
+                pickReference,
+              ),
+            }
+          : {}),
       };
       const scopedOptions =
         Object.keys(turnKwargs).length > 0
@@ -374,7 +395,11 @@ export default function ChatPage() {
   }, [thread]);
   const handleRegenerate = useCallback(
     (messageId: string, supersededMessageIds: string[]) => {
-      const pickReference = turnPickReference(thread.messages, messageId);
+      const pickReference = turnPickReference(
+        thread.messages,
+        messageId,
+        threadId,
+      );
       return regenerateMessage(
         threadId,
         messageId,
@@ -386,12 +411,23 @@ export default function ChatPage() {
   );
   const handleEditAndRegenerate = useCallback(
     (messageId: string, replacementText: string) => {
-      const pickReference = turnPickReference(thread.messages, messageId);
+      const pickReference = turnPickReference(
+        thread.messages,
+        messageId,
+        threadId,
+      );
       const turnKwargs = {
         ...(currentKnowledgeScopeSnapshot
           ? { [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot }
           : {}),
-        ...(pickReference ? { [PICK_REFERENCE_KEY]: pickReference } : {}),
+        ...(pickReference
+          ? {
+              [PICK_REFERENCE_KEY]: storablePickReference(
+                threadId,
+                pickReference,
+              ),
+            }
+          : {}),
       };
       return editAndRegenerateMessage(
         threadId,

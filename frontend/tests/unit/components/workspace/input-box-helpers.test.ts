@@ -19,6 +19,7 @@ import {
   isGoalObjectiveTooLong,
   MAX_GOAL_OBJECTIVE_CHARS,
   parseCompactCommand,
+  planlessMode,
   parseGoalCommand,
   readGoalResponseError,
   type SlashSuggestion,
@@ -523,18 +524,20 @@ describe("findSuggestionTemplatePlaceholder", () => {
 });
 
 // Evaluation batch 2 (2026-10-05): the pick workbench's agent can use neither
-// plan mode's todo tool nor Ultra's subagents, so its composer offers neither;
-// a stored Pro or Ultra (or no choice) resolves to Thinking there.
-describe("getResolvedMode", () => {
-  it("keeps every mode where plan modes are offered", () => {
+// plan mode's todo tool nor Ultra's subagents, so its runs send Pro and Ultra
+// as Thinking; the stored choice itself is never rewritten (gpt-6-astra review:
+// other agents' chats read the same preference).
+describe("plan mode resolution", () => {
+  it("resolves the stored mode as upstream does", () => {
     expect(getResolvedMode(undefined, true)).toBe("pro");
     expect(getResolvedMode("ultra", true)).toBe("ultra");
     expect(getResolvedMode("pro", false)).toBe("flash");
   });
-  it("resolves Pro, Ultra and no choice to Thinking without plan modes", () => {
-    for (const mode of [undefined, "pro", "ultra", "thinking"] as const)
-      expect(getResolvedMode(mode, true, false)).toBe("thinking");
-    expect(getResolvedMode("flash", true, false)).toBe("flash");
-    expect(getResolvedMode("ultra", false, false)).toBe("flash");
+  it("sends Pro and Ultra as Thinking where plan modes are off", () => {
+    expect(planlessMode("pro")).toBe("thinking");
+    expect(planlessMode("ultra")).toBe("thinking");
+    expect(planlessMode("thinking")).toBe("thinking");
+    expect(planlessMode("flash")).toBe("flash");
+    expect(planlessMode(undefined)).toBeUndefined();
   });
 });

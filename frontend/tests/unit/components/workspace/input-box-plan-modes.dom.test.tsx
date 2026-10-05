@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, rs } from "@rstest/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
 import { InputBox } from "@/components/workspace/input-box";
@@ -69,26 +69,31 @@ function renderComposer(
   );
 }
 
-// Evaluation batch 2 (2026-10-05): a stored Pro or Ultra sent is_plan_mode or
-// subagent_enabled with every pick run, though the pick agent can use neither.
+// Evaluation batch 2 (2026-10-05): the pick agent can use neither plan mode
+// nor subagents, so its composer shows a stored Pro or Ultra as the Thinking
+// its runs go out with (chat-page sends planlessMode). gpt-6-astra review: it
+// must not write that back, since other agents' chats read the same choice.
 describe("composer plan modes", () => {
-  it.each(["pro", "ultra", undefined])(
-    "resolves a stored %s to Thinking where plan modes are off",
+  it.each(["pro", "ultra"])(
+    "shows a stored %s as Thinking where plan modes are off, without rewriting it",
     async (mode) => {
       const change = rs.fn();
-      renderComposer(mode, false, change);
-      await waitFor(() =>
-        expect(change).toHaveBeenCalledWith(
-          expect.objectContaining({ mode: "thinking" }),
-          { automatic: true },
-        ),
+      const { container } = renderComposer(mode, false, change);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const text = container.textContent ?? "";
+      expect(/思考|Reasoning/.test(text)).toBe(true);
+      expect(/Pro|Ultra/.test(text)).toBe(false);
+      expect(change).not.toHaveBeenCalledWith(
+        expect.objectContaining({ mode: "thinking" }),
+        expect.anything(),
       );
     },
   );
-  it("keeps a stored Pro where plan modes are offered", async () => {
+  it("shows a stored Pro where plan modes are offered", async () => {
     const change = rs.fn();
-    renderComposer("pro", undefined, change);
+    const { container } = renderComposer("pro", undefined, change);
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.textContent).toContain("Pro");
     expect(change).not.toHaveBeenCalledWith(
       expect.objectContaining({ mode: "thinking" }),
       expect.anything(),
