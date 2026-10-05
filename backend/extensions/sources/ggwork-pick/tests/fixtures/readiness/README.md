@@ -301,3 +301,11 @@ sealed chain edge remains authoritative. A changed edge, any other omitted
 field, an added field or a changed value is rejected. The original sealed chain
 is retained. Results absent from that chain still require the prior same-run
 producer and strict causal checks described above.
+
+Refusal expectations may declare `allowed_condition_sets`. When present, these
+are complete independently reviewed condition sets; the checker normalizes the
+actual `raw_arguments.filters` with its own fixed defaults and compares the full
+set before accepting the refusal. The model may omit default fields. A matching
+rejection reason cannot excuse a wrong language or an extra filter. Refusals
+without this optional condition contract retain their existing behavior and do
+not require filters or actual_conditions.

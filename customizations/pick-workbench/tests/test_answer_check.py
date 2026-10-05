@@ -759,36 +759,59 @@ def test_the_judge_finds_what_reading_every_record_for_every_claim_finds():
 
 
 @pytest.mark.parametrize(
-    "text",
+    "make_text",
     [
-        "a" * 50_000,
-        "a" * 49_997 + "没发过",
-        "a " * 24_998 + "没发过",
-        "a," * 24_998 + "没发过",
-        "lost heir " * 4_999 + "没发过",
-        "《" * 50_000,
-        "《a》没发过" * 7_142,
-        " " * 49_997 + "没发过",
-        "\n" + "\t" * 49_996 + "没发过",
-        "和 " * 24_998 + "没发过",
-        "+" * 49_997 + "没发过",
-        "- 、" * 16_665 + "没发过",
+        lambda size: "a" * size,
+        lambda size: "a" * (size - 3) + "没发过",
+        lambda size: "a " * ((size - 3) // 2) + "没发过",
+        lambda size: "a," * ((size - 3) // 2) + "没发过",
+        lambda size: "lost heir " * ((size - 3) // 10) + "没发过",
+        lambda size: "《" * size,
+        lambda size: "《a》没发过" * (size // 7),
+        lambda size: " " * (size - 3) + "没发过",
+        lambda size: "\n" + "\t" * (size - 4) + "没发过",
+        lambda size: "和 " * ((size - 3) // 2) + "没发过",
+        lambda size: "+" * (size - 3) + "没发过",
+        lambda size: "- 、" * ((size - 3) // 3) + "没发过",
     ],
     ids=["one-word", "one-word-claim", "words", "clauses", "bare-titles", "brackets", "titled-claims", "spaces", "tabs", "joins", "pluses", "bullets"],
 )
-def test_a_long_answer_is_checked_in_linear_time(text):
+def test_a_long_answer_is_checked_in_linear_time(make_text):
+    import gc
+    import statistics
     import time
 
     from ggwork_pick.answer_check import check_answer, with_posted
 
     seen = with_posted({}, [_item("Lost Heir", matched=True), _item("A", matched=True), _item("Big Boss", matched=True, posts=1, accounts=["B"])], account="C")
-    # The best of three runs: linear is under 0.1 s here, quadratic takes seconds, and a busy machine adds noise to one run.
-    timings = []
-    for _ in range(3):
-        started = time.perf_counter()
-        check_answer(text, known_titles={"Lost Heir", "A", "Big Boss"}, posted_checked=False, posted_seen=seen)
-        timings.append(time.perf_counter() - started)
-    assert min(timings) < 0.5
+    texts = [make_text(size) for size in (12_500, 50_000)]
+
+    def measure(text):
+        # A gen-2 collection scans unrelated objects retained by the entire test suite;
+        # it can hit only one input size. Isolate that global heap cost and other threads.
+        collecting = gc.isenabled()
+        gc.disable()
+        try:
+            started = time.thread_time_ns()
+            check_answer(text, known_titles={"Lost Heir", "A", "Big Boss"}, posted_checked=False, posted_seen=seen)
+            return time.thread_time_ns() - started
+        finally:
+            if collecting:
+                gc.enable()
+
+    # Warm both sizes, then pair this thread's CPU measurements in alternating order.
+    # The old wall-time ceiling also measured shared-runner scheduling.
+    for text in texts:
+        measure(text)
+    ratios = []
+    for order in ((0, 1), (1, 0), (0, 1)):
+        elapsed = {}
+        for index in order:
+            elapsed[index] = measure(texts[index])
+        ratios.append(elapsed[1] / max(elapsed[0], 1))
+    # 4x input should cost about 4x; allow 50% noise, but reject quadratic (~16x).
+    # This is a complexity check, not a 500 ms latency SLA.
+    assert statistics.median(ratios) < 6, ratios
 
 
 @pytest_asyncio.fixture

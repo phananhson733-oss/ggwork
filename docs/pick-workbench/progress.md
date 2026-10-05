@@ -5,8 +5,11 @@ PR [#31](https://github.com/phananhson733-oss/ggwork/pull/31) 已合并，生产
 - 合并提交上的复跑：业务双库 4,326 passed / 21 方言或重复计时 skip；后端兼容矩阵 35 passed；宿主 116 passed；真实 PG reader 45 passed / 0 skip；前端全套 2,874 passed，45 reader 项另行通过；旧/新/混合/hot/存量快照矩阵五格通过，check/build 通过。合并提交的 GitHub CI 也已成功。
 - Gateway 实际 1,141 个源码树文件及 installed 145 个业务包文件与合并提交一致；关键模块加载、认证 API、数据库/checkpointer readiness 正常，生产 applied migration head 仍为 0007，没有新迁移或观测 cron 发布。
 - 普通 QA 原两条已保存记录与旧 10 项候选在 Gateway 更替后保持，历史 notes 的 reference 与原 created_at 一致。
-- 上线后只读资料冻结观察到真实 mirror v23，旧 QA 卡仍冻结 v22；这使历史卡/真实资料更新对照具备前置条件。新完整业务矩阵正在按独立预锁预期验收，尚未将其标为全通过。
-- 本次发布与完整业务验收分别记账；下方 2026-10-05 的“未发布”和基线 FAIL/NOT_RUN 是历史记录，不覆盖本段已验证部署状态。最终 QA 结果在验收文档追加。
+- 上线后以专用普通 QA 身份完成 Q01～Q20 的真实模型执行，共 26 个改后应用 run；连同改前本地/远程基线累计 36/40。新查询使用真实 mirror v23，旧 QA 卡仍冻结 v22；换批、详情、确认保存、丢响应幂等重试、重新生成/编辑/分支、历史翻页及刷新恢复均有实际证据。
+- Q19 主动取消的精确 POST 请求返回 202，运行终态 interrupted，个人清单不变；取消调用缺少完整 provider 用量，仍记 UNVERIFIED。不能把功能通过写成“全部五层全通过”，也没有推算费用改善。
+- 最终独立五层检查：20 题中 19 PASS、1 UNVERIFIED（Q19），0 FAIL、0 NOT_RUN；27 条记录中 26 PASS、1 UNVERIFIED。97 条语义标准全部通过，26 次运行的 130 个性能指标槽位中 127 个有证据，缺失三项未填 0。
+- 原固定投影 baseline 的字节降幅仍为 7.79%，未达 20% 工程目标；RD-07 Trends/GSC 仍为 BLOCKED，未启用雷达下一阶段。两项限制保留。
+- 本次发布与业务验收分别记账；下方 2026-10-05 的“未发布”和基线 FAIL/NOT_RUN 是历史记录，不覆盖本段已验证部署状态。改后五层结果见 [验收记录](acceptance.md#2026-10-06-readiness-生产发布与改后验收)。后续文档和 QA 工具提交不改变上述实际产品部署 SHA。
 
 - `pick-deploy-guard target=gateway commit=d236f951d76d011bc2e704a772b2382345b8335b prod_head=0007 chain_head=0007 at=2026-10-05T16:20:29Z`
 - `pick-deploy-guard target=frontend commit=d236f951d76d011bc2e704a772b2382345b8335b at=2026-10-05T16:27:02Z`
