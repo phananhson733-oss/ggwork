@@ -176,3 +176,95 @@ Missing external evidence yields NOT_RUN; invalid/incomplete material yields
 UNVERIFIED. Reports retain every attempt and all five layer statuses. Exit codes:
 0 only all requested checks pass; 1 any observed FAIL; 2 invalid/incomplete/no cases
 without an observed FAIL. There is no network, login, collection or model invocation.
+
+## User-action steps, multiple tools and terminal-only records
+
+A step remains one user interaction. For a run that may call different tools,
+pre-lock `tool_contracts` on that step instead of pretending every response has
+one type:
+
+```json
+{
+  "tool_contracts": [
+    {"tool_name":"pick_count_candidates","case_type":"count","min_occurrences":1,"expected":{}},
+    {"tool_name":"pick_query_candidates","case_type":"query","min_occurrences":1,"expected":{}}
+  ]
+}
+```
+
+The empty expected objects above are schematic: each must contain the complete
+ordinary typed expectation, including allowed_actions=[that exact tool_name],
+outcome, all conditions, browser assertions and semantic rubric. Names are
+unique. Array order is the allowed order within each attempt. Minimum occurrences
+are checked across the complete action step. Unexpected calls, wrong ordering or
+missing required calls cannot pass. The actual tool_name selects the prelocked
+contract; actual arguments never select an easier type. Ledger tool_call_ids is
+an ordered complete inventory, not a set that can be reordered after execution.
+
+A step can additionally declare `terminal_contract:{case_type,expected}`.
+The case_type is clarification or recovery. It requires exactly one actual
+terminal record per attempt. Single terminal-only clarification/recovery steps
+can keep the contract directly on the step. A terminal record has
+`record_kind:"terminal"`, normal case/step/attempt/run/owner/thread/timestamp
+identity, `terminal_status,answer,generated_by`, external evidence references and
+`authoritative_terminal_file/sha256`. It must **not** contain tool_call_id,
+tool_name or raw_arguments. Its independent authority file is:
+
+```json
+{"run_id":"synthetic-run","status":"success","answer_sha256":"<actual-answer-byte-hash>","saved_result_ids":[]}
+```
+
+Terminal expected.allowed_actions is `["terminal"]`, expected_outcome is
+`"terminal"`. Recovery checks expected.saved_result_ids against authority.
+Clarification locks `missing_parameters` and `clarification_rubric` (an exact
+member of semantic_rubric). The independent semantic reviewer judges that text
+criterion against the actual answer and locked missing parameters. The producer
+never manufactures missing_parameters or branch facts from expectations. Missing
+review remains NOT_RUN/UNVERIFIED. Terminal browser evidence has null result_id
+and source when no result/source exists. Performance scope remains the actual
+run, with tool_calls=0 only when the independent inventory is empty.
+
+For an intentionally interrupted attempt followed by success, pre-lock e.g.
+`attempt_terminal_statuses:["cancelled","success"]`. The complete independent
+ledger's per-step ordinal determines the expected status. Each attempt requires
+a terminal capture; omitting one or the final planned attempt cannot pass.
+Without this explicit plan, a failed/cancelled attempt is still FAIL even when
+a later retry succeeds.
+
+### New result references within a compound run
+
+Generated result IDs can be locked symbolically rather than fabricated in
+advance: `expected.result_id={"from_tool":"pick_query_candidates","occurrence":1}`
+and `expected.item_id={"position":2}`. For prepare, item_ids may be
+`{"positions":[1,3]}`. The referenced producer must be a prelocked query tool;
+the checker resolves only that prior same-run occurrence and frozen positions,
+never searches for an output that happens to match actual arguments. Known
+historical result/item IDs continue to use literal strings.
+
+To read a newly created result absent from the pre-run state, detail/prepare can
+supply `bound_result_file/sha256` referring to
+`{captured_at,result:<full independent immutable-result export>}`. Its result has
+the usual parent identity/source/frozen metadata/items plus created_at. The
+export may be read after the run; its actual capture timestamp is preserved.
+The result must have existed before the consuming tool, match exactly one prior
+same-run query output's result ID, item IDs/order/identities and conditions, and
+agree with independent catalog facts. It does not overwrite the pre-run state.
+
+### Real UI-generated save request IDs
+
+The expected request_id may be the predeclared placeholder
+`{"capture_before_dispatch":true}`. All other save intent is prelocked (literal
+or the producer/position reference above). The first actual UI request is sealed
+before dispatch in `save_dispatch_file/sha256`:
+
+```json
+{"captured_at":"2026-10-05T00:00:02Z","request":{"request_id":"actual-generated-id","result_id":"p","item_ids":["p1"],"note":"synthetic note"}}
+```
+
+`save_requests_file/sha256` contains the actual first and retry dispatches as
+`[{dispatched_at,request},...]`. All complete raw request objects must equal the
+sealed first request, timestamps must be ordered, and every real receipt must
+refer to that first actual ID. Do not intercept/rewrite the application ID to
+match a test constant. The first sealed payload must also match the other
+locked intent fields. Literal request IDs remain supported for deterministic
+synthetic cases.

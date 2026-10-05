@@ -614,3 +614,284 @@ def test_performance_unknown_scope_cannot_pass(bundle):
     metrics["scope"] = "step"
     cap["records"][0]["performance_evidence"]["evidence_sha256"] = put(root, "performance.json", metrics)
     assert run(bundle)["exit_code"] == 2
+
+
+def compound_bundle(bundle):
+    root, exp, cap = bundle
+    step = exp["cases"][0]
+    query = cap["records"][0]
+    count = copy.deepcopy(query)
+    count.update(tool_name="pick_count_candidates", tool_call_id="count-call", outcome="count_success")
+    count["response"] = {k: v for k, v in query["response"].items() if k in ("conditions", "data_as_of")}
+    count["response"].update(total=2, by_theater={"Synthetic Studio": 2}, by_language={"en": 2})
+    count_expected = {**copy.deepcopy(step["expected"]), "allowed_actions": ["pick_count_candidates"], "expected_outcome": "count_success"}
+    step["tool_contracts"] = [
+        {"tool_name": "pick_count_candidates", "case_type": "count", "expected": count_expected, "min_occurrences": 1},
+        {"tool_name": "pick_query_candidates", "case_type": "query", "expected": copy.deepcopy(step["expected"]), "min_occurrences": 1},
+    ]
+    browser = json.loads((root / "browser.json").read_text())
+    browser["result_id"] = None
+    count["browser_evidence"] = {"evidence_file": "count-browser.json", "evidence_sha256": put(root, "count-browser.json", browser)}
+    perf = json.loads((root / "performance.json").read_text())
+    perf["tool_calls"] = 2
+    perf_hash = put(root, "performance.json", perf)
+    query["performance_evidence"]["evidence_sha256"] = perf_hash
+    count["performance_evidence"]["evidence_sha256"] = perf_hash
+    cap["records"] = [count, query]
+    cap["attempts"][0]["tool_call_ids"] = ["count-call", "synthetic-call"]
+    cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
+    return step
+
+
+def terminal_bundle(bundle, kind="clarification"):
+    root, exp, cap = bundle
+    step = exp["cases"][0]
+    step["case_type"] = kind
+    rubric = "Ask for signal_kind before rank." if kind == "clarification" else "Report the authoritative terminal without claiming a save."
+    step["expected"].update(
+        allowed_actions=["terminal"],
+        expected_outcome="terminal",
+        semantic_rubric=[rubric],
+        missing_parameters=["signal_kind"],
+        clarification_rubric=rubric,
+        saved_result_ids=[],
+    )
+    rec = cap["records"][0]
+    for field in ("tool_call_id", "tool_name", "raw_arguments", "actual_conditions", "response", "source", "outcome", "bound_result_id"):
+        rec.pop(field, None)
+    rec.update(record_kind="terminal", answer="Which board?" if kind == "clarification" else "Run completed without a save.")
+    answer_hash = hashlib.sha256(rec["answer"].encode()).hexdigest()
+    rec["semantic_review"].update(
+        answer_sha256=answer_hash,
+        judgments=[
+            {
+                "rubric": rubric,
+                "status": "PASS",
+                "reason": "Synthetic independent reading agrees with the locked criterion.",
+                "fact_refs": ["terminal-authority.json"],
+            }
+        ],
+    )
+    rec["authoritative_terminal_file"] = "terminal-authority.json"
+    rec["authoritative_terminal_sha256"] = put(
+        root, "terminal-authority.json", dict(run_id=rec["run_id"], status="success", answer_sha256=answer_hash, saved_result_ids=[])
+    )
+    browser = json.loads((root / "browser.json").read_text())
+    browser.update(result_id=None, source=None)
+    rec["browser_evidence"]["evidence_sha256"] = put(root, "browser.json", browser)
+    perf = json.loads((root / "performance.json").read_text())
+    perf["tool_calls"] = 0
+    rec["performance_evidence"]["evidence_sha256"] = put(root, "performance.json", perf)
+    cap["attempts"][0]["tool_call_ids"] = []
+    cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
+    return step, rec
+
+
+def test_compound_count_then_query_uses_locked_types(bundle):
+    compound_bundle(bundle)
+    assert run(bundle)["exit_code"] == 0
+
+
+@pytest.mark.parametrize("kind", ["clarification", "recovery"])
+def test_terminal_only_has_no_fake_tool_message(bundle, kind):
+    terminal_bundle(bundle, kind)
+    assert run(bundle)["exit_code"] == 0
+
+
+def test_save_first_real_request_id_sealed_without_rewrite(bundle):
+    root, exp, _ = bundle
+    rec = save_bundle(bundle)
+    exp["cases"][0]["expected"]["request_id"] = {"capture_before_dispatch": True}
+    request = {"request_id": "synthetic-request", "result_id": "p", "item_ids": ["p1"], "note": "synthetic note"}
+    for key, value in [
+        ("save_dispatch", {"captured_at": "2026-10-05T00:00:02Z", "request": request}),
+        ("save_requests", [{"dispatched_at": "2026-10-05T00:00:03Z", "request": request}, {"dispatched_at": "2026-10-05T00:00:04Z", "request": request}]),
+    ]:
+        rec[key + "_file"] = key + ".json"
+        rec[key + "_sha256"] = put(root, key + ".json", value)
+    assert run(bundle)["exit_code"] == 0
+
+
+def query_detail_bundle(bundle):
+    root, exp, cap = bundle
+    step = compound_bundle(bundle)
+    query = cap["records"][1]
+    query["response"]["items"] = [{"identity": "a", "item_id": "qa"}, {"identity": "b", "item_id": "qb"}]
+    detail = copy.deepcopy(query)
+    detail.update(
+        tool_name="pick_get_drama_detail",
+        tool_call_id="detail-call",
+        outcome="detail_success",
+        raw_arguments={"result_id": "synthetic-result", "item_id": "qa"},
+    )
+    detail["response"] = {"result_id": "synthetic-result", "item_id": "qa", "identity": "a", "data_as_of": query["response"]["data_as_of"]}
+    detail_expected = {
+        **copy.deepcopy(step["expected"]),
+        "allowed_actions": ["pick_get_drama_detail"],
+        "expected_outcome": "detail_success",
+        "result_id": "synthetic-result",
+        "item_id": "qa",
+        "fact_fields": ["identity"],
+    }
+    step["tool_contracts"] = [
+        step["tool_contracts"][1],
+        {"tool_name": "pick_get_drama_detail", "case_type": "detail", "expected": detail_expected, "min_occurrences": 1},
+    ]
+    parent = json.loads((root / "parents.json").read_text())[0]
+    parent.update(id="synthetic-result", parent_result_id=None, created_at=query["started_at"], items=copy.deepcopy(query["response"]["items"]))
+    detail["bound_result_file"] = "new-bound-result.json"
+    detail["bound_result_sha256"] = put(root, "new-bound-result.json", {"captured_at": "2026-10-05T00:00:04Z", "result": parent})
+    cap["records"] = [query, detail]
+    cap["attempts"][0]["tool_call_ids"] = ["synthetic-call", "detail-call"]
+    cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
+    return step, detail
+
+
+def test_query_then_detail_binds_new_immutable_output(bundle):
+    query_detail_bundle(bundle)
+    assert run(bundle)["exit_code"] == 0
+
+
+def test_symbolic_binding_is_prelocked_by_producer_and_position(bundle):
+    step, detail = query_detail_bundle(bundle)
+    expected = step["tool_contracts"][1]["expected"]
+    expected.update(result_id={"from_tool": "pick_query_candidates", "occurrence": 1}, item_id={"position": 1})
+    assert run(bundle)["exit_code"] == 0
+    detail["raw_arguments"]["item_id"] = "qb"
+    assert run(bundle)["exit_code"] == 1
+
+
+def test_expected_interruption_then_success_keeps_both_terminals(bundle):
+    root, _, cap = bundle
+    step, first = terminal_bundle(bundle, "recovery")
+    step["attempt_terminal_statuses"] = ["cancelled", "success"]
+    first["terminal_status"] = "cancelled"
+    authority = json.loads((root / "terminal-authority.json").read_text())
+    authority["status"] = "cancelled"
+    first["authoritative_terminal_sha256"] = put(root, "terminal-authority.json", authority)
+    cap["attempts"][0]["status"] = "cancelled"
+    second = copy.deepcopy(first)
+    second.update(attempt_id="attempt-2", run_id="run-2", terminal_status="success")
+    authority.update(run_id="run-2", status="success")
+    second["authoritative_terminal_file"] = "terminal-2.json"
+    second["authoritative_terminal_sha256"] = put(root, "terminal-2.json", authority)
+    for field, name in [("browser_evidence", "browser"), ("performance_evidence", "performance")]:
+        doc = json.loads((root / (name + ".json")).read_text())
+        doc["run_id"] = "run-2"
+        second[field] = {"evidence_file": name + "-2.json", "evidence_sha256": put(root, name + "-2.json", doc)}
+    cap["records"].append(second)
+    cap["attempts"].append({**cap["attempts"][0], "attempt_id": "attempt-2", "run_id": "run-2", "status": "success"})
+    cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
+    assert run(bundle)["exit_code"] == 0
+    step.pop("attempt_terminal_statuses")
+    assert run(bundle)["exit_code"] == 1
+
+
+@pytest.mark.parametrize("defect", ["unplanned", "reorder", "missing_required"])
+def test_compound_contract_does_not_drop_or_retype_calls(bundle, defect):
+    root, _, cap = bundle
+    compound_bundle(bundle)
+    if defect == "unplanned":
+        cap["records"][0]["tool_name"] = "not_locked"
+    elif defect == "reorder":
+        cap["records"].reverse()
+        cap["attempts"][0]["tool_call_ids"].reverse()
+    else:
+        cap["records"] = cap["records"][1:]
+        cap["attempts"][0]["tool_call_ids"] = ["synthetic-call"]
+        metrics = json.loads((root / "performance.json").read_text())
+        metrics["tool_calls"] = 1
+        cap["records"][0]["performance_evidence"]["evidence_sha256"] = put(root, "performance.json", metrics)
+    cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
+    assert run(bundle)["exit_code"] != 0
+
+
+@pytest.mark.parametrize("defect", ["fake_tool", "wrong_answer_hash", "no_review", "no_clarification_rubric", "no_terminal", "saved_after_cancel"])
+def test_terminal_record_must_be_real_and_independently_reviewed(bundle, defect):
+    root, _, cap = bundle
+    step, rec = terminal_bundle(bundle, "recovery" if defect == "saved_after_cancel" else "clarification")
+    if defect == "fake_tool":
+        rec["tool_call_id"] = "fake"
+    elif defect == "no_review":
+        rec.pop("semantic_review")
+    elif defect == "no_clarification_rubric":
+        step["expected"].pop("clarification_rubric")
+    elif defect == "no_terminal":
+        cap["records"] = []
+    else:
+        authority = json.loads((root / "terminal-authority.json").read_text())
+        if defect == "wrong_answer_hash":
+            authority["answer_sha256"] = "0" * 64
+        else:
+            authority["saved_result_ids"] = ["unconfirmed-save"]
+        rec["authoritative_terminal_sha256"] = put(root, "terminal-authority.json", authority)
+    assert run(bundle)["exit_code"] != 0
+
+
+@pytest.mark.parametrize("defect", ["retry_id", "retry_note", "late_seal", "wrong_first_result"])
+def test_dynamic_request_seal_retains_real_first_payload(bundle, defect):
+    root, exp, _ = bundle
+    rec = save_bundle(bundle)
+    exp["cases"][0]["expected"]["request_id"] = {"capture_before_dispatch": True}
+    request = {"request_id": "synthetic-request", "result_id": "p", "item_ids": ["p1"], "note": "synthetic note"}
+    sealed = {"captured_at": "2026-10-05T00:00:02Z", "request": copy.deepcopy(request)}
+    requests = [
+        {"dispatched_at": "2026-10-05T00:00:03Z", "request": copy.deepcopy(request)},
+        {"dispatched_at": "2026-10-05T00:00:04Z", "request": copy.deepcopy(request)},
+    ]
+    if defect == "retry_id":
+        requests[1]["request"]["request_id"] = "rewritten-id"
+    elif defect == "retry_note":
+        requests[1]["request"]["note"] = "rewritten-note"
+    elif defect == "late_seal":
+        sealed["captured_at"] = "2026-10-05T00:00:05Z"
+    else:
+        sealed["request"]["result_id"] = "wrong-result"
+    for key, value in [("save_dispatch", sealed), ("save_requests", requests)]:
+        rec[key + "_file"] = key + ".json"
+        rec[key + "_sha256"] = put(root, key + ".json", value)
+    assert run(bundle)["exit_code"] != 0
+
+
+@pytest.mark.parametrize("defect", ["missing_producer", "wrong_item", "wrong_owner", "future_created"])
+def test_new_frozen_binding_requires_prior_producer(bundle, defect):
+    root, _, cap = bundle
+    _, detail = query_detail_bundle(bundle)
+    exported = json.loads((root / "new-bound-result.json").read_text())
+    if defect == "missing_producer":
+        cap["records"][0]["response"]["id"] = "other-result"
+    elif defect == "wrong_item":
+        exported["result"]["items"][0]["item_id"] = "fabricated"
+    elif defect == "wrong_owner":
+        exported["result"]["owner_id"] = "foreign"
+    else:
+        exported["result"]["created_at"] = "2099-01-01T00:00:00Z"
+    detail["bound_result_sha256"] = put(root, "new-bound-result.json", exported)
+    assert run(bundle)["exit_code"] != 0
+
+
+def test_compound_run_with_required_terminal_capture(bundle):
+    root, _, cap = bundle
+    step = compound_bundle(bundle)
+    query = cap["records"][-1]
+    terminal = {
+        k: copy.deepcopy(v)
+        for k, v in query.items()
+        if k not in ("tool_call_id", "tool_name", "raw_arguments", "actual_conditions", "response", "source", "outcome", "bound_result_id")
+    }
+    terminal["record_kind"] = "terminal"
+    expected = {**copy.deepcopy(step["expected"]), "allowed_actions": ["terminal"], "expected_outcome": "terminal", "saved_result_ids": []}
+    step["terminal_contract"] = {"case_type": "recovery", "expected": expected}
+    terminal["authoritative_terminal_file"] = "terminal-authority.json"
+    terminal["authoritative_terminal_sha256"] = put(
+        root,
+        "terminal-authority.json",
+        {"run_id": terminal["run_id"], "status": "success", "answer_sha256": hashlib.sha256(terminal["answer"].encode()).hexdigest(), "saved_result_ids": []},
+    )
+    browser = json.loads((root / "browser.json").read_text())
+    browser.update(result_id=None, source=None)
+    terminal["browser_evidence"] = {"evidence_file": "terminal-browser.json", "evidence_sha256": put(root, "terminal-browser.json", browser)}
+    cap["records"].append(terminal)
+    assert run(bundle)["exit_code"] == 0
+    cap["records"].pop()
+    assert run(bundle)["exit_code"] == 2

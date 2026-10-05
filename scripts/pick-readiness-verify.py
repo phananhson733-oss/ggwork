@@ -311,9 +311,11 @@ def check_external(record, expected, base, captures):
                 == expected["browser_assertions"],
                 "browser assertion inventory mismatch",
             )
-            require(document["source"] == record["source"], "browser source mismatch")
-            result_id = record["response"].get(
-                "result_id", record["response"].get("id")
+            require(
+                document["source"] == record.get("source"), "browser source mismatch"
+            )
+            result_id = record.get("response", {}).get(
+                "result_id", record.get("response", {}).get("id")
             )
             require(document["result_id"] == result_id, "browser result mismatch")
             require(document["artifact_refs"], "missing browser artifact")
@@ -441,6 +443,245 @@ def captured_state(manifest, captures, step, record):
     actual = captures["states"][key]
     require(actual["owner_id"] == state["owner_id"], "dynamic state owner mismatch")
     return actual, True
+
+
+def attempt_status(step, attempt, ledger):
+    if "attempt_terminal_statuses" not in step:
+        return (
+            step.get("terminal_contract", step)
+            .get("expected", {})
+            .get("terminal_status", "success")
+        )
+    statuses = step["attempt_terminal_statuses"]
+    require(
+        isinstance(statuses, list)
+        and statuses
+        and all(
+            x in ("success", "failed", "cancelled", "timeout", "interrupted")
+            for x in statuses
+        ),
+        "invalid planned attempt statuses",
+    )
+    attempts = [
+        a
+        for a in ledger
+        if (a["case_id"], a["step_id"]) == (attempt["case_id"], attempt["step_id"])
+    ]
+    ordinal = attempts.index(attempt)
+    require(ordinal < len(statuses), "unplanned attempt ordinal")
+    return statuses[ordinal]
+
+
+def typed_step(step, record, ledger, captures):
+    kind = record.get("record_kind", "tool")
+    require(kind in ("tool", "terminal"), "invalid record kind")
+    if kind == "terminal":
+        contract = step.get("terminal_contract", step)
+        require(
+            contract["case_type"] in ("clarification", "recovery"),
+            "unplanned terminal capture",
+        )
+    elif "tool_contracts" in step:
+        contract = next(
+            (
+                c
+                for c in step["tool_contracts"]
+                if c["tool_name"] == record["tool_name"]
+            ),
+            None,
+        )
+        require(contract is not None, "unplanned tool call")
+    else:
+        contract = step
+    resolved = {
+        **step,
+        "case_type": contract["case_type"],
+        "expected": dict(contract["expected"]),
+    }
+    expected = resolved["expected"]
+    reference = expected.get("result_id")
+    if isinstance(reference, dict):
+        require(
+            set(reference) == {"from_tool", "occurrence"}
+            and type(reference["occurrence"]) is int
+            and reference["occurrence"] >= 1,
+            "invalid locked result reference",
+        )
+        require(
+            any(
+                c["tool_name"] == reference["from_tool"] and c["case_type"] == "query"
+                for c in step.get("tool_contracts", [])
+            ),
+            "result producer is not a locked query tool",
+        )
+        prior = captures["records"][: captures["records"].index(record)]
+        producers = [
+            r
+            for r in prior
+            if r.get("record_kind", "tool") == "tool"
+            and r["run_id"] == record["run_id"]
+            and r["tool_name"] == reference["from_tool"]
+        ]
+        require(
+            len(producers) >= reference["occurrence"],
+            "locked producer occurrence absent",
+        )
+        produced = producers[reference["occurrence"] - 1]["response"]
+        expected["result_id"] = produced["id"]
+
+        def item_at(position):
+            require(
+                type(position) is int and 1 <= position <= len(produced["items"]),
+                "locked position outside frozen result",
+            )
+            return produced["items"][position - 1]["item_id"]
+
+        if isinstance(expected.get("item_id"), dict):
+            require(
+                set(expected["item_id"]) == {"position"},
+                "invalid locked detail position",
+            )
+            expected["item_id"] = item_at(expected["item_id"]["position"])
+        if isinstance(expected.get("item_ids"), dict):
+            require(
+                set(expected["item_ids"]) == {"positions"},
+                "invalid locked save positions",
+            )
+            positions = expected["item_ids"]["positions"]
+            require(
+                isinstance(positions, list) and positions,
+                "missing locked save positions",
+            )
+            chosen = {item_at(position) for position in positions}
+            expected["item_ids"] = [
+                item["item_id"]
+                for item in produced["items"]
+                if item["item_id"] in chosen
+            ]
+    if "attempt_terminal_statuses" in step:
+        attempt = next(
+            a
+            for a in ledger
+            if all(
+                a[k] == record[k]
+                for k in ("case_id", "step_id", "attempt_id", "run_id")
+            )
+        )
+        resolved["expected"]["terminal_status"] = attempt_status(step, attempt, ledger)
+    return resolved
+
+
+def check_terminal(step, record, manifest, exp_base, cap_base, captures):
+    expected = step["expected"]
+    require(
+        not any(k in record for k in ("tool_call_id", "tool_name", "raw_arguments")),
+        "terminal must not impersonate a tool",
+    )
+    require(
+        expected["allowed_actions"] == ["terminal"]
+        and expected["expected_outcome"] == "terminal",
+        "terminal action not prelocked",
+    )
+    require(
+        all(record.get(k) for k in ("owner_id", "thread_id", "generated_by"))
+        and isinstance(record["answer"], str),
+        "missing terminal identity/answer",
+    )
+    state, dynamic = captured_state(manifest, captures, step, record)
+    exclusions(state, cap_base if dynamic else exp_base, record, DEFAULTS)
+    authority = file_ref(cap_base, record, "authoritative_terminal")
+    status = expected.get("terminal_status", "success")
+    valid = (
+        authority["run_id"] == record["run_id"]
+        and authority["status"] == record["terminal_status"] == status
+        and authority["answer_sha256"]
+        == hashlib.sha256(record["answer"].encode()).hexdigest()
+    )
+    if step["case_type"] == "clarification":
+        require(
+            isinstance(expected["missing_parameters"], list)
+            and expected["missing_parameters"],
+            "missing locked clarification parameters",
+        )
+        require(
+            expected["clarification_rubric"] in expected["semantic_rubric"],
+            "clarification requires independent text rubric",
+        )
+    else:
+        valid = valid and authority["saved_result_ids"] == expected["saved_result_ids"]
+    layers = {
+        name: {
+            "status": "PASS" if valid else "FAIL",
+            "reason_code": "AUTHORITATIVE_TERMINAL",
+        }
+        for name in ("intent", "data_state")
+    }
+    try:
+        layers.update(check_external(record, expected, cap_base, captures))
+    except (
+        Invalid,
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+        IndexError,
+        AttributeError,
+    ):
+        layers.update(
+            {
+                name: {
+                    "status": "UNVERIFIED",
+                    "reason_code": "INVALID_EXTERNAL_EVIDENCE",
+                }
+                for name in ("browser", "model_explanation", "performance_cost")
+            }
+        )
+    return layers
+
+
+def save_request_id(expected, record, base):
+    request_id = expected["request_id"]
+    if not isinstance(request_id, dict):
+        require(
+            isinstance(request_id, str) and request_id, "invalid expected request ID"
+        )
+        return request_id
+    require(
+        request_id == {"capture_before_dispatch": True},
+        "unknown request ID placeholder",
+    )
+    sealed = file_ref(base, record, "save_dispatch")
+    requests = file_ref(base, record, "save_requests")
+    require(
+        isinstance(requests, list) and len(requests) >= 2,
+        "missing actual save and retry requests",
+    )
+    request = sealed["request"]
+    require(
+        set(request) == {"request_id", "result_id", "item_ids", "note"},
+        "invalid raw save payload",
+    )
+    require(
+        isinstance(request["request_id"], str) and request["request_id"],
+        "missing actual first request ID",
+    )
+    require(
+        all(request[k] == expected[k] for k in ("result_id", "item_ids", "note")),
+        "first save request contradicts locked intent",
+    )
+    previous = timestamp(sealed["captured_at"])
+    require(
+        timestamp(record["started_at"]) <= previous,
+        "save request sealed before its action",
+    )
+    for dispatch in requests:
+        require(
+            previous <= timestamp(dispatch["dispatched_at"]),
+            "save request sealed after dispatch or retry out of order",
+        )
+        require(dispatch["request"] == request, "retry changed original raw request")
+        previous = timestamp(dispatch["dispatched_at"])
+    return request["request_id"]
 
 
 def check_record(step, record, manifest, exp_base, cap_base, captures):
@@ -571,6 +812,52 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
     state, dynamic = captured_state(manifest, captures, step, record)
     state_base = cap_base if dynamic else exp_base
     excluded, selected, chain = exclusions(state, state_base, record, c or DEFAULTS)
+    if kind in ("detail", "prepare_save") and "bound_result_file" in record:
+        exported = file_ref(cap_base, record, "bound_result")
+        bound = exported["result"]
+        require(
+            bound["id"] == expected["result_id"]
+            and bound["owner_id"] == record["owner_id"]
+            and bound["thread_id"] == record["thread_id"],
+            "new frozen result identity mismatch",
+        )
+        require(
+            timestamp(bound["created_at"]) <= timestamp(record["started_at"])
+            and timestamp(bound["created_at"]) <= timestamp(exported["captured_at"]),
+            "invalid frozen output chronology",
+        )
+        prior = captures["records"][: captures["records"].index(record)]
+        producers = [
+            r
+            for r in prior
+            if r.get("record_kind", "tool") == "tool"
+            and r["run_id"] == record["run_id"]
+            and r["owner_id"] == record["owner_id"]
+            and r["thread_id"] == record["thread_id"]
+            and r.get("response", {}).get("id") == bound["id"]
+        ]
+        require(len(producers) == 1, "new frozen result needs one prior producer")
+        produced = producers[0]["response"]
+        require(
+            [(i["item_id"], i["identity"]) for i in bound["items"]]
+            == [(i["item_id"], i["identity"]) for i in produced["items"]],
+            "frozen output item binding mismatch",
+        )
+        require(
+            conditions(bound["conditions"]) == conditions(produced["conditions"]),
+            "frozen output condition mismatch",
+        )
+        by_identity = {r["identity"]: r for r in rows}
+        for item in bound["items"]:
+            source_row = by_identity[item["identity"]]
+            require(
+                all(
+                    item[field] == source_row[field]
+                    for field in set(item) & set(source_row)
+                ),
+                "frozen output fact disagrees with independent catalog",
+            )
+        chain = [bound]
     if kind in ("detail", "prepare_save"):
         bound_parent = next(
             (parent for parent in chain if parent["id"] == expected["result_id"]), None
@@ -773,6 +1060,7 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         after_prepare = file_ref(cap_base, record, "selections_after_prepare")
         after = file_ref(cap_base, record, "selections_after")
         receipts = file_ref(cap_base, record, "receipts")
+        request_id = save_request_id(expected, record, cap_base)
         ok = ok and after_prepare == selected and len(receipts) >= 2
         items = [i for i in chain[0]["items"] if i["item_id"] in expected["item_ids"]]
         require(len(items) == len(expected["item_ids"]), "save items not in snapshot")
@@ -809,7 +1097,7 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         ok = ok and set(after_map) == set(before_map) | {i["identity"] for i in items}
         saved = receipts[0]["saved"]
         ok = ok and all(
-            receipt == receipts[0] and receipt["request_id"] == expected["request_id"]
+            receipt == receipts[0] and receipt["request_id"] == request_id
             for receipt in receipts
         )
         ok = ok and [r["identity"] for r in saved] == [i["identity"] for i in items]
@@ -1038,13 +1326,17 @@ def verify(expectations_path, captures_path):
                     for k in ("case_id", "step_id", "attempt_id", "run_id")
                 )
             ]
-            actual_ids = [r["tool_call_id"] for r in calls]
+            actual_ids = [
+                r["tool_call_id"]
+                for r in calls
+                if r.get("record_kind", "tool") == "tool"
+            ]
             inventory = attempt["tool_call_ids"]
             require(
                 isinstance(inventory, list) and len(inventory) == len(set(inventory)),
                 "invalid tool call inventory",
             )
-            if Counter(actual_ids) != Counter(inventory):
+            if actual_ids != inventory:
                 report["checks"].append(
                     {
                         "case_id": key[0],
@@ -1053,7 +1345,22 @@ def verify(expectations_path, captures_path):
                         "reason_code": "INCOMPLETE_TOOL_CALL_CAPTURE",
                     }
                 )
-            expected_status = steps[key]["expected"].get("terminal_status", "success")
+            terminals = [r for r in calls if r.get("record_kind") == "terminal"]
+            if (
+                not inventory
+                or "terminal_contract" in steps[key]
+                or "attempt_terminal_statuses" in steps[key]
+            ):
+                if len(terminals) != 1:
+                    report["checks"].append(
+                        {
+                            "case_id": key[0],
+                            "step_id": key[1],
+                            "status": "UNVERIFIED",
+                            "reason_code": "MISSING_UNIQUE_TERMINAL_CAPTURE",
+                        }
+                    )
+            expected_status = attempt_status(steps[key], attempt, ledger)
             if attempt["status"] != expected_status or any(
                 r["terminal_status"] != attempt["status"] for r in calls
             ):
@@ -1079,7 +1386,11 @@ def verify(expectations_path, captures_path):
         for record in records:
             key = (record["case_id"], record.get("step_id", "main"))
             require(key in steps, "unexpected capture step")
-            call_key = (record["run_id"], record["tool_call_id"])
+            call_key = (
+                record["run_id"],
+                record.get("record_kind", "tool"),
+                record.get("tool_call_id", "terminal"),
+            )
             require(call_key not in seen_calls, "duplicate tool capture")
             seen_calls.add(call_key)
             require(
@@ -1092,9 +1403,16 @@ def verify(expectations_path, captures_path):
                 ),
                 "capture absent from run ledger",
             )
+            resolved = steps[key]
             try:
-                layers = check_record(
-                    steps[key],
+                resolved = typed_step(steps[key], record, ledger, captures)
+                check = (
+                    check_terminal
+                    if record.get("record_kind") == "terminal"
+                    else check_record
+                )
+                layers = check(
+                    resolved,
                     record,
                     manifest,
                     expectations_path.parent,
@@ -1114,11 +1432,17 @@ def verify(expectations_path, captures_path):
                     name: {"status": "UNVERIFIED", "reason_code": "INVALID_CAPTURE"}
                     for name in LAYERS
                 }
-                expected = steps[key]["expected"]
-                if record.get("outcome") != expected.get(
+                expected = resolved.get("expected", {})
+                wrong_outcome = record.get(
+                    "record_kind", "tool"
+                ) == "tool" and record.get("outcome") != expected.get(
                     "expected_outcome"
-                ) or record.get("terminal_status") != expected.get(
-                    "terminal_status", "success"
+                )
+                if (
+                    str(error) == "unplanned tool call"
+                    or wrong_outcome
+                    or record.get("terminal_status")
+                    != expected.get("terminal_status", "success")
                 ):
                     layers["intent"] = {
                         "status": "FAIL",
@@ -1145,6 +1469,75 @@ def verify(expectations_path, captures_path):
                         "reason_code": "NO_ATTEMPT",
                     }
                 )
+            step = steps[key]
+            if "attempt_terminal_statuses" in step and len(attempts) != len(
+                step["attempt_terminal_statuses"]
+            ):
+                report["checks"].append(
+                    {
+                        "case_id": key[0],
+                        "step_id": key[1],
+                        "status": "NOT_RUN",
+                        "reason_code": "MISSING_PLANNED_ATTEMPT",
+                    }
+                )
+            if "tool_contracts" in step:
+                contracts = step["tool_contracts"]
+                names = [contract["tool_name"] for contract in contracts]
+                require(
+                    names and len(names) == len(set(names)),
+                    "tool contracts need unique names",
+                )
+                require(
+                    all(
+                        contract["expected"]["allowed_actions"]
+                        == [contract["tool_name"]]
+                        for contract in contracts
+                    ),
+                    "tool contract action mismatch",
+                )
+                emitted = [
+                    r["tool_name"]
+                    for r in records
+                    if (r["case_id"], r["step_id"]) == key
+                    and r.get("record_kind", "tool") == "tool"
+                ]
+                for contract in contracts:
+                    nonnegative_int(contract["min_occurrences"])
+                    if (
+                        emitted.count(contract["tool_name"])
+                        < contract["min_occurrences"]
+                    ):
+                        report["checks"].append(
+                            {
+                                "case_id": key[0],
+                                "step_id": key[1],
+                                "status": "NOT_RUN",
+                                "reason_code": "MISSING_REQUIRED_TOOL",
+                            }
+                        )
+                wrong_order = any(name not in names for name in emitted)
+                for attempt in attempts:
+                    sequence = [
+                        names.index(r["tool_name"])
+                        for r in records
+                        if r.get("record_kind", "tool") == "tool"
+                        and r["tool_name"] in names
+                        and all(
+                            r[k] == attempt[k]
+                            for k in ("case_id", "step_id", "attempt_id", "run_id")
+                        )
+                    ]
+                    wrong_order = wrong_order or sequence != sorted(sequence)
+                if wrong_order:
+                    report["checks"].append(
+                        {
+                            "case_id": key[0],
+                            "step_id": key[1],
+                            "status": "FAIL",
+                            "reason_code": "LOCKED_TOOL_ORDER",
+                        }
+                    )
             for attempt in attempts:
                 if not any(
                     all(
