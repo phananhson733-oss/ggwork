@@ -777,6 +777,7 @@ def test_the_judge_finds_what_reading_every_record_for_every_claim_finds():
     ids=["one-word", "one-word-claim", "words", "clauses", "bare-titles", "brackets", "titled-claims", "spaces", "tabs", "joins", "pluses", "bullets"],
 )
 def test_a_long_answer_is_checked_in_linear_time(make_text):
+    import gc
     import statistics
     import time
 
@@ -786,12 +787,20 @@ def test_a_long_answer_is_checked_in_linear_time(make_text):
     texts = [make_text(size) for size in (12_500, 50_000)]
 
     def measure(text):
-        started = time.process_time_ns()
-        check_answer(text, known_titles={"Lost Heir", "A", "Big Boss"}, posted_checked=False, posted_seen=seen)
-        return time.process_time_ns() - started
+        # A gen-2 collection scans unrelated objects retained by the entire test suite;
+        # it can hit only one input size. Isolate that global heap cost and other threads.
+        collecting = gc.isenabled()
+        gc.disable()
+        try:
+            started = time.thread_time_ns()
+            check_answer(text, known_titles={"Lost Heir", "A", "Big Boss"}, posted_checked=False, posted_seen=seen)
+            return time.thread_time_ns() - started
+        finally:
+            if collecting:
+                gc.enable()
 
-    # Warm both sizes, then pair CPU measurements in alternating order. Wall time's
-    # old 500 ms ceiling measured shared-runner scheduling as well as this code.
+    # Warm both sizes, then pair this thread's CPU measurements in alternating order.
+    # The old wall-time ceiling also measured shared-runner scheduling.
     for text in texts:
         measure(text)
     ratios = []
