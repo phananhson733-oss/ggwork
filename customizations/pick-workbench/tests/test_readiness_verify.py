@@ -1022,3 +1022,62 @@ def test_source_ref_omission_exact_rd03_contract(detail_url, kind, citation, pro
     else:
         with pytest.raises(checker.Invalid):
             checker.verify_evidence(item, source, projected=projected)
+
+
+def sealed_existing_export_bundle(bundle, kind="prepare_save", omit_parent_link=False):
+    root, exp, _ = bundle
+    parents = json.loads((root / "parents.json").read_text())
+    rows = {r["identity"]: r for r in json.loads((root / "rows.json").read_text())}
+    parents[0]["created_at"] = "2026-10-05T00:00:00Z"
+    for item in parents[0]["items"]:
+        item["evidence"] = [{**signal, "citation_id": f"{item['item_id']}:{i}"} for i, signal in enumerate(rows[item["identity"]]["signals"], 1)]
+    exp["states"]["before"]["parent_chain_sha256"] = put(root, "parents.json", parents)
+    if kind == "prepare_save":
+        rec = save_bundle(bundle)
+    else:
+        _, rec = set_type(bundle, "detail", dict(result_id="p", item_id="p1", fact_fields=["identity"]), dict(result_id="p", item_id="p1", identity="parent"))
+    exported = {"captured_at": "2026-10-05T00:00:04Z", "result": copy.deepcopy(parents[0])}
+    if omit_parent_link:
+        exported["result"].pop("parent_result_id")
+    rec["bound_result_file"] = "existing-bound-result.json"
+    rec["bound_result_sha256"] = put(root, "existing-bound-result.json", exported)
+    return rec, exported
+
+
+@pytest.mark.parametrize("kind", ["prepare_save", "detail"])
+@pytest.mark.parametrize("omit_parent_link", [False, True])
+def test_existing_sealed_parent_accepts_identical_new_get_without_same_run_query(bundle, kind, omit_parent_link):
+    sealed_existing_export_bundle(bundle, kind, omit_parent_link)
+    assert run(bundle)["exit_code"] == 0
+
+
+@pytest.mark.parametrize(
+    "defect",
+    ["owner", "thread", "source", "evidence", "conditions", "missing_field", "extra_field", "parent_edge", "created_after_prestate", "export_before_prestate"],
+)
+def test_existing_parent_refresh_cannot_change_or_drop_sealed_facts(bundle, defect):
+    root, _, _ = bundle
+    rec, exported = sealed_existing_export_bundle(bundle)
+    bound = exported["result"]
+    if defect == "owner":
+        bound["owner_id"] = "other-owner"
+    elif defect == "thread":
+        bound["thread_id"] = "other-thread"
+    elif defect == "source":
+        bound["source"]["rows_sha256"] = "0" * 64
+    elif defect == "evidence":
+        bound["items"][0]["evidence"][0]["note"] = "invented"
+    elif defect == "conditions":
+        bound["conditions"]["language"] = "ko"
+    elif defect == "missing_field":
+        bound.pop("ranking_version")
+    elif defect == "extra_field":
+        bound["unsealed_fact"] = "new fact"
+    elif defect == "parent_edge":
+        bound["parent_result_id"] = "foreign-parent"
+    elif defect == "created_after_prestate":
+        bound["created_at"] = "2026-10-05T00:00:02Z"
+    else:
+        exported["captured_at"] = "2026-10-05T00:00:00Z"
+    rec["bound_result_sha256"] = put(root, "existing-bound-result.json", exported)
+    assert run(bundle)["exit_code"] != 0

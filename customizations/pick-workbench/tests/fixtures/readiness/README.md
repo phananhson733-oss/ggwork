@@ -289,3 +289,15 @@ equals the nonempty row.detail_url, citation_id is present, and kind does not
 start with obs_. Independent references and obs references remain mandatory;
 full persisted evidence retains source_ref even when it duplicates detail_url.
 All other facts and citation IDs agree with the complete independent source.
+
+An additional bound_result GET can also refer to a result already present in the
+independently sealed pre-run parent_chain. In that case it does not need a new
+same-run query producer. The refreshed result must match the sealed parent in
+full, with type-sensitive comparison, retain the same owner/thread/source and
+pass independent evidence validation. Its creation must precede the pre-state
+capture, which must precede the refreshed export. The only API shape distinction
+is that GET /results does not emit parent_result_id: when absent, the previously
+sealed chain edge remains authoritative. A changed edge, any other omitted
+field, an added field or a changed value is rejected. The original sealed chain
+is retained. Results absent from that chain still require the prior same-run
+producer and strict causal checks described above.

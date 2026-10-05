@@ -856,46 +856,71 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
             and timestamp(bound["created_at"]) <= timestamp(exported["captured_at"]),
             "invalid frozen output chronology",
         )
-        prior = captures["records"][: captures["records"].index(record)]
-        producers = [
-            r
-            for r in prior
-            if r.get("record_kind", "tool") == "tool"
-            and r["run_id"] == record["run_id"]
-            and r["owner_id"] == record["owner_id"]
-            and r["thread_id"] == record["thread_id"]
-            and r.get("response", {}).get("id") == bound["id"]
-        ]
-        require(len(producers) == 1, "new frozen result needs one prior producer")
-        require(
-            timestamp(producers[0]["started_at"])
-            <= timestamp(bound["created_at"])
-            <= timestamp(record["started_at"]),
-            "producer result consumer chronology contradiction",
+        sealed_parent = next(
+            (parent for parent in chain if parent["id"] == bound["id"]), None
         )
-        produced = producers[0]["response"]
-        require(
-            [(i["item_id"], i["identity"]) for i in bound["items"]]
-            == [(i["item_id"], i["identity"]) for i in produced["items"]],
-            "frozen output item binding mismatch",
-        )
-        require(
-            conditions(bound["conditions"]) == conditions(produced["conditions"]),
-            "frozen output condition mismatch",
-        )
-        by_identity = {r["identity"]: r for r in rows}
-        for item, projected_item in zip(bound["items"], produced["items"]):
-            source_row = by_identity[item["identity"]]
-            verify_evidence(item, source_row)
-            verify_evidence(projected_item, source_row, projected=True)
+        if sealed_parent is not None:
             require(
-                all(
-                    item[field] == source_row[field]
-                    for field in set(item) & set(source_row)
-                ),
-                "frozen output fact disagrees with independent catalog",
+                timestamp(bound["created_at"])
+                <= timestamp(state["captured_at"])
+                <= timestamp(exported["captured_at"]),
+                "existing result predates sealed state and refreshed export",
             )
-        chain = [bound]
+            # GET /results omits the parent-chain edge. Its independently sealed
+            # value stays authoritative; every field the GET does carry must
+            # match, and no other missing/additional fields are tolerated.
+            refreshed = dict(bound)
+            if (
+                "parent_result_id" not in refreshed
+                and "parent_result_id" in sealed_parent
+            ):
+                refreshed["parent_result_id"] = sealed_parent["parent_result_id"]
+            require(
+                json.dumps(refreshed, sort_keys=True, ensure_ascii=False)
+                == json.dumps(sealed_parent, sort_keys=True, ensure_ascii=False),
+                "refreshed result disagrees with sealed parent",
+            )
+        else:
+            prior = captures["records"][: captures["records"].index(record)]
+            producers = [
+                r
+                for r in prior
+                if r.get("record_kind", "tool") == "tool"
+                and r["run_id"] == record["run_id"]
+                and r["owner_id"] == record["owner_id"]
+                and r["thread_id"] == record["thread_id"]
+                and r.get("response", {}).get("id") == bound["id"]
+            ]
+            require(len(producers) == 1, "new frozen result needs one prior producer")
+            require(
+                timestamp(producers[0]["started_at"])
+                <= timestamp(bound["created_at"])
+                <= timestamp(record["started_at"]),
+                "producer result consumer chronology contradiction",
+            )
+            produced = producers[0]["response"]
+            require(
+                [(i["item_id"], i["identity"]) for i in bound["items"]]
+                == [(i["item_id"], i["identity"]) for i in produced["items"]],
+                "frozen output item binding mismatch",
+            )
+            require(
+                conditions(bound["conditions"]) == conditions(produced["conditions"]),
+                "frozen output condition mismatch",
+            )
+            by_identity = {r["identity"]: r for r in rows}
+            for item, projected_item in zip(bound["items"], produced["items"]):
+                source_row = by_identity[item["identity"]]
+                verify_evidence(item, source_row)
+                verify_evidence(projected_item, source_row, projected=True)
+                require(
+                    all(
+                        item[field] == source_row[field]
+                        for field in set(item) & set(source_row)
+                    ),
+                    "frozen output fact disagrees with independent catalog",
+                )
+            chain = [bound]
     if kind in ("detail", "prepare_save"):
         bound_parent = next(
             (parent for parent in chain if parent["id"] == expected["result_id"]), None
