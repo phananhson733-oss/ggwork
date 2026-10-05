@@ -982,16 +982,22 @@ def test_readiness_known_bare_title_punctuation_and_normalization():
     assert _known_bare_text("xLove-Hate 和 Love-Hatey", {"Love-Hate"}) == "xLove-Hate 和 Love-Hatey"
 
 
-@pytest.mark.parametrize("kind", ["shared-prefix", "quotes-and-disclaimers"])
+@pytest.mark.parametrize("kind", ["shared-prefix", "quotes-and-disclaimers", "known-lists"])
 def test_readiness_new_scans_scale_at_one_two_four_times(kind):
     from ggwork_pick.answer_check import check_answer, with_posted
 
     titles = {"长" * length + "夜" for length in range(1, 33)}
+    if kind == "known-lists":
+        titles = {"长夜微光"}
     seen = with_posted({}, [_item(title, matched=True) for title in titles])
     unit = "长" * 256 if kind == "shared-prefix" else "“" * 256 + "不能据此断言它们从未发布，但它们都没发过。\n"
+    if kind == "known-lists":
+        unit = "长夜微光与" * 32
     timings = []
     for factor in (1, 2, 4):
         text = unit * (32 * factor)
+        if kind == "known-lists":
+            text += "长夜微光都没发过。"
         timings.append(_best_of_three(lambda: check_answer(text, known_titles=titles, posted_checked=False, posted_seen=seen)))
     print(f"{kind} 1x/2x/4x seconds: {timings}")
     # 4x input with a fixed dictionary must not approach the 16x cost of a quadratic scan.
@@ -1043,3 +1049,30 @@ def test_readiness_bare_title_direct_predicate_is_still_recognized(title, text):
 
     seen = with_posted({}, [_item(title, matched=True), _item("别的已发剧", matched=True, posts=1)])
     assert check_answer(text, known_titles={title, "别的已发剧"}, posted_checked=False, posted_seen=seen) == []
+
+
+@pytest.mark.parametrize("text", ["长夜微光与海上明月都没发过。", "长夜微光和海上明月都没发过。", "长夜微光及海上明月都没发过。", "长夜微光在 A 账号没发过。"])
+def test_readiness_determinate_han_list_and_account_subjects(text):
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    titles = {"长夜微光", "海上明月", "已发剧"}
+    seen = with_posted({}, [_item(title, matched=True, posts=int(title == "已发剧")) for title in titles])
+    assert check_answer(text, known_titles=titles, posted_checked=False, posted_seen=seen) == []
+
+
+def test_readiness_explicit_negated_conclusion_with_universal_subject():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("已发剧", matched=True, posts=1)])
+    options = dict(known_titles={"已发剧"}, posted_checked=True, posted_seen=seen)
+    text = "不能据此断言所有候选都从未发布。"
+    assert check_answer(text, **options) == []
+    assert check_answer(text + "它们都没发过。", **options) == ["发布记录显示《已发剧》发过，不能说没发过。"]
+
+
+@pytest.mark.parametrize("text", ["明月光与海上明月都没发过。", "海上明月与明月光都没发过。", "明月与未知长名都没发过。", "这部剧在海外没发过。"])
+def test_readiness_conjunction_never_authorizes_a_han_name_fragment(text):
+    from ggwork_pick.answer_check import _known_bare_text
+
+    marked = _known_bare_text(text, {"明月", "海", "海上明月"})
+    assert "《明月》" not in marked and "《海》" not in marked

@@ -42,9 +42,11 @@ _NOT_POSTED = re.compile(
 _NEGATING_PREFIX = re.compile(r"(不能|无法|不代表|不等于|不能声称|不能断言|不能确认|不会|才会|是否|请勿|不要)[^。！？!?，,；;但却\n]{0,6}$")
 # Longer disclaimers need an actual speech/conclusion verb, not an arbitrary intervening predicate.
 _PUBLICATION_NEGATION = re.compile(
-    r"(?:不能|无法)(?:据此|因此|就此)?(?:断言|断定|确认|认定|声称|说|推断)(?:它们|团队|这些剧|这[0-9一二两三四五六七八九十]{1,3}部)?从?$"
+    r"(?:不能|无法)(?:据此|因此|就此)?(?:断言|断定|确认|认定|声称|说|推断)(?:它们|团队|这些剧|(?:所有|全部)(?:候选|剧目|剧)|这[0-9一二两三四五六七八九十]{1,3}部)?(?:都|均)?从?$"
     r"|(?:不是|并非)(?:它们|这些剧)?(?:都|全都|全部|所有)$"
 )
+_BARE_CONJUNCTIONS = frozenset({"和", "与", "及", "以及"})
+_BARE_ACCOUNT = re.compile(r"在[^。！？!?；;，,\n发]{1,24}(?:账号|账户)[ \t]{0,8}(?:都|均|还)?(?:没有?|未|从未|不曾)发")
 _BARE_PREDICATE = re.compile(r"(?:都|均|团队|还|尚|从){0,2}(?:没有?|未|不曾)(?:发|在|被)")
 # Longer than any disclaimer _NEGATING_PREFIX reads, so a claim looks back this far instead of through the whole answer.
 _PREFIX_WINDOW = 32
@@ -790,7 +792,7 @@ def _known_bare_text(text: str, titles) -> str:
     folded = "".join(folded)
     bracketed = iter(_TITLE.finditer(text))
     bracket = next(bracketed, None)
-    pieces, end, index = [], 0, 0
+    candidates, index = [], 0
     while index < len(folded):
         original = offsets[index][0]
         while bracket is not None and bracket.end() <= original:
@@ -805,21 +807,38 @@ def _known_bare_text(text: str, titles) -> str:
                 break
             stop += 1
             if _END in node:
-                # Require name boundaries, including Han text: 海 in 海外 is not title evidence.
-                before = index > 0 and folded[index - 1].isalnum() and (not folded[index].isascii() or folded[index - 1].isascii())
-                after = stop < len(folded) and folded[stop].isalnum() and (not folded[stop - 1].isascii() or folded[stop].isascii())
-                if before and not folded[index].isascii():
-                    before = not (folded[max(0, index - 2) : index] == "推荐" and (index == 2 or not folded[index - 3].isalnum()))
-                if after and not folded[stop - 1].isascii():
-                    after = _BARE_PREDICATE.match(folded, stop) is None
-                if not before and not after:
-                    hit = (node[_END], stop)
+                hit = (node[_END], stop)
         if hit is None:
             index += 1
             continue
         title, stop = hit
-        pieces.extend((text[end:original], f"《{title}》"))
-        end, index = offsets[stop - 1][1], stop
+        candidates.append((title, index, stop))
+        index = stop
+    # Resolve each list from its end, then its start: conjunctions only join complete
+    # known titles, so neither 明月光 nor 明月与未知长名 can lend 明月 its evidence.
+    rights = [False] * len(candidates)
+    for position in range(len(candidates) - 1, -1, -1):
+        _, start, stop = candidates[position]
+        after = stop < len(folded) and folded[stop].isalnum() and (not folded[stop - 1].isascii() or folded[stop].isascii())
+        if after and not folded[stop - 1].isascii():
+            after = not (_BARE_PREDICATE.match(folded, stop) or _BARE_ACCOUNT.match(folded, stop))
+        if after and position + 1 < len(candidates):
+            following = candidates[position + 1][1]
+            if following - stop <= 2 and folded[stop:following] in _BARE_CONJUNCTIONS:
+                after = not rights[position + 1]
+        rights[position] = not after
+    pieces, end, previous = [], 0, None
+    for position, (title, start, stop) in enumerate(candidates):
+        before = start > 0 and folded[start - 1].isalnum() and (not folded[start].isascii() or folded[start - 1].isascii())
+        if before and not folded[start].isascii():
+            before = not (folded[max(0, start - 2) : start] == "推荐" and (start == 2 or not folded[start - 3].isalnum()))
+        if before and previous is not None and start - previous <= 2:
+            before = folded[previous:start] not in _BARE_CONJUNCTIONS
+        if before or not rights[position]:
+            previous = None
+            continue
+        pieces.extend((text[end : offsets[start][0]], f"《{title}》"))
+        end, previous = offsets[stop - 1][1], stop
     pieces.append(text[end:])
     return "".join(pieces)
 
