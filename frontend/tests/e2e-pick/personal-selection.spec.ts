@@ -202,7 +202,7 @@ test("configured model preserves old evidence and retries a committed save", asy
   });
   await page.getByRole("button", { name: "保存选中（1）" }).click();
   const originalReceipt = await firstCommit.finished;
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "Failed to fetch" })).toBeVisible();
   const committedRows = (
     await (await context.request.get(`${url}/api/pick/selections`)).json()
   ).selections;
