@@ -687,6 +687,8 @@ export default function ChatPage() {
                       onStop={handleStop}
                       canStopStreaming={canStopStreaming}
                       canCreateRuns={canCreateRuns}
+                      // The pick agent gets neither plan mode's todo tool nor subagents.
+                      planModes={!pick}
                     />
                   ) : (
                     <div

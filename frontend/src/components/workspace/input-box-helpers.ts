@@ -300,3 +300,27 @@ export async function readGoalResponseError(
   }
   return `HTTP ${response.status}`;
 }
+
+export type InputMode = "flash" | "thinking" | "pro" | "ultra";
+
+/**
+ * The mode a run goes out with. Without thinking support only Flash runs. Where plan modes are not offered (the pick
+ * workbench: its agent gets neither plan mode's todo tool nor Ultra's subagents), Pro, Ultra and no choice resolve to
+ * Thinking.
+ */
+export function getResolvedMode(
+  mode: InputMode | undefined,
+  supportsThinking: boolean,
+  planModes = true,
+): InputMode {
+  if (!supportsThinking && mode !== "flash") {
+    return "flash";
+  }
+  if (!planModes) {
+    return mode === "flash" ? "flash" : "thinking";
+  }
+  if (mode) {
+    return mode;
+  }
+  return supportsThinking ? "pro" : "flash";
+}

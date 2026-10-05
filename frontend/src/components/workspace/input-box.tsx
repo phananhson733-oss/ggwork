@@ -145,7 +145,9 @@ import {
   getInputSubmitAction,
   getLeadingSlashSkillQuery,
   getMatchingSkillSuggestions,
+  getResolvedMode,
   type GoalCommand,
+  type InputMode,
   isAbortError,
   isCurrentGoalRequest,
   isGoalObjectiveTooLong,
@@ -163,8 +165,6 @@ import {
 import { ReferenceAttachmentSummary, useMaybeSidecar } from "./sidecar";
 import { SlashSkillChip } from "./slash-skill-chip";
 import { Tooltip } from "./tooltip";
-
-type InputMode = "flash" | "thinking" | "pro" | "ultra";
 
 const COMPOSER_DRAFT_SAVE_DELAY_MS = 300;
 
@@ -206,19 +206,6 @@ function insertPlainTextAtSelection(container: HTMLElement, text: string) {
   selection.removeAllRanges();
   selection.addRange(range);
   return true;
-}
-
-function getResolvedMode(
-  mode: InputMode | undefined,
-  supportsThinking: boolean,
-): InputMode {
-  if (!supportsThinking && mode !== "flash") {
-    return "flash";
-  }
-  if (mode) {
-    return mode;
-  }
-  return supportsThinking ? "pro" : "flash";
 }
 
 function escapeXmlAttribute(value: string) {
@@ -311,6 +298,7 @@ export function InputBox({
   onStop,
   canStopStreaming = true,
   canCreateRuns = true,
+  planModes = true,
   agentSkillNames,
   agentSkillsLoading = false,
   ...props
@@ -392,6 +380,12 @@ export function InputBox({
    * stays the enforcement point.
    */
   canCreateRuns?: boolean;
+  /**
+   * Whether Pro (plan mode) and Ultra (subagents) are offered. The pick
+   * workbench turns them off: its agent gets neither tool, so a stored Pro or
+   * Ultra resolves to Thinking (getResolvedMode).
+   */
+  planModes?: boolean;
 }) {
   const { locale, t } = useI18n();
   const queryClient = useQueryClient();
@@ -630,7 +624,7 @@ export function InputBox({
     const fallbackModel = currentModel ?? agentDefaultModel ?? models[0]!;
     const supportsThinking = fallbackModel.supports_thinking ?? false;
     const nextModelName = fallbackModel.name;
-    const nextMode = getResolvedMode(context.mode, supportsThinking);
+    const nextMode = getResolvedMode(context.mode, supportsThinking, planModes);
 
     if (context.model_name === nextModelName && context.mode === nextMode) {
       return;
@@ -644,7 +638,7 @@ export function InputBox({
       },
       { automatic: true },
     );
-  }, [context, models, defaultModelName, onContextChange]);
+  }, [context, models, defaultModelName, onContextChange, planModes]);
 
   const selectedModel = useMemo(() => {
     if (models.length === 0) {
@@ -907,6 +901,7 @@ export function InputBox({
       const mode = getResolvedMode(
         context.mode,
         model.supports_thinking ?? false,
+        planModes,
       );
       onContextChange?.({
         model_name,
@@ -914,7 +909,7 @@ export function InputBox({
       });
       setModelDialogOpen(false);
     },
-    [disabled, onContextChange, context, models, polishingInput],
+    [disabled, onContextChange, context, models, planModes, polishingInput],
   );
 
   const handleModeSelect = useCallback(
@@ -922,19 +917,20 @@ export function InputBox({
       if (disabled || polishingInput) {
         return;
       }
+      const resolved = getResolvedMode(mode, supportThinking, planModes);
       onContextChange?.({
-        mode: getResolvedMode(mode, supportThinking),
+        mode: resolved,
         reasoning_effort:
-          mode === "ultra"
+          resolved === "ultra"
             ? "high"
-            : mode === "pro"
+            : resolved === "pro"
               ? "medium"
-              : mode === "thinking"
+              : resolved === "thinking"
                 ? "low"
                 : "minimal",
       });
     },
-    [disabled, onContextChange, polishingInput, supportThinking],
+    [disabled, onContextChange, planModes, polishingInput, supportThinking],
   );
 
   const handleReasoningEffortSelect = useCallback(
@@ -1226,6 +1222,7 @@ export function InputBox({
             mode: getResolvedMode(
               context.mode,
               selectedModel?.supports_thinking ?? false,
+              planModes,
             ),
           },
           { automatic: true },
@@ -1246,6 +1243,7 @@ export function InputBox({
       invalidateDraftSaveTimer,
       onContextChange,
       onSubmit,
+      planModes,
       projectAttachments,
       setProjectAttachments,
       reportUploadLimitViolations,
@@ -2666,64 +2664,68 @@ export function InputBox({
                         )}
                       </PromptInputActionMenuItem>
                     )}
-                    <PromptInputActionMenuItem
-                      className={cn(
-                        context.mode === "pro"
-                          ? "text-accent-foreground"
-                          : "text-muted-foreground/65",
-                      )}
-                      onSelect={() => handleModeSelect("pro")}
-                    >
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-1 font-bold">
-                          <GraduationCapIcon
-                            className={cn(
-                              "mr-2 size-4",
-                              context.mode === "pro" &&
-                                "text-accent-foreground",
-                            )}
-                          />
-                          {t.inputBox.proMode}
-                        </div>
-                        <div className="pl-7 text-xs">
-                          {t.inputBox.proModeDescription}
-                        </div>
-                      </div>
-                      {context.mode === "pro" ? (
-                        <CheckIcon className="ml-auto size-4" />
-                      ) : (
-                        <div className="ml-auto size-4" />
-                      )}
-                    </PromptInputActionMenuItem>
-                    <PromptInputActionMenuItem
-                      className={cn(
-                        context.mode === "ultra"
-                          ? "text-accent-foreground"
-                          : "text-muted-foreground/65",
-                      )}
-                      onSelect={() => handleModeSelect("ultra")}
-                    >
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-1 font-bold">
-                          <RocketIcon
-                            className={cn(
-                              "mr-2 size-4",
-                              context.mode === "ultra" &&
-                                "text-accent-foreground",
-                            )}
-                          />
-                          {t.inputBox.ultraMode}
-                        </div>
-                        <div className="pl-7 text-xs">
-                          {t.inputBox.ultraModeDescription}
-                        </div>
-                      </div>
-                      {context.mode === "ultra" ? (
-                        <CheckIcon className="ml-auto size-4" />
-                      ) : (
-                        <div className="ml-auto size-4" />
-                      )}
-                    </PromptInputActionMenuItem>
+                    {planModes && (
+                      <>
+                        <PromptInputActionMenuItem
+                          className={cn(
+                            context.mode === "pro"
+                              ? "text-accent-foreground"
+                              : "text-muted-foreground/65",
+                          )}
+                          onSelect={() => handleModeSelect("pro")}
+                        >
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-1 font-bold">
+                              <GraduationCapIcon
+                                className={cn(
+                                  "mr-2 size-4",
+                                  context.mode === "pro" &&
+                                    "text-accent-foreground",
+                                )}
+                              />
+                              {t.inputBox.proMode}
+                            </div>
+                            <div className="pl-7 text-xs">
+                              {t.inputBox.proModeDescription}
+                            </div>
+                          </div>
+                          {context.mode === "pro" ? (
+                            <CheckIcon className="ml-auto size-4" />
+                          ) : (
+                            <div className="ml-auto size-4" />
+                          )}
+                        </PromptInputActionMenuItem>
+                        <PromptInputActionMenuItem
+                          className={cn(
+                            context.mode === "ultra"
+                              ? "text-accent-foreground"
+                              : "text-muted-foreground/65",
+                          )}
+                          onSelect={() => handleModeSelect("ultra")}
+                        >
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-1 font-bold">
+                              <RocketIcon
+                                className={cn(
+                                  "mr-2 size-4",
+                                  context.mode === "ultra" &&
+                                    "text-accent-foreground",
+                                )}
+                              />
+                              {t.inputBox.ultraMode}
+                            </div>
+                            <div className="pl-7 text-xs">
+                              {t.inputBox.ultraModeDescription}
+                            </div>
+                          </div>
+                          {context.mode === "ultra" ? (
+                            <CheckIcon className="ml-auto size-4" />
+                          ) : (
+                            <div className="ml-auto size-4" />
+                          )}
+                        </PromptInputActionMenuItem>
+                      </>
+                    )}
                   </PromptInputActionMenu>
                 </DropdownMenuGroup>
               </PromptInputActionMenuContent>

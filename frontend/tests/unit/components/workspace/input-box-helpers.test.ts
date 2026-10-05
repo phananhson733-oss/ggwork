@@ -11,6 +11,7 @@ import {
   getGoalObjectiveCounter,
   getInputSubmitAction,
   getLeadingSlashSkillQuery,
+  getResolvedMode,
   getMatchingSkillSuggestions,
   GOAL_OBJECTIVE_COUNTER_VISIBLE_AT,
   isAbortError,
@@ -518,5 +519,22 @@ describe("findSuggestionTemplatePlaceholder", () => {
 
   it("returns null when no placeholder is present", () => {
     expect(findSuggestionTemplatePlaceholder("no placeholder here")).toBeNull();
+  });
+});
+
+// Evaluation batch 2 (2026-10-05): the pick workbench's agent can use neither
+// plan mode's todo tool nor Ultra's subagents, so its composer offers neither;
+// a stored Pro or Ultra (or no choice) resolves to Thinking there.
+describe("getResolvedMode", () => {
+  it("keeps every mode where plan modes are offered", () => {
+    expect(getResolvedMode(undefined, true)).toBe("pro");
+    expect(getResolvedMode("ultra", true)).toBe("ultra");
+    expect(getResolvedMode("pro", false)).toBe("flash");
+  });
+  it("resolves Pro, Ultra and no choice to Thinking without plan modes", () => {
+    for (const mode of [undefined, "pro", "ultra", "thinking"] as const)
+      expect(getResolvedMode(mode, true, false)).toBe("thinking");
+    expect(getResolvedMode("flash", true, false)).toBe("flash");
+    expect(getResolvedMode("ultra", false, false)).toBe("flash");
   });
 });
