@@ -450,7 +450,7 @@ captures 必须回指 expectations 文件的 SHA，并记录 case_id/step_id、Q
 - 新增未请求的 theater/tags/hot_only 等限制，也必须使意图检查失败；只有预期明确允许的归一化/默认值可以接受。
 - Q08 的排除集从该 QA 身份在查询前的选择清单独立计算。Q14 另外从实际绑定的父卡及祖先卡的有序条目推导，核对同 owner/thread 和链关系，不直接信任待测系统输出的 excluded_json。
 - 查询前无选择/无父链时，相应快照文件明确保存空数组；缺文件、读失败、hash 不符不能当空集。
-- 准备/保存 case 还要固定绑定结果、期望 item_ids、用户备注、确认前状态和命令 request_id；确认后读独立清单与回执验证。仅重算名单不能证明保存幂等。
+- 准备/保存 case 还要固定绑定结果、期望 item_ids、用户备注和确认前状态。API 专用测试可预定 request_id；浏览器幂等验收用 `request_id: {"capture_before_dispatch": true}` 预先锁定策略，在首次 UI 请求发送前封存原始 request_id/result_id/item_ids/note、捕获时刻和 hash，再原样放行。重试必须与首次原始请求一致，禁止拦截后替换 request_id 来制造幂等。确认后读独立清单与回执验证；仅重算名单不能证明保存幂等。
 - 多步 case 的每一步都有 source_key/state_key。前一步生成的父卡及变动后的个人状态在下一步提交前捕获并封存 hash，不能到整题结束才补造“运行前”状态。
 - Q18 使用多个 source 条目分别引用旧/新批次；禁止将两版结果都对照单一“最新 source”。合法定时更新导致预期批次与实际批次不符时，记录该次为 UNVERIFIED_DATA_VERSION，准备新的一致快照后另开有记录的尝试，不覆盖原尝试。
 
@@ -467,6 +467,10 @@ source metadata 同时保存独立读取的 source_as_of/published_at/freshness 
 #### case 类型、结果与退出码
 
 `case_type` 明确为 query/count/detail/prepare_save/clarification/refusal/recovery/knowledge，复合题按 steps 组合；不得用同一空 rows 结构代表计数、拒绝和成功零结果。count 验证 total/分项，clarification 验证缺失参数及后续分支，refusal 验证业务状态与原因，prepare_save 验证事务前后状态及回执。每种类型的必填字段用 schema 和正反例固定；缺 result_id 合法的类型不要求它。
+
+复合工具链在运行前锁定 `tool_contracts`（逐工具 case_type/expected）及允许的调用顺序/次数；同一次 run 的 count→query 或 query→detail 各调用分别核对，不能套用一个查询 outcome 或丢弃中间调用。运行中产生的结果 ID 可用已锁定的 `from_tool`/`occurrence` 关系引用，须与权威调用顺序、同 owner/thread、真实冻结结果及其批次交叉核验，不按模型输出倒写预期。无工具的澄清/取消/恢复用 `record_kind: "terminal"` 与预定 `terminal_contract` 捕获，保留权威 run 终态和回答 hash；不得伪造 tool_call_id，也不能用带工具结果的空数组冒充终态证明。
+
+拒绝结果的来源也必须可核对：只有完成授权读取后，query/count 的业务拒绝才附本次实际使用的 `catalog_batch_id` 和 `data_as_of`（actualPin）；换批沿用父结果冻结 pin，明确 use_latest 才按现有规则更新。无剧库、身份/绑定校验先行失败等尚未完成授权读取的拒绝不附来源，不能拿请求中的任意 ID 或验收后的最新批次补填。checker 对照独立冻结 source 判断此来源，而不将拒绝当作成功零结果。
 
 逐检查状态为 PASS/FAIL/NOT_RUN/UNVERIFIED。已观察到违背预期为 FAIL；必需检查未做为 NOT_RUN；材料无法核对为 UNVERIFIED，报告 reason_code（如 UNVERIFIED_DATA_VERSION）。只有该题全部必需检查 PASS 才能标整题 PASS。退出码：0=本次要求的所有 case/step/检查均完成且通过；1=存在 FAIL；2=输入/版本/配置无效，或没有 FAIL 但存在 NOT_RUN/UNVERIFIED。无待测 case 也不能以 0 退出。
 
