@@ -10,6 +10,7 @@ import {
   savePickSelection,
   type SaveCommand,
 } from "@/core/pick/api";
+import { saveReceiptLine } from "@/core/pick/format";
 
 import { CandidateView } from "./candidate-view";
 import { usePickContext } from "./pick-context";
@@ -60,9 +61,7 @@ function OwnedCandidatePanel() {
     setFeedback("");
     try {
       const receipt = await savePickSelection(pending.current.command);
-      setFeedback(
-        `已保存 ${receipt.saved.length} 部（其中 ${receipt.saved.filter((row) => row.status === "existing").length} 部已在清单）`,
-      );
+      setFeedback(saveReceiptLine(receipt.saved));
       pending.current = null;
       void client.invalidateQueries({ queryKey: ["pick-selections"] });
     } catch (e) {

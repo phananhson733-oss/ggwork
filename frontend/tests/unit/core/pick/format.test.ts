@@ -5,6 +5,7 @@ import {
   dataAsOfLine,
   evidenceLine,
   postedLine,
+  saveReceiptLine,
 } from "@/core/pick/format";
 import { UNOBSERVED_GSC, forbiddenIn } from "@/core/pick/obs-format";
 
@@ -195,5 +196,28 @@ describe("observation lines (TR-16)", () => {
     ).toBe(
       "全部剧场 · 全部语种 · 排除我的已选 · Google Trends 上升观察 · Trends 地区 US · GSC 国家 USA · 按观测状态排序",
     );
+  });
+});
+
+// Evaluation batch 2 (2026-10-05): "已保存 N 部" hid that an item already in
+// the list kept its old note while a removed one came back with the new note.
+describe("save receipt line", () => {
+  const row = (status: "created" | "existing" | "restored") => ({ status });
+  it("names what each saved item became", () => {
+    expect(saveReceiptLine([row("created")])).toBe("保存完成：新存入 1 部");
+    expect(
+      saveReceiptLine([
+        row("created"),
+        row("created"),
+        row("restored"),
+        row("existing"),
+      ]),
+    ).toBe(
+      "保存完成：新存入 2 部，恢复 1 部（之前移出过，备注用这次的），1 部已在清单（备注未改）",
+    );
+    expect(saveReceiptLine([row("existing")])).toBe(
+      "保存完成：1 部已在清单（备注未改）",
+    );
+    expect(saveReceiptLine([])).toBe("保存完成：没有新的变化");
   });
 });
