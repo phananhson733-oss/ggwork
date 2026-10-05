@@ -22,6 +22,7 @@ import {
   verifyReviewedSequence,
   verifyReferenceIdentities,
   budgets,
+  captureStepScreenshot,
   extractTools,
   finishAttempt,
   loadManifest,
@@ -931,10 +932,20 @@ for (const item of manifest.cases as Document[]) {
           await page.goto(step.action.replay_path);
         }
         const assertions = await browserChecks(page, step.browser_assertions);
-        if (assertions.length) {
-          const screenshot = join(dir, `${stepId}-browser.png`);
+        const screenshot = join(dir, `${stepId}-browser.png`);
+        const runRecord = captures.run_records.find(
+          (record: Document) => record.attempt_id === active!.attempt_id,
+        );
+        await captureStepScreenshot(runRecord, async () => {
           await page.screenshot({ path: screenshot, fullPage: true });
           chmodSync(screenshot, 0o600);
+          return {
+            artifact_file: screenshot,
+            artifact_sha256: sha256(readFileSync(screenshot)),
+            captured_at: new Date().toISOString(),
+          };
+        });
+        if (assertions.length) {
           for (const record of records)
             record.browser_evidence = artifact(
               dir,

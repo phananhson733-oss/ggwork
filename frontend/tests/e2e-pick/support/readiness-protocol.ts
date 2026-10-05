@@ -764,3 +764,13 @@ export function verifyReferenceIdentities(
 // The candidate panel also has a textarea; only the chat form owns the Submit control.
 export const CHAT_COMPOSER_SELECTOR =
   'form:has(button[aria-label="Submit"]) textarea';
+
+/** Retain visual evidence independently of any automatic/manual assertion verdict. */
+export async function captureStepScreenshot(
+  runRecord: Document,
+  capture: () => Promise<Document>,
+): Promise<Document> {
+  const artifact = await capture();
+  runRecord.browser_artifact = artifact;
+  return artifact;
+}

@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "@rstest/core";
 
 import {
   budgets,
+  captureStepScreenshot,
   redact,
   verifyOwner,
   verifyBatches,
@@ -737,4 +738,26 @@ it("redacts embedded Playwright transport headers before writing failure artifac
   ])
     expect(safe).not.toContain(secret);
   expect(safe).toContain("other diagnostic");
+});
+
+it("a successful manual-only step retains its screenshot without inventing assertion PASS", async () => {
+  const runRecord: Document = {
+    run_id: "synthetic-run",
+    attempt_id: "synthetic-attempt",
+    answer: "Synthetic answer",
+  };
+  let captured = 0;
+  const artifact = await captureStepScreenshot(runRecord, async () => {
+    captured++;
+    return {
+      artifact_file: "/private/synthetic-step.png",
+      artifact_sha256: "a".repeat(64),
+      captured_at: "2026-10-05T00:00:00Z",
+    };
+  });
+  expect(captured).toBe(1);
+  expect(runRecord.browser_artifact).toEqual(artifact);
+  expect(runRecord).not.toHaveProperty("browser_evidence");
+  expect(runRecord).not.toHaveProperty("assertions");
+  expect(JSON.stringify(runRecord)).not.toContain('"PASS"');
 });
