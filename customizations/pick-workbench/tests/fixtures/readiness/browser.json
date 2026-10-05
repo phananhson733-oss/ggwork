@@ -1,0 +1,13 @@
+{
+  "run_id": "synthetic-run",
+  "synthetic": true,
+  "assertions": [
+    {
+      "name": "two full candidate cards",
+      "passed": true
+    }
+  ],
+  "artifact_refs": [
+    "synthetic-fixture-only"
+  ]
+}

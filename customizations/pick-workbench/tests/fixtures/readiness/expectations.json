@@ -1,0 +1,78 @@
+{
+  "spec_version": "pick-readiness-v1.1",
+  "environment": "synthetic-local",
+  "synthetic": true,
+  "locked_at": "2026-10-05T00:00:00Z",
+  "review": {
+    "reviewer": "synthetic-fixture-author",
+    "basis": "Hand computed: selected plus both ancestor identities excluded; a,b remain."
+  },
+  "runtime": {
+    "app_sha": "synthetic-sha",
+    "model": "synthetic-model",
+    "mode": "thinking",
+    "run_timeout_seconds": 600,
+    "request_timeout_seconds": 300,
+    "stream_chunk_timeout_seconds": 300,
+    "config_evidence_file": "runtime.json",
+    "config_evidence_sha256": "8e66d3d7992459398bd55225e6c7a5a36dc0041d224408c80dd800b93ac1b513"
+  },
+  "sources": {
+    "catalog": {
+      "catalog_batch_id": "synthetic-batch",
+      "source_type": "synthetic",
+      "shared": false,
+      "rows_file": "rows.json",
+      "rows_sha256": "d4219a271cb0b0f65fc11e74216dec9dbb29ab6fbd2b02ff640531cc663cea7b",
+      "metadata_file": "metadata.json",
+      "metadata_sha256": "366b03415857fe85bad2c1076084de613e9247c8fce6d36e7d297de9bafc8c7b"
+    }
+  },
+  "states": {
+    "before": {
+      "owner_id": "synthetic-owner",
+      "captured_at": "2026-10-05T00:00:01Z",
+      "selections_before_file": "selections.json",
+      "selections_before_sha256": "19f985280dfe34b43923920bdb0c074b6da0814886d92475e56c81ca5c8ac9e3",
+      "parent_chain_file": "parents.json",
+      "parent_chain_sha256": "44c693b1a83d608f5782d66d507af1c30667573c97bdc5478649d2b4bc66ff88"
+    }
+  },
+  "cases": [
+    {
+      "case_id": "SYNTH-Q14",
+      "case_type": "query",
+      "prompt": "Synthetic: give two English dramas excluding selected and both ancestors.",
+      "planned_max_runs": 2,
+      "source_key": "catalog",
+      "state_key": "before",
+      "expected": {
+        "allowed_actions": [
+          "pick_query_candidates"
+        ],
+        "allowed_condition_sets": [
+          {
+            "theater": null,
+            "language": "en",
+            "channel": null,
+            "query": null,
+            "tags": [],
+            "limit": 2,
+            "exclude_selected": true,
+            "confirmed_eligible_only": true,
+            "exclude_previous": true,
+            "signal_kind": null,
+            "sort": "evidence_date",
+            "exclude_posted": false,
+            "posted_account": null,
+            "hot_only": false
+          }
+        ],
+        "expected_outcome": "query_success",
+        "semantic_rubric": [
+          "Personal selection is not publication evidence."
+        ]
+      }
+    }
+  ]
+}

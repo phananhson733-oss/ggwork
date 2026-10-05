@@ -1,0 +1,124 @@
+[
+  {
+    "identity": "selected",
+    "title": "Synthetic selected",
+    "theater": "Synthetic Studio",
+    "language": "en",
+    "tags": [],
+    "availability": "active",
+    "channel_rules": {
+      "youtube": "unknown"
+    },
+    "signals": [
+      {
+        "kind": "clk",
+        "observed_at": "2026-10-05",
+        "rank": null
+      }
+    ],
+    "posted": {
+      "matched": true,
+      "post_count": 1,
+      "accounts": [
+        "Synthetic account"
+      ]
+    }
+  },
+  {
+    "identity": "grandparent",
+    "title": "Synthetic grandparent",
+    "theater": "Synthetic Studio",
+    "language": "en",
+    "tags": [],
+    "availability": "active",
+    "channel_rules": {
+      "youtube": "unknown"
+    },
+    "signals": [
+      {
+        "kind": "clk",
+        "observed_at": "2026-10-04",
+        "rank": null
+      }
+    ],
+    "posted": {
+      "matched": true,
+      "post_count": 0,
+      "accounts": []
+    }
+  },
+  {
+    "identity": "parent",
+    "title": "Synthetic parent",
+    "theater": "Synthetic Studio",
+    "language": "en",
+    "tags": [],
+    "availability": "active",
+    "channel_rules": {
+      "youtube": "unknown"
+    },
+    "signals": [
+      {
+        "kind": "clk",
+        "observed_at": "2026-10-03",
+        "rank": null
+      }
+    ],
+    "posted": {
+      "matched": true,
+      "post_count": 0,
+      "accounts": []
+    }
+  },
+  {
+    "identity": "a",
+    "title": "Synthetic a",
+    "theater": "Synthetic Studio",
+    "language": "en",
+    "tags": [],
+    "availability": "active",
+    "channel_rules": {
+      "youtube": "allowed"
+    },
+    "signals": [
+      {
+        "kind": "kd",
+        "observed_at": "2026-10-01",
+        "rank": 2
+      },
+      {
+        "kind": "qr",
+        "observed_at": "2026-10-02",
+        "rank": null
+      }
+    ],
+    "posted": {
+      "matched": true,
+      "post_count": 0,
+      "accounts": []
+    }
+  },
+  {
+    "identity": "b",
+    "title": "Synthetic b",
+    "theater": "Synthetic Studio",
+    "language": "en",
+    "tags": [],
+    "availability": "active",
+    "channel_rules": {
+      "youtube": "unknown"
+    },
+    "signals": [
+      {
+        "kind": "kd",
+        "observed_at": "2026-10-01",
+        "rank": 1
+      }
+    ],
+    "posted": {
+      "matched": true,
+      "post_count": 0,
+      "accounts": []
+    }
+  }
+]

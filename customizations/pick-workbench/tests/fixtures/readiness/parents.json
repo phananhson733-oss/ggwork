@@ -1,0 +1,60 @@
+[
+  {
+    "id": "p",
+    "parent_result_id": "gp",
+    "owner_id": "synthetic-owner",
+    "thread_id": "synthetic-thread",
+    "items": [
+      {
+        "identity": "parent",
+        "item_id": "p1"
+      }
+    ],
+    "conditions": {
+      "theater": null,
+      "language": "en",
+      "channel": null,
+      "query": null,
+      "tags": [],
+      "limit": 2,
+      "exclude_selected": true,
+      "confirmed_eligible_only": true,
+      "exclude_previous": true,
+      "signal_kind": null,
+      "sort": "evidence_date",
+      "exclude_posted": false,
+      "posted_account": null,
+      "hot_only": false
+    },
+    "catalog_batch_id": "synthetic-batch"
+  },
+  {
+    "id": "gp",
+    "parent_result_id": null,
+    "owner_id": "synthetic-owner",
+    "thread_id": "synthetic-thread",
+    "items": [
+      {
+        "identity": "grandparent",
+        "item_id": "gp1"
+      }
+    ],
+    "conditions": {
+      "theater": null,
+      "language": "en",
+      "channel": null,
+      "query": null,
+      "tags": [],
+      "limit": 2,
+      "exclude_selected": true,
+      "confirmed_eligible_only": true,
+      "exclude_previous": true,
+      "signal_kind": null,
+      "sort": "evidence_date",
+      "exclude_posted": false,
+      "posted_account": null,
+      "hot_only": false
+    },
+    "catalog_batch_id": "synthetic-batch"
+  }
+]

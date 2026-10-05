@@ -1,0 +1,108 @@
+{
+  "spec_version": "pick-readiness-v1.1",
+  "expectations_sha256": "cb2b6bf4eaa05ff34f00643f3be27f52e7e05d3fae19d94b06a0a3e56aaeef93",
+  "started_at": "2026-10-05T00:00:01Z",
+  "attempts": [
+    {
+      "case_id": "SYNTH-Q14",
+      "step_id": "main",
+      "attempt_id": "attempt-1",
+      "run_id": "synthetic-run",
+      "status": "success"
+    }
+  ],
+  "records": [
+    {
+      "case_id": "SYNTH-Q14",
+      "step_id": "main",
+      "attempt_id": "attempt-1",
+      "run_id": "synthetic-run",
+      "owner_id": "synthetic-owner",
+      "thread_id": "synthetic-thread",
+      "tool_call_id": "synthetic-call",
+      "tool_name": "pick_query_candidates",
+      "started_at": "2026-10-05T00:00:02Z",
+      "raw_arguments": {
+        "filters": {
+          "theater": null,
+          "language": "en",
+          "channel": null,
+          "query": null,
+          "tags": [],
+          "limit": 2,
+          "exclude_selected": true,
+          "confirmed_eligible_only": true,
+          "exclude_previous": true,
+          "signal_kind": null,
+          "sort": "evidence_date",
+          "exclude_posted": false,
+          "posted_account": null,
+          "hot_only": false
+        }
+      },
+      "actual_conditions": {
+        "theater": null,
+        "language": "en",
+        "channel": null,
+        "query": null,
+        "tags": [],
+        "limit": 2,
+        "exclude_selected": true,
+        "confirmed_eligible_only": true,
+        "exclude_previous": true,
+        "signal_kind": null,
+        "sort": "evidence_date",
+        "exclude_posted": false,
+        "posted_account": null,
+        "hot_only": false
+      },
+      "outcome": "query_success",
+      "source": {
+        "catalog_batch_id": "synthetic-batch",
+        "source_type": "synthetic",
+        "shared": false,
+        "rows_sha256": "d4219a271cb0b0f65fc11e74216dec9dbb29ab6fbd2b02ff640531cc663cea7b"
+      },
+      "response": {
+        "id": "synthetic-result",
+        "items": [
+          {
+            "identity": "a"
+          },
+          {
+            "identity": "b"
+          }
+        ],
+        "matched_total": 2
+      },
+      "answer": "Synthetic response: two matching candidates; personal selections excluded.",
+      "generated_by": "answer-model",
+      "terminal_status": "success",
+      "semantic_review": {
+        "reviewer": "independent-synthetic-reviewer",
+        "answer_sha256": "279190ed3e95df84b0afad8894fc9ac5b5f3e42c0264df312a953fdd02f737c1",
+        "judgments": [
+          {
+            "rubric": "Personal selection is not publication evidence.",
+            "status": "PASS",
+            "reason": "Synthetic answer only claims personal exclusion.",
+            "fact_refs": [
+              "selections.json"
+            ]
+          }
+        ]
+      },
+      "browser_evidence": {
+        "evidence_file": "browser.json",
+        "evidence_sha256": "cccb8438459187f149244a29ba250ec53a478787470ab784dcd7f14144bb9a47"
+      },
+      "performance_evidence": {
+        "evidence_file": "performance.json",
+        "evidence_sha256": "78f33981ebb213ff7bb0b0cca2abcf315a24829d9ca58adbe760764d6566ab6f"
+      },
+      "bound_result_id": "p"
+    }
+  ],
+  "run_ledger_file": "run-ledger.json",
+  "run_ledger_sha256": "cc0171d46d1019c533164b4a7defcc7afad24867d2ca33fb4547ed3f22247fef"
+}
