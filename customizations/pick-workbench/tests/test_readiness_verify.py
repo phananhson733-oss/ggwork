@@ -939,7 +939,7 @@ def rich_evidence_bundle(bundle):
     return step, detail, exported
 
 
-def test_projection_may_only_omit_evidence_source_ref(bundle):
+def test_projection_preserves_distinct_evidence_source_ref(bundle):
     _, _, cap = bundle
     _, detail, _ = rich_evidence_bundle(bundle)
     for item in cap["records"][0]["response"]["items"]:
@@ -947,7 +947,7 @@ def test_projection_may_only_omit_evidence_source_ref(bundle):
             evidence.pop("source_ref", None)
     for evidence in detail["response"]["evidence"]:
         evidence.pop("source_ref", None)
-    assert run(bundle)["exit_code"] == 0
+    assert run(bundle)["exit_code"] == 2
 
 
 @pytest.mark.parametrize("defect", ["grade", "note", "source_ref", "citation", "missing_grade", "zero_bool", "unit", "new_field", "reorder", "missing_signal"])
@@ -996,3 +996,29 @@ def test_existing_bound_save_evidence_also_uses_independent_signals(bundle):
     parents[0]["items"][0]["evidence"] = [{"citation_id": "p1:1", "kind": "kd", "grade": "S", "note": "invented"}]
     exp["states"]["before"]["parent_chain_sha256"] = put(root, "parents.json", parents)
     assert run(bundle)["exit_code"] != 0
+
+
+@pytest.mark.parametrize(
+    "detail_url,kind,citation,projected,allowed",
+    [
+        ("synthetic:board", "kd", True, True, True),
+        ("synthetic:other", "kd", True, True, False),
+        (None, "kd", True, True, False),
+        ("", "kd", True, True, False),
+        ("synthetic:board", "obs_rank", True, True, False),
+        ("synthetic:board", "kd", False, True, False),
+        ("synthetic:board", "kd", True, False, False),
+    ],
+)
+def test_source_ref_omission_exact_rd03_contract(detail_url, kind, citation, projected, allowed):
+    signal = {"kind": kind, "source_ref": "synthetic:board", "grade": "S", "note": "Synthetic fact"}
+    source = {"detail_url": detail_url, "signals": [signal]}
+    evidence = {k: v for k, v in signal.items() if k != "source_ref"}
+    if citation:
+        evidence["citation_id"] = "synthetic-item:1"
+    item = {"item_id": "synthetic-item", "evidence": [evidence]}
+    if allowed:
+        checker.verify_evidence(item, source, projected=projected)
+    else:
+        with pytest.raises(checker.Invalid):
+            checker.verify_evidence(item, source, projected=projected)

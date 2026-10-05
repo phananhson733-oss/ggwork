@@ -696,9 +696,16 @@ def verify_evidence(item, source_row, *, projected=False):
     )
     for index, (actual, signal) in enumerate(zip(evidence, source_row["signals"]), 1):
         expected = {**signal, "citation_id": f"{item['item_id']}:{index}"}
-        # The reviewed model projection may remove source_ref, and nothing else
-        # from a signal. Full persisted result exports retain it.
-        if projected and "source_ref" not in actual:
+        # RD03 removes only a duplicate row link from cited, non-observation
+        # model evidence. Independent references and persisted evidence retain it.
+        if (
+            projected
+            and "source_ref" not in actual
+            and source_row.get("detail_url")
+            and signal.get("source_ref") == source_row["detail_url"]
+            and actual.get("citation_id")
+            and not signal.get("kind", "").startswith("obs_")
+        ):
             expected.pop("source_ref", None)
         require(
             json.dumps(actual, sort_keys=True, ensure_ascii=False)

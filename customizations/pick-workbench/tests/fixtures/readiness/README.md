@@ -284,5 +284,8 @@ field is preserved, including kind, source_ref, observed_at, label, rank, value,
 grade, note, units and any additional captured fact fields. Missing/additional
 signals, reordered signals, changed citations and type changes such as 0→false
 fail closed. Existing bound items that contain evidence undergo the same check.
-Actual model query/detail projections may omit only source_ref from a signal;
-all other facts and citation IDs must agree with the complete independent source.
+Actual model query/detail projections may omit source_ref only when it exactly
+equals the nonempty row.detail_url, citation_id is present, and kind does not
+start with obs_. Independent references and obs references remain mandatory;
+full persisted evidence retains source_ref even when it duplicates detail_url.
+All other facts and citation IDs agree with the complete independent source.
