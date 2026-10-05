@@ -259,3 +259,78 @@ ChatGPT Pro 只审查了实际投影模块、给定调用契约与时效原则�
 | Q16 | PASS | PASS | PASS：六项预锁操作/持久化检查 | PASS | PASS | PASS；额外瞬时反馈观察仍 UNVERIFIED |
 
 这些是 **生产旧源码的改前基线**，不是本 PR 集成版本的生产通过记录。Q16 单题通过也不表示 Q01～Q20 的改后完整矩阵通过。未纳入本次基线的题为 NOT_RUN；Q18 的具体缺证原因见上文。
+
+
+## 2026-10-06 readiness 生产发布与改后验收
+
+业务仓库为 `phananhson733-oss/ggwork`（本地 ggwork-deerflow）。PR #31 已合并，实际部署的产品提交为 `d236f951d76d011bc2e704a772b2382345b8335b`；前端版本 `20261006-d236f95`，入口 https://ggwork-deerflow.vercel.app。Gateway 部署 `457941b3-0f1d-49d8-8ccf-2b0b6d93b735`，Vercel 部署 `dpl_CKFUdQYs4ofv8TeYEoWGSxQKLKoW`；canonical alias 已核对。部署守卫、实际 installed 包/源码比对、登录后历史数据和 readiness 通过，迁移仍为 0007。文档和验收工具后续提交不冒充线上产品 SHA。
+
+### 来源、执行与判读边界
+
+- 改后使用专用普通 QA 身份、线上真实模型和真实共享剧库。预锁意图、状态、来源及预算后执行，原始 captures/expectations 保留，五层复核仅添加独立证据。私有数据、题目原文和凭据未提交 Git。
+- 上线后的只读冻结得到真实 mirror v23，候选池 11,379 部；旧候选仍固定 v22。Q18 因此使用真实版本变更，没有制造资料更新或回填历史时间。
+- 改后共 26 个应用 run，连同原 4 个本地及 6 个远程基线，累计 36/40；本次改后没有新增重试 run。重新生成、编辑、分支和取消均计入账本。
+- 模型及 600/300/300 秒运行/请求/分块预算保持既定生产配置；不能把单次通过解读为长期模型稳定性或成本改善。
+
+### 已验证的关键业务行为
+
+- Q11 使用同一基线提问，模型保持默认 `exclude_selected=true`，严格渠道/在架条件不放宽。原基线 FAIL 保留，本轮意图、数据与回答语义通过。
+- Q14 在同一换批链上连续三批各 5 部，15 部不重复，符合总数按 2,942 → 2,937 → 2,932 递减；不是另起会话替代换批。
+- Q15 引用本轮 20 项结果的第二项；Q17 重新生成与编辑保留原候选引用，新分支清空父引用并产生属于新线程的结果。本轮不冒称另做过伪造跨线程引用的线上负向攻击测试。
+- Q16 模型准备阶段不写入；明确确认后新增 2 项，主动丢弃已提交响应后，以完全相同的 request_id/body 重试，回执一致且没有重复写入。原 2 项不变，QA 清单最终 4 项，备注及刷新保持，原始截图记录瞬时成功反馈。
+- Q18 旧卡的 items、created_at、data_as_of 与 notes 在新查询前后相同；真实执行查看旧卡、切换每页 20、翻页、详情返回和刷新，旧 URL 状态/版本保持。新查询使用 v23。
+- Q19 断线后刷新恢复通过；主动停止对应 POST cancel 返回 202，权威运行终态为 interrupted，未新增选择。取消时 provider 的 input/output tokens 与 model_calls 没有完整收尾证据，保持 null/unknown，不能填 0 或据此推算费用。独立取消证明来自服务端 HTTP 日志，并非找回了原始浏览器请求包。
+- Q20 引用冻结规则原文中的核对日期，明确说明并非当天重新核验；返回链接可在原文中定位。
+
+### 保留的限制
+
+1. Q19-stop 的取消功能已证实，取消调用的用量记录仍 UNVERIFIED；这不支持“20 题所有五层全通过”的表述。
+2. 原固定投影 baseline 字节降幅仍为 7.79%，未达到 20% 工程目标；额外重复链接密集样本约 26% 单列，未证明真实 token、费用或时延改善。
+3. RD-07 Trends/GSC 只读审计结论仍为 BLOCKED，未开启雷达下一阶段、观测 cron 或新采集。
+4. 原基线的 FAIL/NOT_RUN、浏览器适配失败及 CI 失败均保留；新证据不改写旧记录。手工 CLI 部署成功也不证明推 main 会自动发布。
+
+
+### 上线后验收五层矩阵
+
+覆盖 **20 个用例、27 条捕获检查、26 个独立 run**。原始捕获和运行前锁定的预期保持不变；以下状态由当前独立 checker 对追加证据的副本重新核验。
+
+| 用例 | 意图与工具选择 | 数据与状态 | 浏览器交互 | 模型解释 | 性能与成本 | 综合状态 |
+|---|---|---|---|---|---|---|
+| Q01 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q02 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q03 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q04 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q05 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q06 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q07 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q08 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q09 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q10 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q11 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q12 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q13 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q14 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q15 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q16 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q17 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q18 | PASS | PASS | PASS | PASS | PASS | PASS |
+| Q19 | PASS | PASS | PASS | PASS | UNVERIFIED | UNVERIFIED |
+| Q20 | PASS | PASS | PASS | PASS | PASS | PASS |
+
+用例汇总：19 PASS，1 UNVERIFIED，0 FAIL，0 NOT_RUN。记录检查汇总：26 PASS、1 UNVERIFIED。
+
+独立语义判读 **97/97 项 PASS**。性能指标可获得 **127/130 槽**；缺失槽位没有填成 0。
+
+性能与成本层的 PASS 表示预锁指标证据和预算检查通过，不表示已核对供应商账单，也不表示相对基线已降低费用。
+
+Q19 的四个功能层均为 PASS，性能与成本层为 UNVERIFIED。停止场景的输入 token、输出 token 和模型调用次数没有可核实计量；provider 取消期间的 token 和成本也仍未知。已知工具调用次数为 0，不代表模型用量为 0。
+
+Q19 停止功能补充证据来自精确匹配的服务端 POST cancel 202、受控 producer/SDK、权威 interrupted 终态和界面/清单证据；不声称找回了原始浏览器网络包。原 UNVERIFIED 判定及其后独立补充判定均保留。
+
+Q13 本轮上线后仅执行 valid-zero 场景。此前 invalid-case 的基线覆盖不计入本轮新增执行，也不据此扩大本轮验收范围。
+
+### 验收工具补充修正
+
+[PR #32](https://github.com/phananhson733-oss/ggwork/pull/32) 仅修改验收 checker、测试及文档，不改变已部署的业务实现。拒绝场景现在也核对预锁条件集合，避免模型改错语言等条件却因同一种拒绝而误获意图 PASS；实际模型捕获和预期均未改写。
+
+复杂度测试先后暴露了机器相关的 500ms wall-clock 门槛，以及同进程全局 GC 对成对 CPU 计时的污染。前两次绝对计时失败和一次 CPU 比例失败均保留。本地保留大量无关存活对象能够复现同型误报，但不能据此断言远程 CI 的唯一原因。最终测试在每次测量内隔离循环 GC、恢复其原状态，并采用当前线程 CPU 时间；12 类原输入及四倍输入对应增长比小于 6 的阈值保留。独立二次扫描反例仍被拒绝，生产算法未改。本地 checker、answer-check 与托管副本合计 286 项通过，格式检查通过；合并门槛以补充 PR 最终 HEAD 的 CI 为准。这不构成端到端 500ms SLA。
