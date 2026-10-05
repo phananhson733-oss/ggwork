@@ -1,6 +1,12 @@
-# 后续落实（2026-10-06，发布前验证）
+# 当前发布状态（2026-10-06，PR #33）
 
-本轮授权为“按照建议去落地”。基于业务 main `8f2311da` 的 `codex/readiness-followup-20261006` 已集成取消用量观测、只读 canary 事实报告、负向引用覆盖和下一阶段规格。当前实际生产版本仍是下方记录的 `d236f951`；本段代码存在不表示已部署。
+当前产品源码为 `148fff7b08d22c1112fd142e62f0076698862fd3`，前端实际版本 `20261006-148fff7`。Gateway 与前端已发布，正式域名、限定源码核验和普通 QA 只读浏览器验收均通过；最终 PR CI 与 main CI 均 SUCCESS。四条已选记录及旧十部候选保持，新单次取消用量观察验收仍待执行。发布身份、守卫原文和验收边界见文末「取消用量观察后续发布」。模型输入格式与雷达范围仍待用户选择，完整后续目标未完成。
+
+---
+
+# 后续落实（2026-10-06，历史发布前验证）
+
+本轮授权为“按照建议去落地”。基于业务 main `8f2311da` 的 `codex/readiness-followup-20261006` 已集成取消用量观测、只读 canary 事实报告、负向引用覆盖和下一阶段规格。本段记录发布前的状态，当时生产版本为下方记录的 `d236f951`；后续发布结果以上方当前状态及文末追加为准。
 
 - **取消计量实现与独立审查完成**：错误回调已知 partial usage 保留，缺失与显式零区分，实际回调生命周期计数通过 server-owned run metadata 持久化。原子 admission、租约丢失、重放、双库、真实本地异步流取消均验证；运行级观测不会复制进线程。前端用量文字明确“已记录”和未记录不等于零消耗。历史 Q19 的供应商 token 仍无法回填，见 [观测合同](usage-observation.md)。
 - **中性 canary 报告完成**：独立 Trends CLI 只读最近七个 UTC 日的预算、请求、限流及停止事实，缺日 unknown、当天 pending；qualification 固定 not_evaluated。它没有恢复采集或判定门槛通过，见 [运维说明](observe-runbook/canary-report.md)。
@@ -10,7 +16,7 @@
 
 ---
 
-# 当前发布状态（2026-10-06）
+# PR #31 发布状态（2026-10-06，历史记录）
 
 PR [#31](https://github.com/phananhson733-oss/ggwork/pull/31) 已合并，生产业务源码为 `d236f951d76d011bc2e704a772b2382345b8335b`。Gateway 部署 `457941b3-0f1d-49d8-8ccf-2b0b6d93b735`，Vercel 部署 `dpl_CKFUdQYs4ofv8TeYEoWGSxQKLKoW`；生产 alias `ggwork-deerflow.vercel.app` 已指向该 READY 部署，前端构建版本 `20261006-d236f95`。
 
@@ -734,3 +740,17 @@ PR [#31](https://github.com/phananhson733-oss/ggwork/pull/31) 已合并，生产
   - **待用户以登录用户核对**：关于页版本号是 20261005-ddbf9f1；四格手工格同上一批；本批五问见上一节「上线后由用户在工作台核对」。
 - `pick-deploy-guard target=gateway commit=ddbf9f14c882052d42dd0217e595a9c90c7694fc prod_head=0007 chain_head=0007 at=2026-10-05T09:47:41Z`
 - `pick-deploy-guard target=frontend commit=ddbf9f14c882052d42dd0217e595a9c90c7694fc at=2026-10-05T09:50:34Z`
+
+
+## 取消用量观察后续发布（2026-10-06）
+
+- [PR #33](https://github.com/phananhson733-oss/ggwork/pull/33) 已合并，产品源码为 `148fff7b08d22c1112fd142e62f0076698862fd3`，与最终 CI HEAD `21c7d4d6` 的文件树一致。PR CI `37371039191` 的第 2 次执行和合并后 main CI `37375741963` 均 SUCCESS；第 1 次 hosted runner 获取失败记录仍保留，没有计为测试通过。
+- Gateway 部署 `22828dc0-562a-4349-a177-b254c37d2c45` SUCCESS；健康检查通过，启动完成，无应用 ERROR 或 `service start() failed`。只读核对生产迁移头 `0007`，本次没有新增迁移；部署前后均无 pending/running 用户任务。限定源码核验中 1,144 个源码文件与 146 个已安装业务包文件全部匹配，新增用量 metadata 接口、模块导入路径和脚本迁移头核对通过。此证明不等同于整个镜像、供应商账单或其他服务的证明。
+- 前端部署 `dpl_BLhV1GhZf4eFjr6wTT8CGCjKQv1C` READY；正式域名 `ggwork-deerflow.vercel.app` 指向该部署，普通 QA 浏览器 About 显示 `20261006-148fff7`。部署只上传 `git archive` 中的已跟踪前端文件及 `.vercel/project.json`。
+- 最终本地宿主 offline 18,449 passed / 166 skipped / 3 deselected；blocking-I/O 149 passed。业务双库 4,351 passed / 21 skipped；前端 2,874 passed，另行真实 PostgreSQL reader 45 passed / 0 skipped，check/build 通过。早期失败轮次保持原记录。
+- 专用普通 QA 只读快照与浏览器 canary PASS：旧十部候选的条目、来源时点与历史核对保持，四条已选记录的 identity、快照、备注、状态和版本保持，刷新后正常；新的「已记录 Token 用量」说明可读。所有导航 HTTP 200，About 首次可操作 5.66 秒、已选刷新首次可操作 2.525 秒，console/page errors 均为 0，没有新增模型 run 或业务保存。
+- 验收脚本初轮因默认守卫拦住只读 threads/search POST 而 UNVERIFIED；独立核实端点与 store 均只读，加入严格路径、字段和 SDK 读取参数白名单后复验通过。原失败保留，不归为产品故障，也不放宽其他写入或模型调度。
+- 待完成：新 manifest 下唯一一次真实取消运行的持久化用量观察验收。统一账本仍 36/40，旧 Q19 的不可恢复 provider 用量保持 unknown；不能由本次浏览器通过推定新取消验收或计费验证通过。
+- 模型输入格式与雷达范围仍等待用户选择；团队协作和外部写入交付的是下一阶段规格，功能未实现。本节记录实际产品版本；后续文档提交不作为已部署产品 SHA。
+- `pick-deploy-guard target=gateway commit=148fff7b08d22c1112fd142e62f0076698862fd3 prod_head=0007 chain_head=0007 at=2026-10-05T21:30:00Z`
+- `pick-deploy-guard target=frontend commit=148fff7b08d22c1112fd142e62f0076698862fd3 at=2026-10-05T21:34:05Z`
