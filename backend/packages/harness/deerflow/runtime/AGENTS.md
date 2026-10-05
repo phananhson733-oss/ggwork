@@ -367,3 +367,18 @@ JSONL's single-process deployment constraint. Regression coverage is in
 ### Optional host execution deadline
 
 `RunContext.execution_timeout_seconds` is a trusted host setting, never a runnable/client config override. The worker starts its watchdog before cancellable preflight and stops it before terminal status calculation/persistence, on both exception paths, and in final cleanup. Deadline cancellation records `timeout`/`execution_timeout`; an explicit user abort retains the existing interrupt/rollback path. Durable terminal cleanup must still drain: this is an execution deadline, not permission to abandon a database or checkpoint write at the wall-clock boundary. Gateway binds the pick deployment's `PICK_RUN_TIMEOUT_SECONDS`; unset preserves upstream unlimited-run behavior. Tests: `tests/test_run_execution_deadline.py`.
+
+### Cancellation usage observations
+
+`RunJournal` completion/progress snapshots carry `usage_observation`; `RunManager`
+merges it into server-owned `metadata.deerflow_usage_observation` through the same
+status-guarded store update. Both admission paths replace caller-supplied copies.
+`calls_*` count local callback UUID lifecycles, not billable HTTP attempts; external
+usage reports retain their deduped known subtotals but do not invent child lifecycle
+counts. `known_*` includes observed run usage, including error callback partials.
+Missing values are null, explicitly supplied zeros remain zero, and error partials
+never become completed AI messages. `coverage` is complete/partial/unknown/no_calls;
+`finalized` means the terminal observation was assembled, not final provider billing.
+Legacy rows without the key and disabled tracking remain unknown. Preserve callback
+replay dedup, canonical message content, lease fences, and the preflight rule that
+no empty completion is written before the worker's completion boundary.

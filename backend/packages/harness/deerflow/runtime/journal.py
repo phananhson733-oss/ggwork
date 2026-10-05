@@ -301,6 +301,8 @@ class RunJournal(BaseCallbackHandler):
 
         # LLM request/response tracking
         self._llm_call_index = 0
+        self._usage_calls: dict[str, dict[str, Any]] = {}
+        self._external_usage_keys: set[str] = set()
         self._seen_llm_starts: set[str] = set()  # langchain run_ids that fired on_chat_model_start
         self._current_run_tool_call_names: dict[str, str] = {}
         self._active_tool_names: dict[str, str] = {}
@@ -412,7 +414,10 @@ class RunJournal(BaseCallbackHandler):
         messages are fully structured here, it fires only on real LLM calls,
         and the content is never compressed by checkpoint trimming.
         """
+        if self._closed:
+            return
         rid = str(run_id)
+        self._observe_call(rid, "started", caller=self._identify_caller(tags))
         self._llm_start_times[rid] = time.monotonic()
         self._llm_call_index += 1
         self._seen_llm_starts.add(rid)
@@ -444,9 +449,15 @@ class RunJournal(BaseCallbackHandler):
                 if self._first_human_msg:
                     break
 
+        self._schedule_progress_flush()
+
     def on_llm_start(self, serialized: dict, prompts: list[str], *, run_id: UUID, parent_run_id: UUID | None = None, tags: list[str] | None = None, metadata: dict[str, Any] | None = None, **kwargs: Any) -> None:
-        # Fallback: on_chat_model_start is preferred. This just tracks latency.
+        # Fallback for non-chat models; one UUID still denotes one logical callback lifecycle.
+        if self._closed:
+            return
+        self._observe_call(str(run_id), "started")
         self._llm_start_times[str(run_id)] = time.monotonic()
+        self._schedule_progress_flush()
 
     def on_llm_end(
         self,
@@ -462,7 +473,6 @@ class RunJournal(BaseCallbackHandler):
 
         messages: list[AnyMessage] = []
         response_events: list[dict] = []
-        should_schedule_progress = False
         rid = str(run_id)
         callback_caller = self._identify_caller(tags)
         is_canonical_callback = rid not in self._counted_message_llm_run_ids
@@ -475,6 +485,7 @@ class RunJournal(BaseCallbackHandler):
                 else:
                     logger.warning(f"on_llm_end {run_id}: generation has no message attribute: {gen}")
 
+        self._observe_call(rid, "completed", messages=messages, caller=caller)
         for message in messages:
             if is_canonical_callback:
                 self._remember_current_run_tool_calls(message, caller=caller)
@@ -552,8 +563,6 @@ class RunJournal(BaseCallbackHandler):
                         per_call_model = response_metadata.get("model_name") or response_metadata.get("model")
                     self._record_model_usage(per_call_model, input_tk, output_tk, total_tk, self._extract_cache_read(usage_dict))
 
-                    should_schedule_progress = True
-
         if messages:
             self._queue_llm_response_events(
                 str(run_id),
@@ -562,16 +571,87 @@ class RunJournal(BaseCallbackHandler):
                 caller=caller,
             )
 
-        if should_schedule_progress:
-            self._schedule_progress_flush()
+        self._schedule_progress_flush()
 
     def on_llm_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
+        if self._closed:
+            return
+        response = kwargs.get("response")
+        messages = [gen.message for group in getattr(response, "generations", ()) for gen in group if hasattr(gen, "message")]
+        self._observe_call(str(run_id), "cancelled" if isinstance(error, asyncio.CancelledError) else "error", messages=messages, caller=self._identify_caller(kwargs.get("tags")))
         self._llm_start_times.pop(str(run_id), None)
         self._put(
             event_type=LLM_ERROR_EVENT.event_type,
             category=LLM_ERROR_EVENT.category,
             content=str(error),
         )
+
+        self._schedule_progress_flush()
+
+    def _observe_call(self, rid: str, phase: str, *, messages=(), caller: str = "lead_agent") -> None:
+        """Observe callback facts without treating a partial error as a completed AI message."""
+        call = self._usage_calls.setdefault(rid, {"started": False, "phase": "started", "usage": {}, "caller": caller})
+        if phase == "started":
+            call["started"] = True
+        elif call["phase"] != "completed":
+            if call["phase"] == "started":
+                call["caller"] = caller
+            call["phase"] = phase
+        if self._track_tokens and (not call.get("complete_usage") or call["usage"].get("total_tokens") == 0):
+            for message in messages:
+                usage = getattr(message, "usage_metadata", None)
+                if not isinstance(usage, Mapping):
+                    continue
+                observed = {key: value for key, value in usage.items() if key in ("input_tokens", "output_tokens", "total_tokens") and type(value) is int and value >= 0}
+                if not observed:
+                    continue
+                call["usage"] = {**call["usage"], **observed}
+                metadata = getattr(message, "response_metadata", None) or {}
+                call["model"] = metadata.get("model_name") or metadata.get("model")
+                call["cache_read"] = self._extract_cache_read(dict(usage))
+                call["complete_usage"] = phase == "completed" and len(observed) == 3
+                break
+
+    def _usage_observation(self) -> dict:
+        calls = list(self._usage_calls.values())
+        missing = sum(not call["usage"] for call in calls)
+        partial = sum(bool(call["usage"]) and not call.get("complete_usage", False) for call in calls)
+        reasons = []
+        if not self._track_tokens:
+            reasons.append("tracking_disabled")
+        if missing:
+            reasons.append("provider_usage_missing")
+        if partial:
+            reasons.append("partial_provider_usage")
+        if any(not call["started"] for call in calls):
+            reasons.append("start_callback_missing")
+        if any(call["phase"] == "started" for call in calls):
+            reasons.append("call_not_terminal")
+        # External usage lacks a local model callback lifecycle; never label its coverage complete.
+        if self._counted_external_source_ids:
+            reasons.append("external_call_coverage_unknown")
+        partial_calls = [call for rid, call in self._usage_calls.items() if rid not in self._counted_llm_run_ids]
+        accumulated = {"input_tokens": self._total_input_tokens, "output_tokens": self._total_output_tokens, "total_tokens": self._total_tokens}
+        known = {
+            key: accumulated[key] + sum(call["usage"].get(key, 0) for call in partial_calls) if key in self._external_usage_keys or any(key in call["usage"] for call in calls) else None
+            for key in ("input_tokens", "output_tokens", "total_tokens")
+        }
+        coverage = "unknown" if not self._track_tokens or all(value is None for value in known.values()) else "partial" if reasons else "complete"
+        return {
+            "version": 1,
+            "finalized": False,
+            "call_scope": "local_callback_lifecycle",
+            "external_usage_reports": len(self._counted_external_source_ids),
+            "calls_started": sum(call["started"] for call in calls),
+            "calls_completed": sum(call["phase"] == "completed" for call in calls),
+            "calls_errored": sum(call["phase"] == "error" for call in calls),
+            "calls_cancelled": sum(call["phase"] == "cancelled" for call in calls),
+            "calls_missing_usage": missing,
+            "calls_partial_usage": partial,
+            "coverage": coverage,
+            **{f"known_{key}": value for key, value in known.items()},
+            "reasons": reasons,
+        }
 
     def on_tool_start(self, serialized, input_str, *, run_id, parent_run_id=None, tags=None, metadata=None, inputs=None, **kwargs):
         """Cache the executing tool name for artifact attribution."""
@@ -943,7 +1023,7 @@ class RunJournal(BaseCallbackHandler):
             total_tokens: Total token count (computed from input+output if 0/missing)
             cache_read_tokens: Optional prompt-cache-hit input tokens
         """
-        if not self._track_tokens:
+        if self._closed or not self._track_tokens:
             return
         for record in records:
             source_id = str(record.get("source_run_id", ""))
@@ -964,6 +1044,7 @@ class RunJournal(BaseCallbackHandler):
             output_tk = record.get("output_tokens", 0) or 0
 
             self._counted_external_source_ids.add(source_id)
+            self._external_usage_keys.update(key for key in ("input_tokens", "output_tokens", "total_tokens") if type(record.get(key)) is int and record[key] >= 0)
             self._total_input_tokens += input_tk
             self._total_output_tokens += output_tk
             self._total_tokens += total_tk
@@ -1172,6 +1253,8 @@ class RunJournal(BaseCallbackHandler):
         self._llm_response_callers.clear()
         self._llm_start_times.clear()
         self._seen_llm_starts.clear()
+        self._usage_calls.clear()
+        self._external_usage_keys.clear()
         self._current_run_tool_call_names.clear()
         self._persisted_tool_message_identities.clear()
         self._produced_artifacts.clear()
@@ -1265,15 +1348,29 @@ class RunJournal(BaseCallbackHandler):
 
     def get_completion_data(self) -> dict:
         """Return accumulated token and message data for run completion."""
+        partial = [call for rid, call in self._usage_calls.items() if rid not in self._counted_llm_run_ids and call["usage"]]
+        extras = {key: sum(call["usage"].get(key, 0) for call in partial) for key in ("input_tokens", "output_tokens", "total_tokens")}
+        by_model = deepcopy(self._tokens_by_model)
+        by_caller = {"lead_agent": self._lead_agent_tokens, "subagent": self._subagent_tokens, "middleware": self._middleware_tokens}
+        for call in partial:
+            usage = call["usage"]
+            bucket = by_model.setdefault(call.get("model") or "unknown", {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+            for key in ("input_tokens", "output_tokens", "total_tokens"):
+                bucket[key] += usage.get(key, 0)
+            if call.get("cache_read"):
+                bucket["cache_read_tokens"] = bucket.get("cache_read_tokens", 0) + call["cache_read"]
+            kind = "subagent" if call["caller"].startswith("subagent:") else "middleware" if call["caller"].startswith("middleware:") else "lead_agent"
+            by_caller[kind] += usage.get("total_tokens", 0)
         return {
-            "total_input_tokens": self._total_input_tokens,
-            "total_output_tokens": self._total_output_tokens,
-            "total_tokens": self._total_tokens,
-            "llm_call_count": self._llm_call_count,
-            "lead_agent_tokens": self._lead_agent_tokens,
-            "subagent_tokens": self._subagent_tokens,
-            "middleware_tokens": self._middleware_tokens,
-            "token_usage_by_model": {model: dict(usage) for model, usage in self._tokens_by_model.items()},
+            "usage_observation": self._usage_observation(),
+            "total_input_tokens": self._total_input_tokens + extras["input_tokens"],
+            "total_output_tokens": self._total_output_tokens + extras["output_tokens"],
+            "total_tokens": self._total_tokens + extras["total_tokens"],
+            "llm_call_count": self._llm_call_count + sum(call["usage"].get("total_tokens", 0) > 0 for call in partial),
+            "lead_agent_tokens": by_caller["lead_agent"],
+            "subagent_tokens": by_caller["subagent"],
+            "middleware_tokens": by_caller["middleware"],
+            "token_usage_by_model": by_model,
             "message_count": self._msg_count,
             "last_ai_message": self._last_ai_msg,
             "first_human_message": self._first_human_msg,

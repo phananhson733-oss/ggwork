@@ -9,6 +9,7 @@ import sqlite3
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -507,6 +508,30 @@ class RunManager:
             idempotency_key=row.get("idempotency_key"),
         )
 
+    @staticmethod
+    def _initial_metadata(metadata: dict | None) -> dict:
+        result = deepcopy(metadata or {})
+        result["deerflow_usage_observation"] = {"version": 1, "finalized": False, "coverage": "unknown", "reasons": ["journal_not_observed"], "known_input_tokens": None, "known_output_tokens": None, "known_total_tokens": None}
+        result["deerflow_usage_observation"].update(
+            call_scope="local_callback_lifecycle",
+            **dict.fromkeys(("calls_started", "calls_completed", "calls_errored", "calls_cancelled", "calls_missing_usage", "calls_partial_usage", "external_usage_reports")),
+        )
+        return result
+
+    @staticmethod
+    def _merge_usage_observation(record: RunRecord, kwargs: dict, *, finalized: bool) -> None:
+        observation = kwargs.pop("usage_observation", None)
+        if observation is None:
+            return
+        observation = deepcopy(observation)
+        observation["finalized"] = finalized
+        if finalized and not observation["reasons"] and observation["calls_started"] == observation["calls_completed"] == 0:
+            observation["coverage"] = "no_calls"
+        if finalized and "call_not_terminal" in observation["reasons"]:
+            observation["reasons"] = ["call_terminal_callback_missing" if reason == "call_not_terminal" else reason for reason in observation["reasons"]]
+        record.metadata = {**deepcopy(record.metadata), "deerflow_usage_observation": observation}
+        kwargs["metadata"] = deepcopy(record.metadata)
+
     async def update_run_completion(self, run_id: str, **kwargs) -> None:
         """Persist token usage and completion data to the backing store."""
         row_recovery_payload: dict[str, Any] | None = None
@@ -517,6 +542,7 @@ class RunManager:
                 logger.warning("Skipped completion persistence for run %s after lease ownership was lost", run_id)
                 return
             if record is not None:
+                self._merge_usage_observation(record, kwargs, finalized=True)
                 for key, value in kwargs.items():
                     if key == "status":
                         continue
@@ -572,6 +598,7 @@ class RunManager:
             if record is not None:
                 should_persist = record.status == RunStatus.running and not record.ownership_lost
             if record is not None and should_persist:
+                self._merge_usage_observation(record, kwargs, finalized=False)
                 for key, value in kwargs.items():
                     if hasattr(record, key) and value is not None:
                         setattr(record, key, value)
@@ -590,6 +617,7 @@ class RunManager:
             if record is not None and not record.ownership_lost:
                 should_persist = record.status not in (RunStatus.pending, RunStatus.running)
                 if should_persist:
+                    self._merge_usage_observation(record, kwargs, finalized=True)
                     for key, value in kwargs.items():
                         if hasattr(record, key) and value is not None:
                             setattr(record, key, value)
@@ -633,7 +661,7 @@ class RunManager:
             status=RunStatus.pending,
             on_disconnect=on_disconnect,
             multitask_strategy=multitask_strategy,
-            metadata=metadata or {},
+            metadata=self._initial_metadata(metadata),
             kwargs=kwargs or {},
             user_id=user_id,
             created_at=now,
@@ -1616,7 +1644,7 @@ class RunManager:
             on_disconnect=on_disconnect,
             operation_kind=operation_kind,
             multitask_strategy=multitask_strategy,
-            metadata=metadata or {},
+            metadata=self._initial_metadata(metadata),
             kwargs=kwargs or {},
             user_id=user_id,
             created_at=now,

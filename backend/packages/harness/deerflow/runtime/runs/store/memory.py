@@ -5,6 +5,7 @@ Equivalent to the original RunManager._runs dict behavior.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -247,7 +248,7 @@ class MemoryRunStore(RunStore):
         run["status"] = status
         for key, value in kwargs.items():
             if value is not None:
-                run[key] = value
+                run[key] = deepcopy(value) if key == "metadata" else value
         run["updated_at"] = datetime.now(UTC).isoformat()
         self._mark_changed(run)
         return True
@@ -256,7 +257,7 @@ class MemoryRunStore(RunStore):
         if run_id in self._runs and self._runs[run_id].get("status") == "running":
             for key, value in kwargs.items():
                 if value is not None:
-                    self._runs[run_id][key] = value
+                    self._runs[run_id][key] = deepcopy(value) if key == "metadata" else value
             self._runs[run_id]["updated_at"] = datetime.now(UTC).isoformat()
 
     async def list_pending(self, *, before=None):
