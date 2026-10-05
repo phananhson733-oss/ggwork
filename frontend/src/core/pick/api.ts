@@ -4,6 +4,7 @@ import { fetch as fetchWithAuth } from "@/core/api/fetcher";
 import { getBackendBaseURL } from "@/core/config";
 
 import { pickAnswerCheckSchema } from "./answer-checks";
+import { type PickNotesState, pickResultNotesSchema } from "./notes";
 import { syncStatusSchema } from "./sync-schema";
 import { pickItemSchema, pickResultSchema } from "./types";
 
@@ -90,6 +91,39 @@ export async function getPickResult(id: string, signal?: AbortSignal) {
       await responseFor(`/results/${encodeURIComponent(id)}`, { signal })
     ).json(),
   );
+}
+
+/**
+ * A result's notes for the card. A 404 (no such result, or a gateway older
+ * than the endpoint) is "none" and shows nothing; a 410 means the result's
+ * batch was pruned. Any other failure throws.
+ */
+export async function getPickResultNotes(
+  id: string,
+  signal?: AbortSignal,
+): Promise<PickNotesState> {
+  const response = await fetchWithAuth(
+    `${getBackendBaseURL()}/api/pick/results/${encodeURIComponent(id)}/notes`,
+    { signal },
+  );
+  if (response.status === 404) return { kind: "none" };
+  if (response.status === 410) {
+    const body = (await response.json().catch(() => null)) as {
+      detail?: unknown;
+    } | null;
+    return {
+      kind: "gone",
+      message:
+        typeof body?.detail === "string"
+          ? body.detail
+          : "这份候选用的剧库批次已被清理，依据说明不可用",
+    };
+  }
+  if (!response.ok) throw new Error(`依据说明读取失败（${response.status}）`);
+  return {
+    kind: "notes",
+    notes: pickResultNotesSchema.parse(await response.json()),
+  };
 }
 
 export async function savePickSelection(command: SaveCommand) {
