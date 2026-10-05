@@ -473,7 +473,8 @@ async def test_final_answer_notes_are_stored_beside_the_answer_not_in_it():
     repo.record_answer_check.reset_mock()
     task.posted_checked = True
     await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[AIMessage(content="《Real Drama》没发过。")])))
-    repo.record_answer_check.assert_not_awaited()
+    # A clean answer is still recorded, with no notes, so the card can tell "checked" from "not checked".
+    assert repo.record_answer_check.await_args.kwargs["notes"] == []
 
 
 @pytest.mark.asyncio
