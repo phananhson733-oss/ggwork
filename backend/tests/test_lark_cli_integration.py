@@ -2209,7 +2209,97 @@ def test_complete_lark_auth_polls_device_code_and_returns_status(monkeypatch, tm
         "user_id": "alice",
         "timeout": 45,
         "allow_empty_success": True,
+        "allow_missing_scopes": True,
     }
+
+
+def _partial_scope_grant_payload(missing: list[str]) -> str:
+    """The stdout lark-cli prints before exiting 3 when login succeeded but scopes are missing."""
+    granted = ["calendar:calendar:readonly", "offline_access"]
+    return json.dumps(
+        {
+            "event": "authorization_complete",
+            "user_open_id": "ou_alice",
+            "user_name": "Alice",
+            "scope": " ".join(granted),
+            "requested": ["calendar:calendar:readonly", *missing],
+            "newly_granted": ["calendar:calendar:readonly"],
+            "already_granted": [],
+            "missing": missing,
+            "granted": granted,
+            "warning": {"type": "missing_scope", "hint": "requested scopes not granted"},
+        }
+    )
+
+
+def _stub_cli_process(monkeypatch, *, returncode: int, stdout: str = "", stderr: str = "") -> None:
+    monkeypatch.setattr(lark_cli, "lark_cli_env", lambda _user_id: {})
+    monkeypatch.setattr(lark_cli, "ensure_lark_cli_credential_tree", lambda _user_id: None)
+    monkeypatch.setattr(
+        lark_cli.subprocess,
+        "run",
+        lambda args, **_kwargs: subprocess.CompletedProcess(args=args, returncode=returncode, stdout=stdout, stderr=stderr),
+    )
+
+
+def test_run_lark_cli_json_returns_partial_scope_grant_when_allowed(monkeypatch) -> None:
+    _stub_cli_process(monkeypatch, returncode=3, stdout=_partial_scope_grant_payload(["mail:user_mailbox:readonly"]))
+
+    data = lark_cli._run_lark_cli_json(["/usr/bin/lark-cli", "auth", "login"], user_id="alice", timeout=5, allow_missing_scopes=True)
+
+    assert data["event"] == "authorization_complete"
+    assert data["missing"] == ["mail:user_mailbox:readonly"]
+
+
+def test_run_lark_cli_json_rejects_partial_scope_grant_by_default(monkeypatch) -> None:
+    _stub_cli_process(monkeypatch, returncode=3, stdout=_partial_scope_grant_payload(["mail:user_mailbox:readonly"]))
+
+    with pytest.raises(ValueError):
+        lark_cli._run_lark_cli_json(["/usr/bin/lark-cli", "auth", "login"], user_id="alice", timeout=5)
+
+
+def test_run_lark_cli_json_still_raises_auth_failure_when_missing_scopes_allowed(monkeypatch) -> None:
+    envelope = json.dumps({"ok": False, "error": {"type": "authentication", "message": "authorization failed: access_denied"}})
+    _stub_cli_process(monkeypatch, returncode=3, stderr=envelope)
+
+    with pytest.raises(ValueError, match="access_denied"):
+        lark_cli._run_lark_cli_json(["/usr/bin/lark-cli", "auth", "login"], user_id="alice", timeout=5, allow_missing_scopes=True)
+
+
+def test_run_lark_cli_json_rejects_exit_3_without_authorization_complete_event(monkeypatch) -> None:
+    _stub_cli_process(monkeypatch, returncode=3, stdout=json.dumps({"event": "authorization_pending"}))
+
+    with pytest.raises(ValueError, match="exited with code 3"):
+        lark_cli._run_lark_cli_json(["/usr/bin/lark-cli", "auth", "login"], user_id="alice", timeout=5, allow_missing_scopes=True)
+
+
+def test_missing_scopes_ignores_malformed_payload_values() -> None:
+    assert lark_cli._missing_scopes({"missing": "mail:user_mailbox:readonly"}) == ()
+    assert lark_cli._missing_scopes({}) == ()
+    assert lark_cli._missing_scopes({"missing": ["", "mail:user_mailbox:readonly"]}) == ("mail:user_mailbox:readonly",)
+
+
+def test_complete_lark_auth_succeeds_with_missing_scopes_after_partial_grant(monkeypatch, tmp_path) -> None:
+    _patch_paths(monkeypatch, tmp_path / "home")
+    config = _config(tmp_path / "skills")
+    missing = [f"domain:scope{i}:read" for i in range(7)]
+    # Advance the flow first: it needs the real credential tree the CLI stub skips.
+    generation = _advance_lark_flow()
+    _stub_cli_process(monkeypatch, returncode=3, stdout=_partial_scope_grant_payload(missing))
+    monkeypatch.setattr(lark_cli, "_require_lark_cli_path", lambda: "/usr/bin/lark-cli")
+    monkeypatch.setattr(
+        lark_cli,
+        "get_lark_integration_status",
+        lambda _user_id, _config, **_kwargs: _status_stub(app_configured=True, app_id="cli_mock", auth_status="authenticated"),
+    )
+
+    result = lark_cli.complete_lark_auth("alice", config, device_code="device-code", generation=generation)
+
+    assert result.success is True
+    assert result.missing_scopes == tuple(missing)
+    assert "7 requested scopes were not granted" in result.message
+    assert "domain:scope0:read" in result.message
+    assert "domain:scope6:read" not in result.message, "the message previews only the first few scopes"
 
 
 def test_complete_lark_auth_accepts_short_automatic_poll_timeout(monkeypatch, tmp_path) -> None:
@@ -2835,6 +2925,32 @@ def test_lark_auth_complete_route_polls_device_code(monkeypatch, tmp_path):
         "generation": "auth-generation",
         "wait_timeout_seconds": 45,
     }
+    assert response.json()["missing_scopes"] == []
+
+
+def test_lark_auth_complete_route_reports_missing_scopes(monkeypatch, tmp_path):
+    config = _config(tmp_path / "skills")
+    app = _make_app(system_role="user", config=config)
+    monkeypatch.setattr(
+        integrations_router,
+        "complete_lark_auth",
+        lambda _user_id, _config, **_kwargs: lark_cli.LarkAuthCompleteResult(
+            success=True,
+            message="completed with missing scopes",
+            status=_status_stub(app_configured=True, app_id="cli_mock", auth_status="authenticated"),
+            missing_scopes=("mail:user_mailbox:readonly",),
+        ),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/integrations/lark/auth/complete",
+            json={"device_code": "device-code", "generation": "auth-generation"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["missing_scopes"] == ["mail:user_mailbox:readonly"]
 
 
 def _status_stub(*, app_configured: bool, app_id: str | None, auth_status: str) -> lark_cli.LarkIntegrationStatus:
