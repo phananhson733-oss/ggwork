@@ -160,7 +160,8 @@ async def _record_checks(response, task, request) -> None:
     """Check a final answer and store the notes beside it; the answer itself is never rewritten.
 
     The host streams and journals the model message before this middleware returns, so a note
-    appended to the message would reach only the next model turn, never the user.
+    appended to the message would reach only the next model turn, never the user. A clean answer is
+    stored too, with no notes, so the card can tell it from a check that never ran or failed to load.
     """
     messages = getattr(response, "result", None)
     if not isinstance(messages, list) or not messages:
@@ -171,8 +172,6 @@ async def _record_checks(response, task, request) -> None:
         return
     known = task.known_titles | _user_titles(request.messages)
     notes = check_answer(text, known_titles=known, posted_checked=task.posted_checked, posted_seen=task.posted_seen)
-    if not notes:
-        return
     repo = await task.repository(request.runtime)
     await repo.record_answer_check(thread_id=task.info.thread_id, run_id=task.info.run_id, message_id=last.id or None, notes=notes)
 

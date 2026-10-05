@@ -822,7 +822,7 @@ async def workbench(tmp_path):
 
 
 async def _answer_notes(repo, runtime, text, message_id):
-    """The notes PickModelGate stores beside a final answer, or None when it stores none."""
+    """The notes PickModelGate stores beside a final answer ([] for a clean answer), or None when it stores none."""
     from langchain.agents.middleware.types import ModelRequest, ModelResponse
     from langchain_core.messages import AIMessage
 
@@ -845,7 +845,7 @@ async def test_a_title_lookup_backs_the_answer_through_the_tools_and_the_model_g
         found = json.loads(await query_candidates_tool.coroutine(filters={"query": title, "exclude_selected": False}, runtime=runtime))
         assert [item["title"] for item in found["items"]] == [title]
     assert store.get(PickTask).posted_checked is False
-    assert await _answer_notes(repo, runtime, "《Lost Heir》发布记录已对上，帖子数0，团队还没发过。", "m1") is None
+    assert await _answer_notes(repo, runtime, "《Lost Heir》发布记录已对上，帖子数0，团队还没发过。", "m1") == []
     notes = await _answer_notes(repo, runtime, "《No Match》从未发布。", "m2")
     assert notes == ["《No Match》的发布记录没有对上，只能说“发布记录里没有”，不能说没发过。"]
 
@@ -860,7 +860,7 @@ async def test_a_detail_read_backs_the_answer_about_that_item(workbench):
     _, runtime = await start_run("r1", pick_reference={"result_id": parent["id"]})
     assert await _answer_notes(repo, runtime, "目前未发布过。", "m1") == ["本轮查询没有按发布记录过滤，不能据此断言没发过。"]
     await get_drama_detail_tool.coroutine(result_id=parent["id"], item_id=parent["items"][0]["item_id"], runtime=runtime)
-    assert await _answer_notes(repo, runtime, "目前未发布过。", "m2") is None
+    assert await _answer_notes(repo, runtime, "目前未发布过。", "m2") == []
 
 
 @pytest.mark.asyncio
@@ -872,5 +872,23 @@ async def test_an_account_query_through_the_tools_backs_only_that_account(workbe
     filters = {"posted_account": "A", "query": "Big Boss", "exclude_selected": False}
     found = json.loads(await query_candidates_tool.coroutine(filters=filters, runtime=runtime))
     assert [item["title"] for item in found["items"]] == ["Big Boss"]
-    assert await _answer_notes(repo, runtime, "《Big Boss》在 A 账号没发过。", "m1") is None
+    assert await _answer_notes(repo, runtime, "《Big Boss》在 A 账号没发过。", "m1") == []
     assert await _answer_notes(repo, runtime, "《Big Boss》团队没发过。", "m2") == ["发布记录显示《Big Boss》发过，不能说没发过。"]
+
+
+@pytest.mark.asyncio
+async def test_a_clean_answer_is_stored_as_an_empty_check_and_a_tool_call_is_not_checked(workbench):
+    """2026-10-05 (evaluation batch 2): only answers with notes were stored, so the card could not tell a clean answer
+    from a check that never ran or a notes request that failed. A clean final answer now leaves an empty check."""
+    from langchain.agents.middleware.types import ModelRequest, ModelResponse
+    from langchain_core.messages import AIMessage
+
+    from ggwork_pick.middleware import PickModelGate
+
+    repo, start_run = workbench
+    _, runtime = await start_run("run")
+    assert await _answer_notes(repo, runtime, "这一轮没有点名任何剧。", "m1") == []
+    calling = AIMessage(content="先查一下。", id="m2", tool_calls=[{"name": "pick_query_candidates", "args": {}, "id": "call"}])
+    request = ModelRequest(model=SimpleNamespace(), messages=[], runtime=runtime, tools=[])
+    await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[calling])))
+    assert [check["message_id"] for check in await repo.answer_checks("thread")] == ["m1"]
