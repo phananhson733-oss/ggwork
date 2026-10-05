@@ -892,3 +892,118 @@ async def test_a_clean_answer_is_stored_as_an_empty_check_and_a_tool_call_is_not
     request = ModelRequest(model=SimpleNamespace(), messages=[], runtime=runtime, tools=[])
     await PickModelGate().awrap_model_call(request, AsyncMock(return_value=ModelResponse(result=[calling])))
     assert [check["message_id"] for check in await repo.answer_checks("thread")] == ["m1"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "这5部在团队发布记录里都没有匹配到已发记录，但不能据此断言它们从未发布。",
+        "不能因此断定它们没有发布过。",
+        "无法据此确认团队从未发过。",
+        "不是都没发过，有两部已经发布。",
+        "用户问：“它们都没发过吗？”",
+        "用户原话：“它们都没发过”。",
+        "你问“它们从未发布？”；需要核实。",
+    ],
+)
+def test_readiness_disclaimers_and_quoted_questions_are_not_assertions(text):
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("已发剧", matched=True, posts=1)])
+    options = dict(known_titles={"已发剧"}, posted_checked=True, posted_seen=seen)
+    assert check_answer(text, **options) == []
+    assert check_answer(text + "它们都没发过。", **options) == ["发布记录显示《已发剧》发过，不能说没发过。"]
+
+
+@pytest.mark.parametrize("title", ["长夜微光", "Oops! Wed, Again", "The CEO’s Wife", "Love-Hate"])
+@pytest.mark.parametrize("template", ["{title} 没发过。", "“{title}” 没发过。", "| {title} | 没发过 |", "{title}，还没发过。", "{title}\n  没发过。"])
+def test_readiness_known_bare_titles_keep_their_own_evidence(title, template):
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item(title, matched=True), _item("别的已发剧", matched=True, posts=1)])
+    options = dict(known_titles={title, "别的已发剧"}, posted_checked=False, posted_seen=seen)
+    assert check_answer(template.format(title=title), **options) == []
+    assert check_answer(template.format(title="别的已发剧"), **options) == ["发布记录显示《别的已发剧》发过，不能说没发过。"]
+
+
+def test_readiness_bare_list_and_account_scope():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("长夜微光", matched=True), _item("Love-Hate", matched=True, posts=1, accounts=["B"])], account="A")
+    options = dict(known_titles={"长夜微光", "Love-Hate"}, posted_checked=True, posted_seen=seen)
+    assert check_answer("长夜微光，Love-Hate 在 A 账号都没发过。", **options) == []
+    assert check_answer("长夜微光，Love-Hate 团队都没发过。", **options) == ["发布记录显示《Love-Hate》发过，不能说没发过。"]
+    assert check_answer("这里是任意普通中文和标点。", **options) == []
+
+
+def test_readiness_distinct_identities_do_not_share_account_clearance():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    first = dict(_item("Twin", matched=True, posts=1, accounts=["B"]), identity="one")
+    second = dict(_item("Twin", matched=True, posts=1, accounts=["C"]), identity="two")
+    seen = with_posted(with_posted({}, [first], account="A"), [second])
+    assert check_answer("Twin 在 A 账号没发过。", known_titles={"Twin"}, posted_checked=True, posted_seen=seen) == ["发布记录显示《Twin》发过，不能说没发过。"]
+
+
+def test_readiness_identity_clearance_accumulates_only_for_the_same_identity():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    item = dict(_item("Twin", matched=True, posts=1, accounts=["C"]), identity="one")
+    seen = with_posted(with_posted({}, [item], account="A"), [item], account="B")
+    options = dict(known_titles={"Twin"}, posted_checked=True)
+    assert check_answer("Twin 在 A 账号和 B 账号没发过。", posted_seen=seen, **options) == []
+    # Missing identity cannot prove that an account clearance belongs to both records.
+    unknown = with_posted(seen, [_item("Twin", matched=True, posts=1, accounts=["C"])])
+    assert check_answer("Twin 在 A 账号没发过。", posted_seen=unknown, **options) == ["发布记录显示《Twin》发过，不能说没发过。"]
+
+
+def test_readiness_quoted_assertion_and_adjacent_real_claim_still_warn():
+    from ggwork_pick.answer_check import check_answer
+
+    for text in [
+        "我的结论：“它们都没发过”。",
+        "用户问：“没发过吗？”我确认它们都没发过。",
+        "不能据此断言它们从未发布，但它们都没发过。",
+        "不能核实但团队都没发过。",
+    ]:
+        assert check_answer(text, known_titles=set(), posted_checked=False) == ["本轮查询没有按发布记录过滤，不能据此断言没发过。"]
+
+
+def test_readiness_known_bare_title_punctuation_and_normalization():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("Love-Hate, Again!", matched=True), _item("从未发布的秘密", matched=True)])
+    options = dict(known_titles={entry.title for entry in seen.values()}, posted_checked=False, posted_seen=seen)
+    assert check_answer("LOVE-HATE,  AGAIN! 没发过。", **options) == []
+    assert check_answer("推荐从未发布的秘密。", **options) == []
+    # A longer Latin word does not match a known title's leading/trailing fragment.
+    from ggwork_pick.answer_check import _known_bare_text
+
+    assert _known_bare_text("xLove-Hate 和 Love-Hatey", {"Love-Hate"}) == "xLove-Hate 和 Love-Hatey"
+
+
+@pytest.mark.parametrize("kind", ["shared-prefix", "quotes-and-disclaimers"])
+def test_readiness_new_scans_scale_at_one_two_four_times(kind):
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    titles = {"长" * length + "夜" for length in range(1, 33)}
+    seen = with_posted({}, [_item(title, matched=True) for title in titles])
+    unit = "长" * 256 if kind == "shared-prefix" else "“" * 256 + "不能据此断言它们从未发布，但它们都没发过。\n"
+    timings = []
+    for factor in (1, 2, 4):
+        text = unit * (32 * factor)
+        timings.append(_best_of_three(lambda: check_answer(text, known_titles=titles, posted_checked=False, posted_seen=seen)))
+    print(f"{kind} 1x/2x/4x seconds: {timings}")
+    # 4x input with a fixed dictionary must not approach the 16x cost of a quadratic scan.
+    # Best-of-three and a small timer allowance tolerate shared CI scheduling noise.
+    assert timings[2] <= timings[0] * 6 + 0.02, timings
+    assert timings[2] < 3, timings
+
+
+def test_readiness_quoted_bare_comma_list_retains_all_titles():
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item("长夜微光", matched=True, posts=1), _item("海上明月", matched=True)])
+    assert check_answer("“长夜微光”，“海上明月”都没发过。", known_titles={"长夜微光", "海上明月"}, posted_checked=True, posted_seen=seen) == [
+        "发布记录显示《长夜微光》发过，不能说没发过。"
+    ]
