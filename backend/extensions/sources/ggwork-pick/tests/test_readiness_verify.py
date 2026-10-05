@@ -1081,3 +1081,60 @@ def test_existing_parent_refresh_cannot_change_or_drop_sealed_facts(bundle, defe
         exported["captured_at"] = "2026-10-05T00:00:00Z"
     rec["bound_result_sha256"] = put(root, "existing-bound-result.json", exported)
     assert run(bundle)["exit_code"] != 0
+
+
+@pytest.mark.parametrize("mutation", ["wrong_language", "extra_filter", "omitted_required_filter"])
+def test_refusal_checks_prelocked_conditions_even_when_rejection_matches(bundle, mutation):
+    case, record = set_type(bundle, "refusal", {"reason_codes": ["UNKNOWN_ACCOUNT"]}, {"status": "refused", "reason_code": "UNKNOWN_ACCOUNT"})
+    expected = {**checker.DEFAULTS, "language": "en", "posted_account": "synthetic-unknown-account"}
+    case["expected"]["allowed_condition_sets"] = [expected]
+    record["raw_arguments"] = {"filters": {"language": "en", "posted_account": "synthetic-unknown-account"}}
+    if mutation == "wrong_language":
+        record["raw_arguments"]["filters"]["language"] = "ko"
+    elif mutation == "extra_filter":
+        record["raw_arguments"]["filters"]["theater"] = "Synthetic unrequested theater"
+    else:
+        record["raw_arguments"]["filters"].pop("language")
+    report = run(bundle)
+    assert report["exit_code"] == 1
+    assert report["checks"][0]["layers"]["intent"]["status"] == "FAIL"
+
+
+def test_unknown_account_refusal_accepts_omitted_defaults(bundle):
+    case, record = set_type(bundle, "refusal", {"reason_codes": ["UNKNOWN_ACCOUNT"]}, {"status": "refused", "reason_code": "UNKNOWN_ACCOUNT"})
+    case["expected"]["allowed_condition_sets"] = [{**checker.DEFAULTS, "language": "en", "posted_account": "synthetic-unknown-account"}]
+    record["raw_arguments"] = {"filters": {"language": "en", "posted_account": "synthetic-unknown-account"}}
+    record.pop("actual_conditions", None)
+    assert run(bundle)["exit_code"] == 0
+
+
+def test_refusal_without_condition_contract_preserves_legacy_behavior(bundle):
+    case, record = set_type(bundle, "refusal", {"reason_codes": ["MISSING_REFERENCE"]}, {"status": "refused", "reason_code": "MISSING_REFERENCE"})
+    case["expected"].pop("allowed_condition_sets")
+    record["raw_arguments"] = {"result_id": "synthetic-missing-result"}
+    record.pop("actual_conditions", None)
+    assert run(bundle)["exit_code"] == 0
+
+
+def test_rank_refusal_checks_filters_without_requiring_actual_conditions(bundle):
+    case, record = set_type(bundle, "refusal", {"reason_codes": ["RANK_UNAVAILABLE"]}, {"status": "refused", "reason_code": "RANK_UNAVAILABLE"})
+    case["expected"]["allowed_condition_sets"] = [{**checker.DEFAULTS, "language": "en", "signal_kind": "kw", "sort": "rank"}]
+    record["raw_arguments"] = {"filters": {"language": "en", "signal_kind": "kw", "sort": "rank"}}
+    record.pop("actual_conditions", None)
+    assert run(bundle)["exit_code"] == 0
+    record["raw_arguments"]["filters"]["channel"] = "youtube"
+    assert run(bundle)["exit_code"] == 1
+
+
+@pytest.mark.parametrize("defect", ["empty_allowed", "partial_expected", "missing_filters"])
+def test_invalid_refusal_condition_contract_stays_incomplete(bundle, defect):
+    case, record = set_type(bundle, "refusal", {"reason_codes": ["UNKNOWN_ACCOUNT"]}, {"status": "refused", "reason_code": "UNKNOWN_ACCOUNT"})
+    case["expected"]["allowed_condition_sets"] = [{**checker.DEFAULTS, "posted_account": "synthetic-unknown-account"}]
+    record["raw_arguments"] = {"filters": {"posted_account": "synthetic-unknown-account"}}
+    if defect == "empty_allowed":
+        case["expected"]["allowed_condition_sets"] = []
+    elif defect == "partial_expected":
+        case["expected"]["allowed_condition_sets"][0].pop("language")
+    else:
+        record["raw_arguments"].pop("filters")
+    assert run(bundle)["exit_code"] == 2
