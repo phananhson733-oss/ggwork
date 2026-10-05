@@ -2,7 +2,17 @@ import { randomUUID } from "node:crypto";
 
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
+// The coordinator supplies the isolated instance's actual effective product budget.
+function modelWaitMs() {
+  const seconds = Number(process.env.PICK_E2E_RUN_TIMEOUT_SECONDS);
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+    throw new Error("Set PICK_E2E_RUN_TIMEOUT_SECONDS from the verified QA runtime");
+  }
+  return (seconds + 60) * 1000;
+}
+
 function validateTarget(url: string) {
+  modelWaitMs();
   const target = new URL(url);
   if (["localhost", "127.0.0.1"].includes(target.hostname)) return;
   expect(process.env.PICK_E2E_REMOTE_QA).toBe("1");
@@ -112,7 +122,7 @@ test("configured model preserves old evidence and retries a committed save", asy
   await page.getByRole("button", { name: "Submit", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "查看候选", exact: true }),
-  ).toBeEnabled({ timeout: 150_000 });
+  ).toBeEnabled({ timeout: modelWaitMs() });
   await page.getByRole("button", { name: "查看候选", exact: true }).click();
   await expect(
     page.getByRole("checkbox", { name: `选择${marker}` }),
@@ -169,7 +179,7 @@ test("configured model preserves old evidence and retries a committed save", asy
   await page.getByRole("checkbox", { name: `选择${marker}` }).check();
   await page.getByLabel("保存备注").fill("下周准备剪辑");
   await expect(page.getByRole("button", { name: "保存选中（1）" })).toBeEnabled(
-    { timeout: 150_000 },
+    { timeout: modelWaitMs() },
   );
   const attempts: unknown[] = [];
   let originalReceipt: unknown;
@@ -298,7 +308,7 @@ test("refresh during an active run preserves the question and never invents a sa
         ).json();
         return rows[0]?.status;
       },
-      { timeout: 150_000 },
+      { timeout: modelWaitMs() },
     )
     .toBe("success");
   const results = (

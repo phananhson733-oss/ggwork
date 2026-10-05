@@ -1,0 +1,398 @@
+import { createHash } from "node:crypto";
+import {
+  mkdtempSync,
+  writeFileSync,
+  chmodSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, it } from "@rstest/core";
+
+import {
+  budgets,
+  redact,
+  verifyOwner,
+  verifyBatches,
+  extractTools,
+  reserveCase,
+  appendAttempt,
+  readVerified,
+  loadManifest,
+} from "../../e2e-pick/support/readiness-protocol";
+
+const directories: string[] = [];
+function directory() {
+  const p = mkdtempSync(join(tmpdir(), "pick-readiness-unit-"));
+  directories.push(p);
+  return p;
+}
+afterEach(() => {
+  for (const p of directories.splice(0))
+    rmSync(p, { recursive: true, force: true });
+});
+
+describe("readiness protocol", () => {
+  it("derives wait and case budget from verified runtime without shortening product deadlines", () => {
+    expect(budgets(600, 3)).toEqual({
+      runWaitMs: 660000,
+      caseTimeoutMs: 2100000,
+    });
+    for (const invalid of [0, -1, NaN, 1.2])
+      expect(() => budgets(invalid, 1)).toThrow();
+  });
+  it("refuses wrong identity, admin and missing owner before any run", () => {
+    const expected = {
+      owner_id: "qa-1",
+      email: "qa-azure-readiness@example.test",
+    };
+    expect(() =>
+      verifyOwner(
+        { id: "qa-1", email: expected.email, system_role: "user" },
+        expected,
+      ),
+    ).not.toThrow();
+    for (const patch of [
+      { id: "other" },
+      { id: undefined },
+      { system_role: "admin" },
+      { email: "qa-other@example.test" },
+    ])
+      expect(() =>
+        verifyOwner(
+          { id: "qa-1", email: expected.email, system_role: "user", ...patch },
+          expected,
+        ),
+      ).toThrow();
+  });
+  it("rejects personal imports and incorrect shared source/hash even when count is nonzero", () => {
+    const source = {
+      catalog_batch_id: "b",
+      source_type: "realshort_shared",
+      shared: true,
+      content_hash: "hash",
+    };
+    const batch = {
+      id: "b",
+      kind: "catalog",
+      status: "published",
+      shared: true,
+      content_hash: "hash",
+      validation_json: { source: "realshort" },
+    };
+    expect(() =>
+      verifyBatches([batch], { id: "b", shared: true }, source),
+    ).not.toThrow();
+    expect(() =>
+      verifyBatches(
+        [{ ...batch, shared: false }],
+        { id: "b", shared: false },
+        source,
+      ),
+    ).toThrow();
+    expect(() =>
+      verifyBatches(
+        [{ ...batch, content_hash: "other" }],
+        { id: "b", shared: true },
+        source,
+      ),
+    ).toThrow();
+    expect(() =>
+      verifyBatches(
+        [{ ...batch, id: "personal", shared: false }, batch],
+        { id: "b", shared: true },
+        source,
+      ),
+    ).toThrow();
+  });
+  it("checks frozen bytes and refuses missing or changed source exports", () => {
+    const p = directory();
+    const bytes = '[{"identity":"a"}]';
+    writeFileSync(join(p, "rows.json"), bytes, { mode: 0o600 });
+    const ref = {
+      rows_file: "rows.json",
+      rows_sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+    expect(readVerified(p, ref, "rows")).toEqual([{ identity: "a" }]);
+    writeFileSync(join(p, "rows.json"), "[]");
+    expect(() => readVerified(p, ref, "rows")).toThrow();
+    chmodSync(join(p, "rows.json"), 0o644);
+    expect(() => readVerified(p, ref, "rows")).toThrow();
+  });
+  it("redacts nested auth values and credential URLs before persistence", () => {
+    const safe = JSON.stringify(
+      redact(
+        {
+          authorization: "Bearer hidden",
+          nested: { cookie: "hidden", password: "hidden" },
+          text: "Bearer abc123 postgresql://u:p@host/db private-password",
+        },
+        ["private-password"],
+      ),
+    );
+    expect(safe).not.toContain("hidden");
+    expect(safe).not.toContain("abc123");
+    expect(safe).not.toContain("u:p");
+    expect(safe).not.toContain("private-password");
+  });
+  it("captures every call including errors and unmatched calls; keeps raw arguments independent", () => {
+    const messages = [
+      {
+        type: "ai",
+        tool_calls: [
+          {
+            id: "c1",
+            name: "pick_query_candidates",
+            args: { filters: { language: "ko" } },
+          },
+          { id: "c2", name: "pick_count_candidates", args: {} },
+        ],
+      },
+      { type: "tool", tool_call_id: "c1", content: '{"status":"rejected"}' },
+    ];
+    const calls = extractTools(messages);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.raw_arguments).toEqual({ filters: { language: "ko" } });
+    expect(calls[0]?.response).toEqual({ status: "rejected" });
+    expect(calls[1]?.capture_status).toBe("MISSING_TOOL_RESPONSE");
+  });
+  it("reserves whole cases and never hides consumed failed attempts", () => {
+    const p = join(directory(), "ledger.json");
+    writeFileSync(
+      p,
+      JSON.stringify({
+        max_runs: 40,
+        prior_runs: 38,
+        reservations: [],
+        attempts: [],
+      }),
+      { mode: 0o600 },
+    );
+    expect(() => reserveCase(p, "Q14", 3, "manifest")).toThrow();
+    const reservation = reserveCase(p, "Q01", 2, "manifest");
+    appendAttempt(p, reservation, {
+      case_id: "Q01",
+      step_id: "a",
+      attempt_id: "a1",
+      run_id: "r1",
+      status: "error",
+    });
+    appendAttempt(p, reservation, {
+      case_id: "Q01",
+      step_id: "a",
+      attempt_id: "a2",
+      run_id: "r2",
+      status: "success",
+    });
+    expect(() =>
+      appendAttempt(p, reservation, {
+        case_id: "Q01",
+        step_id: "a",
+        attempt_id: "a3",
+        run_id: "r3",
+        status: "started",
+      }),
+    ).toThrow();
+    expect(JSON.parse(readFileSync(p, "utf8")).attempts).toHaveLength(2);
+    expect(() => reserveCase(p, "Q02", 1, "manifest")).toThrow();
+  });
+});
+
+describe("readiness configuration isolation", () => {
+  it("fails collection without a private manifest and rejects synthetic environment", () => {
+    expect(() => loadManifest(undefined, {})).toThrow();
+    const path = join(directory(), "manifest.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        spec_version: "pick-readiness-v1.1",
+        environment: "synthetic-local",
+      }),
+      { mode: 0o600 },
+    );
+    expect(() => loadManifest(path, {})).toThrow("remote-qa");
+  });
+  it("isolates test collection and disables traces which include authentication", () => {
+    const config = readFileSync("playwright.pick.readiness.config.ts", "utf8");
+    const synthetic = readFileSync("playwright.pick.config.ts", "utf8");
+    expect(config).toContain('testMatch: "readiness.spec.ts"');
+    expect(config).toContain('trace: "off"');
+    expect(synthetic).toContain(
+      'testMatch: ["personal-selection.spec.ts", "pick-data-board.spec.ts"]',
+    );
+  });
+  it("refuses insecure remote URLs, missing opt-in and missing runtime evidence", () => {
+    const path = join(directory(), "manifest.json");
+    const manifest = {
+      spec_version: "pick-readiness-v1.1",
+      environment: "remote-qa",
+      locked_at: "2026-10-05T00:00:00Z",
+      review: { reviewer: "human", basis: "reviewed" },
+      runner: {
+        target_url: "https://qa.example.test",
+        identity: { owner_id: "qa", email: "qa-azure-test@example.test" },
+        evidence_dir: "/private/evidence",
+        ledger_file: "/private/ledger.json",
+      },
+      runtime: {},
+    };
+    writeFileSync(path, JSON.stringify(manifest), { mode: 0o600 });
+    const env = {
+      PICK_E2E_REMOTE_QA: "1",
+      PICK_E2E_URL: "https://qa.example.test",
+      PICK_E2E_EMAIL: "qa-azure-test@example.test",
+      PICK_E2E_PASSWORD: "synthetic-password",
+    };
+    expect(() =>
+      loadManifest(path, { ...env, PICK_E2E_URL: "http://qa.example.test" }),
+    ).toThrow();
+    expect(() =>
+      loadManifest(path, { ...env, PICK_E2E_REMOTE_QA: "0" }),
+    ).toThrow();
+    expect(() => loadManifest(path, env)).toThrow("artifact");
+  });
+});
+
+it("loads a fully locked protocol fixture and detects modified runtime evidence", () => {
+  const root = directory();
+  const put = (name: string, value: unknown) => {
+    const raw = JSON.stringify(value);
+    writeFileSync(join(root, name), raw, { mode: 0o600 });
+    return { file: name, hash: createHash("sha256").update(raw).digest("hex") };
+  };
+  const target = "https://qa.example.invalid";
+  const runtime = {
+    app_sha: "a".repeat(40),
+    model: "synthetic-config-only",
+    mode: "thinking",
+    run_timeout_seconds: 600,
+    request_timeout_seconds: 300,
+    stream_chunk_timeout_seconds: 300,
+  };
+  const config = put("runtime.json", {
+    ...runtime,
+    verified_at: "2026-10-05T00:00:00Z",
+    target_url: target,
+    max_output_tokens: 32000,
+    effort: "high",
+    request_context: { model_name: null, thinking_enabled: true },
+  });
+  const rows = put("rows.json", []);
+  const metadata = put("metadata.json", {});
+  const empty = put("empty.json", []);
+  const conditions = {
+    theater: null,
+    language: "en",
+    channel: null,
+    query: null,
+    tags: [],
+    limit: 5,
+    exclude_selected: true,
+    confirmed_eligible_only: true,
+    exclude_previous: false,
+    signal_kind: null,
+    sort: "evidence_date",
+    exclude_posted: false,
+    posted_account: null,
+    hot_only: false,
+  };
+  const manifest = {
+    spec_version: "pick-readiness-v1.1",
+    environment: "remote-qa",
+    locked_at: "2026-10-05T00:00:00Z",
+    review: {
+      reviewer: "synthetic-fixture-reviewer",
+      basis: "configuration unit test only",
+    },
+    runtime: {
+      ...runtime,
+      config_evidence_file: config.file,
+      config_evidence_sha256: config.hash,
+    },
+    runner: {
+      target_url: target,
+      runtime_context: { model_name: null, thinking_enabled: true },
+      identity: { owner_id: "qa", email: "qa-azure-test@example.invalid" },
+      evidence_dir: root,
+      ledger_file: join(root, "ledger.json"),
+    },
+    sources: {
+      s: {
+        source_type: "realshort_shared",
+        shared: true,
+        catalog_batch_id: "config-only",
+        content_hash: "dummy",
+        rows_file: rows.file,
+        rows_sha256: rows.hash,
+        metadata_file: metadata.file,
+        metadata_sha256: metadata.hash,
+      },
+    },
+    states: {
+      before: {
+        owner_id: "qa",
+        selections_before_file: empty.file,
+        selections_before_sha256: empty.hash,
+        parent_chain_file: empty.file,
+        parent_chain_sha256: empty.hash,
+      },
+    },
+    cases: [
+      {
+        case_id: "Q01",
+        case_type: "query",
+        planned_max_runs: 1,
+        source_key: "s",
+        state_key: "before",
+        prompt: "Config-only synthetic prompt",
+        action: { kind: "prompt" },
+        expected: {
+          allowed_actions: ["pick_query_candidates"],
+          allowed_condition_sets: [conditions],
+          expected_outcome: "query_success",
+          semantic_rubric: ["Independent review required"],
+          browser_assertions: [],
+        },
+      },
+    ],
+  };
+  const path = join(root, "manifest.json");
+  writeFileSync(path, JSON.stringify(manifest), { mode: 0o600 });
+  const env = {
+    PICK_E2E_REMOTE_QA: "1",
+    PICK_E2E_URL: target,
+    PICK_E2E_EMAIL: manifest.runner.identity.email,
+    PICK_E2E_PASSWORD: "synthetic",
+  };
+  expect(loadManifest(path, env).manifest.runtime.run_timeout_seconds).toBe(
+    600,
+  );
+  put("runtime.json", { ...runtime, run_timeout_seconds: 120 });
+  expect(() => loadManifest(path, env)).toThrow("hash");
+});
+
+it("retries within the original whole-case reservation, without exceeding planned runs", () => {
+  const path = join(directory(), "ledger.json");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      max_runs: 40,
+      prior_runs: 0,
+      reservations: [],
+      attempts: [],
+    }),
+    { mode: 0o600 },
+  );
+  const first = reserveCase(path, "Q01", 2, "hash", 1);
+  appendAttempt(path, first, {
+    case_id: "Q01",
+    step_id: "main",
+    attempt_id: "one",
+    run_id: "run-one",
+    status: "error",
+  });
+  expect(reserveCase(path, "Q01", 2, "hash", 1)).toBe(first);
+  expect(() => reserveCase(path, "Q01", 2, "hash", 1)).toThrow("retry");
+});
