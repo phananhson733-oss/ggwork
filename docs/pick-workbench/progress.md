@@ -1,3 +1,15 @@
+# 后续落实（2026-10-06，发布前验证）
+
+本轮授权为“按照建议去落地”。基于业务 main `8f2311da` 的 `codex/readiness-followup-20261006` 已集成取消用量观测、只读 canary 事实报告、负向引用覆盖和下一阶段规格。当前实际生产版本仍是下方记录的 `d236f951`；本段代码存在不表示已部署。
+
+- **取消计量实现与独立审查完成**：错误回调已知 partial usage 保留，缺失与显式零区分，实际回调生命周期计数通过 server-owned run metadata 持久化。原子 admission、租约丢失、重放、双库、真实本地异步流取消均验证；运行级观测不会复制进线程。前端用量文字明确“已记录”和未记录不等于零消耗。历史 Q19 的供应商 token 仍无法回填，见 [观测合同](usage-observation.md)。
+- **中性 canary 报告完成**：独立 Trends CLI 只读最近七个 UTC 日的预算、请求、限流及停止事实，缺日 unknown、当天 pending；qualification 固定 not_evaluated。它没有恢复采集或判定门槛通过，见 [运维说明](observe-runbook/canary-report.md)。
+- **团队/外部写入规格已交付并复审**：见 [团队流程](../plans/2026-10-06-pick-team-workflow-spec.md) 和 [明确确认的外部写入](../plans/2026-10-06-pick-external-write-spec.md)。这些是下一阶段可实施合同，不是已上线功能。
+- **真实部署前验证进行中**：业务双库 4,351 passed / 21 skipped；blocking-I/O 149 passed；前端常规 2,874 passed，45 个 reader 项另用真实 PG 全部通过；check/build 通过，文字增量定向 8 项通过。宿主全量发现线程 metadata 隔离及指南预算问题，均已修并定向验证；最终以集成 HEAD 的全套 CI 为准，不把失败轮次改写成绿色。
+- **两项明确决策待回复**：原字段表示可安全去重到约 8.9%，新模型专用可逆字典实验约 32%～35%，后者改变 Spec 表示合同；雷达还需确认按历史批准的 100 剧全球日级参考表，还是恢复完整 GSC/智能体路线。相关实现没有据等待时间自动选定。完整目标见 [后续计划](../plans/2026-10-06-pick-workbench-followup-plan.md)。
+
+---
+
 # 当前发布状态（2026-10-06）
 
 PR [#31](https://github.com/phananhson733-oss/ggwork/pull/31) 已合并，生产业务源码为 `d236f951d76d011bc2e704a772b2382345b8335b`。Gateway 部署 `457941b3-0f1d-49d8-8ccf-2b0b6d93b735`，Vercel 部署 `dpl_CKFUdQYs4ofv8TeYEoWGSxQKLKoW`；生产 alias `ggwork-deerflow.vercel.app` 已指向该 READY 部署，前端构建版本 `20261006-d236f95`。

@@ -334,3 +334,16 @@ Q13 本轮上线后仅执行 valid-zero 场景。此前 invalid-case 的基线�
 [PR #32](https://github.com/phananhson733-oss/ggwork/pull/32) 仅修改验收 checker、测试及文档，不改变已部署的业务实现。拒绝场景现在也核对预锁条件集合，避免模型改错语言等条件却因同一种拒绝而误获意图 PASS；实际模型捕获和预期均未改写。
 
 复杂度测试先后暴露了机器相关的 500ms wall-clock 门槛，以及同进程全局 GC 对成对 CPU 计时的污染。前两次绝对计时失败和一次 CPU 比例失败均保留。本地保留大量无关存活对象能够复现同型误报，但不能据此断言远程 CI 的唯一原因。最终测试在每次测量内隔离循环 GC、恢复其原状态，并采用当前线程 CPU 时间；12 类原输入及四倍输入对应增长比小于 6 的阈值保留。独立二次扫描反例仍被拒绝，生产算法未改。本地 checker、answer-check 与托管副本合计 286 项通过，格式检查通过；合并门槛以补充 PR 最终 HEAD 的 CI 为准。这不构成端到端 500ms SLA。
+
+## 2026-10-06 后续修复验证（尚未发布）
+
+后续分支以业务 main `8f2311da` 为代码基线，实际部署仍按上方 `d236f951` 记录。新增 `metadata.deerflow_usage_observation` 不修改数据库 schema 或顶层 RunResponse 形状；本期未触发新的模型验收，统一账本仍为 36/40。
+
+- 改前宿主 canonical offline：18,425 passed / 167 skipped / 3 deselected；blocking-I/O 149 passed。首次附加 UV_FROZEN 的环境冲突轮次保留；移除额外设置后重跑全套通过。
+- 作者/独立审查覆盖已知 partial usage、原 atomic admission 的伪造字段持久化、显式零与派生 total、重放、external source 去重、closed journal、三种 store 和 worker 取消；两项 HIGH 均修复后独立复验。它们使用本地合成模型，不计作网络模型或生产通过。
+- 集成宿主全量最初 18,448 passed、1 failed：旧 metadata 精确断言更新后揭示真实线程污染，Gateway 已按 run/thread 作用域过滤新增字段，235 项相关测试通过。随后全量只剩指南字节预算失败；仅压缩本轮相关指南说明，原约束保持，13 项指南回归通过，base→HEAD 检查 0 errors，既有 soft/不增长的 inherited 警告保留。最终全套 CI 待确认，不声称上述轮次单次全部绿色。
+- 业务 SQLite/PostgreSQL 全套：4,351 passed / 21 方言或重复计时 skipped。新增借用另一 owner/线程引用的合成运行层测试验证 query/prepare 均在初始化前拒绝，源候选与两方清单不变；无效剧场新增范围也不生成候选。本轮这部分为合成负向覆盖，不冒称线上攻击测试。
+- 前端常规 2,874 passed / 45 reader skipped；真实 PG reader 45 passed / 0 skipped；check/build 通过。用量文字增量复用 i18n/token 测试 8 passed，最终 build 通过，明确视图为空不证明供应商未返回数值。
+- canary-report 新测试及静态时钟检查双库通过；独立验证只有 SELECT、UTC 日界、批次隔离、缺日未知和 typed whitelist，输出不含身份/错误正文/凭据。只读现场仍显示限流和终止，qualification=not_evaluated，不据此解锁任何路线。
+
+团队和外部写入仅交付已复审规格。输入表示和雷达范围两个选择仍待用户回复，原输入样本与原失败/UNVERIFIED 记录保持；新编码实验不是已批准实现，更不是模型理解或降费验收。
