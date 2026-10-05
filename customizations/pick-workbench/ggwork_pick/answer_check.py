@@ -39,7 +39,13 @@ _NOT_POSTED = re.compile(
     r"|发(?![布现生展放起出送给挥行货表言声票音酵力售扬觉掘明烧愁怒抖呆光热芽达病散射泄誓问动财福胖]))"
 )
 # A claim quoted inside a disclaimer ("不能声称没发过") is not a claim; a comma ends the disclaimer.
-_NEGATING_PREFIX = re.compile(r"(不能|无法|不代表|不等于|不会|才会|是否|请勿|不要|不是|并非)[^。！？!?，,；;但却\n]{0,24}$")
+_NEGATING_PREFIX = re.compile(r"(不能|无法|不代表|不等于|不能声称|不能断言|不能确认|不会|才会|是否|请勿|不要)[^。！？!?，,；;但却\n]{0,6}$")
+# Longer disclaimers need an actual speech/conclusion verb, not an arbitrary intervening predicate.
+_PUBLICATION_NEGATION = re.compile(
+    r"(?:不能|无法)(?:据此|因此|就此)?(?:断言|断定|确认|认定|声称|说|推断)(?:它们|团队|这些剧|这[0-9一二两三四五六七八九十]{1,3}部)?从?$"
+    r"|(?:不是|并非)(?:它们|这些剧)?(?:都|全都|全部|所有)$"
+)
+_BARE_PREDICATE = re.compile(r"(?:都|均|团队|还|尚|从){0,2}(?:没有?|未|不曾)(?:发|在|被)")
 # Longer than any disclaimer _NEGATING_PREFIX reads, so a claim looks back this far instead of through the whole answer.
 _PREFIX_WINDOW = 32
 _QUOTE_SOURCE = re.compile(r"(?:用户(?:问|说|原话|的问题)|你(?:问|说))\s*[：:]?\s*$")
@@ -152,7 +158,11 @@ def _claim_starts(pattern: re.Pattern, text: str) -> list[int]:
             quote += 1
         if quote < len(quoted) and quoted[quote][0] < match.start() < quoted[quote][1]:
             continue
-        if not _NEGATING_PREFIX.search(text, max(0, match.start() - _PREFIX_WINDOW), match.start()):
+        left = max(0, match.start() - _PREFIX_WINDOW)
+        negated = _NEGATING_PREFIX.search(text, left, match.start())
+        if pattern is _NOT_POSTED:
+            negated = negated or _PUBLICATION_NEGATION.search(text, left, match.start())
+        if not negated:
             starts.append(match.start())
     return starts
 
@@ -795,10 +805,14 @@ def _known_bare_text(text: str, titles) -> str:
                 break
             stop += 1
             if _END in node:
-                # Latin edges must be words, not fragments of a longer English title.
-                before = index > 0 and folded[index - 1].isascii() and folded[index - 1].isalnum()
-                after = stop < len(folded) and folded[stop].isascii() and folded[stop].isalnum()
-                if not (folded[index].isascii() and before or folded[stop - 1].isascii() and after):
+                # Require name boundaries, including Han text: 海 in 海外 is not title evidence.
+                before = index > 0 and folded[index - 1].isalnum() and (not folded[index].isascii() or folded[index - 1].isascii())
+                after = stop < len(folded) and folded[stop].isalnum() and (not folded[stop - 1].isascii() or folded[stop].isascii())
+                if before and not folded[index].isascii():
+                    before = not (folded[max(0, index - 2) : index] == "推荐" and (index == 2 or not folded[index - 3].isalnum()))
+                if after and not folded[stop - 1].isascii():
+                    after = _BARE_PREDICATE.match(folded, stop) is None
+                if not before and not after:
                     hit = (node[_END], stop)
         if hit is None:
             index += 1

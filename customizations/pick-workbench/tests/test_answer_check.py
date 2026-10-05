@@ -1007,3 +1007,39 @@ def test_readiness_quoted_bare_comma_list_retains_all_titles():
     assert check_answer("“长夜微光”，“海上明月”都没发过。", known_titles={"长夜微光", "海上明月"}, posted_checked=True, posted_seen=seen) == [
         "发布记录显示《长夜微光》发过，不能说没发过。"
     ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "不是推荐而是已经保存到个人清单。",
+        "不能只看热度所以我已经帮你保存到清单。",
+        "不是我猜的它们都没发过。",
+    ],
+)
+def test_readiness_negation_does_not_hide_a_later_predicate(text):
+    from ggwork_pick.answer_check import check_answer
+
+    assert check_answer(text, known_titles=set(), posted_checked=False)
+
+
+@pytest.mark.parametrize(
+    "title,text",
+    [
+        ("明月", "明月光这部剧没发过。"),
+        ("海", "这部剧在海外没发过。"),
+    ],
+)
+def test_readiness_han_substrings_do_not_become_title_evidence(title, text):
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item(title, matched=True), _item("海上花", matched=True, posts=1)])
+    assert check_answer(text, known_titles={title, "海上花"}, posted_checked=False, posted_seen=seen) == ["本轮查询没有按发布记录过滤，不能据此断言没发过。"]
+
+
+@pytest.mark.parametrize("title,text", [("长夜微光", "长夜微光都没发过。"), ("Love-Hate", "Love-Hate没发过。")])
+def test_readiness_bare_title_direct_predicate_is_still_recognized(title, text):
+    from ggwork_pick.answer_check import check_answer, with_posted
+
+    seen = with_posted({}, [_item(title, matched=True), _item("别的已发剧", matched=True, posts=1)])
+    assert check_answer(text, known_titles={title, "别的已发剧"}, posted_checked=False, posted_seen=seen) == []
