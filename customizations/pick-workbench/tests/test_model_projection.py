@@ -50,6 +50,12 @@ def test_projection_preserves_all_facts_unknown_fields_and_source_objects(shape)
     projected = model_payload(original)
     shown = projected["items"][0] if shape == "query" else projected["item"]
     assert "detail_url" not in shown
+    assert {key: value for key, value in projected.items() if key not in {"items", "item"}} == {
+        key: value for key, value in original.items() if key not in {"items", "item"}
+    }
+    assert {key: value for key, value in shown.items() if key != "evidence"} == {
+        key: value for key, value in item.items() if key not in {"detail_url", "evidence"}
+    }
     for source, compact in zip(item["evidence"], shown["evidence"], strict=True):
         removable = {"source_ref"} if source["source_ref"] == item["detail_url"] else set()
         assert compact == {key: value for key, value in source.items() if key not in removable}
@@ -168,3 +174,34 @@ async def test_actual_tools_project_only_query_and_detail_and_preserve_http_and_
     finally:
         event.remove(Engine, "before_cursor_execute", record_sql)
     assert statements == []
+
+
+def test_independent_non_observation_source_and_unknown_nested_fact_survive():
+    from ggwork_pick.model_projection import model_payload
+
+    item = item_fixture()
+    item["evidence"][0]["source_ref"] = "https://independent.synthetic.test/rank"
+    item["evidence"][0]["future_fact"] = {"values": [None, 0, ""], "nested": {"grade": "S"}}
+    projected = model_payload({"item": item})
+    assert projected["item"]["evidence"][0] == item["evidence"][0]
+    projected["item"]["evidence"][0]["future_fact"]["values"].append("changed")
+    assert item["evidence"][0]["future_fact"]["values"] == [None, 0, ""]
+
+
+@pytest.mark.parametrize("kind", [None, 0])
+def test_catalog_ingestion_rejects_non_string_evidence_kind(kind):
+    from pydantic import ValidationError
+
+    from ggwork_pick.imports import parse_catalog
+
+    row = {
+        "source": "synthetic",
+        "source_id": "kind-test",
+        "language": "en",
+        "title": "Synthetic",
+        "detail_url": "https://synthetic.test/row",
+        "signals": [{"kind": kind, "source_ref": "https://synthetic.test/row"}],
+    }
+    with pytest.raises(ValidationError) as refused:
+        parse_catalog(json.dumps([row]).encode(), "json")
+    assert any(error["loc"] == ("signals", 0, "kind") and error["type"] == "string_type" for error in refused.value.errors())
