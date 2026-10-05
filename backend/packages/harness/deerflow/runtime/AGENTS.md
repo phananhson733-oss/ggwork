@@ -68,7 +68,8 @@ summaries, never provider-owned messages; deep-copy nested usage details. Adjace
 positive replays enrich corresponding usage fields only: generation-count changes
 never change messages. An unrelated event, committed-plus-pending buffer threshold,
 or explicit flush commits the stage and summary. Later usage updates run totals only,
-never append-only events/caller/fallback/tools. Closed LLM callbacks must not mutate state.
+never append-only events/caller/fallback/tools. Closed LLM callbacks return before
+inspecting responses or mutating state.
 
 `usage_observation` persists as server-owned run `metadata.deerflow_usage_observation`
 in the same guarded progress/completion update; both admissions replace forged copies.
