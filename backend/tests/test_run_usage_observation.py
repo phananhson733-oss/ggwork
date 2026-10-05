@@ -314,3 +314,15 @@ async def test_missing_total_is_not_derived_and_known_other_call_is_only_lower_b
     journal.record_external_llm_usage_records([{"source_run_id": "ext", "input_tokens": 1, "output_tokens": 2, "total_tokens": 0}])
     assert journal.get_completion_data()["usage_observation"]["known_total_tokens"] == 5
     await journal.close(flush=False)
+
+
+@pytest.mark.anyio
+async def test_checkpoint_operations_strip_forged_usage_without_inventing_model_observation(observation_store):
+    from deerflow.runtime.runs.schemas import ThreadOperationKind
+
+    manager = RunManager(store=observation_store)
+    supplied = {"trace": "checkpoint", KEY: {"coverage": "complete", "known_total_tokens": 999}}
+    record = await manager._admit_thread_operation("checkpoint-thread", operation_kind=ThreadOperationKind.checkpoint_write, metadata=supplied, user_id="alice")
+    assert record.metadata == {"trace": "checkpoint"}
+    assert (await observation_store.get(record.run_id, user_id="alice"))["metadata"] == {"trace": "checkpoint"}
+    assert supplied[KEY]["known_total_tokens"] == 999

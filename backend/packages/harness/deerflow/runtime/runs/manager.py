@@ -509,8 +509,11 @@ class RunManager:
         )
 
     @staticmethod
-    def _initial_metadata(metadata: dict | None) -> dict:
+    def _initial_metadata(metadata: dict | None, *, is_run: bool = True) -> dict:
         result = deepcopy(metadata or {})
+        result.pop("deerflow_usage_observation", None)
+        if not is_run:
+            return result
         result["deerflow_usage_observation"] = {"version": 1, "finalized": False, "coverage": "unknown", "reasons": ["journal_not_observed"], "known_input_tokens": None, "known_output_tokens": None, "known_total_tokens": None}
         result["deerflow_usage_observation"].update(
             call_scope="local_callback_lifecycle",
@@ -1644,7 +1647,7 @@ class RunManager:
             on_disconnect=on_disconnect,
             operation_kind=operation_kind,
             multitask_strategy=multitask_strategy,
-            metadata=self._initial_metadata(metadata),
+            metadata=self._initial_metadata(metadata, is_run=operation_kind == ThreadOperationKind.run),
             kwargs=kwargs or {},
             user_id=user_id,
             created_at=now,
