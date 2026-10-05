@@ -12,17 +12,26 @@ from ggwork_pick.context import task_from_runtime
 from ggwork_pick.contracts import PickConditions
 from ggwork_pick.knowledge_excerpts import MAX_EXCERPTS, choose_excerpts, fit
 from ggwork_pick.model_projection import model_payload
-from ggwork_pick.selection import PostedDataUnavailable, SelectionService
+from ggwork_pick.selection import CatalogRefusal, PostedDataUnavailable, SelectionService
+
+
+def _refusal_scope(exc: Exception) -> dict:
+    if isinstance(exc, CatalogRefusal) and exc.catalog_batch_id is not None:
+        return {"catalog_batch_id": exc.catalog_batch_id, "data_as_of": exc.data_as_of}
+    return {}
 
 
 def _posted_unavailable(exc: Exception) -> str:
-    return json.dumps({"status": "posted_unavailable", "notice": str(exc) + "。可以改为排除个人已选，或等数据同步带上发布记录后再查。"}, ensure_ascii=False)
+    return json.dumps(
+        {"status": "posted_unavailable", "notice": str(exc) + "。可以改为排除个人已选，或等数据同步带上发布记录后再查。", **_refusal_scope(exc)},
+        ensure_ascii=False,
+    )
 
 
 def _rejected(exc: Exception) -> str:
     # Host tool-error middleware would print a raw "Error: Tool ... failed" line into the chat;
-    # a business refusal is an answer the model can relay, and carries no data.
-    return json.dumps({"status": "rejected", "notice": str(exc)}, ensure_ascii=False)
+    # a business refusal is an answer the model can relay, with provenance only after a catalog read.
+    return json.dumps({"status": "rejected", "notice": str(exc), **_refusal_scope(exc)}, ensure_ascii=False)
 
 
 async def _answer(work) -> str:

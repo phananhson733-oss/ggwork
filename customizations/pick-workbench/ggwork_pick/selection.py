@@ -26,7 +26,16 @@ REPLAY_LIMIT = 2000
 CHAIN_LIMIT = 100
 
 
-class PostedDataUnavailable(ValueError):
+class CatalogRefusal(ValueError):
+    """A business refusal, optionally scoped after the selected catalog was read."""
+
+    def __init__(self, message: str, *, catalog_batch_id: str | None = None, data_as_of: dict | None = None):
+        super().__init__(message)
+        self.catalog_batch_id = catalog_batch_id
+        self.data_as_of = copy.deepcopy(data_as_of)
+
+
+class PostedDataUnavailable(CatalogRefusal):
     """The pinned catalog batch carries no publication records, so "not posted" cannot be checked."""
 
 
@@ -430,6 +439,14 @@ class SelectionService:
         previous = await self._chain_items(parent) if derived else set()
         return conditions, pin, frozenset(selected | previous)
 
+    async def _matched_in_scope(self, rows, conditions: PickConditions, excluded, pin: Pin):
+        """Only called after catalog_rows has checked ownership and loaded this Pin's rows."""
+        try:
+            return matching_rows(rows, conditions, excluded)
+        except ValueError as exc:
+            refused = PostedDataUnavailable if isinstance(exc, PostedDataUnavailable) else CatalogRefusal
+            raise refused(str(exc), catalog_batch_id=pin.catalog_id, data_as_of=await self._pin_data_as_of(pin)) from exc
+
     async def query(
         self,
         filters: dict,
@@ -476,7 +493,7 @@ class SelectionService:
                 raise ValueError("重复工具调用的参数不同")
             return result_view(old), old
         rows = await self.repository.catalog_rows(pin.catalog_id)
-        matches = matching_rows(rows, effective, excluded)
+        matches = await self._matched_in_scope(rows, effective, excluded, pin)
         items = [candidate_item(row, effective, len(matches)) for row in matches[: effective.limit]]
         record = await self.repository.add_result(
             dict(
@@ -510,7 +527,7 @@ class SelectionService:
         """
         conditions, pin, excluded = await self._scope(filters, parent, use_latest=False, pinned_versions=pinned_versions)
         rows = await self.repository.catalog_rows(pin.catalog_id)
-        matches = matching_rows(rows, conditions, excluded)
+        matches = await self._matched_in_scope(rows, conditions, excluded, pin)
         by_theater, by_language = {}, {}
         for row in matches:
             by_theater[row["theater"]] = by_theater.get(row["theater"], 0) + 1
