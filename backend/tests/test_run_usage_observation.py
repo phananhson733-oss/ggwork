@@ -193,12 +193,18 @@ async def observation_store(request, tmp_path):
 
 
 @pytest.mark.anyio
-async def test_metadata_roundtrip_status_fence_and_owner_scope(observation_store):
+@pytest.mark.parametrize("strategy", ["reject", "interrupt", "rollback"])
+async def test_metadata_roundtrip_status_fence_and_owner_scope(observation_store, strategy):
     import copy
 
     manager = RunManager(store=observation_store)
-    record = await manager.create_or_reject("scoped-thread", metadata={KEY: {"coverage": "complete"}, "trace": {"value": "keep"}}, user_id="alice")
+    record = await manager.create_or_reject("scoped-thread", metadata={KEY: {"coverage": "complete"}, "trace": {"value": "keep"}}, user_id="alice", multitask_strategy=strategy)
     assert record.metadata[KEY]["coverage"] == "unknown"
+    persisted_pending = await observation_store.get(record.run_id, user_id="alice")
+    assert persisted_pending["metadata"][KEY]["coverage"] == "unknown"
+    assert persisted_pending["metadata"][KEY]["calls_started"] is None
+    hydrated = await RunManager(store=observation_store).get(record.run_id, user_id="alice")
+    assert hydrated.metadata == record.metadata
     await manager.set_status(record.run_id, RunStatus.running)
     journal = RunJournal(record.run_id, record.thread_id, MemoryRunEventStore())
     rid = uuid4()
