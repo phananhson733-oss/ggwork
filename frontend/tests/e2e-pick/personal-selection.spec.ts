@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
+import { firstCommitBarrier } from "./support/first-commit";
+
 // The coordinator supplies the isolated instance's actual effective product budget.
 function modelWaitMs() {
   const seconds = Number(process.env.PICK_E2E_RUN_TIMEOUT_SECONDS);
@@ -180,22 +182,26 @@ test("configured model preserves old evidence and retries a committed save", asy
     { timeout: modelWaitMs() },
   );
   const attempts: unknown[] = [];
-  let originalReceipt: unknown;
+  const firstCommit = firstCommitBarrier();
   // Fault injection drops only the first response AFTER the real Gateway commits.
   // Queries, imports, command handling and persistence are never mocked.
   await page.route("**/api/pick/selections", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     attempts.push(route.request().postDataJSON());
     if (attempts.length === 1) {
-      const committed = await route.fetch();
-      expect(committed.ok()).toBeTruthy();
-      originalReceipt = await committed.json();
-      await route.abort("connectionreset");
+      await firstCommit.capture(async () => {
+        const committed = await route.fetch();
+        expect(committed.ok()).toBeTruthy();
+        const receipt: unknown = await committed.json();
+        await route.abort("connectionreset");
+        return receipt;
+      });
     } else {
       await route.continue();
     }
   });
   await page.getByRole("button", { name: "保存选中（1）" }).click();
+  const originalReceipt = await firstCommit.finished;
   await expect(page.getByRole("alert")).toBeVisible();
   const committedRows = (
     await (await context.request.get(`${url}/api/pick/selections`)).json()

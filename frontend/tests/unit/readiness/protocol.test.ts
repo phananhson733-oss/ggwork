@@ -26,6 +26,10 @@ import {
   sealSaveDispatch,
   ownedSelectionRows,
   resolveExpected,
+  toolCallTime,
+  frozenResultExport,
+  verifyReviewedSequence,
+  verifyReferenceIdentities,
   localFixtureTarget,
   type Document,
 } from "../../e2e-pick/support/readiness-protocol";
@@ -603,4 +607,120 @@ it("resolves compound typed bindings from a prelocked query occurrence, never de
     from_tool: "pick_query_candidates",
     occurrence: 1,
   });
+});
+
+it("preserves actual per-call timestamps from scoped persisted envelopes, including JSON content", () => {
+  const events = [
+    {
+      run_id: "r",
+      event_type: "llm.ai.response",
+      created_at: "2026-10-05T00:00:01.000001+00:00",
+      content: JSON.stringify({ tool_calls: [{ id: "q" }] }),
+    },
+    {
+      run_id: "other",
+      event_type: "llm.ai.response",
+      created_at: "2020-01-01T00:00:00Z",
+      content: { tool_calls: [{ id: "d" }] },
+    },
+    {
+      run_id: "r",
+      event_type: "llm.ai.response",
+      created_at: "2026-10-05T00:00:02.000003+00:00",
+      content: { tool_calls: [{ id: "d" }] },
+    },
+  ];
+  expect(toolCallTime(events, "r", "q")).toBe(
+    "2026-10-05T00:00:01.000001+00:00",
+  );
+  expect(toolCallTime(events, "r", "d")).toBe(
+    "2026-10-05T00:00:02.000003+00:00",
+  );
+  expect(toolCallTime(events, "r", "missing")).toBeNull();
+});
+
+it("exports the full authoritative API evidence without applying model projection", () => {
+  const evidence = [
+    {
+      citation_id: "i:1",
+      kind: "sm",
+      source_ref: "synthetic:full",
+      observed_at: null,
+      rank: null,
+      grade: "S",
+      note: "uncertain",
+      value: 0,
+    },
+  ];
+  const result = {
+    id: "r",
+    catalog_batch_id: "b",
+    created_at: "2026-10-05T00:00:01Z",
+    items: [{ item_id: "i", identity: "x", evidence }],
+    data_as_of: { shared: true },
+    rule_version: "pick-rules-v1",
+    ranking_version: "evidence-date-v1",
+  };
+  const frozen = frozenResultExport(
+    result,
+    [
+      {
+        id: "b",
+        shared: true,
+        content_hash: "hash",
+        validation_json: { source: "realshort" },
+      },
+    ],
+    { catalog_batch_id: "b", content_hash: "hash", rows_sha256: "rows-hash" },
+    "qa",
+  );
+  expect(frozen.items[0].evidence).toEqual(evidence);
+  expect(frozen.items[0].evidence[0].source_ref).toBe("synthetic:full");
+  expect(frozen.owner_id).toBe("qa");
+  expect(frozen.source.rows_sha256).toBe("rows-hash");
+  expect(result).not.toHaveProperty("owner_id");
+});
+
+it("preserves independently reviewed exact action sequences and prerequisite identities", () => {
+  const allowed = [
+    ["pick_query_candidates"],
+    ["pick_count_candidates", "pick_query_candidates"],
+  ];
+  expect(() =>
+    verifyReviewedSequence(allowed, [
+      "pick_count_candidates",
+      "pick_query_candidates",
+    ]),
+  ).not.toThrow();
+  expect(() =>
+    verifyReviewedSequence(allowed, [
+      "pick_query_candidates",
+      "pick_query_candidates",
+    ]),
+  ).toThrow();
+  expect(() =>
+    verifyReferenceIdentities(
+      { items: [{ identity: "a" }, { identity: "b" }] },
+      ["a", "b"],
+    ),
+  ).not.toThrow();
+  expect(() =>
+    verifyReferenceIdentities({ items: [{ identity: "wrong" }] }, ["a"]),
+  ).toThrow();
+});
+
+it("refuses a prospective offline manifest before credential/runtime evaluation", () => {
+  const path = join(directory(), "prospective.json");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      spec_version: "pick-readiness-v1.1",
+      environment: "remote-qa",
+      prospective: true,
+      locked_at: "2026-10-05T00:00:00Z",
+      review: { reviewer: "independent", basis: "offline conversion" },
+    }),
+    { mode: 0o600 },
+  );
+  expect(() => loadManifest(path, {})).toThrow("Prospective");
 });

@@ -16,6 +16,10 @@ import {
   sealSaveDispatch,
   ownedSelectionRows,
   resolveExpected,
+  toolCallTime,
+  frozenResultExport,
+  verifyReviewedSequence,
+  verifyReferenceIdentities,
   budgets,
   extractTools,
   finishAttempt,
@@ -72,35 +76,8 @@ function observedResult(
   imports: Document[],
   source: Document,
 ): Document {
-  const batch = imports.find((entry) => entry.id === result.catalog_batch_id);
-  return {
-    ...result,
-    owner_id: runner.identity.owner_id,
-    source: {
-      catalog_batch_id: result.catalog_batch_id,
-      source_type:
-        batch?.shared && batch.validation_json?.source === "realshort"
-          ? "realshort_shared"
-          : "unknown",
-      shared: result.data_as_of?.shared ?? null,
-      rows_sha256:
-        batch?.content_hash === source.content_hash &&
-        result.catalog_batch_id === source.catalog_batch_id
-          ? source.rows_sha256
-          : null,
-    },
-  };
-}
-function toolTime(events: Document[], callId: string): string | null {
-  return (
-    events.find(
-      (event) =>
-        event.event_type === "llm.ai.response" &&
-        (event.content?.tool_calls ?? []).some(
-          (call: Document) => call.id === callId,
-        ),
-    )?.created_at ?? null
-  );
+  // This argument is always an authenticated GET /results/{id} payload, never a model projection.
+  return frozenResultExport(result, imports, source, runner.identity.owner_id);
 }
 function artifact(dir: string, name: string, value: unknown) {
   return writePrivate(join(dir, name), value, secrets);
@@ -149,6 +126,8 @@ async function preflight(request: APIRequestContext, step: Document) {
 async function browserChecks(page: Page, checks: Document[] = []) {
   const assertions: { name: string; passed: boolean }[] = [];
   for (const check of checks) {
+    // A prose assertion requiring independent visual/semantic judgment never becomes an automatic PASS.
+    if (check.manual === true) continue;
     const locator = page.locator(check.selector);
     if (check.count !== undefined)
       await expect(locator).toHaveCount(check.count);
@@ -346,6 +325,10 @@ for (const item of manifest.cases as Document[]) {
       );
       for (const step of steps) {
         currentStep = step;
+        if (step.action.new_thread) {
+          threadId = "";
+          await page.goto("/workspace/chats/new");
+        }
         const stepId = step.step_id ?? "main";
         const proof = await preflight(context.request, step);
         artifact(dir, `${stepId}-preflight.json`, proof);
@@ -369,8 +352,17 @@ for (const item of manifest.cases as Document[]) {
           : undefined;
         if (step.action.reference_from_step && !reference)
           throw new Error("Prior step did not produce required result");
+        if (reference && step.action.reference_expected_identities)
+          verifyReferenceIdentities(
+            reference,
+            step.action.reference_expected_identities,
+          );
         const bound = reference?.id ?? step.action.bound_result_id;
         const selections = await selectionsForOwner(context.request);
+        if (step.require_empty_selections && selections.length !== 0)
+          throw new Error(
+            "Independent reviewed precondition requires empty selections",
+          );
         const state = manifest.states[step.state_key];
         const attemptId = randomUUID();
         const stateCaptureKey = `${step.state_key}:${attemptId}`;
@@ -678,7 +670,7 @@ for (const item of manifest.cases as Document[]) {
             run_id: run.run_id,
             owner_id: runner.identity.owner_id,
             thread_id: threadId,
-            started_at: toolTime(events, call.tool_call_id),
+            started_at: toolCallTime(events, run.run_id, call.tool_call_id),
             bound_result_id: active!.bound_result_id,
             ...call,
             ...normalized,
@@ -782,6 +774,20 @@ for (const item of manifest.cases as Document[]) {
           )
         )
           throw new Error("UNVERIFIED_DATA_VERSION: knowledge source mismatch");
+        verifyReviewedSequence(
+          step.allowed_action_sequences,
+          calls.map((call) => call.tool_name),
+        );
+        if (
+          step.require_use_latest !== undefined &&
+          calls.some(
+            (call) =>
+              call.tool_name === "pick_query_candidates" &&
+              (call.raw_arguments?.use_latest ?? false) !==
+                step.require_use_latest,
+          )
+        )
+          throw new Error("use_latest violates independently reviewed intent");
         if (step.save) {
           const prepared = records.find(
             (r) => r.tool_name === "pick_prepare_selection",
@@ -1095,7 +1101,11 @@ for (const item of manifest.cases as Document[]) {
               run_id: observed.run_id,
               owner_id: runner.identity.owner_id,
               thread_id: threadId,
-              started_at: toolTime(events, call.tool_call_id),
+              started_at: toolCallTime(
+                events,
+                observed.run_id,
+                call.tool_call_id,
+              ),
               state_capture_key: active.state_capture_key,
               bound_result_id: active.bound_result_id,
               ...call,

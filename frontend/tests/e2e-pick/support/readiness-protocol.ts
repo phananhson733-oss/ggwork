@@ -329,6 +329,10 @@ export function loadManifest(
     manifest.review?.reviewer && manifest.review?.basis && manifest.locked_at,
     "Expectations require prior independent review",
   );
+  requireValue(
+    manifest.prospective !== true,
+    "Prospective manifest is not approved for execution",
+  );
   const runner = manifest.runner;
   const target = new URL(env.PICK_E2E_URL ?? "");
   requireValue(
@@ -682,4 +686,73 @@ export function resolveExpected(
   if (expected.item_ids?.positions)
     resolved.item_ids = expected.item_ids.positions.map(item);
   return resolved;
+}
+
+export function toolCallTime(
+  events: Document[],
+  runId: string,
+  callId: string,
+): string | null {
+  const observed = events.filter((event) => {
+    if (event.run_id !== runId || event.event_type !== "llm.ai.response")
+      return false;
+    const content =
+      typeof event.content === "string"
+        ? JSON.parse(event.content)
+        : event.content;
+    return (content?.tool_calls ?? []).some(
+      (call: Document) => call.id === callId,
+    );
+  });
+  const times = [...new Set(observed.map((event) => event.created_at))];
+  requireValue(times.length <= 1, "Ambiguous persisted tool-call timestamp");
+  return typeof times[0] === "string" ? times[0] : null;
+}
+export function frozenResultExport(
+  result: Document,
+  imports: Document[],
+  source: Document,
+  ownerId: string,
+): Document {
+  const batch = imports.find((entry) => entry.id === result.catalog_batch_id);
+  return {
+    ...result,
+    owner_id: ownerId,
+    source: {
+      catalog_batch_id: result.catalog_batch_id,
+      source_type:
+        batch?.shared && batch.validation_json?.source === "realshort"
+          ? "realshort_shared"
+          : "unknown",
+      shared: result.data_as_of?.shared ?? null,
+      rows_sha256:
+        batch?.content_hash === source.content_hash &&
+        result.catalog_batch_id === source.catalog_batch_id
+          ? source.rows_sha256
+          : null,
+    },
+  };
+}
+
+export function verifyReviewedSequence(
+  allowed: string[][] | undefined,
+  actual: string[],
+): void {
+  if (allowed)
+    requireValue(
+      allowed.some(
+        (sequence) => JSON.stringify(sequence) === JSON.stringify(actual),
+      ),
+      "Actual tool sequence violates independently reviewed intent",
+    );
+}
+export function verifyReferenceIdentities(
+  result: Document,
+  identities: string[],
+): void {
+  requireValue(
+    JSON.stringify(result.items?.map((item: Document) => item.identity)) ===
+      JSON.stringify(identities),
+    "Prerequisite result differs from independently reviewed identities",
+  );
 }
