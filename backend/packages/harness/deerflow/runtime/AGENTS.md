@@ -61,24 +61,22 @@ fetch-and-decode of every message row's tool outputs on long threads.
 client input, because a welded-in seq goes stale when a fork re-seeds the feed
 (#4380).
 
-**LLM response callback coalescing** (`runtime/journal.py`): a provider may fire
-`on_llm_end` twice for one LangChain run id, first without usage (or with all token
-counts zero) and immediately again with usage populated. The first callback's generation
-set is always canonical: `RunJournal` stages only its response events and immutable
-message-summary fields while retaining the first caller, and applies that callback's
-fallback state and tool-call bookkeeping immediately; those effects remain canonical.
-It must not retain provider-owned message objects because a provider may mutate and
-reuse the same response for the usage replay. Usage metadata is deep-snapshotted,
-including nested token-detail mappings, before it enters a staged or buffered event.
-An adjacent same-id positive-usage replay may enrich only each corresponding staged
-event's metadata/content usage fields. Replay
-generation-count differences never add, remove, or replace canonical messages. The next
-unrelated event, an effective buffer size (committed plus pending events) reaching the
-flush threshold, or an explicit flush commits the staged unit and updates the message
-summary. Once that ordering boundary is crossed, a late usage replay can still update the
-authoritative run token summary, but it cannot mutate the append-only message event,
-caller attribution, fallback state, or tool-call bookkeeping. Closed journals return
-from `on_llm_end` before inspecting the response or touching any run state.
+**LLM callback coalescing** (`runtime/journal.py`): providers may replay one run id,
+first with absent/all-zero usage, then populated usage. First generations, caller,
+fallback and tool bookkeeping remain canonical. Stage immutable events/message
+summaries, never provider-owned messages; deep-copy nested usage details. Adjacent
+positive replays enrich corresponding usage fields only: generation-count changes
+never change messages. An unrelated event, committed-plus-pending buffer threshold,
+or explicit flush commits the stage and summary. Later usage updates run totals only,
+never append-only events/caller/fallback/tools. Closed callbacks must not mutate state.
+
+`usage_observation` persists as server-owned run `metadata.deerflow_usage_observation`
+in the same guarded progress/completion update; both admissions replace forged copies.
+`calls_*` describes local callback UUIDs; external reports preserve deduped known
+subtotals, not child lifecycle. Supplied null/zero remain distinct; error partials
+never create completed AI messages. `finalized` is observation assembly, not billing.
+Legacy/disabled tracking stays unknown. Preserve replay, lease and preflight boundaries;
+see `docs/pick-workbench/usage-observation.md` for fields and coverage states.
 
 **Run delivery receipts** (`runtime/journal.py` + `runs/worker.py`):
 `RunJournal` records each non-empty artifact update once per tool `Command` for
@@ -367,18 +365,3 @@ JSONL's single-process deployment constraint. Regression coverage is in
 ### Optional host execution deadline
 
 `RunContext.execution_timeout_seconds` is a trusted host setting, never a runnable/client config override. The worker starts its watchdog before cancellable preflight and stops it before terminal status calculation/persistence, on both exception paths, and in final cleanup. Deadline cancellation records `timeout`/`execution_timeout`; an explicit user abort retains the existing interrupt/rollback path. Durable terminal cleanup must still drain: this is an execution deadline, not permission to abandon a database or checkpoint write at the wall-clock boundary. Gateway binds the pick deployment's `PICK_RUN_TIMEOUT_SECONDS`; unset preserves upstream unlimited-run behavior. Tests: `tests/test_run_execution_deadline.py`.
-
-### Cancellation usage observations
-
-`RunJournal` completion/progress snapshots carry `usage_observation`; `RunManager`
-merges it into server-owned `metadata.deerflow_usage_observation` through the same
-status-guarded store update. Both admission paths replace caller-supplied copies.
-`calls_*` count local callback UUID lifecycles, not billable HTTP attempts; external
-usage reports retain their deduped known subtotals but do not invent child lifecycle
-counts. `known_*` includes observed run usage, including error callback partials.
-Missing values are null, explicitly supplied zeros remain zero, and error partials
-never become completed AI messages. `coverage` is complete/partial/unknown/no_calls;
-`finalized` means the terminal observation was assembled, not final provider billing.
-Legacy rows without the key and disabled tracking remain unknown. Preserve callback
-replay dedup, canonical message content, lease fences, and the preflight rule that
-no empty completion is written before the worker's completion boundary.
