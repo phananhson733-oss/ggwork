@@ -18,14 +18,14 @@ FOREIGN = re.compile(
     r"|parallel tool|Progressive Loading|`task`|[Dd]elegat|subagent"
 )
 
-# A section's tags stand on their own lines; the confidentiality paragraph names the same tags inline.
-_SECTION = re.compile(r"\n*^<(" + "|".join(SECTIONS) + r")\b[^>\n]*>$.*?^</\1>$\n?", re.S | re.M)
-_LIST = re.compile(r"(^<(" + "|".join(LISTS) + r")>$)(.*?)(^</\2>$)", re.S | re.M)
+# A section's tags stand on their own lines (LF or CRLF); the confidentiality paragraph names the same tags inline.
+_SECTION = re.compile(r"(?:\r?\n)*^<(" + "|".join(SECTIONS) + r")\b[^>\r\n]*>\r?$.*?^</\1>\r?$(?:\r?\n)?", re.S | re.M)
+_LIST = re.compile(r"(^<(" + "|".join(LISTS) + r")>\r?$)(.*?)(^</\2>\r?$)", re.S | re.M)
 
 
 def pick_system(system: str) -> str:
     """The host prompt without the sections and bullets about tools the pick model lacks."""
-    without_sections = _SECTION.sub("\n", system)
+    without_sections = _SECTION.sub(lambda match: "\r\n" if "\r\n" in match.group(0) else "\n", system)
     return _LIST.sub(lambda match: match.group(1) + _kept_bullets(match.group(3)) + match.group(4), without_sections)
 
 

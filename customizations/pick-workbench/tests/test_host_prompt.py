@@ -58,6 +58,18 @@ def test_the_pick_cut_keeps_no_foreign_tool_and_keeps_the_rest(host_prompt, suba
     assert all(kept in cut for kept in KEPT)
 
 
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_the_cut_reads_either_line_ending_and_keeps_inline_tag_names(host_prompt, newline):
+    # gpt-6-astra review: "\r\n" line ends kept every section and bullet, since ">$" never matched before "\r".
+    from ggwork_pick.host_prompt import pick_system
+
+    cut = pick_system(host_prompt().replace("\n", newline))
+    assert not FOREIGN.findall(cut)
+    assert all(kept in cut for kept in KEPT)
+    assert "<skill_system>, <subagent_system>" in cut  # the confidentiality paragraph's own list
+    assert newline == "\n" or "\r\n" in cut and "\r\r" not in cut
+
+
 def test_text_the_cut_does_not_recognise_passes_through():
     from ggwork_pick.host_prompt import pick_system
 
