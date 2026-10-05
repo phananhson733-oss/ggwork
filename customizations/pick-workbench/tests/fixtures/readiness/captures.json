@@ -1,6 +1,6 @@
 {
   "spec_version": "pick-readiness-v1.1",
-  "expectations_sha256": "cb2b6bf4eaa05ff34f00643f3be27f52e7e05d3fae19d94b06a0a3e56aaeef93",
+  "expectations_sha256": "07984b76e21e85e9ef4cf8c6ff3751909ce012cf03ae5f6adadc8969d1e5d6b6",
   "started_at": "2026-10-05T00:00:01Z",
   "attempts": [
     {
@@ -8,7 +8,12 @@
       "step_id": "main",
       "attempt_id": "attempt-1",
       "run_id": "synthetic-run",
-      "status": "success"
+      "status": "success",
+      "started_at": "2026-10-05T00:00:02Z",
+      "ended_at": "2026-10-05T00:00:03Z",
+      "tool_call_ids": [
+        "synthetic-call"
+      ]
     }
   ],
   "records": [
@@ -73,7 +78,19 @@
             "identity": "b"
           }
         ],
-        "matched_total": 2
+        "matched_total": 2,
+        "data_as_of": {
+          "source_as_of": "2026-10-05",
+          "published_at": "2026-10-05",
+          "freshness": {
+            "catalogImportedAt": "2026-10-05T00:00:00Z",
+            "reelshortSyncedAt": "2026-10-05T00:00:00Z"
+          },
+          "shared": false,
+          "scope": "synthetic-scope"
+        },
+        "rule_version": "pick-rules-v1",
+        "ranking_version": "evidence-date-v1"
       },
       "answer": "Synthetic response: two matching candidates; personal selections excluded.",
       "generated_by": "answer-model",
@@ -94,7 +111,7 @@
       },
       "browser_evidence": {
         "evidence_file": "browser.json",
-        "evidence_sha256": "cccb8438459187f149244a29ba250ec53a478787470ab784dcd7f14144bb9a47"
+        "evidence_sha256": "3ee6ce3add45aebbb699372dc515fab6de0655e4e324982298e43859c6e4a1ff"
       },
       "performance_evidence": {
         "evidence_file": "performance.json",
@@ -104,5 +121,5 @@
     }
   ],
   "run_ledger_file": "run-ledger.json",
-  "run_ledger_sha256": "cc0171d46d1019c533164b4a7defcc7afad24867d2ca33fb4547ed3f22247fef"
+  "run_ledger_sha256": "dfc0fba104d967ade5d021b71e4585aab6bab54b3401df26c1f6460904012cdb"
 }

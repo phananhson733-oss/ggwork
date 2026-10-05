@@ -25,7 +25,7 @@
       "rows_file": "rows.json",
       "rows_sha256": "d4219a271cb0b0f65fc11e74216dec9dbb29ab6fbd2b02ff640531cc663cea7b",
       "metadata_file": "metadata.json",
-      "metadata_sha256": "366b03415857fe85bad2c1076084de613e9247c8fce6d36e7d297de9bafc8c7b"
+      "metadata_sha256": "494cb980fdc98b7581a1b7c7e82577d725ec43ecd46ccfcff4bbc0e8c42b9cbb"
     }
   },
   "states": {
@@ -71,6 +71,9 @@
         "expected_outcome": "query_success",
         "semantic_rubric": [
           "Personal selection is not publication evidence."
+        ],
+        "browser_assertions": [
+          "two full candidate cards"
         ]
       }
     }

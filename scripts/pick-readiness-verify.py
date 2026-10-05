@@ -13,6 +13,7 @@ from collections import Counter
 from datetime import datetime
 import hashlib
 import json
+import math
 from pathlib import Path
 
 VERSION = "pick-readiness-v1.1"
@@ -254,25 +255,31 @@ def exclusions(state, base, record, c):
         isinstance(selected, list) and isinstance(chain, list),
         "state must be arrays, empty explicitly",
     )
-    excluded = {x["identity"] for x in selected} if c["exclude_selected"] else set()
+    excluded = (
+        {x["identity"] for x in selected if x.get("state", "selected") == "selected"}
+        if c["exclude_selected"]
+        else set()
+    )
+    seen = set()
+    for index, parent in enumerate(chain):
+        require(parent["id"] not in seen, "parent cycle")
+        seen.add(parent["id"])
+        require(
+            parent["owner_id"] == record["owner_id"]
+            and parent["thread_id"] == record["thread_id"],
+            "parent ownership mismatch",
+        )
+        require(
+            parent.get("parent_result_id")
+            == (chain[index + 1]["id"] if index + 1 < len(chain) else None),
+            "incomplete parent chain",
+        )
     if c["exclude_previous"]:
-        parent_id = record.get("bound_result_id")
-        require(bool(chain) and parent_id == chain[0]["id"], "missing bound parent")
-        seen = set()
-        for index, parent in enumerate(chain):
-            require(parent["id"] not in seen, "parent cycle")
-            seen.add(parent["id"])
-            require(
-                parent["owner_id"] == record["owner_id"]
-                and parent["thread_id"] == record["thread_id"],
-                "parent ownership mismatch",
-            )
-            require(
-                parent.get("parent_result_id")
-                == (chain[index + 1]["id"] if index + 1 < len(chain) else None),
-                "incomplete parent chain",
-            )
-            excluded.update(x["identity"] for x in parent["items"])
+        require(
+            bool(chain) and record.get("bound_result_id") == chain[0]["id"],
+            "missing bound parent",
+        )
+        excluded.update(x["identity"] for parent in chain for x in parent["items"])
     return excluded, selected, chain
 
 
@@ -293,43 +300,57 @@ def check_external(record, expected, base):
         require(document["run_id"] == record["run_id"], "evidence run mismatch")
         if layer == "browser":
             require(
-                document.get("assertions") and document.get("artifact_refs"),
-                "browser assertions/artifact required",
+                expected.get("browser_assertions"), "missing locked browser assertions"
+            )
+            require(
+                [x["name"] for x in document["assertions"]]
+                == expected["browser_assertions"],
+                "browser assertion inventory mismatch",
+            )
+            require(document["source"] == record["source"], "browser source mismatch")
+            result_id = record["response"].get(
+                "result_id", record["response"].get("id")
+            )
+            require(document["result_id"] == result_id, "browser result mismatch")
+            require(document["artifact_refs"], "missing browser artifact")
+            for artifact in document["artifact_refs"]:
+                require(
+                    digest(base / artifact["artifact_file"])
+                    == artifact["artifact_sha256"],
+                    "browser artifact hash mismatch",
+                )
+            require(
+                all(type(x["passed"]) is bool for x in document["assertions"]),
+                "invalid browser assertion",
             )
             status = (
-                "PASS"
-                if all(x["passed"] is True for x in document["assertions"])
-                else "FAIL"
+                "PASS" if all(x["passed"] for x in document["assertions"]) else "FAIL"
             )
         else:
             require(
-                all(
-                    k in document
-                    for k in (
-                        "input_tokens",
-                        "output_tokens",
-                        "elapsed_seconds",
-                        "tool_calls",
-                        "model_calls",
-                        "sample_conditions",
-                    )
-                ),
-                "performance metrics missing",
+                isinstance(document.get("sample_conditions"), str)
+                and document["sample_conditions"].strip(),
+                "missing sample conditions",
             )
-            status = (
-                "UNVERIFIED"
-                if any(
-                    document[k] is None
-                    for k in (
-                        "input_tokens",
-                        "output_tokens",
-                        "elapsed_seconds",
-                        "tool_calls",
-                        "model_calls",
-                    )
+            unknown = False
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "elapsed_seconds",
+                "tool_calls",
+                "model_calls",
+            ):
+                value = document[key]
+                if value is None or value == "unknown":
+                    unknown = True
+                    continue
+                require(
+                    type(value) in (int, float) and math.isfinite(value) and value >= 0,
+                    "invalid numeric performance metric",
                 )
-                else "PASS"
-            )
+                if key != "elapsed_seconds":
+                    require(type(value) is int, "count metric must be integer")
+            status = "UNVERIFIED" if unknown else "PASS"
         layers[layer] = {"status": status, "reason_code": "EXTERNAL_EVIDENCE"}
     review = record.get("semantic_review")
     if not review:
@@ -375,6 +396,35 @@ def overall(statuses):
         if status in statuses:
             return status
     return "PASS"
+
+
+def captured_state(manifest, captures, step, record):
+    state = manifest["states"][step["state_key"]]
+    if "capture_before_step" not in state:
+        return state, False
+    require(
+        state["capture_before_step"]
+        == {"case_id": record["case_id"], "step_id": record["step_id"]},
+        "dynamic state bound to wrong step",
+    )
+    key = record.get("state_capture_key", step["state_key"])
+    if "state_capture_key" in record:
+        require(
+            key == step["state_key"] + ":" + record["attempt_id"],
+            "dynamic state capture key mismatch",
+        )
+    attempts = {
+        a["attempt_id"]
+        for a in captures["attempts"]
+        if a["case_id"] == record["case_id"] and a["step_id"] == record["step_id"]
+    }
+    require(
+        len(attempts) <= 1 or "state_capture_key" in record,
+        "retry requires attempt-specific state",
+    )
+    actual = captures["states"][key]
+    require(actual["owner_id"] == state["owner_id"], "dynamic state owner mismatch")
+    return actual, True
 
 
 def check_record(step, record, manifest, exp_base, cap_base, captures):
@@ -431,37 +481,96 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
     require(
         len({r["identity"] for r in rows}) == len(rows), "duplicate catalog identity"
     )
-    for key in (
-        "source_as_of",
-        "published_at",
-        "freshness",
-        "rule_version",
-        "ranking_version",
-    ):
-        require(key in metadata, "missing independent source metadata")
-    version_ok = all(
-        record["source"].get(k) == source[k]
-        for k in ("catalog_batch_id", "source_type", "shared")
+    for field in ("source_as_of", "published_at"):
+        value = metadata[field]
+        require(
+            isinstance(value, str) and value not in ("", "unknown"),
+            "unknown source date",
+        )
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    require(
+        isinstance(metadata["freshness"], dict) and metadata["freshness"],
+        "unknown freshness",
     )
-    version_ok = (
-        version_ok and record["source"].get("rows_sha256") == source["rows_sha256"]
+    for field in ("catalogImportedAt", "reelshortSyncedAt"):
+        require(
+            isinstance(metadata["freshness"].get(field), str),
+            "unknown upstream freshness",
+        )
+        timestamp(metadata["freshness"][field])
+    require(metadata["rule_version"] == "pick-rules-v1", "unsupported rule version")
+    require(
+        metadata["ranking_version"]
+        in ("evidence-date-v1", "signal-rank-v1", "hot-evidence-date-v1"),
+        "unsupported ranking version",
     )
+    require(
+        isinstance(metadata["frozen_data_as_of"], dict)
+        and metadata["frozen_data_as_of"],
+        "unknown frozen data_as_of",
+    )
+    frozen = metadata["frozen_data_as_of"]
+    require(
+        set(frozen)
+        in (
+            {"source_as_of", "published_at", "freshness", "scope", "shared"},
+            {
+                "source_as_of",
+                "published_at",
+                "freshness",
+                "scope",
+                "shared",
+                "mirror_version",
+            },
+        ),
+        "invalid frozen data_as_of schema",
+    )
+    require(
+        all(
+            frozen[k] == metadata[k]
+            for k in ("source_as_of", "published_at", "freshness")
+        ),
+        "independent metadata disagrees with frozen metadata",
+    )
+    require(
+        type(frozen["shared"]) is bool
+        and frozen["shared"] == source["shared"]
+        and isinstance(frozen["scope"], str)
+        and frozen["scope"],
+        "unknown data scope",
+    )
+    if "mirror_version" in frozen:
+        require(
+            type(frozen["mirror_version"]) is int and frozen["mirror_version"] >= 1,
+            "unknown mirror version",
+        )
+    version_fields = (
+        ("knowledge_batch_id", "source_type", "shared", "knowledge_sha256")
+        if kind == "knowledge"
+        else ("catalog_batch_id", "source_type", "shared", "rows_sha256")
+    )
+    version_ok = all(record["source"].get(key) == source[key] for key in version_fields)
     response = record["response"]
     require(isinstance(response, dict), "missing typed response")
-    state = manifest["states"][step["state_key"]]
-    state_base = exp_base
-    if "capture_before_step" in state:
-        require(
-            state["capture_before_step"]
-            == {"case_id": record["case_id"], "step_id": record["step_id"]},
-            "dynamic state bound to wrong step",
-        )
-        planned_owner = state["owner_id"]
-        state = captures["states"][step["state_key"]]
-        require(state["owner_id"] == planned_owner, "dynamic state owner mismatch")
-        state_base = cap_base
+    state, dynamic = captured_state(manifest, captures, step, record)
+    state_base = cap_base if dynamic else exp_base
     excluded, selected, chain = exclusions(state, state_base, record, c or DEFAULTS)
     ok = True
+    if kind in ("query", "count", "detail") or "data_as_of" in response:
+        require(
+            isinstance(response.get("data_as_of"), dict), "missing frozen data_as_of"
+        )
+        ok = response["data_as_of"] == metadata["frozen_data_as_of"]
+    if kind == "query":
+        require(
+            response.get("rule_version") and response.get("ranking_version"),
+            "missing result versions",
+        )
+        ok = (
+            ok
+            and response["rule_version"] == metadata["rule_version"]
+            and response["ranking_version"] == metadata["ranking_version"]
+        )
     if kind in ("query", "count"):
         raw = record["raw_arguments"]
         require(set(raw).issubset({"filters", "use_latest"}), "unknown query argument")
@@ -485,11 +594,14 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
                 response.get("id") and isinstance(response.get("items"), list),
                 "missing query result",
             )
-            ok = [x["identity"] for x in response["items"]] == [
-                x["identity"] for x in matches[: c["limit"]]
-            ] and response["matched_total"] == len(matches)
+            ok = (
+                ok
+                and [x["identity"] for x in response["items"]]
+                == [x["identity"] for x in matches[: c["limit"]]]
+                and response["matched_total"] == len(matches)
+            )
         else:
-            ok = response["total"] == len(matches)
+            ok = ok and response["total"] == len(matches)
             for field in ("theater", "language"):
                 ok = ok and response["by_" + field] == dict(
                     Counter(r[field] for r in matches)
@@ -522,7 +634,13 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
             (x for x in bound["items"] if x["item_id"] == expected["item_id"]), None
         )
         require(item is not None, "missing frozen detail item")
-        ok = (
+        raw = record["raw_arguments"]
+        if (
+            raw.get("result_id") != expected["result_id"]
+            or raw.get("item_id") != expected["item_id"]
+        ):
+            layers["intent"] = {"status": "FAIL", "reason_code": "DETAIL_RAW_BINDING"}
+        ok = ok and (
             response["result_id"] == expected["result_id"]
             and response["item_id"] == expected["item_id"]
             and response["identity"] == item["identity"]
@@ -541,6 +659,34 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
             chain and chain[0]["id"] == expected["result_id"],
             "save requires frozen result",
         )
+        raw = record["raw_arguments"]
+        target = raw.get("result_id") or record.get("bound_result_id")
+        chosen = raw.get("item_ids")
+        if raw.get("positions") is not None:
+            require(chosen is None, "positions and item_ids conflict")
+            positions = raw["positions"]
+            require(
+                positions
+                and all(
+                    type(i) is int and 1 <= i <= len(chain[0]["items"])
+                    for i in positions
+                ),
+                "invalid positions",
+            )
+            chosen = [chain[0]["items"][i - 1]["item_id"] for i in positions]
+        elif chosen is None:
+            require(target == record.get("bound_result_id"), "unbound UI selection")
+            chosen = state["selected_item_ids"]
+        # Product preserves frozen item order and deduplicates requested IDs.
+        ordered_chosen = [
+            i["item_id"] for i in chain[0]["items"] if i["item_id"] in chosen
+        ]
+        if (
+            target != expected["result_id"]
+            or ordered_chosen != expected["item_ids"]
+            or raw.get("note", "") != expected["note"]
+        ):
+            layers["intent"] = {"status": "FAIL", "reason_code": "SAVE_RAW_BINDING"}
         ok = (
             response["requires_confirmation"] is True
             and response["result_id"] == expected["result_id"]
@@ -551,29 +697,89 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         after = file_ref(cap_base, record, "selections_after")
         receipts = file_ref(cap_base, record, "receipts")
         ok = ok and after_prepare == selected and len(receipts) >= 2
-        identities = {
-            x["identity"]
-            for x in chain[0]["items"]
-            if x["item_id"] in expected["item_ids"]
-        }
-        require(
-            len(identities) == len(expected["item_ids"]), "save items not in snapshot"
-        )
-        ok = ok and Counter(x["identity"] for x in after) == Counter(
-            {x: 1 for x in {s["identity"] for s in selected} | identities}
-        )
+        items = [i for i in chain[0]["items"] if i["item_id"] in expected["item_ids"]]
+        require(len(items) == len(expected["item_ids"]), "save items not in snapshot")
+
+        def state_map(values):
+            require(
+                len({x["id"] for x in values}) == len(values)
+                and len({x["identity"] for x in values}) == len(values),
+                "duplicate selections",
+            )
+            for row in values:
+                require(
+                    row["owner_id"] == record["owner_id"]
+                    and row["state"] in ("selected", "removed")
+                    and type(row["version"]) is int
+                    and row["version"] >= 1,
+                    "invalid selection state",
+                )
+                require(
+                    all(
+                        k in row
+                        for k in (
+                            "source_result_id",
+                            "source_item_id",
+                            "note",
+                            "snapshot_json",
+                        )
+                    ),
+                    "incomplete selection state",
+                )
+            return {x["identity"]: x for x in values}
+
+        before_map, after_map = state_map(selected), state_map(after)
+        ok = ok and set(after_map) == set(before_map) | {i["identity"] for i in items}
+        saved = receipts[0]["saved"]
         ok = ok and all(
-            r["request_id"] == expected["request_id"]
-            and r["result_id"] == expected["result_id"]
-            and r["item_ids"] == expected["item_ids"]
-            and r["note"] == expected["note"]
-            for r in receipts
+            receipt == receipts[0] and receipt["request_id"] == expected["request_id"]
+            for receipt in receipts
         )
-        ok = (
-            ok
-            and receipts[0]["selection_ids"] == receipts[1]["selection_ids"]
-            and len(receipts[0]["selection_ids"]) == len(identities)
-        )
+        ok = ok and [r["identity"] for r in saved] == [i["identity"] for i in items]
+        for item, receipt in zip(items, saved):
+            current, previous = (
+                after_map.get(item["identity"]),
+                before_map.get(item["identity"]),
+            )
+            require(current is not None, "saved row missing")
+            expected_status = (
+                "created"
+                if previous is None
+                else "existing"
+                if previous["state"] == "selected"
+                else "restored"
+            )
+            version = (
+                1
+                if previous is None
+                else previous["version"] + (expected_status == "restored")
+            )
+            ok = (
+                ok
+                and receipt
+                == {
+                    "id": current["id"],
+                    "identity": item["identity"],
+                    "status": expected_status,
+                    "version": version,
+                }
+                and current["version"] == version
+            )
+            if previous:
+                ok = ok and current["id"] == previous["id"]
+            if expected_status == "existing":
+                ok = ok and current == previous
+            else:
+                ok = (
+                    ok
+                    and current["state"] == "selected"
+                    and current["source_result_id"] == expected["result_id"]
+                    and current["source_item_id"] == item["item_id"]
+                    and current["note"] == expected["note"]
+                    and current["snapshot_json"] == item
+                )
+        for identity in set(before_map) - {i["identity"] for i in items}:
+            ok = ok and before_map[identity] == after_map[identity]
     elif kind == "clarification":
         require(
             expected.get("missing_parameters") and expected.get("allowed_branches"),
@@ -612,10 +818,17 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
             and record["source"].get("knowledge_batch_id")
             == source["knowledge_batch_id"]
         )
+        require(
+            all(x["batch_id"] == source["knowledge_batch_id"] for x in knowledge),
+            "independent knowledge batch mismatch",
+        )
         by_id = {x["citation_id"]: x for x in knowledge}
-        ok = [x["citation_id"] for x in response["citations"]] == expected[
-            "citation_ids"
-        ]
+        require(len(by_id) == len(knowledge), "duplicate independent citation")
+        ok = (
+            ok
+            and [x["citation_id"] for x in response["citations"]]
+            == expected["citation_ids"]
+        )
         ok = ok and all(x == by_id.get(x["citation_id"]) for x in response["citations"])
     layers["data_state"] = {
         "status": ("PASS" if ok else "FAIL") if version_ok else "UNVERIFIED",
@@ -623,7 +836,22 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         if version_ok
         else "UNVERIFIED_DATA_VERSION",
     }
-    layers.update(check_external(record, expected, cap_base))
+    try:
+        layers.update(check_external(record, expected, cap_base))
+    except (
+        Invalid,
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+        IndexError,
+        AttributeError,
+    ):
+        for name in ("browser", "model_explanation", "performance_cost"):
+            layers[name] = {
+                "status": "UNVERIFIED",
+                "reason_code": "INVALID_EXTERNAL_EVIDENCE",
+            }
     terminal = record.get("terminal_status")
     require(terminal is not None, "missing run terminal status")
     if terminal != expected.get("terminal_status", "success"):
@@ -701,6 +929,75 @@ def verify(expectations_path, captures_path):
                 key = (case["case_id"], step.get("step_id", "main"))
                 require(key not in steps, "duplicate step")
                 steps[key] = step
+        require(
+            len(
+                {
+                    (a["case_id"], a["step_id"], a["attempt_id"], a["run_id"])
+                    for a in ledger
+                }
+            )
+            == len(ledger),
+            "duplicate ledger entry",
+        )
+        for attempt in ledger:
+            key = (attempt["case_id"], attempt["step_id"])
+            require(key in steps, "unplanned ledger step")
+            start, end = (
+                timestamp(attempt["started_at"]),
+                timestamp(attempt["ended_at"]),
+            )
+            require(
+                timestamp(manifest["locked_at"])
+                <= timestamp(captures["started_at"])
+                <= start
+                <= end,
+                "invalid ledger chronology",
+            )
+            calls = [
+                r
+                for r in records
+                if all(
+                    r[k] == attempt[k]
+                    for k in ("case_id", "step_id", "attempt_id", "run_id")
+                )
+            ]
+            actual_ids = [r["tool_call_id"] for r in calls]
+            inventory = attempt["tool_call_ids"]
+            require(
+                isinstance(inventory, list) and len(inventory) == len(set(inventory)),
+                "invalid tool call inventory",
+            )
+            if Counter(actual_ids) != Counter(inventory):
+                report["checks"].append(
+                    {
+                        "case_id": key[0],
+                        "step_id": key[1],
+                        "status": "UNVERIFIED",
+                        "reason_code": "INCOMPLETE_TOOL_CALL_CAPTURE",
+                    }
+                )
+            expected_status = steps[key]["expected"].get("terminal_status", "success")
+            if attempt["status"] != expected_status or any(
+                r["terminal_status"] != attempt["status"] for r in calls
+            ):
+                report["checks"].append(
+                    {
+                        "case_id": key[0],
+                        "step_id": key[1],
+                        "status": "FAIL",
+                        "reason_code": "AUTHORITATIVE_RUN_STATUS",
+                    }
+                )
+            for record in calls:
+                require(
+                    start <= timestamp(record["started_at"]) <= end,
+                    "record outside authoritative run interval",
+                )
+                state, _ = captured_state(manifest, captures, steps[key], record)
+                require(
+                    timestamp(state["captured_at"]) <= start,
+                    "pre-state captured after execution started",
+                )
         seen_calls = set()
         for record in records:
             key = (record["case_id"], record.get("step_id", "main"))

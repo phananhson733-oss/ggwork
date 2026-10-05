@@ -110,15 +110,28 @@ def test_independent_oracle_sort_hot_channel_posted():
     assert [r["identity"] for r in checker.match_rows(rows, {**c, "exclude_posted": True}, set())] == ["grandparent", "parent", "a", "b"]
 
 
+def refresh_browser(bundle):
+    root, _, cap = bundle
+    rec = cap["records"][0]
+    browser = json.loads((root / "browser.json").read_text())
+    browser.update(result_id=rec["response"].get("result_id", rec["response"].get("id")), source=rec["source"])
+    rec["browser_evidence"]["evidence_sha256"] = put(root, "browser.json", browser)
+
+
 def set_type(bundle, kind, expected, response):
-    _, exp, cap = bundle
+    root, exp, cap = bundle
     case = exp["cases"][0]
     case["case_type"] = kind
     case["expected"].update(expected)
     case["expected"]["allowed_actions"] = [kind]
     case["expected"]["expected_outcome"] = kind + "_success"
     record = cap["records"][0]
+    response = {**{k: v for k, v in record["response"].items() if k in ("data_as_of", "rule_version", "ranking_version")}, **response}
     record.update(tool_name=kind, outcome=kind + "_success", response=response)
+    if kind == "detail":
+        record["raw_arguments"] = {k: expected[k] for k in ("result_id", "item_id")}
+    refresh_browser(bundle)
+
     return case, record
 
 
@@ -161,6 +174,8 @@ def test_recovery_requires_authoritative_terminal(bundle, bad):
         bundle, "recovery", dict(terminal_status="cancelled", saved_result_ids=[]), dict(status="success" if bad else "cancelled", saved_result_ids=[])
     )
     rec["terminal_status"] = "cancelled"
+    bundle[2]["attempts"][0]["status"] = "cancelled"
+    bundle[2]["run_ledger_sha256"] = put(root, "run-ledger.json", bundle[2]["attempts"])
     rec["authoritative_terminal_file"] = "terminal.json"
     rec["authoritative_terminal_sha256"] = put(root, "terminal.json", dict(run_id="synthetic-run", status="cancelled", saved_result_ids=[]))
     assert run(bundle)["exit_code"] == (1 if bad else 0)
@@ -169,29 +184,101 @@ def test_recovery_requires_authoritative_terminal(bundle, bad):
 @pytest.mark.parametrize("bad", [False, True])
 def test_knowledge_citations_bound_to_independent_source(bundle, bad):
     root, exp, _ = bundle
-    citation = dict(citation_id="synthetic-cite", source_ref="synthetic:rules", checked_at="2026-10-05", text="Synthetic restriction unknown")
+    citation = dict(
+        citation_id="synthetic-cite",
+        batch_id="synthetic-knowledge",
+        source_ref="synthetic:rules",
+        checked_at="2026-10-05",
+        text="Synthetic restriction unknown",
+    )
     source = exp["sources"]["catalog"]
     source.update(knowledge_batch_id="synthetic-knowledge", knowledge_file="knowledge.json", knowledge_sha256=put(root, "knowledge.json", [citation]))
     _, rec = set_type(bundle, "knowledge", dict(citation_ids=["synthetic-cite"]), dict(citations=[copy.deepcopy(citation)]))
     rec["source"]["knowledge_batch_id"] = "synthetic-knowledge"
+    rec["source"]["knowledge_sha256"] = source["knowledge_sha256"]
+    refresh_browser(bundle)
     if bad:
         rec["response"]["citations"][0]["text"] = "Fabricated permission"
     assert run(bundle)["exit_code"] == (1 if bad else 0)
 
 
-@pytest.mark.parametrize("bad", [False, True])
-def test_save_preparation_and_retry_receipts(bundle, bad):
-    root, _, _ = bundle
+def save_bundle(bundle, previous_state=None):
+    root, exp, cap = bundle
     wanted = dict(result_id="p", item_ids=["p1"], request_id="synthetic-request", note="synthetic note")
     _, rec = set_type(bundle, "prepare_save", wanted, dict(requires_confirmation=True, **{k: v for k, v in wanted.items() if k != "request_id"}))
+    rec["raw_arguments"] = {"positions": [1], "note": "synthetic note"}
+    item = json.loads((root / "parents.json").read_text())[0]["items"][0]
+    saved = dict(
+        id="saved-parent",
+        owner_id="synthetic-owner",
+        identity="parent",
+        state="selected",
+        version=1,
+        source_result_id="p",
+        source_item_id="p1",
+        note="synthetic note",
+        snapshot_json=item,
+    )
+    previous = []
+    status = "created"
+    if previous_state:
+        old = {**saved, "state": previous_state, "version": 4, "note": "old note", "source_result_id": "old-result"}
+        previous = [old]
+        status = "existing" if previous_state == "selected" else "restored"
+        saved = old if status == "existing" else {**saved, "version": 5}
+    exp["states"]["before"]["selections_before_sha256"] = put(root, "selections.json", previous)
     for prefix, value in [
-        ("selections_after_prepare", [{"identity": "selected"}]),
-        ("selections_after", [{"identity": "selected"}, {"identity": "parent"}] + ([{"identity": "parent"}] if bad else [])),
-        ("receipts", [{**wanted, "selection_ids": ["synthetic-selection"]}] * 2),
+        ("selections_after_prepare", previous),
+        ("selections_after", [saved]),
+        (
+            "receipts",
+            [{"request_id": "synthetic-request", "saved": [{"id": saved["id"], "identity": "parent", "status": status, "version": saved["version"]}]}] * 2,
+        ),
     ]:
         rec[prefix + "_file"] = prefix + ".json"
         rec[prefix + "_sha256"] = put(root, prefix + ".json", value)
-    assert run(bundle)["exit_code"] == (1 if bad else 0)
+    return rec
+
+
+@pytest.mark.parametrize("state", [None, "selected", "removed"])
+def test_save_created_existing_restored_and_retry(bundle, state):
+    save_bundle(bundle, state)
+    assert run(bundle)["exit_code"] == 0
+
+
+@pytest.mark.parametrize(
+    "defect", ["note", "receipt_id", "source_result", "source_item", "version", "snapshot", "foreign_owner", "duplicate", "positions", "wrong_result"]
+)
+def test_save_facts_and_real_receipts_bound(bundle, defect):
+    root, _, _ = bundle
+    rec = save_bundle(bundle)
+    rows = json.loads((root / "selections_after.json").read_text())
+    if defect == "receipt_id":
+        receipts = json.loads((root / "receipts.json").read_text())
+        for receipt in receipts:
+            receipt["saved"][0]["id"] = "NONEXISTENT"
+        rec["receipts_sha256"] = put(root, "receipts.json", receipts)
+    elif defect == "positions":
+        rec["raw_arguments"]["positions"] = [2]
+    elif defect == "wrong_result":
+        rec["raw_arguments"]["result_id"] = "foreign"
+    else:
+        if defect == "note":
+            rows[0]["note"] = "WRONG NOTE"
+        elif defect == "source_result":
+            rows[0]["source_result_id"] = "wrong"
+        elif defect == "source_item":
+            rows[0]["source_item_id"] = "wrong"
+        elif defect == "version":
+            rows[0]["version"] = 99
+        elif defect == "snapshot":
+            rows[0]["snapshot_json"] = {}
+        elif defect == "foreign_owner":
+            rows[0]["owner_id"] = "foreign"
+        else:
+            rows.append(copy.deepcopy(rows[0]))
+        rec["selections_after_sha256"] = put(root, "selections_after.json", rows)
+    assert run(bundle)["exit_code"] != 0
 
 
 def test_multistep_each_uses_own_state(bundle):
@@ -207,7 +294,7 @@ def test_multistep_each_uses_own_state(bundle):
     cap["attempts"][0]["step_id"] = "first"
     cap["records"].append({**copy.deepcopy(cap["records"][0]), "step_id": "second", "attempt_id": "second", "tool_call_id": "second"})
     cap["records"][1]["response"].update(items=[{"identity": "selected"}, {"identity": "a"}], matched_total=3)
-    cap["attempts"].append({**cap["attempts"][0], "step_id": "second", "attempt_id": "second"})
+    cap["attempts"].append({**cap["attempts"][0], "step_id": "second", "attempt_id": "second", "tool_call_ids": ["second"]})
     cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
     assert run(bundle)["exit_code"] == 0
 
@@ -279,3 +366,124 @@ def test_raw_wrong_language_fails_even_with_correct_effective_capture(bundle):
     _, _, cap = bundle
     cap["records"][0]["raw_arguments"]["filters"]["language"] = "ko"
     assert run(bundle)["exit_code"] == 1
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "ledger_failed",
+        "missing_call",
+        "foreign_detail",
+        "wrong_detail_args",
+        "early_record",
+        "null_metadata",
+        "wrong_frozen_metadata",
+        "unrelated_browser",
+        "string_metrics",
+    ],
+)
+def test_review_false_pass_regressions(bundle, defect):
+    root, exp, cap = bundle
+    rec = cap["records"][0]
+    if defect == "ledger_failed":
+        cap["attempts"][0]["status"] = "failed"
+        cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
+    elif defect == "missing_call":
+        cap["attempts"][0]["tool_call_ids"] = ["failed-first-call", "synthetic-call"]
+        cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
+    elif defect in ("foreign_detail", "wrong_detail_args"):
+        _, rec = set_type(bundle, "detail", dict(result_id="p", item_id="p1", fact_fields=["identity"]), dict(result_id="p", item_id="p1", identity="parent"))
+        rec["raw_arguments"] = dict(result_id="other" if defect == "wrong_detail_args" else "p", item_id="other" if defect == "wrong_detail_args" else "p1")
+        if defect == "foreign_detail":
+            parents = json.loads((root / "parents.json").read_text())
+            parents[0].update(owner_id="foreign-owner", thread_id="foreign-thread")
+            exp["states"]["before"]["parent_chain_sha256"] = put(root, "parents.json", parents)
+    elif defect == "early_record":
+        rec["started_at"] = "2026-10-04T00:00:00Z"
+        exp["states"]["before"]["captured_at"] = "2026-10-03T00:00:00Z"
+    elif defect == "null_metadata":
+        metadata = json.loads((root / "metadata.json").read_text())
+        exp["sources"]["catalog"]["metadata_sha256"] = put(root, "metadata.json", {k: None for k in metadata})
+    elif defect == "wrong_frozen_metadata":
+        rec["response"].update(data_as_of={"source_as_of": "2099-01-01"}, ranking_version="wrong")
+    elif defect == "unrelated_browser":
+        browser = json.loads((root / "browser.json").read_text())
+        browser.update(assertions=[{"name": "unrelated", "passed": True}], artifact_refs=["nonexistent"])
+        rec["browser_evidence"]["evidence_sha256"] = put(root, "browser.json", browser)
+    else:
+        performance = json.loads((root / "performance.json").read_text())
+        for key in ("input_tokens", "output_tokens", "elapsed_seconds", "tool_calls", "model_calls"):
+            performance[key] = "unknown"
+        rec["performance_evidence"]["evidence_sha256"] = put(root, "performance.json", performance)
+    assert run(bundle)["exit_code"] != 0
+
+
+@pytest.mark.parametrize("value", [-1, True, "12", {}, None, "unknown"])
+def test_performance_metrics_are_numbers_or_explicit_unknown(bundle, value):
+    root, _, cap = bundle
+    metrics = json.loads((root / "performance.json").read_text())
+    metrics["input_tokens"] = value
+    cap["records"][0]["performance_evidence"]["evidence_sha256"] = put(root, "performance.json", metrics)
+    assert run(bundle)["exit_code"] == 2
+
+
+def test_browser_missing_artifact_even_with_matching_assertions(bundle):
+    root, _, _ = bundle
+    (root / "browser-artifact.json").unlink()
+    assert run(bundle)["exit_code"] == 2
+
+
+def test_known_data_failure_not_erased_by_invalid_external_evidence(bundle):
+    root, _, cap = bundle
+    cap["records"][0]["response"]["matched_total"] = 999
+    (root / "browser-artifact.json").unlink()
+    assert run(bundle)["exit_code"] == 1
+
+
+def test_ledger_failed_status_is_fail_not_only_incomplete(bundle):
+    root, _, cap = bundle
+    cap["attempts"][0]["status"] = "failed"
+    cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
+    assert run(bundle)["exit_code"] == 1
+
+
+def test_dynamic_retry_keeps_both_independent_prestates(bundle):
+    root, exp, cap = bundle
+    state = exp["states"]["before"]
+    exp["states"]["before"] = {"owner_id": "synthetic-owner", "capture_before_step": {"case_id": "SYNTH-Q14", "step_id": "main"}}
+    rec = cap["records"][0]
+    rec["state_capture_key"] = "before:attempt-1"
+    second = {**copy.deepcopy(rec), "attempt_id": "attempt-2", "run_id": "second-run", "tool_call_id": "second-call", "state_capture_key": "before:attempt-2"}
+    second.pop("browser_evidence")
+    second.pop("performance_evidence")
+    cap["records"].append(second)
+    cap["states"] = {"before:attempt-1": copy.deepcopy(state), "before:attempt-2": copy.deepcopy(state)}
+    cap["attempts"].append({**cap["attempts"][0], "attempt_id": "attempt-2", "run_id": "second-run", "tool_call_ids": ["second-call"]})
+    cap["run_ledger_sha256"] = put(root, "run-ledger.json", cap["attempts"])
+    report = run(bundle)
+    assert report["exit_code"] == 2  # second attempt has no fabricated browser/performance proof
+    assert report["checks"][0]["status"] == "PASS"
+    assert report["checks"][1]["layers"]["data_state"]["status"] == "PASS"
+    second.pop("state_capture_key")
+    assert run(bundle)["exit_code"] == 2
+
+
+@pytest.mark.parametrize("field", ["data_as_of", "rule_version", "ranking_version"])
+def test_missing_actual_metadata_is_unverified(bundle, field):
+    _, _, cap = bundle
+    cap["records"][0]["response"].pop(field)
+    assert run(bundle)["exit_code"] == 2
+
+
+def test_data_as_of_contradiction_is_failure(bundle):
+    _, _, cap = bundle
+    cap["records"][0]["response"]["data_as_of"]["source_as_of"] = "2099-01-01"
+    assert run(bundle)["exit_code"] == 1
+
+
+def test_browser_result_binding_is_checked(bundle):
+    root, _, cap = bundle
+    browser = json.loads((root / "browser.json").read_text())
+    browser["result_id"] = "different-result"
+    cap["records"][0]["browser_evidence"]["evidence_sha256"] = put(root, "browser.json", browser)
+    assert run(bundle)["exit_code"] == 2

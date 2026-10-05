@@ -4,6 +4,11 @@
     "step_id": "main",
     "attempt_id": "attempt-1",
     "run_id": "synthetic-run",
-    "status": "success"
+    "status": "success",
+    "started_at": "2026-10-05T00:00:02Z",
+    "ended_at": "2026-10-05T00:00:03Z",
+    "tool_call_ids": [
+      "synthetic-call"
+    ]
   }
 ]
