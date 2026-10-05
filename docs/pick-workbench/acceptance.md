@@ -243,3 +243,19 @@ ChatGPT Pro 只审查了实际投影模块、给定调用契约与时效原则�
 
 
 最后的独立审查关闭了验收器对既有冻结父卡的误拒绝：既有 parent_chain 必须与新 API 导出完整、类型敏感地一致，不能为了通过而重发 query 或丢弃 evidence；新生成结果仍要求同 run 生产者及因果时间。新增合成边界后 checker 与托管副本检查 **162 passed**。成功 step 现在一律保留私有截图供人工复核，manual 标记仍不会自动生成 PASS。该采集改进仅用于未来执行；本次 Q16 重新打开页面后看不到的短暂保存反馈单独保留 **UNVERIFIED**，没有补造历史截图。Q16 预锁的六项操作/持久化检查已分别由原始 dispatch/receipt 与当前只读 DOM/API 证实。
+
+
+### 改前基线的最终分层判定
+
+原始 captures 与锁定 expectations 均未改写；另外生成的复核副本只添加独立浏览器、语义和性能证据。六条回答共 20 条预锁语义标准，19 通过、1 失败（Q11），不据此换算整个工作台完成率。
+
+| 场景 | 意图 | 数据/状态 | 浏览器 | 回答语义 | 性能记录 | 本次总体 |
+|---|---|---|---|---|---|---|
+| Q02 | PASS | FAIL：原 metadata 适配漏版本 | PASS | PASS | PASS | 保留 FAIL；独立名单/数量核对相符 |
+| Q11 | FAIL | FAIL：另含原 metadata 缺项 | NOT_RUN | FAIL | PASS | FAIL；说明修正效果待改后实测 |
+| Q13 合法零结果 | PASS | FAIL：原 metadata 缺项 | NOT_RUN | PASS | PASS | 保留 FAIL；独立零结果诊断相符 |
+| Q13 无效剧场 | PASS | UNVERIFIED：旧拒绝响应无来源 | NOT_RUN | PASS | PASS | UNVERIFIED |
+| Q14-A | PASS | FAIL：原 metadata 缺项 | NOT_RUN | PASS | PASS | 保留 FAIL；B/C 未执行 |
+| Q16 | PASS | PASS | PASS：六项预锁操作/持久化检查 | PASS | PASS | PASS；额外瞬时反馈观察仍 UNVERIFIED |
+
+这些是 **生产旧源码的改前基线**，不是本 PR 集成版本的生产通过记录。Q16 单题通过也不表示 Q01～Q20 的改后完整矩阵通过。未纳入本次基线的题为 NOT_RUN；Q18 的具体缺证原因见上文。
