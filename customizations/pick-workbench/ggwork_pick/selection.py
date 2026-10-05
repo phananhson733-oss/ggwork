@@ -4,10 +4,11 @@ import asyncio
 import copy
 import hashlib
 import json
+from datetime import datetime
 from uuid import uuid4
 
 from ggwork_pick.contracts import PickConditions
-from ggwork_pick.freshness import RANK_KINDS, data_notices
+from ggwork_pick.freshness import RANK_KINDS, data_notices, parse_timestamp
 from ggwork_pick.item_facts import facts_by_item, with_facts
 from ggwork_pick.pin import Pin, as_pin
 from ggwork_pick.references import check_posted_account, check_references, hot_scope, is_hot_kind, names_account
@@ -332,14 +333,16 @@ def candidate_item(row, conditions, matched_total: int | None = None):
     return item
 
 
-async def _explanations(rows, conditions: PickConditions, excluded, *, matched: int | None, data_as_of: dict | None) -> dict:
-    """For the model only: why nothing matched, what counted as hot, and the data page's stale warnings."""
+async def _explanations(
+    rows, conditions: PickConditions, excluded, *, matched: int | None, data_as_of: dict | None, reference: datetime | None = None, historical: bool = False
+) -> dict:
+    """Display facts for model calls and historical notes, with an explicit time context."""
     extra = {}
     if matched == 0:
         extra["zero_diagnosis"] = await asyncio.to_thread(zero_diagnosis, rows, conditions, excluded)
     if conditions.hot_only:
         extra["hot_scope"] = hot_scope(rows)
-    if notices := data_notices(data_as_of, rows, conditions):
+    if notices := data_notices(data_as_of, rows, conditions, now=reference, historical=historical):
         extra["data_notices"] = notices
     return extra
 
@@ -533,24 +536,31 @@ class SelectionService:
         return {"items": with_facts(record["ordered_items_json"], rows), **await self._explained(record, rows, data_as_of)}
 
     async def notes(self, record: dict, *, data_as_of: dict | None) -> dict:
-        """GET /api/pick/results/{id}/notes: the card's view of what the model was told beside the result, and each
+        """GET /api/pick/results/{id}/notes: facts rechecked at creation time, and each
         item's row facts, all from the result's own batch. NotesGone when that batch was pruned. Conditions this code
         can no longer explain leave the facts alone rather than fail the card."""
         try:
             rows = await self.repository.catalog_rows(record["catalog_batch_id"])
         except LookupError:
             raise NotesGone("这份候选用的剧库批次已过保留期被清理，依据说明不可用") from None
+        reference = parse_timestamp(record.get("created_at"))
         try:
-            explained = await self._explained(record, rows, data_as_of)
+            explained = await self._explained(record, rows, data_as_of, reference=reference, historical=True)
         except ValueError:
             # Pydantic's ValidationError included: stored conditions from rules this code no longer runs.
             explained = {}
-        return {"item_facts": facts_by_item(record["ordered_items_json"], rows), **explained}
+        return {
+            "notices_reference_at": reference.isoformat() if reference is not None else None,
+            "item_facts": facts_by_item(record["ordered_items_json"], rows),
+            **explained,
+        }
 
-    async def _explained(self, record: dict, rows: list[dict], data_as_of: dict | None) -> dict:
+    async def _explained(self, record: dict, rows: list[dict], data_as_of: dict | None, *, reference: datetime | None = None, historical: bool = False) -> dict:
         conditions = PickConditions.model_validate(record["conditions_json"])
         excluded = frozenset(record.get("excluded_json") or ())
-        return await _explanations(rows, conditions, excluded, matched=_matched_total(record), data_as_of=data_as_of)
+        return await _explanations(
+            rows, conditions, excluded, matched=_matched_total(record), data_as_of=data_as_of, reference=reference, historical=historical
+        )
 
     async def explain(self, record: dict, *, data_as_of: dict | None = None) -> dict:
         """What the query tool adds beside a stored result for the model: zero_diagnosis when nothing matched,
@@ -583,7 +593,7 @@ class SelectionService:
             raise ReplayUnrunnable("这份候选的条件已不能按当前规则重跑，无法回放") from None
         return {**view, "data_as_of": await self.repository.frozen_data_as_of(record)}
 
-    async def detail(self, result_id: str, item_id: str):
+    async def detail(self, result_id: str, item_id: str, *, data_as_of: dict | None = None):
         """One stored item for the detail tool, with its row facts when its batch still holds them (the model's view)."""
         record = await self.repository.result(result_id)
         for item in record["ordered_items_json"]:
@@ -593,7 +603,8 @@ class SelectionService:
                 except LookupError:
                     rows = []
                 (shown,) = with_facts([item], rows)
-                return {"result_id": result_id, "catalog_batch_id": record["catalog_batch_id"], "item": shown}
+                notices = data_notices(data_as_of, rows, PickConditions.model_validate(record["conditions_json"]))
+                return {"result_id": result_id, "catalog_batch_id": record["catalog_batch_id"], "item": shown, **({"data_notices": notices} if notices else {})}
         raise LookupError("候选条目不存在")
 
     async def prepare(self, result_id: str, item_ids: list[str], note: str = ""):

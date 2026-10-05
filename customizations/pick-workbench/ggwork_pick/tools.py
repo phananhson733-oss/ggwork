@@ -159,11 +159,11 @@ async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) 
 
     async def work():
         task, repo, record = await _owned_result(runtime, result_id)
-        detail = await SelectionService(repo).detail(result_id, item_id)
+        data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
+        detail = await SelectionService(repo).detail(result_id, item_id, data_as_of=data_as_of)
         task.known_titles.add(detail["item"]["title"])
         account = PickConditions.model_validate(record["conditions_json"]).posted_account
         task.posted_seen = with_posted(task.posted_seen, [detail["item"]], account=account)
-        data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
         return json.dumps({**detail, "data_as_of": data_as_of}, ensure_ascii=False)
 
     return await _answer(work)

@@ -201,7 +201,7 @@ def build_router(service):
 
     @router.get("/results/{result_id}/notes")
     async def result_notes(request: Request, result_id: str):
-        """What the query tool told the model beside the result, and each item's row facts, for the card. A separate
+        """Facts rechecked at the result creation time, and each item's row facts, for the card. A separate
         read so the result keeps the shape the frontend parses strictly; an older frontend never asks for it."""
         repo = repository(request)
         try:
