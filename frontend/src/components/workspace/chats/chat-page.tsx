@@ -18,6 +18,7 @@ import {
   InputBox,
   type InputBoxSubmitOptions,
 } from "@/components/workspace/input-box";
+import { planlessMode } from "@/components/workspace/input-box-helpers";
 import { KnowledgeScopeSelector } from "@/components/workspace/knowledge-scope-selector";
 import {
   MessageList,
@@ -61,6 +62,11 @@ import {
 import { isHiddenFromUIMessage } from "@/core/messages/utils";
 import { useModels } from "@/core/models/hooks";
 import { useNotification } from "@/core/notification/hooks";
+import {
+  PICK_REFERENCE_KEY,
+  storablePickReference,
+  turnPickReference,
+} from "@/core/pick/references";
 import { useProject } from "@/core/projects";
 import { useLocalSettings, useThreadSettings } from "@/core/settings";
 import { resolveThreadContext } from "@/core/settings/store";
@@ -111,6 +117,15 @@ export default function ChatPage() {
   const [isWelcomeMode, setIsWelcomeMode] = useState(isNewThread);
   const queryClient = useQueryClient();
   const [settings, setSettings] = useThreadSettings(threadId);
+  // The pick agent gets neither plan mode's todo tool nor subagents: its runs
+  // send a stored Pro or Ultra as Thinking, without rewriting the preference.
+  const runContext = useMemo(
+    () =>
+      pick
+        ? { ...settings.context, mode: planlessMode(settings.context.mode) }
+        : settings.context,
+    [pick, settings.context],
+  );
   const [localSettings, setLocalSettings] = useLocalSettings();
   const { enabled: browserControlEnabled } = useBrowserControlEnabled();
   const { tokenUsageEnabled } = useModels();
@@ -190,7 +205,7 @@ export default function ChatPage() {
   } = useThreadStream({
     threadId: isNewThread ? undefined : threadId,
     displayThreadId: threadId,
-    context: settings.context,
+    context: runContext,
     isMock,
     // onSend only animates the UI; do NOT flip `isNewThread` here — the
     // LangGraph SDK eagerly fetches /history the moment it receives a
@@ -307,15 +322,28 @@ export default function ChatPage() {
       if (submissionEpochRef.current !== submissionEpoch) {
         throw new Error("thread-submission-stale");
       }
-      const scopedOptions = currentKnowledgeScopeSnapshot
-        ? {
-            ...options,
-            additionalKwargs: {
-              ...options?.additionalKwargs,
-              [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot,
-            },
-          }
-        : options;
+      // The turn keeps its knowledge scope and its pick reference on its human
+      // message, so a regenerate or edit can replay it with the same ones.
+      const turnKwargs = {
+        ...(currentKnowledgeScopeSnapshot
+          ? { [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot }
+          : {}),
+        ...(pickReference
+          ? {
+              [PICK_REFERENCE_KEY]: storablePickReference(
+                threadId,
+                pickReference,
+              ),
+            }
+          : {}),
+      };
+      const scopedOptions =
+        Object.keys(turnKwargs).length > 0
+          ? {
+              ...options,
+              additionalKwargs: { ...options?.additionalKwargs, ...turnKwargs },
+            }
+          : options;
       const sendPromise = sendMessage(
         threadId,
         message,
@@ -366,21 +394,55 @@ export default function ChatPage() {
     await thread.stop();
   }, [thread]);
   const handleRegenerate = useCallback(
-    (messageId: string, supersededMessageIds: string[]) =>
-      regenerateMessage(threadId, messageId, supersededMessageIds),
-    [regenerateMessage, threadId],
+    (messageId: string, supersededMessageIds: string[]) => {
+      const pickReference = turnPickReference(
+        thread.messages,
+        messageId,
+        threadId,
+      );
+      return regenerateMessage(
+        threadId,
+        messageId,
+        supersededMessageIds,
+        pickReference ? { [PICK_REFERENCE_KEY]: pickReference } : undefined,
+      );
+    },
+    [regenerateMessage, thread.messages, threadId],
   );
   const handleEditAndRegenerate = useCallback(
-    (messageId: string, replacementText: string) =>
-      editAndRegenerateMessage(
+    (messageId: string, replacementText: string) => {
+      const pickReference = turnPickReference(
+        thread.messages,
+        messageId,
+        threadId,
+      );
+      const turnKwargs = {
+        ...(currentKnowledgeScopeSnapshot
+          ? { [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot }
+          : {}),
+        ...(pickReference
+          ? {
+              [PICK_REFERENCE_KEY]: storablePickReference(
+                threadId,
+                pickReference,
+              ),
+            }
+          : {}),
+      };
+      return editAndRegenerateMessage(
         threadId,
         messageId,
         replacementText,
-        currentKnowledgeScopeSnapshot
-          ? { [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot }
-          : undefined,
-      ),
-    [currentKnowledgeScopeSnapshot, editAndRegenerateMessage, threadId],
+        Object.keys(turnKwargs).length > 0 ? turnKwargs : undefined,
+        pickReference ? { [PICK_REFERENCE_KEY]: pickReference } : undefined,
+      );
+    },
+    [
+      currentKnowledgeScopeSnapshot,
+      editAndRegenerateMessage,
+      thread.messages,
+      threadId,
+    ],
   );
   const handleBranchTurn = useCallback(
     async (messageId: string, messageIds: string[]) => {
@@ -661,6 +723,8 @@ export default function ChatPage() {
                       onStop={handleStop}
                       canStopStreaming={canStopStreaming}
                       canCreateRuns={canCreateRuns}
+                      // The pick agent gets neither plan mode's todo tool nor subagents.
+                      planModes={!pick}
                     />
                   ) : (
                     <div

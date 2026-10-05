@@ -307,3 +307,80 @@ describe("observation evidence on the card (TR-16)", () => {
     expect(forbiddenIn(text)).toEqual([]);
   });
 });
+
+// Evaluation batch 2 (2026-10-05): the card shows what the model was told
+// beside the result, and each item's tags, listing date and channel rules.
+describe("result notes on the card", () => {
+  const view = (props: Partial<Parameters<typeof CandidateView>[0]>) =>
+    render(
+      <CandidateView
+        result={result}
+        selected={[]}
+        onToggle={rs.fn()}
+        onSave={rs.fn()}
+        busy={false}
+        {...props}
+      />,
+    );
+  it("shows each item's facts, the stale warnings and the hot scope", () => {
+    view({
+      notes: {
+        kind: "notes",
+        notes: {
+          item_facts: {
+            i1: {
+              tags: ["复仇"],
+              listed_at: "2026-09-01",
+              channel_rules: { youtube: "allowed" },
+            },
+          },
+          data_notices: ["kd 最新一期 2026-09-27，距今已超过 2 天"],
+          hot_scope: { counted: ["kd"], not_counted: ["clk"] },
+        },
+      },
+    });
+    expect(
+      screen.getByText("标签 复仇 · 上架 2026-09-01 · youtube 可发"),
+    ).toBeTruthy();
+    expect(screen.getByText(/kd 最新一期 2026-09-27/)).toBeTruthy();
+    expect(screen.getByText("热门依据算了 kd；不算 clk")).toBeTruthy();
+  });
+  it("explains an empty result condition by condition", () => {
+    view({
+      result: { ...result, items: [], matched_total: 0 },
+      notes: {
+        kind: "notes",
+        notes: {
+          item_facts: {},
+          zero_diagnosis: {
+            catalog_rows: 3,
+            delisted_rows: 0,
+            without_each: [
+              { condition: "tags", value: ["复仇"], matched_total: 2 },
+            ],
+          },
+        },
+      },
+    });
+    const diagnosis = screen.getByTestId("pick-zero-diagnosis");
+    expect(diagnosis.textContent).toContain("去掉「标签 复仇」：2 部");
+    expect(diagnosis.textContent).not.toContain("可以放宽条件后重新查询");
+  });
+  it("keeps the plain card while notes load, are missing or failed", () => {
+    view({ result: { ...result, items: [] } });
+    expect(screen.getByText(/可以放宽条件后重新查询/)).toBeTruthy();
+    expect(screen.queryByTestId("pick-notes")).toBeNull();
+    cleanup();
+    view({ notes: { kind: "none" } });
+    expect(screen.queryByTestId("pick-notes")).toBeNull();
+    cleanup();
+    view({ notes: { kind: "gone", message: "批次已清理" } });
+    expect(screen.getByTestId("pick-notes").textContent).toBe("批次已清理");
+    cleanup();
+    view({ notes: { kind: "error" } });
+    expect(screen.getByTestId("pick-notes").textContent).toContain(
+      "依据说明暂不可用",
+    );
+    expect(screen.getByText("样例剧", { exact: false })).toBeTruthy();
+  });
+});

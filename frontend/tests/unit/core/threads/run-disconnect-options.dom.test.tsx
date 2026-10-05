@@ -190,3 +190,39 @@ test("replays still resume from the prepared checkpoint", async () => {
     metadata: { regenerate_from_run_id: "run-1" },
   });
 });
+
+// Evaluation batch 2 (2026-10-05): a regenerate or edit replay ran without the
+// pick reference its turn was sent with, so "save the 2nd one" lost its card.
+// The caller passes the turn's stored reference; a replay without one sends none.
+test("a replay carries only the pick reference its caller passes", async () => {
+  const reference = { result_id: "r1", item_ids: ["i1"] };
+  const { result, unmount } = await renderThread();
+  await act(async () => {
+    await result.current.regenerateMessage(THREAD_ID, ANSWER.id, [ANSWER.id], {
+      pick_reference: reference,
+    });
+  });
+  await act(async () => {
+    await result.current.editAndRegenerateMessage(
+      THREAD_ID,
+      HUMAN_ID,
+      "Edited question",
+      { pick_reference: reference },
+      { pick_reference: reference },
+    );
+  });
+  await act(async () => {
+    await result.current.regenerateMessage(THREAD_ID, ANSWER.id);
+  });
+  unmount();
+  const calls = streamMockState.submit.mock.calls as unknown as Array<
+    [{ messages: Message[] }, { context: Record<string, unknown> }]
+  >;
+  expect(calls).toHaveLength(3);
+  expect(calls[0]![1].context.pick_reference).toEqual(reference);
+  expect(calls[1]![1].context.pick_reference).toEqual(reference);
+  expect(calls[1]![0].messages[0]!.additional_kwargs?.pick_reference).toEqual(
+    reference,
+  );
+  expect(calls[2]![1].context).not.toHaveProperty("pick_reference");
+});

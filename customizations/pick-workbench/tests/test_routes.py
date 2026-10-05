@@ -176,6 +176,10 @@ async def test_answer_checks_are_listed_per_owner_and_thread(app_client):
     assert (await client.get("/api/pick/answer-checks", headers={"test-owner": "alice"})).status_code == 422
     assert (await client.get("/api/pick/answer-checks", params={"thread_id": "t1"})).status_code == 401
     # Answers without a message id are kept apart by run and never swallow each other.
+    # A clean answer's check (evaluation batch 2) is stored and listed with no notes, on both dialects.
+    await alice.record_answer_check(thread_id="t4", run_id="r5", message_id="m5", notes=[])
+    clean = (await client.get("/api/pick/answer-checks", params={"thread_id": "t4"}, headers={"test-owner": "alice"})).json()["checks"]
+    assert [(c["message_id"], c["notes"]) for c in clean] == [("m5", [])]
     await alice.record_answer_check(thread_id="t3", run_id="r3", message_id=None, notes=["first"])
     await alice.record_answer_check(thread_id="t3", run_id="r4", message_id=None, notes=["second"])
     idless = (await client.get("/api/pick/answer-checks", params={"thread_id": "t3"}, headers={"test-owner": "alice"})).json()["checks"]

@@ -12,17 +12,28 @@ export const pickAnswerCheckSchema = z.object({
 
 export type PickAnswerCheck = z.infer<typeof pickAnswerCheckSchema>;
 
-/** Notes for one rendered answer: matched by message id; a check stored without one falls back to its run. */
+/**
+ * The notes of one rendered answer's checks, matched by message id; a check stored without one falls back to its
+ * run. Null when no check matched (an older answer, a tool-call turn); an empty list when it was checked and clean.
+ */
+export function checkedNotes(
+  checks: readonly PickAnswerCheck[],
+  messageId: string | undefined,
+  runId: string | undefined,
+): string[] | null {
+  const matched = checks.filter((check) =>
+    check.message_id
+      ? check.message_id === messageId
+      : Boolean(runId) && check.run_id === runId,
+  );
+  return matched.length ? matched.flatMap((check) => check.notes) : null;
+}
+
+/** Notes for one rendered answer; none when it was clean or never checked. */
 export function notesFor(
   checks: readonly PickAnswerCheck[],
   messageId: string | undefined,
   runId: string | undefined,
 ): string[] {
-  return checks
-    .filter((check) =>
-      check.message_id
-        ? check.message_id === messageId
-        : Boolean(runId) && check.run_id === runId,
-    )
-    .flatMap((check) => check.notes);
+  return checkedNotes(checks, messageId, runId) ?? [];
 }

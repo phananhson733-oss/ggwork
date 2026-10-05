@@ -10,6 +10,7 @@ import {
   savePickSelection,
   type SaveCommand,
 } from "@/core/pick/api";
+import { saveReceiptLine } from "@/core/pick/format";
 import { itemCheckHref } from "@/core/pick/links";
 import { pickRunStatusLabel, type PickResult } from "@/core/pick/types";
 
@@ -143,7 +144,7 @@ export function PickToolCard({
     setError("");
     try {
       const receipt = await savePickSelection(command.current.payload);
-      setFeedback(`已保存 ${receipt.saved.length} 部`);
+      setFeedback(saveReceiptLine(receipt.saved));
       void client.invalidateQueries({ queryKey: ["pick-selections"] });
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存失败，请重试");

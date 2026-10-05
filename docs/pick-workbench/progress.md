@@ -655,3 +655,24 @@
   - **待用户以登录用户核对**：关于页版本号是 20261005-c11d721；在能力中心勾选业务域重新授权，部分授予时看到黄色提醒（列出缺失数量与前 3 个 scope），对话框关闭、卡片显示已连接；四格手工格同上一批。
 - `pick-deploy-guard target=gateway commit=c11d72121f975f4de9bda4815f138a739818825d prod_head=0007 chain_head=0007 at=2026-10-05T09:19:36Z`
 - `pick-deploy-guard target=frontend commit=c11d72121f975f4de9bda4815f138a739818825d at=2026-10-05T09:20:15Z`
+
+## 选剧 Agent 第二批修复（2026-10-05）
+
+- 起因：第一批（PR #26）上线后，按 09-30 端到端评估的第二批清单接着修，外加三件顺手的小事。第 11 项（在 gpt-6-sol 上重跑验收）放在本批上线后单独做；第三批（模型 JSON 瘦身、回答核对扩到书名号以外的剧名等）还没开始。
+- 改动（一个 PR）：
+  - 新接口 `GET /api/pick/results/{id}/notes`：从结果自己冻结的剧库批次读出每个条目的 `tags`、`listed_at`、`channel_rules`（`item_facts`），以及查询工具当时给模型的 `zero_diagnosis`、`hot_scope`、`data_notices`。别人的结果和不存在的结果 404，批次被清理 410，存储的条件这版代码跑不了时只给 `item_facts`。结果本身的形状不变（前端 strict 解析），存储快照也不变。查询与详情工具给模型的条目同样多了这三个字段；提示词与技能各加一句「题材、上架日期、渠道能不能发按这三个字段答，没有就说资料里没有」。
+  - 干净的最终回答也记一条空核对（`notes=[]`），工具调用回合仍不记。前端据此分清「核对过没问题」「没有核对记录」和「核对读取失败」。
+  - 宿主系统提示词裁剪（`ggwork_pick/host_prompt.py`）：PickModelGate 在追加 `PICK_INSTRUCTIONS` 前，整段去掉 `skill_system`、`working_directory`、`subagent_system`，并从 `thinking_style`、`critical_reminders` 删掉提到 `read_file`、`present_files`、`/mnt/`、并行调用、委派子代理的条目。按选剧配置渲染真实提示词测：13,033 字符剩 9,194，开子代理时 21,227 也剩 9,194。
+  - 前端候选卡：条件摘要补上渠道（只要确认可发 / 只排除明确禁用）、关键词、标签、换一批；读 notes 显示零结果逐项诊断（替换原来笼统的「放宽条件」）、热门口径、数据时效提示，以及每部剧的标签、上架日期、渠道规则。notes 404（含旧 gateway 没有这个接口）不显示，410 说明批次已清理，其他错误显示「依据说明暂不可用」，卡片其余部分照常。
+  - 前端回答核对：有提示照旧显示警示框；空核对显示一行克制的「已核对剧名、保存与发布说法……其他内容以候选卡为准」；读取失败显示「回答核对暂不可用」；没有核对记录的旧回答不显示。
+  - 重新生成和编辑重发沿用该轮发送时绑定的候选引用：发送时把 `pick_reference` 连同发送时的线程存进人类消息的 `additional_kwargs`（与知识范围快照同一做法，网关不剥这个键）；重新生成从该回答之前最近的、网关重放时也认作输入的人类消息取回（跳过 goal 续跑、摘要这类隐藏控制消息，人工输入卡的回复照旧算），编辑重发从被编辑的消息取回并写进替换消息。线程对不上（分支复制来的消息）或旧回合没存过，照旧不带。
+  - 保存回执分清新存入、恢复（之前移出过，备注用这次的）和已在清单（备注未改）。
+  - 选剧工作台不再提供 Pro/Ultra：选剧 Agent 拿不到计划模式的待办工具，也拿不到子代理，默认 Pro 却让每次运行都带 `is_plan_mode`（宿主还注入一段用不了的待办提示）。InputBox 新增 `planModes`（默认 true，上游行为不变），chat-page 在 PickProvider 里传 false：菜单隐藏 Pro/Ultra，输入框显示 Thinking，运行上下文里把存着的 Pro、Ultra 换成 Thinking。存着的偏好不改写，其他 Agent 的对话仍读到用户自己选的模式（选剧模型没开 `supports_reasoning_effort`，`reasoning_effort` 本来就不生效）。
+- gpt-6-astra 审计（`codex exec -s read-only`，后端与前端各一轮）：
+  - 后端：一个可复现问题，提示词用 `\r\n` 换行时裁剪全部失效（`>$` 匹配不上 `\r`），已修并加 LF/CRLF 两种用例；当前宿主只产生 LF，线上不触发。另指出空核对的新测试只跑 SQLite，已在 `test_routes.py` 的两种库用例里补上空核对的读写。notes 的 owner 隔离、批次清理、条件校验失败、identity 缺失、换一批、缓存行不被修改、GET 只有 SELECT 均核过没问题。
+  - 前端：四个真实问题，均已修并补测试。① 分支对话复制了带 `pick_reference` 的消息，在分支里重新生成会把父线程的结果交给后端，后端按线程归属拒绝，整轮失败：引用改为连同发送线程一起存，线程对不上就不带。② goal 自动续跑插入的隐藏人类消息截断了引用查找：改为与网关 `_is_regenerate_human_message` 同样跳过控制消息。③ 第一版把选剧页限制后的 Thinking 经 `resolveThreadContext` 写回共享设置，之后进别的 Agent 对话也成了 Thinking：改为只在显示和运行上下文里换。④ 零结果诊断把数不出来（null）当 0，下了「单放宽一项都没有结果」的结论：改为每项都是 0 才说。notes 的缓存键、换卡与切换用户、404/410/网络错误/schema 失败的显示、工具调用回合不会挂空核对、模式 effect 不会循环，均核过没问题。
+- 验证（本机，GitHub Actions 状态见推送后的检查）：
+  - 扩展全套（一次性全 scram、UTF8 的 PG 17 加 SQLite）：4,020 通过、21 跳过（跳过原因里没有 `PICK_TEST_PG_URL is not set`）。托管副本刷新后 `diff -rq` 为空，`uv.lock` 不变，版本仍 0.3.0。
+  - 宿主 `test_pick_cloud_entrypoint.py` 与 `test_compose_default_bind_host.py` 69 通过；`ruff check`、`ruff format --check` 通过；agent guidance 检查 0 错误 0 警告。
+  - 前端 `pnpm check` 通过；全量单测 2,828 通过、45 跳过。
+- 上线后由用户在工作台核对：问一个筛不出结果的条件看逐项诊断；候选卡每部剧下有标签、上架、渠道一行，问「第 1 部能不能发 YouTube」；勾选后发「保存第 2 部」再点重新生成，仍按同一张卡；模式菜单只有闪速和思考。e2e-pick 需要真实模型和数据库，本批没跑。

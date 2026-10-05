@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { useAuth } from "@/core/auth/AuthProvider";
-import { notesFor } from "@/core/pick/answer-checks";
+import { checkedNotes } from "@/core/pick/answer-checks";
 import { listPickAnswerChecks } from "@/core/pick/api";
 
 import { usePickContext } from "./pick-context";
@@ -12,6 +12,7 @@ import { usePickContext } from "./pick-context";
 /**
  * Verification notes the backend stored for this answer (titles no tool returned, save or
  * "not posted" claims). They sit beside the answer; the model's text is never rewritten.
+ * A clean answer has an empty check and says so; a check that could not be read says that.
  * Rendered only inside the pick workspace, whose provider already requires a signed-in user.
  */
 export function PickAnswerCheckNote(props: {
@@ -55,8 +56,28 @@ function AnswerCheckNote({
       );
     wasLoading.current = isLoading;
   }, [client, isLoading, threadId, userId]);
-  const notes = notesFor(query.data ?? [], messageId, runId);
-  if (notes.length === 0) return null;
+  if (isLoading) return null;
+  if (query.isError)
+    // Not "clean": the check may have flagged this answer.
+    return (
+      <p
+        data-testid="pick-answer-check-unavailable"
+        className="text-muted-foreground mt-2 text-xs"
+      >
+        回答核对暂不可用，正文里的剧名和说法请以候选卡为准。
+      </p>
+    );
+  const notes = checkedNotes(query.data ?? [], messageId, runId);
+  if (notes === null) return null;
+  if (notes.length === 0)
+    return (
+      <p
+        data-testid="pick-answer-check-clean"
+        className="text-muted-foreground mt-2 text-xs"
+      >
+        已核对剧名、保存与发布说法，未发现与工具结果不符；其他内容以候选卡为准。
+      </p>
+    );
   return (
     <aside
       role="note"

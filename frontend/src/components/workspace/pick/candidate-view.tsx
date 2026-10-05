@@ -9,6 +9,13 @@ import {
 } from "@/core/pick/format";
 import { itemCheckHref, replayLink } from "@/core/pick/links";
 import {
+  hotScopeLine,
+  itemFactsLine,
+  type PickNotesState,
+  type PickResultNotes,
+  zeroDiagnosisLines,
+} from "@/core/pick/notes";
+import {
   pickRunStatusLabel,
   type PickItem,
   type PickResult,
@@ -83,6 +90,7 @@ function CandidateCard({
   onToggle,
   busy,
   readOnly,
+  facts,
 }: {
   item: PickItem;
   index: number;
@@ -91,6 +99,7 @@ function CandidateCard({
   onToggle: (id: string) => void;
   busy: boolean;
   readOnly: boolean;
+  facts: string | null;
 }) {
   const posted = postedLine(item.posted, result.conditions);
   const checkHref = itemCheckHref(result.data_as_of, item.identity);
@@ -114,6 +123,11 @@ function CandidateCard({
           <span className="text-muted-foreground mt-1 block text-xs">
             {item.theater || "剧场未注明"} · {item.language}
           </span>
+          {facts && (
+            <span className="text-muted-foreground mt-1 block text-xs">
+              {facts}
+            </span>
+          )}
         </span>
       </label>
       <p className="mt-3 text-sm leading-6">{item.reason}</p>
@@ -133,6 +147,56 @@ function CandidateCard({
   );
 }
 
+/** What the model was told beside the result: stale-data warnings and what counted as hot. */
+function ResultNotices({ notes }: { notes: PickNotesState | undefined }) {
+  if (notes?.kind === "gone" || notes?.kind === "error")
+    return (
+      <p className="text-muted-foreground text-xs" data-testid="pick-notes">
+        {notes.kind === "gone" ? notes.message : "依据说明暂不可用，可稍后刷新"}
+      </p>
+    );
+  if (notes?.kind !== "notes") return null;
+  const { data_notices: notices = [], hot_scope: hot } = notes.notes;
+  if (notices.length === 0 && !hot) return null;
+  return (
+    <div className="space-y-1 text-xs" data-testid="pick-notes">
+      {notices.map((notice) => (
+        <p key={notice} className="text-warning-ink">
+          {notice}
+        </p>
+      ))}
+      {hot && <p className="text-muted-foreground">{hotScopeLine(hot)}</p>}
+    </div>
+  );
+}
+
+function EmptyResult({ notes }: { notes: PickResultNotes | undefined }) {
+  const diagnosis = notes?.zero_diagnosis;
+  if (!diagnosis)
+    return (
+      <p className="rounded-lg border border-dashed p-6 text-sm">
+        没有符合这次条件的剧目，可以放宽条件后重新查询。
+      </p>
+    );
+  const { lead, steps, caution } = zeroDiagnosisLines(diagnosis);
+  return (
+    <div
+      className="rounded-lg border border-dashed p-6 text-sm"
+      data-testid="pick-zero-diagnosis"
+    >
+      <p>没有符合这次条件的剧目。{lead}</p>
+      {steps.length > 0 && (
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          {steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ul>
+      )}
+      {caution && <p className="text-muted-foreground mt-2">{caution}</p>}
+    </div>
+  );
+}
+
 export function CandidateView({
   result,
   selected,
@@ -140,6 +204,7 @@ export function CandidateView({
   onSave,
   busy,
   readOnly = false,
+  notes,
 }: {
   result: PickResult;
   selected: string[];
@@ -147,8 +212,11 @@ export function CandidateView({
   onSave: () => void;
   busy: boolean;
   readOnly?: boolean;
+  /** GET /results/{id}/notes; absent while loading or where nothing reads it. */
+  notes?: PickNotesState;
 }) {
   const replayHref = replayLink(result);
+  const read = notes?.kind === "notes" ? notes.notes : undefined;
   return (
     <div className="space-y-4">
       <p role="status" className="text-sm">
@@ -184,12 +252,9 @@ export function CandidateView({
       >
         数据截至：{dataAsOfLine(result.data_as_of)}
       </p>
+      <ResultNotices notes={notes} />
       {replayHref && <ReplayLink href={replayHref} />}
-      {result.items.length === 0 && (
-        <p className="rounded-lg border border-dashed p-6 text-sm">
-          没有符合这次条件的剧目，可以放宽条件后重新查询。
-        </p>
-      )}
+      {result.items.length === 0 && <EmptyResult notes={read} />}
       {result.items.map((item, index) => (
         <CandidateCard
           key={item.item_id}
@@ -200,6 +265,7 @@ export function CandidateView({
           onToggle={onToggle}
           busy={busy}
           readOnly={readOnly}
+          facts={itemFactsLine(read?.item_facts[item.item_id])}
         />
       ))}
       <p className="text-muted-foreground text-xs">

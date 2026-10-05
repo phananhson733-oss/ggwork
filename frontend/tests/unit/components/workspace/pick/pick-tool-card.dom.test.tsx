@@ -255,7 +255,7 @@ describe("a card with observations (TR-16)", () => {
     await screen.findByText(item!.title);
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "确认保存（1）" }));
-    await screen.findByText("已保存 1 部");
+    await screen.findByText("保存完成：新存入 1 部");
     expect(rs.mocked(savePickSelection).mock.calls[0]?.[0]).toMatchObject({
       result_id: obsResult.id,
       item_ids: [item!.item_id],

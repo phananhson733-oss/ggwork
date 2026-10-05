@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from ggwork_pick.contracts import PickConditions
 from ggwork_pick.freshness import RANK_KINDS, data_notices
+from ggwork_pick.item_facts import facts_by_item, with_facts
 from ggwork_pick.pin import Pin, as_pin
 from ggwork_pick.references import check_posted_account, check_references, hot_scope, is_hot_kind, names_account
 from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of, with_mirror_version
@@ -34,6 +35,10 @@ class ReplayGone(Exception):
 
 class ReplayUnrunnable(Exception):
     """This code cannot re-run the result's stored conditions any more: the replay answers 409."""
+
+
+class NotesGone(Exception):
+    """The result's catalog batch no longer holds rows (pruned past retention): its notes answer 410."""
 
 
 def ranking_version_for(conditions: PickConditions) -> str:
@@ -517,6 +522,36 @@ class SelectionService:
         }
         return {**counted, **await _explanations(rows, conditions, excluded, matched=len(matches), data_as_of=counted["data_as_of"])}
 
+    async def model_view(self, record: dict, *, data_as_of: dict | None) -> dict:
+        """What the query tool adds to a stored result for the model: its items with their row facts, then explain()'s
+        keys. Only the model's view: the stored snapshot and the card's result keep their shape. A batch pruned under a
+        repeated call leaves the stored items as they are."""
+        try:
+            rows = await self.repository.catalog_rows(record["catalog_batch_id"])
+        except LookupError:
+            return {}
+        return {"items": with_facts(record["ordered_items_json"], rows), **await self._explained(record, rows, data_as_of)}
+
+    async def notes(self, record: dict, *, data_as_of: dict | None) -> dict:
+        """GET /api/pick/results/{id}/notes: the card's view of what the model was told beside the result, and each
+        item's row facts, all from the result's own batch. NotesGone when that batch was pruned. Conditions this code
+        can no longer explain leave the facts alone rather than fail the card."""
+        try:
+            rows = await self.repository.catalog_rows(record["catalog_batch_id"])
+        except LookupError:
+            raise NotesGone("这份候选用的剧库批次已过保留期被清理，依据说明不可用") from None
+        try:
+            explained = await self._explained(record, rows, data_as_of)
+        except ValueError:
+            # Pydantic's ValidationError included: stored conditions from rules this code no longer runs.
+            explained = {}
+        return {"item_facts": facts_by_item(record["ordered_items_json"], rows), **explained}
+
+    async def _explained(self, record: dict, rows: list[dict], data_as_of: dict | None) -> dict:
+        conditions = PickConditions.model_validate(record["conditions_json"])
+        excluded = frozenset(record.get("excluded_json") or ())
+        return await _explanations(rows, conditions, excluded, matched=_matched_total(record), data_as_of=data_as_of)
+
     async def explain(self, record: dict, *, data_as_of: dict | None = None) -> dict:
         """What the query tool adds beside a stored result for the model: zero_diagnosis when nothing matched,
         hot_scope under hot_only, and data_notices when the data_as_of the result answers with is stale. Read from the
@@ -549,10 +584,16 @@ class SelectionService:
         return {**view, "data_as_of": await self.repository.frozen_data_as_of(record)}
 
     async def detail(self, result_id: str, item_id: str):
+        """One stored item for the detail tool, with its row facts when its batch still holds them (the model's view)."""
         record = await self.repository.result(result_id)
         for item in record["ordered_items_json"]:
             if item["item_id"] == item_id:
-                return {"result_id": result_id, "catalog_batch_id": record["catalog_batch_id"], "item": item}
+                try:
+                    rows = await self.repository.catalog_rows(record["catalog_batch_id"])
+                except LookupError:
+                    rows = []
+                (shown,) = with_facts([item], rows)
+                return {"result_id": result_id, "catalog_batch_id": record["catalog_batch_id"], "item": shown}
         raise LookupError("候选条目不存在")
 
     async def prepare(self, result_id: str, item_ids: list[str], note: str = ""):

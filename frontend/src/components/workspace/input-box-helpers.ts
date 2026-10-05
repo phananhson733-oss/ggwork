@@ -300,3 +300,30 @@ export async function readGoalResponseError(
   }
   return `HTTP ${response.status}`;
 }
+
+export type InputMode = "flash" | "thinking" | "pro" | "ultra";
+
+/** The mode a run goes out with: without thinking support only Flash runs; no choice means Pro where it can think. */
+export function getResolvedMode(
+  mode: InputMode | undefined,
+  supportsThinking: boolean,
+): InputMode {
+  if (!supportsThinking && mode !== "flash") {
+    return "flash";
+  }
+  if (mode) {
+    return mode;
+  }
+  return supportsThinking ? "pro" : "flash";
+}
+
+/**
+ * The mode a run goes out with where plan modes are not offered (the pick workbench: its agent gets neither plan
+ * mode's todo tool nor Ultra's subagents): Pro and Ultra run as Thinking. Only the run and the composer's display use
+ * it; the stored preference keeps the user's own choice, which other agents' chats still read.
+ */
+export function planlessMode<T extends string | undefined>(
+  mode: T,
+): T | "thinking" {
+  return mode === "pro" || mode === "ultra" ? "thinking" : mode;
+}

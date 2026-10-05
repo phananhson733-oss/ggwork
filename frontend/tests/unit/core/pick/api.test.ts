@@ -6,6 +6,7 @@ rs.mock("@/core/config", () => ({ getBackendBaseURL: () => "" }));
 import { fetch as fetcher } from "@/core/api/fetcher";
 import {
   getPickResult,
+  getPickResultNotes,
   getPickSyncStatus,
   listPickResults,
   listSavedPicks,
@@ -73,6 +74,43 @@ describe("pick API", () => {
       "/api/pick/results?thread_id=thread%2Fa",
     );
     expect(mockedFetch.mock.calls[0]?.[1]?.signal).toBe(signal);
+  });
+  // Evaluation batch 2: the notes are optional to the card. An older gateway
+  // has no such route (404), a pruned batch answers 410; neither is an error.
+  it("reads a result's notes and tolerates a missing route or a pruned batch", async () => {
+    const notes = {
+      item_facts: {
+        i1: { tags: ["复仇"], listed_at: null, channel_rules: {} },
+      },
+      hot_scope: { counted: ["kd"], not_counted: [] },
+      future_key: 1,
+    };
+    mockedFetch.mockResolvedValueOnce(new Response(JSON.stringify(notes)));
+    const read = await getPickResultNotes("r/1");
+    expect(mockedFetch.mock.calls[0]?.[0]).toBe(
+      "/api/pick/results/r%2F1/notes",
+    );
+    expect(read).toEqual({
+      kind: "notes",
+      notes: { item_facts: notes.item_facts, hot_scope: notes.hot_scope },
+    });
+    mockedFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 }),
+    );
+    await expect(getPickResultNotes("r1")).resolves.toEqual({ kind: "none" });
+    mockedFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "批次已清理" }), { status: 410 }),
+    );
+    await expect(getPickResultNotes("r1")).resolves.toEqual({
+      kind: "gone",
+      message: "批次已清理",
+    });
+    mockedFetch.mockResolvedValueOnce(new Response("oops", { status: 500 }));
+    await expect(getPickResultNotes("r1")).rejects.toThrow("500");
+    mockedFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ item_facts: { i1: { tags: "x" } } })),
+    );
+    await expect(getPickResultNotes("r1")).rejects.toThrow();
   });
 });
 

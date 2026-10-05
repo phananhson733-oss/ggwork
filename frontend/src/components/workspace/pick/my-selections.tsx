@@ -16,6 +16,7 @@ import {
 } from "@/core/pick/api";
 
 import { CandidateView } from "./candidate-view";
+import { useResultNotes } from "./use-result-notes";
 
 function SourceResult({ id }: { id: string }) {
   const { user } = useAuth();
@@ -25,6 +26,7 @@ function SourceResult({ id }: { id: string }) {
     queryFn: ({ signal }) => getPickResult(id, signal),
     enabled: !!user && open,
   });
+  const notes = useResultNotes(open ? id : undefined);
   return (
     <div className="mt-3">
       <Button size="sm" variant="ghost" onClick={() => setOpen(!open)}>
@@ -47,6 +49,7 @@ function SourceResult({ id }: { id: string }) {
             onSave={() => undefined}
             busy={false}
             readOnly
+            notes={notes}
           />
         </div>
       )}

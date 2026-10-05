@@ -10,9 +10,11 @@ import {
   savePickSelection,
   type SaveCommand,
 } from "@/core/pick/api";
+import { saveReceiptLine } from "@/core/pick/format";
 
 import { CandidateView } from "./candidate-view";
 import { usePickContext } from "./pick-context";
+import { useResultNotes } from "./use-result-notes";
 
 export function CandidatePanel() {
   const pick = usePickContext();
@@ -40,6 +42,7 @@ function OwnedCandidatePanel() {
         : false,
   });
   const result = statusQuery.data ?? snapshot;
+  const notes = useResultNotes(snapshot.id);
   const save = async () => {
     if (result.run_status !== "success") return;
     const key = JSON.stringify([result.id, [...pick.selected].sort(), note]);
@@ -58,9 +61,7 @@ function OwnedCandidatePanel() {
     setFeedback("");
     try {
       const receipt = await savePickSelection(pending.current.command);
-      setFeedback(
-        `已保存 ${receipt.saved.length} 部（其中 ${receipt.saved.filter((row) => row.status === "existing").length} 部已在清单）`,
-      );
+      setFeedback(saveReceiptLine(receipt.saved));
       pending.current = null;
       void client.invalidateQueries({ queryKey: ["pick-selections"] });
     } catch (e) {
@@ -85,6 +86,7 @@ function OwnedCandidatePanel() {
         onToggle={pick.toggle}
         onSave={() => void save()}
         busy={busy}
+        notes={notes}
       />
       <label className="mt-5 block text-sm">
         保存备注

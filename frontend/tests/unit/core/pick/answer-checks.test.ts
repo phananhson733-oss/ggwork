@@ -1,6 +1,10 @@
 import { describe, expect, it } from "@rstest/core";
 
-import { notesFor, pickAnswerCheckSchema } from "@/core/pick/answer-checks";
+import {
+  checkedNotes,
+  notesFor,
+  pickAnswerCheckSchema,
+} from "@/core/pick/answer-checks";
 
 const check = (message_id: string | null, run_id: string, notes: string[]) =>
   pickAnswerCheckSchema.parse({
@@ -21,6 +25,13 @@ describe("answer-check notes", () => {
     const checks = [check(null, "r1", ["c"])];
     expect(notesFor(checks, "m9", "r1")).toEqual(["c"]);
     expect(notesFor(checks, "m9", undefined)).toEqual([]);
+  });
+  it("tells a clean check from no check", () => {
+    const checks = [check("m1", "r1", []), check(null, "r2", [])];
+    expect(checkedNotes(checks, "m1", "r1")).toEqual([]);
+    expect(checkedNotes(checks, "m2", "r1")).toBeNull();
+    expect(checkedNotes(checks, "m9", "r2")).toEqual([]);
+    expect(notesFor(checks, "m1", "r1")).toEqual([]);
   });
   it("accepts the longest note the backend writes", () => {
     // Five unknown titles of up to 500 characters each, plus the sentence around them.

@@ -70,8 +70,17 @@ export function conditionsLine(conditions: PickConditions): string {
   const parts = [
     conditions.theater?.trim() ? conditions.theater : "全部剧场",
     conditions.language?.trim() ? conditions.language : "全部语种",
-    conditions.exclude_selected ? "排除我的已选" : "包含我的已选",
   ];
+  // confirmed_eligible_only filters only with a channel; the gateway's default is true.
+  if (conditions.channel)
+    parts.push(
+      `${conditions.channel} ${conditions.confirmed_eligible_only === false ? "只排除明确禁用" : "只要确认可发"}`,
+    );
+  if (conditions.query?.trim()) parts.push(`关键词「${conditions.query}」`);
+  if (conditions.tags?.length) parts.push(`标签 ${conditions.tags.join("、")}`);
+  parts.push(conditions.exclude_selected ? "排除我的已选" : "包含我的已选");
+  if (conditions.exclude_previous)
+    parts.push("换一批（排除这条候选链看过的剧）");
   if (conditions.signal_kind)
     parts.push(
       `${conditions.sort === "rank" ? "按榜单名次" : "只看榜单"} ${conditions.signal_kind}`,
@@ -81,4 +90,23 @@ export function conditionsLine(conditions: PickConditions): string {
   if (conditions.posted_account?.trim())
     parts.push(`排除账号 ${conditions.posted_account} 已发`);
   return [...parts, ...obsConditionParts(conditions)].join(" · ");
+}
+
+/**
+ * What one save did, by receipt status: a removed pick comes back with this save's note, while one already in the
+ * list keeps its old note (the gateway leaves it untouched).
+ */
+export function saveReceiptLine(
+  saved: ReadonlyArray<{ status: "created" | "existing" | "restored" }>,
+): string {
+  const count = (status: string) =>
+    saved.filter((row) => row.status === status).length;
+  const parts = [
+    count("created") ? `新存入 ${count("created")} 部` : null,
+    count("restored")
+      ? `恢复 ${count("restored")} 部（之前移出过，备注用这次的）`
+      : null,
+    count("existing") ? `${count("existing")} 部已在清单（备注未改）` : null,
+  ].filter(Boolean);
+  return `保存完成：${parts.length ? parts.join("，") : "没有新的变化"}`;
 }

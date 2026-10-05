@@ -4,6 +4,8 @@ import {
   bindPickReference,
   chooseReference,
   resolvePickOrdinals,
+  storablePickReference,
+  turnPickReference,
 } from "@/core/pick/references";
 
 const result = {
@@ -103,5 +105,92 @@ describe("chooseReference", () => {
         make("y", "2026-09-24T00:00:00Z", "other"),
       ),
     ).toBeUndefined();
+  });
+});
+
+// Evaluation batch 2 (2026-10-05): a regenerate or edit replays its turn with
+// the pick reference that turn was sent with, read back from its human message.
+describe("turnPickReference", () => {
+  const reference = { result_id: "r1", item_ids: ["i2", "i1"] };
+  const stored = storablePickReference("t1", reference);
+  const messages = [
+    { id: "h0", type: "human" },
+    { id: "a0", type: "ai" },
+    { id: "h1", type: "human", additional_kwargs: { pick_reference: stored } },
+    { id: "a1", type: "ai" },
+    { id: "t1", type: "tool" },
+    { id: "a2", type: "ai" },
+  ];
+  it("reads an answer's turn from the human message before it", () => {
+    expect(turnPickReference(messages, "a2", "t1")).toEqual(reference);
+    expect(turnPickReference(messages, "a1", "t1")).toEqual(reference);
+  });
+  it("reads an edited human message's own reference", () => {
+    expect(turnPickReference(messages, "h1", "t1")).toEqual(reference);
+    expect(turnPickReference(messages, "h1", "t1")).not.toBe(reference);
+  });
+  it("finds none for an unbound turn, an unknown id or a malformed value", () => {
+    expect(turnPickReference(messages, "a0", "t1")).toBeUndefined();
+    expect(turnPickReference(messages, "missing", "t1")).toBeUndefined();
+    expect(
+      turnPickReference(
+        [
+          {
+            id: "h",
+            type: "human",
+            additional_kwargs: {
+              pick_reference: { result_id: 1, item_ids: [], thread_id: "t1" },
+            },
+          },
+        ],
+        "h",
+        "t1",
+      ),
+    ).toBeUndefined();
+  });
+  // gpt-6-astra review: a branch copies the messages but not the results, so
+  // the gateway refuses a parent thread's result and the replay failed outright.
+  it("drops a reference sent in another thread, as a branch copies it", () => {
+    expect(turnPickReference(messages, "a2", "branch")).toBeUndefined();
+    const unscoped = [
+      {
+        id: "h",
+        type: "human",
+        additional_kwargs: { pick_reference: reference },
+      },
+      { id: "a", type: "ai" },
+    ];
+    expect(turnPickReference(unscoped, "a", "t1")).toBeUndefined();
+  });
+  // gpt-6-astra review: a goal continuation is a hidden human message the
+  // gateway skips when replaying; stopping at it lost the turn's reference.
+  it("skips the hidden control messages the gateway skips, but not a card reply", () => {
+    const continued = [
+      ...messages.slice(0, 4),
+      {
+        id: "g1",
+        type: "human",
+        additional_kwargs: {
+          hide_from_ui: true,
+          deerflow_goal_continuation: true,
+        },
+      },
+      { id: "s1", type: "human", name: "summary" },
+      { id: "a3", type: "ai" },
+    ];
+    expect(turnPickReference(continued, "a3", "t1")).toEqual(reference);
+    const answered = [
+      ...messages.slice(0, 4),
+      {
+        id: "c1",
+        type: "human",
+        additional_kwargs: {
+          hide_from_ui: true,
+          human_input_response: { value: "x" },
+        },
+      },
+      { id: "a4", type: "ai" },
+    ];
+    expect(turnPickReference(answered, "a4", "t1")).toBeUndefined();
   });
 });
