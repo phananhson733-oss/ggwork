@@ -717,6 +717,9 @@ def query_detail_bundle(bundle):
     step = compound_bundle(bundle)
     query = cap["records"][1]
     query["response"]["items"] = [{"identity": "a", "item_id": "qa"}, {"identity": "b", "item_id": "qb"}]
+    source_rows = {row["identity"]: row for row in json.loads((root / "rows.json").read_text())}
+    for item in query["response"]["items"]:
+        item["evidence"] = [{**signal, "citation_id": f"{item['item_id']}:{index}"} for index, signal in enumerate(source_rows[item["identity"]]["signals"], 1)]
     detail = copy.deepcopy(query)
     detail.update(
         tool_name="pick_get_drama_detail",
@@ -895,3 +898,101 @@ def test_compound_run_with_required_terminal_capture(bundle):
     assert run(bundle)["exit_code"] == 0
     cap["records"].pop()
     assert run(bundle)["exit_code"] == 2
+
+
+def test_producing_query_cannot_start_after_consumed_detail(bundle):
+    _, _, cap = bundle
+    query_detail_bundle(bundle)
+    cap["records"][0]["started_at"] = "2026-10-05T00:00:03Z"
+    assert run(bundle)["exit_code"] != 0
+
+
+def test_invented_evidence_not_authorized_by_renamed_source_field(bundle):
+    root, _, _ = bundle
+    step, detail = query_detail_bundle(bundle)
+    exported = json.loads((root / "new-bound-result.json").read_text())
+    fabricated = [{"kind": "kd", "source_ref": "forged", "grade": "S", "note": "invented authorization"}]
+    exported["result"]["items"][0]["evidence"] = fabricated
+    detail["response"]["evidence"] = fabricated
+    step["tool_contracts"][1]["expected"]["fact_fields"] = ["identity", "evidence"]
+    detail["bound_result_sha256"] = put(root, "new-bound-result.json", exported)
+    assert run(bundle)["exit_code"] != 0
+
+
+def rich_evidence_bundle(bundle):
+    root, exp, cap = bundle
+    rows = json.loads((root / "rows.json").read_text())
+    row = next(row for row in rows if row["identity"] == "a")
+    row["signals"][0].update(source_ref="synthetic:board", label="Synthetic board", grade="S", note="Historical evidence only", value=0, unit="count")
+    rows_hash = put(root, "rows.json", rows)
+    exp["sources"]["catalog"]["rows_sha256"] = rows_hash
+    cap["records"][0]["source"]["rows_sha256"] = rows_hash
+    parents = json.loads((root / "parents.json").read_text())
+    for parent in parents:
+        parent["source"]["rows_sha256"] = rows_hash
+    exp["states"]["before"]["parent_chain_sha256"] = put(root, "parents.json", parents)
+    refresh_browser(bundle)
+    step, detail = query_detail_bundle(bundle)
+    exported = json.loads((root / "new-bound-result.json").read_text())
+    detail["response"]["evidence"] = copy.deepcopy(exported["result"]["items"][0]["evidence"])
+    step["tool_contracts"][1]["expected"]["fact_fields"] = ["identity", "evidence"]
+    return step, detail, exported
+
+
+def test_projection_may_only_omit_evidence_source_ref(bundle):
+    _, _, cap = bundle
+    _, detail, _ = rich_evidence_bundle(bundle)
+    for item in cap["records"][0]["response"]["items"]:
+        for evidence in item["evidence"]:
+            evidence.pop("source_ref", None)
+    for evidence in detail["response"]["evidence"]:
+        evidence.pop("source_ref", None)
+    assert run(bundle)["exit_code"] == 0
+
+
+@pytest.mark.parametrize("defect", ["grade", "note", "source_ref", "citation", "missing_grade", "zero_bool", "unit", "new_field", "reorder", "missing_signal"])
+def test_evidence_mapping_preserves_all_signal_facts(bundle, defect):
+    root, _, cap = bundle
+    _, detail, exported = rich_evidence_bundle(bundle)
+    evidence = exported["result"]["items"][0]["evidence"]
+    if defect == "grade":
+        evidence[0]["grade"] = "A"
+    elif defect == "note":
+        evidence[0]["note"] = "Invented authorization"
+    elif defect == "source_ref":
+        evidence[0]["source_ref"] = "forged"
+    elif defect == "citation":
+        evidence[0]["citation_id"] = "qb:1"
+    elif defect == "missing_grade":
+        evidence[0].pop("grade")
+    elif defect == "zero_bool":
+        evidence[0]["value"] = False
+    elif defect == "unit":
+        evidence[0]["unit"] = "dollars"
+    elif defect == "new_field":
+        evidence[0]["permission"] = "allowed"
+    elif defect == "reorder":
+        evidence.reverse()
+    else:
+        evidence.pop()
+    detail["response"]["evidence"] = copy.deepcopy(evidence)
+    cap["records"][0]["response"]["items"][0]["evidence"] = copy.deepcopy(evidence)
+    detail["bound_result_sha256"] = put(root, "new-bound-result.json", exported)
+    assert run(bundle)["exit_code"] != 0
+
+
+def test_created_time_cannot_precede_query_even_when_call_times_tie(bundle):
+    _, _, cap = bundle
+    query_detail_bundle(bundle)
+    for record in cap["records"]:
+        record["started_at"] = "2026-10-05T00:00:03Z"
+    assert run(bundle)["exit_code"] != 0
+
+
+def test_existing_bound_save_evidence_also_uses_independent_signals(bundle):
+    root, exp, _ = bundle
+    save_bundle(bundle)
+    parents = json.loads((root / "parents.json").read_text())
+    parents[0]["items"][0]["evidence"] = [{"citation_id": "p1:1", "kind": "kd", "grade": "S", "note": "invented"}]
+    exp["states"]["before"]["parent_chain_sha256"] = put(root, "parents.json", parents)
+    assert run(bundle)["exit_code"] != 0

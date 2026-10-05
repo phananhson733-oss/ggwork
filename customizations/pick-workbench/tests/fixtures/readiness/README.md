@@ -268,3 +268,21 @@ refer to that first actual ID. Do not intercept/rewrite the application ID to
 match a test constant. The first sealed payload must also match the other
 locked intent fields. Literal request IDs remain supported for deterministic
 synthetic cases.
+
+### Causal timing and independent evidence mapping
+
+Within an authoritative run inventory, tool started_at timestamps must be
+nondecreasing. For a new query result consumed by detail/prepare, additionally:
+`producer.started_at <= result.created_at <= consumer.started_at`.
+Use actual per-call event timing. Array position or copying run-start into every
+call cannot establish causal order when available timestamps contradict it.
+
+A new bound_result export must contain each item's complete stored evidence.
+The checker explicitly maps `source.signals` to `item.evidence` in the original
+order, with exactly `citation_id="<item_id>:<one-based-signal-index>"`. Every signal
+field is preserved, including kind, source_ref, observed_at, label, rank, value,
+grade, note, units and any additional captured fact fields. Missing/additional
+signals, reordered signals, changed citations and type changes such as 0→false
+fail closed. Existing bound items that contain evidence undergo the same check.
+Actual model query/detail projections may omit only source_ref from a signal;
+all other facts and citation IDs must agree with the complete independent source.

@@ -684,6 +684,29 @@ def save_request_id(expected, record, base):
     return request["request_id"]
 
 
+def verify_evidence(item, source_row, *, projected=False):
+    """Stored evidence is the complete ordered signal list with item-local citations."""
+    require(
+        isinstance(item["item_id"], str) and item["item_id"], "missing evidence item ID"
+    )
+    evidence = item["evidence"]
+    require(
+        isinstance(evidence, list) and len(evidence) == len(source_row["signals"]),
+        "evidence signal count mismatch",
+    )
+    for index, (actual, signal) in enumerate(zip(evidence, source_row["signals"]), 1):
+        expected = {**signal, "citation_id": f"{item['item_id']}:{index}"}
+        # The reviewed model projection may remove source_ref, and nothing else
+        # from a signal. Full persisted result exports retain it.
+        if projected and "source_ref" not in actual:
+            expected.pop("source_ref", None)
+        require(
+            json.dumps(actual, sort_keys=True, ensure_ascii=False)
+            == json.dumps(expected, sort_keys=True, ensure_ascii=False),
+            "evidence disagrees with independent signal facts or citation",
+        )
+
+
 def check_record(step, record, manifest, exp_base, cap_base, captures):
     expected = step["expected"]
     kind = step["case_type"]
@@ -837,6 +860,12 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
             and r.get("response", {}).get("id") == bound["id"]
         ]
         require(len(producers) == 1, "new frozen result needs one prior producer")
+        require(
+            timestamp(producers[0]["started_at"])
+            <= timestamp(bound["created_at"])
+            <= timestamp(record["started_at"]),
+            "producer result consumer chronology contradiction",
+        )
         produced = producers[0]["response"]
         require(
             [(i["item_id"], i["identity"]) for i in bound["items"]]
@@ -848,8 +877,10 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
             "frozen output condition mismatch",
         )
         by_identity = {r["identity"]: r for r in rows}
-        for item in bound["items"]:
+        for item, projected_item in zip(bound["items"], produced["items"]):
             source_row = by_identity[item["identity"]]
+            verify_evidence(item, source_row)
+            verify_evidence(projected_item, source_row, projected=True)
             require(
                 all(
                     item[field] == source_row[field]
@@ -863,6 +894,10 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
             (parent for parent in chain if parent["id"] == expected["result_id"]), None
         )
         require(bound_parent is not None, "missing frozen bound parent")
+        source_rows = {row["identity"]: row for row in rows}
+        for frozen_item in bound_parent["items"]:
+            if "evidence" in frozen_item:
+                verify_evidence(frozen_item, source_rows[frozen_item["identity"]])
         version_ok = (
             version_ok
             and bound_parent["catalog_batch_id"] == source["catalog_batch_id"]
@@ -999,8 +1034,19 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
             and response["item_id"] == expected["item_id"]
             and response["identity"] == item["identity"]
         )
+        source_row = next(row for row in rows if row["identity"] == item["identity"])
+        if "evidence" in item:
+            verify_evidence(item, source_row)
+        if "evidence" in response:
+            verify_evidence(response, source_row, projected=True)
         for key in expected["fact_fields"]:
-            ok = ok and response[key] == item[key]
+            if key == "evidence":
+                require(
+                    "evidence" in item and "evidence" in response,
+                    "missing declared evidence",
+                )
+            else:
+                ok = ok and response[key] == item[key]
     elif kind == "prepare_save":
         require(
             expected.get("result_id")
@@ -1326,6 +1372,15 @@ def verify(expectations_path, captures_path):
                     for k in ("case_id", "step_id", "attempt_id", "run_id")
                 )
             ]
+            call_times = [
+                timestamp(r["started_at"])
+                for r in calls
+                if r.get("record_kind", "tool") == "tool"
+            ]
+            require(
+                call_times == sorted(call_times),
+                "tool chronology contradicts authoritative inventory",
+            )
             actual_ids = [
                 r["tool_call_id"]
                 for r in calls
