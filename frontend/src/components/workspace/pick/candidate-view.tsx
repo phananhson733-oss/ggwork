@@ -5,12 +5,16 @@ import {
   conditionsLine,
   dataAsOfLine,
   evidenceLine,
-  postedLine,
+  evidenceDate,
 } from "@/core/pick/format";
 import { itemCheckHref, replayLink } from "@/core/pick/links";
 import {
   hotScopeLine,
   itemFactsLine,
+  itemChecks,
+  notesReferenceLine,
+  primaryEvidence,
+  type PickItemFacts,
   type PickNotesState,
   type PickResultNotes,
   zeroDiagnosisLines,
@@ -29,7 +33,7 @@ export function RowCheckLink({ href, title }: { href: string; title: string }) {
       target="_blank"
       rel="noopener noreferrer"
       aria-label={`在选剧资料核对：${title}`}
-      className="text-link text-xs hover:underline"
+      className="text-link inline-flex min-h-11 items-center text-xs hover:underline"
     >
       在选剧资料核对
     </a>
@@ -47,7 +51,7 @@ export function ReplayLink({ href }: { href: string }) {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-link text-xs hover:underline"
+        className="text-link inline-flex min-h-11 items-center text-xs hover:underline"
       >
         回放这份候选
       </a>
@@ -58,7 +62,7 @@ export function ReplayLink({ href }: { href: string }) {
 function EvidenceDetails({ item }: { item: PickItem }) {
   return (
     <details className="mt-3 text-xs">
-      <summary className="text-muted-foreground cursor-pointer">
+      <summary className="text-muted-foreground min-h-11 cursor-pointer py-3">
         查看依据（{item.evidence.length}）
       </summary>
       {item.evidence.length === 0 ? (
@@ -72,7 +76,7 @@ function EvidenceDetails({ item }: { item: PickItem }) {
             >
               <p>{evidenceLine(evidence)}</p>
               <p className="text-muted-foreground">
-                {evidence.observed_at ?? "日期未知"} · {evidence.source_ref}
+                {evidenceDate(evidence.observed_at)} · {evidence.source_ref}
               </p>
             </li>
           ))}
@@ -99,13 +103,14 @@ function CandidateCard({
   onToggle: (id: string) => void;
   busy: boolean;
   readOnly: boolean;
-  facts: string | null;
+  facts: PickItemFacts | undefined;
 }) {
-  const posted = postedLine(item.posted, result.conditions);
+  const checks = itemChecks(item, result.conditions, facts);
+  const primary = primaryEvidence(item, result.conditions);
   const checkHref = itemCheckHref(result.data_as_of, item.identity);
   return (
-    <article className="bg-card rounded-lg border p-4">
-      <label className="flex cursor-pointer items-start gap-3">
+    <article className="bg-card min-w-0 rounded-lg border p-4 [overflow-wrap:anywhere] break-words">
+      <label className="flex min-h-11 cursor-pointer items-start gap-3">
         {!readOnly && (
           <input
             type="checkbox"
@@ -123,20 +128,57 @@ function CandidateCard({
           <span className="text-muted-foreground mt-1 block text-xs">
             {item.theater || "剧场未注明"} · {item.language}
           </span>
-          {facts && (
-            <span className="text-muted-foreground mt-1 block text-xs">
-              {facts}
-            </span>
-          )}
         </span>
       </label>
-      <p className="mt-3 text-sm leading-6">{item.reason}</p>
-      {posted && <p className="text-muted-foreground mt-1 text-xs">{posted}</p>}
-      {item.warnings.map((warning) => (
-        <p key={warning} className="text-warning-ink mt-1 text-xs">
-          {warning}
+      <section className="mt-3 space-y-1 text-sm" aria-label="入选依据">
+        <h3 className="font-medium">入选依据</h3>
+        <p>{item.reason}</p>
+        <p
+          data-testid="pick-primary-evidence"
+          className="bg-muted/50 rounded-md p-2 text-xs leading-5"
+        >
+          {primary ? (
+            <>
+              {evidenceLine(primary)}
+              <br />
+              依据日期：{evidenceDate(primary.observed_at)}
+            </>
+          ) : (
+            "暂无匹配的榜单或指标依据 · 依据日期未知"
+          )}
         </p>
-      ))}
+      </section>
+      <section className="mt-3 space-y-1 text-xs" aria-label="可核实事实">
+        <h3 className="font-medium">可核实事实</h3>
+        {facts && (
+          <p className="text-muted-foreground">
+            {itemFactsLine(
+              facts,
+              result.conditions.channel &&
+                facts.channel_rules[result.conditions.channel] !== "allowed"
+                ? result.conditions.channel
+                : undefined,
+            )}
+          </p>
+        )}
+        {checks.availability && <p>{checks.availability}</p>}
+        {checks.posted && <p>{checks.posted}</p>}
+        {!facts && (
+          <p className="text-muted-foreground">
+            标签、上架日期与渠道资料尚未读取
+          </p>
+        )}
+      </section>
+      {checks.pending.length > 0 && (
+        <section className="mt-3 space-y-1 text-xs" aria-label="待核实事项">
+          <h3 className="font-medium">待核实事项</h3>
+          {checks.pending.map((warning) => (
+            <p key={warning} className="text-warning-ink">
+              {warning}
+            </p>
+          ))}
+        </section>
+      )}
       {checkHref && (
         <p className="mt-2">
           <RowCheckLink href={checkHref} title={item.title} />
@@ -147,7 +189,7 @@ function CandidateCard({
   );
 }
 
-/** What the model was told beside the result: stale-data warnings and what counted as hot. */
+/** Historical timing notes and hot-source scope for this result, shown once. */
 function ResultNotices({ notes }: { notes: PickNotesState | undefined }) {
   if (notes?.kind === "gone" || notes?.kind === "error")
     return (
@@ -157,10 +199,16 @@ function ResultNotices({ notes }: { notes: PickNotesState | undefined }) {
     );
   if (notes?.kind !== "notes") return null;
   const { data_notices: notices = [], hot_scope: hot } = notes.notes;
-  if (notices.length === 0 && !hot) return null;
+  if (
+    notices.length === 0 &&
+    !hot &&
+    notes.notes.notices_reference_at === undefined
+  )
+    return null;
   return (
     <div className="space-y-1 text-xs" data-testid="pick-notes">
-      {notices.map((notice) => (
+      <p className="font-medium">{notesReferenceLine(notes.notes)}</p>
+      {[...new Set(notices)].map((notice) => (
         <p key={notice} className="text-warning-ink">
           {notice}
         </p>
@@ -222,7 +270,7 @@ export function CandidateView({
       <p role="status" className="text-sm">
         {pickRunStatusLabel[result.run_status]}
       </p>
-      <div className="flex items-center justify-between gap-3 border-b pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
         <div>
           <h2 className="font-semibold">本次候选</h2>
           <p className="text-muted-foreground text-sm">
@@ -234,6 +282,7 @@ export function CandidateView({
         {!readOnly && (
           <Button
             size="sm"
+            className="min-h-11 shrink-0"
             disabled={
               busy || selected.length === 0 || result.run_status !== "success"
             }
@@ -265,7 +314,7 @@ export function CandidateView({
           onToggle={onToggle}
           busy={busy}
           readOnly={readOnly}
-          facts={itemFactsLine(read?.item_facts[item.item_id])}
+          facts={read?.item_facts[item.item_id]}
         />
       ))}
       <p className="text-muted-foreground text-xs">

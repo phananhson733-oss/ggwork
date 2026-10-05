@@ -1,0 +1,23 @@
+{
+  "run_id": "synthetic-run",
+  "synthetic": true,
+  "assertions": [
+    {
+      "name": "two full candidate cards",
+      "passed": true
+    }
+  ],
+  "artifact_refs": [
+    {
+      "artifact_file": "browser-artifact.json",
+      "artifact_sha256": "003d199efc707e3fd2125c6260704a4ab78e1de0dd014e4026dd4c0273038346"
+    }
+  ],
+  "result_id": "synthetic-result",
+  "source": {
+    "catalog_batch_id": "synthetic-batch",
+    "source_type": "synthetic",
+    "shared": false,
+    "rows_sha256": "d4219a271cb0b0f65fc11e74216dec9dbb29ab6fbd2b02ff640531cc663cea7b"
+  }
+}

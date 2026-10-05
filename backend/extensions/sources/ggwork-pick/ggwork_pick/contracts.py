@@ -132,7 +132,10 @@ class PickConditions(StrictInput):
     query: str | None = Field(default=None, max_length=200)
     tags: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=20)
     limit: int = Field(default=5, ge=1, le=20, strict=True)
-    exclude_selected: bool = Field(default=True, description="排除个人清单已保存剧目。用户说没选过/排除已选时使用此参数。")
+    exclude_selected: bool = Field(
+        default=True,
+        description="默认true，排除个人清单已保存剧目；省略时保持此默认。仅用户明确要求包含已选或不排除已选时才设false。渠道允许、已在架等筛选要求不构成关闭个人已选排除的授权。",
+    )
     confirmed_eligible_only: bool = True
     exclude_previous: bool = Field(default=False, description="仅用户明确说换一批且已经绑定旧候选时为true。首次查询和排除已选必须为false。")
     signal_kind: str | None = Field(default=None, max_length=20, description="只要带这类来源信号的剧，如kd=KalosTV日榜；种类见知识资料「信号种类」。")

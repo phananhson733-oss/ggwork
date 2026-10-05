@@ -1,0 +1,80 @@
+{
+  "provenance": {
+    "commit": "e8f2f56f60b2bf5c90c4cba55e934f8e92cb4e30",
+    "projection": "customizations/pick-workbench/ggwork_pick/model_projection.py::model_payload",
+    "prepare": "customizations/pick-workbench/ggwork_pick/selection.py::SelectionService.prepare",
+    "synthetic": true
+  },
+  "full_http_result": {
+    "id": "synthetic-projection-result",
+    "thread_id": "synthetic-projection-thread",
+    "run_id": "synthetic-run",
+    "run_status": "success",
+    "catalog_batch_id": "synthetic-batch",
+    "knowledge_batch_id": null,
+    "rule_version": "pick-rules-v1",
+    "ranking_version": "evidence-date-v1",
+    "conditions": {
+      "limit": 2,
+      "exclude_selected": true
+    },
+    "created_at": "2026-09-30T12:14:11Z",
+    "items": [
+      {
+        "item_id": "synthetic-item-0",
+        "identity": "synthetic/0",
+        "title": "合成投影片名 0",
+        "theater": "Synthetic",
+        "language": "en",
+        "availability": "unknown",
+        "reason": "合成筛选命中",
+        "warnings": ["上下架状态待核实"],
+        "detail_url": "https://synthetic.test/drama/0",
+        "evidence": [
+          {
+            "citation_id": "synthetic-citation-0",
+            "kind": "kd",
+            "source_ref": "https://synthetic.test/drama/0",
+            "observed_at": null,
+            "rank": 1,
+            "grade": "A",
+            "note": "合成原始证据说明",
+            "value": 0
+          }
+        ]
+      },
+      {
+        "item_id": "synthetic-item-1",
+        "identity": "synthetic/1",
+        "title": "合成投影片名 1",
+        "theater": "Synthetic",
+        "language": "en",
+        "availability": "unknown",
+        "reason": "合成筛选命中",
+        "warnings": ["上下架状态待核实"],
+        "detail_url": "https://synthetic.test/drama/1",
+        "evidence": [
+          {
+            "citation_id": "synthetic-citation-1",
+            "kind": "kd",
+            "source_ref": "https://synthetic.test/drama/1",
+            "observed_at": null,
+            "rank": 2,
+            "grade": "A",
+            "note": "合成原始证据说明",
+            "value": 0
+          }
+        ]
+      }
+    ]
+  },
+  "projected_query": "{\"id\":\"synthetic-projection-result\",\"thread_id\":\"synthetic-projection-thread\",\"run_id\":\"synthetic-run\",\"run_status\":\"success\",\"catalog_batch_id\":\"synthetic-batch\",\"knowledge_batch_id\":null,\"rule_version\":\"pick-rules-v1\",\"ranking_version\":\"evidence-date-v1\",\"conditions\":{\"limit\":2,\"exclude_selected\":true},\"created_at\":\"2026-09-30T12:14:11Z\",\"items\":[{\"item_id\":\"synthetic-item-0\",\"identity\":\"synthetic/0\",\"title\":\"合成投影片名 0\",\"theater\":\"Synthetic\",\"language\":\"en\",\"availability\":\"unknown\",\"reason\":\"合成筛选命中\",\"warnings\":[\"上下架状态待核实\"],\"evidence\":[{\"citation_id\":\"synthetic-citation-0\",\"kind\":\"kd\",\"observed_at\":null,\"rank\":1,\"grade\":\"A\",\"note\":\"合成原始证据说明\",\"value\":0}]},{\"item_id\":\"synthetic-item-1\",\"identity\":\"synthetic/1\",\"title\":\"合成投影片名 1\",\"theater\":\"Synthetic\",\"language\":\"en\",\"availability\":\"unknown\",\"reason\":\"合成筛选命中\",\"warnings\":[\"上下架状态待核实\"],\"evidence\":[{\"citation_id\":\"synthetic-citation-1\",\"kind\":\"kd\",\"observed_at\":null,\"rank\":2,\"grade\":\"A\",\"note\":\"合成原始证据说明\",\"value\":0}]}]}",
+  "projected_detail": "{\"result_id\":\"synthetic-projection-result\",\"item\":{\"item_id\":\"synthetic-item-0\",\"identity\":\"synthetic/0\",\"title\":\"合成投影片名 0\",\"theater\":\"Synthetic\",\"language\":\"en\",\"availability\":\"unknown\",\"reason\":\"合成筛选命中\",\"warnings\":[\"上下架状态待核实\"],\"evidence\":[{\"citation_id\":\"synthetic-citation-0\",\"kind\":\"kd\",\"observed_at\":null,\"rank\":1,\"grade\":\"A\",\"note\":\"合成原始证据说明\",\"value\":0}]}}",
+  "prepared_selection": {
+    "result_id": "synthetic-projection-result",
+    "item_ids": ["synthetic-item-1"],
+    "titles": ["合成投影片名 1"],
+    "requires_confirmation": true,
+    "note": "合成保存备注 · 保留原文"
+  }
+}

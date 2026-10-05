@@ -2,11 +2,21 @@ import { randomUUID } from "node:crypto";
 
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
+import { firstCommitBarrier } from "./support/first-commit";
+
+// The coordinator supplies the isolated instance's actual effective product budget.
+function modelWaitMs() {
+  const seconds = Number(process.env.PICK_E2E_RUN_TIMEOUT_SECONDS);
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+    throw new Error("Set PICK_E2E_RUN_TIMEOUT_SECONDS from the verified QA runtime");
+  }
+  return (seconds + 60) * 1000;
+}
+
 function validateTarget(url: string) {
+  modelWaitMs();
   const target = new URL(url);
-  if (["localhost", "127.0.0.1"].includes(target.hostname)) return;
-  expect(process.env.PICK_E2E_REMOTE_QA).toBe("1");
-  expect(target.protocol).toBe("https:");
+  expect(["localhost", "127.0.0.1", "[::1]"]).toContain(target.hostname);
 }
 
 async function validateRemoteQaOwner(request: APIRequestContext, url: string) {
@@ -112,7 +122,7 @@ test("configured model preserves old evidence and retries a committed save", asy
   await page.getByRole("button", { name: "Submit", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "查看候选", exact: true }),
-  ).toBeEnabled({ timeout: 150_000 });
+  ).toBeEnabled({ timeout: modelWaitMs() });
   await page.getByRole("button", { name: "查看候选", exact: true }).click();
   await expect(
     page.getByRole("checkbox", { name: `选择${marker}` }),
@@ -169,26 +179,30 @@ test("configured model preserves old evidence and retries a committed save", asy
   await page.getByRole("checkbox", { name: `选择${marker}` }).check();
   await page.getByLabel("保存备注").fill("下周准备剪辑");
   await expect(page.getByRole("button", { name: "保存选中（1）" })).toBeEnabled(
-    { timeout: 150_000 },
+    { timeout: modelWaitMs() },
   );
   const attempts: unknown[] = [];
-  let originalReceipt: unknown;
+  const firstCommit = firstCommitBarrier();
   // Fault injection drops only the first response AFTER the real Gateway commits.
   // Queries, imports, command handling and persistence are never mocked.
   await page.route("**/api/pick/selections", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     attempts.push(route.request().postDataJSON());
     if (attempts.length === 1) {
-      const committed = await route.fetch();
-      expect(committed.ok()).toBeTruthy();
-      originalReceipt = await committed.json();
-      await route.abort("connectionreset");
+      await firstCommit.capture(async () => {
+        const committed = await route.fetch();
+        expect(committed.ok()).toBeTruthy();
+        const receipt: unknown = await committed.json();
+        await route.abort("connectionreset");
+        return receipt;
+      });
     } else {
       await route.continue();
     }
   });
   await page.getByRole("button", { name: "保存选中（1）" }).click();
-  await expect(page.getByRole("alert")).toBeVisible();
+  const originalReceipt = await firstCommit.finished;
+  await expect(page.getByRole("alert").filter({ hasText: "Failed to fetch" })).toBeVisible();
   const committedRows = (
     await (await context.request.get(`${url}/api/pick/selections`)).json()
   ).selections;
@@ -298,7 +312,7 @@ test("refresh during an active run preserves the question and never invents a sa
         ).json();
         return rows[0]?.status;
       },
-      { timeout: 150_000 },
+      { timeout: modelWaitMs() },
     )
     .toBe("success");
   const results = (

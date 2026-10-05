@@ -1,0 +1,141 @@
+{
+  "spec_version": "pick-readiness-v1.1",
+  "expectations_sha256": "cac04567ec044bf54e858e5eb0d048342c8d76f069dfba5114ea2b29b17ff984",
+  "started_at": "2026-10-05T00:00:01Z",
+  "attempts": [
+    {
+      "case_id": "SYNTH-Q14",
+      "step_id": "main",
+      "attempt_id": "attempt-1",
+      "run_id": "synthetic-run",
+      "status": "success",
+      "started_at": "2026-10-05T00:00:02Z",
+      "ended_at": "2026-10-05T00:00:03Z",
+      "tool_call_ids": [
+        "synthetic-call"
+      ]
+    }
+  ],
+  "records": [
+    {
+      "case_id": "SYNTH-Q14",
+      "step_id": "main",
+      "attempt_id": "attempt-1",
+      "run_id": "synthetic-run",
+      "owner_id": "synthetic-owner",
+      "thread_id": "synthetic-thread",
+      "tool_call_id": "synthetic-call",
+      "tool_name": "pick_query_candidates",
+      "started_at": "2026-10-05T00:00:02Z",
+      "raw_arguments": {
+        "filters": {
+          "theater": null,
+          "language": "en",
+          "channel": null,
+          "query": null,
+          "tags": [],
+          "limit": 2,
+          "exclude_selected": true,
+          "confirmed_eligible_only": true,
+          "exclude_previous": true,
+          "signal_kind": null,
+          "sort": "evidence_date",
+          "exclude_posted": false,
+          "posted_account": null,
+          "hot_only": false
+        }
+      },
+      "actual_conditions": {
+        "theater": null,
+        "language": "en",
+        "channel": null,
+        "query": null,
+        "tags": [],
+        "limit": 2,
+        "exclude_selected": true,
+        "confirmed_eligible_only": true,
+        "exclude_previous": true,
+        "signal_kind": null,
+        "sort": "evidence_date",
+        "exclude_posted": false,
+        "posted_account": null,
+        "hot_only": false
+      },
+      "outcome": "query_success",
+      "source": {
+        "catalog_batch_id": "synthetic-batch",
+        "source_type": "synthetic",
+        "shared": false,
+        "rows_sha256": "d4219a271cb0b0f65fc11e74216dec9dbb29ab6fbd2b02ff640531cc663cea7b"
+      },
+      "response": {
+        "id": "synthetic-result",
+        "items": [
+          {
+            "identity": "a"
+          },
+          {
+            "identity": "b"
+          }
+        ],
+        "matched_total": 2,
+        "data_as_of": {
+          "source_as_of": "2026-10-05",
+          "published_at": "2026-10-05",
+          "freshness": {
+            "catalogImportedAt": "2026-10-05T00:00:00Z",
+            "reelshortSyncedAt": "2026-10-05T00:00:00Z"
+          },
+          "shared": false,
+          "scope": "synthetic-scope"
+        },
+        "rule_version": "pick-rules-v1",
+        "ranking_version": "evidence-date-v1",
+        "conditions": {
+          "theater": null,
+          "language": "en",
+          "channel": null,
+          "query": null,
+          "tags": [],
+          "limit": 2,
+          "exclude_selected": true,
+          "confirmed_eligible_only": true,
+          "exclude_previous": true,
+          "signal_kind": null,
+          "sort": "evidence_date",
+          "exclude_posted": false,
+          "posted_account": null,
+          "hot_only": false
+        }
+      },
+      "answer": "Synthetic response: two matching candidates; personal selections excluded.",
+      "generated_by": "answer-model",
+      "terminal_status": "success",
+      "semantic_review": {
+        "reviewer": "independent-synthetic-reviewer",
+        "answer_sha256": "279190ed3e95df84b0afad8894fc9ac5b5f3e42c0264df312a953fdd02f737c1",
+        "judgments": [
+          {
+            "rubric": "Personal selection is not publication evidence.",
+            "status": "PASS",
+            "reason": "Synthetic answer only claims personal exclusion.",
+            "fact_refs": [
+              "selections.json"
+            ]
+          }
+        ]
+      },
+      "browser_evidence": {
+        "evidence_file": "browser.json",
+        "evidence_sha256": "3ee6ce3add45aebbb699372dc515fab6de0655e4e324982298e43859c6e4a1ff"
+      },
+      "performance_evidence": {
+        "evidence_file": "performance.json",
+        "evidence_sha256": "e056440ddc376bd59850402e5c918075570a58569548775414009e9bf10ef71b"
+      },
+      "bound_result_id": "p"
+    }
+  ],
+  "run_ledger_file": "run-ledger.json",
+  "run_ledger_sha256": "dfc0fba104d967ade5d021b71e4585aab6bab54b3401df26c1f6460904012cdb"
+}

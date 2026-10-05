@@ -11,17 +11,27 @@ from ggwork_pick.answer_check import with_posted
 from ggwork_pick.context import task_from_runtime
 from ggwork_pick.contracts import PickConditions
 from ggwork_pick.knowledge_excerpts import MAX_EXCERPTS, choose_excerpts, fit
-from ggwork_pick.selection import PostedDataUnavailable, SelectionService
+from ggwork_pick.model_projection import model_payload
+from ggwork_pick.selection import CatalogRefusal, PostedDataUnavailable, SelectionService
+
+
+def _refusal_scope(exc: Exception) -> dict:
+    if isinstance(exc, CatalogRefusal) and exc.catalog_batch_id is not None:
+        return {"catalog_batch_id": exc.catalog_batch_id, "data_as_of": exc.data_as_of}
+    return {}
 
 
 def _posted_unavailable(exc: Exception) -> str:
-    return json.dumps({"status": "posted_unavailable", "notice": str(exc) + "。可以改为排除个人已选，或等数据同步带上发布记录后再查。"}, ensure_ascii=False)
+    return json.dumps(
+        {"status": "posted_unavailable", "notice": str(exc) + "。可以改为排除个人已选，或等数据同步带上发布记录后再查。", **_refusal_scope(exc)},
+        ensure_ascii=False,
+    )
 
 
 def _rejected(exc: Exception) -> str:
     # Host tool-error middleware would print a raw "Error: Tool ... failed" line into the chat;
-    # a business refusal is an answer the model can relay, and carries no data.
-    return json.dumps({"status": "rejected", "notice": str(exc)}, ensure_ascii=False)
+    # a business refusal is an answer the model can relay, with provenance only after a catalog read.
+    return json.dumps({"status": "rejected", "notice": str(exc), **_refusal_scope(exc)}, ensure_ascii=False)
 
 
 async def _answer(work) -> str:
@@ -112,7 +122,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
         data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
         # For the model only: the card reads the stored result through /api/pick/results, never these keys.
         explained = await SelectionService(repo).model_view(record, data_as_of=data_as_of)
-        return json.dumps({**result, "data_as_of": data_as_of, **explained}, ensure_ascii=False)
+        return json.dumps(model_payload({**result, "data_as_of": data_as_of, **explained}), ensure_ascii=False, separators=(",", ":"))
 
     return await _answer(work)
 
@@ -159,12 +169,12 @@ async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) 
 
     async def work():
         task, repo, record = await _owned_result(runtime, result_id)
-        detail = await SelectionService(repo).detail(result_id, item_id)
+        data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
+        detail = await SelectionService(repo).detail(result_id, item_id, data_as_of=data_as_of)
         task.known_titles.add(detail["item"]["title"])
         account = PickConditions.model_validate(record["conditions_json"]).posted_account
         task.posted_seen = with_posted(task.posted_seen, [detail["item"]], account=account)
-        data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
-        return json.dumps({**detail, "data_as_of": data_as_of}, ensure_ascii=False)
+        return json.dumps(model_payload({**detail, "data_as_of": data_as_of}), ensure_ascii=False, separators=(",", ":"))
 
     return await _answer(work)
 

@@ -1,7 +1,10 @@
 import { z } from "zod";
 
+import { day, postedLine } from "./format";
+import type { PickConditions, PickEvidence, PickItem } from "./types";
+
 // GET /api/pick/results/{id}/notes (evaluation batch 2, 2026-10-05): what the
-// query tool told the model beside a result, and each item's row facts, read
+// historical data timing reconstructed at result creation, and each item's row facts, read
 // from the result's own batch. Display-only, so unlike the result schemas these
 // are not strict: a newer gateway may add keys without breaking the card.
 
@@ -32,6 +35,11 @@ export const pickResultNotesSchema = z.object({
     .object({ counted: z.array(z.string()), not_counted: z.array(z.string()) })
     .optional(),
   data_notices: z.array(z.string()).optional(),
+  notices_reference_at: z
+    .string()
+    .datetime({ offset: true })
+    .nullable()
+    .optional(),
 });
 
 export type PickItemFacts = z.infer<typeof facts>;
@@ -45,8 +53,8 @@ export type PickNotesState =
   | { kind: "error" };
 
 const RULE_LABEL: Record<string, string> = {
-  allowed: "可发",
-  denied: "禁发",
+  allowed: "规则允许",
+  denied: "规则禁用",
   unknown: "待核实",
 };
 
@@ -55,9 +63,14 @@ function listed(value: string): string {
 }
 
 /** One line of an item's row facts; a missing fact says so instead of guessing. */
-export function itemFactsLine(itemFacts: PickItemFacts | undefined) {
+export function itemFactsLine(
+  itemFacts: PickItemFacts | undefined,
+  pendingChannel?: string,
+) {
   if (!itemFacts) return null;
-  const rules = Object.entries(itemFacts.channel_rules);
+  const rules = Object.entries(itemFacts.channel_rules).filter(
+    ([channel]) => channel !== pendingChannel,
+  );
   return [
     itemFacts.tags.length ? `标签 ${itemFacts.tags.join("、")}` : "标签未注明",
     itemFacts.listed_at
@@ -67,8 +80,12 @@ export function itemFactsLine(itemFacts: PickItemFacts | undefined) {
       ? rules
           .map(([channel, rule]) => `${channel} ${RULE_LABEL[rule] ?? rule}`)
           .join("、")
-      : "渠道规则未注明",
-  ].join(" · ");
+      : pendingChannel
+        ? null
+        : "渠道规则未注明",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function text(value: unknown): string {
@@ -147,4 +164,96 @@ export function hotScopeLine(
   return scope.not_counted.length
     ? `${counted}；不算 ${scope.not_counted.join("、")}`
     : counted;
+}
+
+/** The same day ordering as selection.py; select evidence, never reorder candidates. */
+export function primaryEvidence(
+  item: Pick<PickItem, "evidence">,
+  conditions: PickConditions,
+): PickEvidence | undefined {
+  const hot = new Set([
+    "kd",
+    "kw",
+    "qc",
+    "qr",
+    "sm",
+    "smd",
+    "mg",
+    "fh",
+    "sh",
+    "gh",
+    "gn",
+    "ghh",
+    "dbn",
+  ]);
+  const candidates = item.evidence.filter((entry) =>
+    conditions.signal_kind
+      ? entry.kind === conditions.signal_kind
+      : conditions.sort === "obs"
+        ? entry.kind.startsWith("obs_")
+        : !conditions.hot_only || hot.has(entry.kind),
+  );
+  return [...candidates].sort((a, b) => {
+    const aDate = a.observed_at ?? "";
+    const bDate = b.observed_at ?? "";
+    const date = conditions.signal_kind
+      ? bDate.localeCompare(aDate)
+      : bDate.slice(0, 10).localeCompare(aDate.slice(0, 10));
+    if (date || !conditions.signal_kind) return date;
+    return (a.rank ?? Infinity) - (b.rank ?? Infinity) || 0;
+  })[0];
+}
+
+export function notesReferenceLine(notes: PickResultNotes): string {
+  if (notes.notices_reference_at === undefined) return "数据时效说明";
+  const reference = day(notes.notices_reference_at);
+  return reference
+    ? `按候选生成时点核对的数据时效 · ${reference}`
+    : "查询时点未知，无法核对查询时资料是否过期";
+}
+
+/** Only exact, server-owned duplicate warnings are folded; imported prose stays intact. */
+export function itemChecks(
+  item: PickItem,
+  conditions: PickConditions,
+  facts?: PickItemFacts,
+) {
+  const pending = new Set(item.warnings);
+  if (item.availability === "unknown") pending.add("上下架状态待核实");
+  const channel = conditions.channel;
+  const rule = channel ? facts?.channel_rules[channel] : undefined;
+  if (channel && rule !== "allowed") {
+    pending.delete("目标渠道规则待核实");
+    pending.add(
+      rule === "denied"
+        ? `${channel} 规则明确禁用`
+        : `${channel} 渠道规则待核实`,
+    );
+  }
+  const posted = postedLine(item.posted);
+  if (
+    item.posted?.matched &&
+    item.posted.sched_count > 0 &&
+    item.posted.post_count === 0
+  ) {
+    pending.delete(
+      `发布记录显示已排期未发（${item.posted.sched_count}条待公开）`,
+    );
+  }
+  if (item.posted && !item.posted.matched) {
+    pending.delete("发布记录未对上这部剧；对不上不代表从未发布");
+    if (posted) pending.add(posted);
+  }
+  if (item.evidence.some((entry) => !entry.observed_at))
+    pending.add("部分依据日期未知");
+  return {
+    pending: [...pending],
+    posted: item.posted?.matched ? posted : null,
+    availability:
+      item.availability === "active"
+        ? "资料中已确认在架"
+        : item.availability === "delisted"
+          ? "资料中已下架"
+          : null,
+  };
 }

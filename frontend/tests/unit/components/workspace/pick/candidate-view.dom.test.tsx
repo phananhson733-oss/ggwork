@@ -340,7 +340,7 @@ describe("result notes on the card", () => {
       },
     });
     expect(
-      screen.getByText("标签 复仇 · 上架 2026-09-01 · youtube 可发"),
+      screen.getByText("标签 复仇 · 上架 2026-09-01 · youtube 规则允许"),
     ).toBeTruthy();
     expect(screen.getByText(/kd 最新一期 2026-09-27/)).toBeTruthy();
     expect(screen.getByText("热门依据算了 kd；不算 clk")).toBeTruthy();
@@ -383,4 +383,200 @@ describe("result notes on the card", () => {
     );
     expect(screen.getByText("样例剧", { exact: false })).toBeTruthy();
   });
+});
+
+describe("readiness evidence and uncertainty", () => {
+  const evidence = (kind: string, date: string | null, rank?: number) => ({
+    citation_id: kind,
+    kind,
+    label: `${kind} 榜`,
+    source_ref: `source/${kind}`,
+    observed_at: date,
+    value: null,
+    rank,
+    grade: "A",
+    note: "合成说明",
+  });
+  it("shows selected board evidence before details, preserving all evidence and item order", () => {
+    const { container } = renderView({
+      ...result,
+      conditions: { ...result.conditions, signal_kind: "kd", sort: "rank" },
+      items: [
+        {
+          ...result.items[0]!,
+          evidence: [
+            evidence("qc", "2026-10-05", 1),
+            evidence("kd", "2026-09-30", 8),
+          ],
+        },
+      ],
+    });
+    const primary = screen.getByTestId("pick-primary-evidence");
+    expect(primary.textContent).toContain("kd 榜 · 第8名 · 评级 A · 合成说明");
+    expect(primary.textContent).toContain("2026-09-30");
+    expect(primary.closest("details")).toBeNull();
+    expect(container.querySelector("details")?.open).toBe(false);
+    expect(container.querySelectorAll("details li")).toHaveLength(2);
+  });
+  it("keeps allowed separate from unknown availability, unmatched posted and unknown evidence dates", () => {
+    render(
+      <CandidateView
+        result={{
+          ...result,
+          conditions: {
+            ...result.conditions,
+            channel: "youtube",
+            confirmed_eligible_only: false,
+          },
+          items: [
+            {
+              ...result.items[0]!,
+              warnings: [
+                "上下架状态待核实",
+                "上下架状态待核实",
+                "部分依据日期未知",
+              ],
+              evidence: [evidence("qc", null)],
+              posted: {
+                matched: false,
+                records: [],
+                post_count: 0,
+                sched_count: 0,
+                accounts: [],
+                last_post_on: null,
+              },
+            },
+          ],
+        }}
+        selected={["i1"]}
+        onToggle={rs.fn()}
+        onSave={rs.fn()}
+        busy={false}
+        notes={{
+          kind: "notes",
+          notes: {
+            item_facts: {
+              i1: {
+                tags: [],
+                listed_at: null,
+                channel_rules: { youtube: "allowed" },
+              },
+            },
+            notices_reference_at: null,
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText(/youtube 规则允许/)).toBeTruthy();
+    expect(screen.getAllByText("上下架状态待核实")).toHaveLength(1);
+    expect(screen.getByText("发布记录：未对上（不代表从未发布）")).toBeTruthy();
+    expect(screen.getByTestId("pick-primary-evidence").textContent).toContain(
+      "日期未知",
+    );
+    expect(screen.getByText(/查询时点未知/)).toBeTruthy();
+    expect(screen.queryByText(/确认可发/)).toBeNull();
+  });
+  it.each([undefined, null, "2026-09-30T12:14:11.000000+00:00"])(
+    "labels notes reference %s independently of browser timezone",
+    (reference) => {
+      render(
+        <CandidateView
+          result={result}
+          selected={[]}
+          onToggle={rs.fn()}
+          onSave={rs.fn()}
+          busy={false}
+          notes={{
+            kind: "notes",
+            notes: {
+              item_facts: {},
+              data_notices: ["该批次资料过期"],
+              ...(reference !== undefined
+                ? { notices_reference_at: reference }
+                : {}),
+            },
+          }}
+        />,
+      );
+      const text = screen.getByTestId("pick-notes").textContent;
+      expect(text).toContain(
+        reference === undefined
+          ? "数据时效说明"
+          : reference === null
+            ? "查询时点未知"
+            : "按候选生成时点核对的数据时效",
+      );
+      if (reference) {
+        expect(text).toContain("20:14:11");
+        expect(text).toContain("北京时间");
+      }
+      expect(screen.getAllByText("该批次资料过期")).toHaveLength(1);
+    },
+  );
+});
+
+describe("notes failures keep candidate operations independent", () => {
+  it.each([
+    undefined,
+    { kind: "none" } as const,
+    { kind: "error" } as const,
+    { kind: "gone", message: "旧依据已清理" } as const,
+  ])("keeps select, evidence and save operable for %s", (notes) => {
+    const toggle = rs.fn();
+    const save = rs.fn();
+    const { container } = render(
+      <CandidateView
+        result={result}
+        selected={["i1"]}
+        onToggle={toggle}
+        onSave={save}
+        busy={false}
+        notes={notes}
+      />,
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择样例剧" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存选中（1）" }));
+    expect(toggle).toHaveBeenCalledWith("i1");
+    expect(save).toHaveBeenCalledTimes(1);
+    const details = container.querySelector("details")!;
+    expect(details.querySelector("summary")?.textContent).toContain("查看依据");
+    expect(details.open).toBe(false);
+  });
+  it.each([5, 10, 20])(
+    "keeps %s candidate identities/order and all full evidence",
+    (count) => {
+      const items = Array.from({ length: count }, (_, index) => ({
+        ...result.items[0]!,
+        item_id: `i${index}`,
+        title: `Synthetic ${index} 中文长片名`,
+        evidence: [
+          {
+            kind: "qc",
+            label: "评级",
+            grade: "S",
+            note: "需要核实的合成备注",
+            value: 0,
+            rank: null,
+            citation_id: `c${index}`,
+            observed_at: null,
+            source_ref: "synthetic/grade",
+          },
+        ],
+      }));
+      const { container } = renderView({ ...result, items });
+      expect(
+        screen
+          .getAllByRole("checkbox")
+          .map((box) => box.getAttribute("aria-label")),
+      ).toEqual(items.map((item) => `选择${item.title}`));
+      expect(
+        screen
+          .getAllByTestId("pick-primary-evidence")
+          .every((node) =>
+            node.textContent?.includes("评级 S · 需要核实的合成备注 · 0"),
+          ),
+      ).toBe(true);
+      expect(container.querySelectorAll("details li")).toHaveLength(count);
+    },
+  );
 });

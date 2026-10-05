@@ -10,12 +10,12 @@ import type {
   PickPosted,
 } from "./types";
 
-function day(value: unknown): string | null {
+export function day(value: unknown): string | null {
   if (typeof value !== "string" || value.length < 10) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? null
-    : date.toLocaleString("zh-CN", { hour12: false });
+    : `${date.toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" })} 北京时间`;
 }
 
 /** "数据截至" line: when the shared sync read the source, plus the source's own import times. */
@@ -29,6 +29,13 @@ export function dataAsOfLine(asOf: PickDataAsOf | null | undefined): string {
   if (catalog) parts.push(`剧单导入 ${catalog}`);
   if (reelshort) parts.push(`ReelShort 指标采集 ${reelshort}`);
   return parts.join(" · ");
+}
+
+/** Source calendar dates stay dates; timestamps use the operator timezone. */
+export function evidenceDate(value: string | null): string {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : (day(value) ?? "日期未知");
 }
 
 export function evidenceLine(evidence: PickEvidence): string {

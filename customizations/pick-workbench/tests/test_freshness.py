@@ -5,7 +5,7 @@ unchanged."""
 
 import json
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -84,9 +84,10 @@ def test_fresh_data_gets_no_notice():
     assert notices(as_of(), [row(1, signal("kd", "2026-09-30"))], signal_kind="kd") == []
 
 
-def test_a_batch_older_than_fourteen_hours_says_the_sync_may_have_stopped():
+def test_an_old_batch_warns_about_selected_data_without_claiming_sync_stopped():
     (notice,) = notices(as_of(captured=NOW - timedelta(hours=15)))
-    assert "14 小时" in notice and "同步可能停了" in notice
+    assert "14 小时" in notice and "可能不是最新资料" in notice
+    assert "同步可能停" not in notice and "回答里" not in notice
     assert "2026-09-29" in notice
 
 
@@ -189,3 +190,32 @@ def test_the_instructions_and_the_skill_tell_the_model_to_relay_data_notices():
     assert "data_notices" in PICK_INSTRUCTIONS
     skill = (Path(__file__).resolve().parents[3] / "skills/public/pick-drama/SKILL.md").read_text(encoding="utf-8")
     assert "data_notices" in skill
+
+
+@pytest.mark.parametrize("hours,field", [(14, "batch"), (36, "source")])
+@pytest.mark.parametrize("extra", [timedelta(0), timedelta(microseconds=1)])
+def test_hour_thresholds_keep_strict_greater_than_and_accept_offsets(hours, field, extra):
+    moment = NOW - timedelta(hours=hours) - extra
+    offset = moment.astimezone(timezone(timedelta(hours=8))).isoformat()
+    data = as_of()
+    if field == "batch":
+        data["source_as_of"] = offset
+    else:
+        data["freshness"]["catalogImportedAt"] = offset
+    found = notices(data)
+    assert bool(found) == bool(extra)
+    assert not found or f"{hours} 小时" in found[0]
+
+
+@pytest.mark.parametrize("kind,days", [("kd", 2), ("qc", 2), ("qr", 2), ("kw", 14)])
+@pytest.mark.parametrize("extra", [timedelta(0), timedelta(microseconds=1)])
+def test_board_thresholds_use_capture_time_exactly(kind, days, extra):
+    edition = datetime(2026, 9, 1, tzinfo=UTC)
+    captured = edition + timedelta(days=days) + extra
+    data = {**as_of(), "source_as_of": captured.isoformat()}
+    found = notices(data, [row(1, signal(kind, "2026-09-01"))], signal_kind=kind)
+    assert any(kind in notice for notice in found) == bool(extra)
+
+
+def test_unknown_capture_does_not_fabricate_a_board_age():
+    assert notices({"source_as_of": "broken", "published_at": None}, [row(1, signal("kd", "2020-01-01"))], signal_kind="kd") == []

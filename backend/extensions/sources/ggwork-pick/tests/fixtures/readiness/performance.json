@@ -1,0 +1,11 @@
+{
+  "run_id": "synthetic-run",
+  "synthetic": true,
+  "input_tokens": 20,
+  "output_tokens": 20,
+  "elapsed_seconds": 0.1,
+  "tool_calls": 1,
+  "model_calls": 1,
+  "sample_conditions": "synthetic contract; not live measurement",
+  "scope": "run"
+}
