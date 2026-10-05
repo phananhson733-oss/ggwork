@@ -75,7 +75,7 @@ export function redact(value: unknown, secrets: string[] = []): unknown {
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [
         key,
-        /^(authorization|proxy-authorization|cookie|set-cookie|password|access_token|refresh_token|api_key|connection_string|database_url|csrf_token)$/i.test(
+        /^(authorization|proxy-authorization|cookie|set-cookie|password|access_token|refresh_token|auth_token|api_key|apikey|client_secret|secret|connection_string|database_url|csrf_token)$/i.test(
           key,
         )
           ? "[REDACTED]"
@@ -409,12 +409,9 @@ export function loadManifest(
     );
     for (const step of steps) {
       requireValue(
-        step.expected?.allowed_actions?.length &&
-          step.expected?.expected_outcome &&
-          step.expected?.semantic_rubric?.length &&
-          step.action &&
+        step.action &&
           ["prompt", "regenerate", "edit"].includes(step.action.kind),
-        "Each step needs locked expectations and a concrete action",
+        "Each step needs a concrete action",
       );
       if (step.action.kind !== "regenerate")
         requireValue(
@@ -425,55 +422,88 @@ export function loadManifest(
         /^[a-zA-Z0-9_-]+$/.test(step.step_id ?? "main"),
         "Invalid step ID",
       );
-      requireValue(
-        [
-          "query",
-          "count",
-          "detail",
-          "prepare_save",
-          "clarification",
-          "refusal",
-          "recovery",
-          "knowledge",
-        ].includes(step.case_type),
-        "Invalid case type",
-      );
+      const contracts: Document[] =
+        step.tool_contracts ?? (step.expected ? [step] : []);
+      const allContracts = [
+        ...contracts,
+        ...(step.terminal_contract ? [step.terminal_contract] : []),
+      ];
+      requireValue(allContracts.length, "Step has no prelocked typed contract");
+      const names = new Set<string>();
       const browserNames = (step.browser_assertions ?? []).map(
         (check: Document) => check.name,
       );
-      requireValue(
-        Array.isArray(step.expected.browser_assertions) &&
-          JSON.stringify(browserNames) ===
-            JSON.stringify(step.expected.browser_assertions),
-        "Browser assertion names must be locked independently",
-      );
-      if (["query", "count"].includes(step.case_type)) {
-        const keys = [
-          "theater",
-          "language",
-          "channel",
-          "query",
-          "tags",
-          "limit",
-          "exclude_selected",
-          "confirmed_eligible_only",
-          "exclude_previous",
-          "signal_kind",
-          "sort",
-          "exclude_posted",
-          "posted_account",
-          "hot_only",
-        ].sort();
+      for (const contract of allContracts) {
         requireValue(
-          Array.isArray(step.expected.allowed_condition_sets) &&
-            step.expected.allowed_condition_sets.length &&
-            step.expected.allowed_condition_sets.every(
-              (conditions: Document) =>
-                JSON.stringify(Object.keys(conditions).sort()) ===
-                JSON.stringify(keys),
-            ),
-          "Expected conditions must explicitly contain all 14 reviewed fields",
+          [
+            "query",
+            "count",
+            "detail",
+            "prepare_save",
+            "clarification",
+            "refusal",
+            "recovery",
+            "knowledge",
+          ].includes(contract.case_type),
+          "Invalid case type",
         );
+        const expected = contract.expected;
+        requireValue(
+          expected?.semantic_rubric?.length &&
+            Array.isArray(expected.browser_assertions) &&
+            expected.browser_assertions.every((name: string) =>
+              browserNames.includes(name),
+            ),
+          "Independent semantic/browser contracts required",
+        );
+        if (contract === step.terminal_contract)
+          requireValue(
+            ["clarification", "recovery"].includes(contract.case_type),
+            "Invalid terminal contract",
+          );
+        else
+          requireValue(
+            expected.allowed_actions?.length && expected.expected_outcome,
+            "Tool action/outcome contract required",
+          );
+        if (step.tool_contracts && contract !== step.terminal_contract) {
+          requireValue(
+            typeof contract.tool_name === "string" &&
+              !names.has(contract.tool_name) &&
+              Number.isSafeInteger(contract.min_occurrences) &&
+              contract.min_occurrences >= 0,
+            "Invalid ordered tool contract",
+          );
+          names.add(contract.tool_name);
+        }
+        if (["query", "count"].includes(contract.case_type)) {
+          const keys = [
+            "theater",
+            "language",
+            "channel",
+            "query",
+            "tags",
+            "limit",
+            "exclude_selected",
+            "confirmed_eligible_only",
+            "exclude_previous",
+            "signal_kind",
+            "sort",
+            "exclude_posted",
+            "posted_account",
+            "hot_only",
+          ].sort();
+          requireValue(
+            Array.isArray(expected.allowed_condition_sets) &&
+              expected.allowed_condition_sets.length &&
+              expected.allowed_condition_sets.every(
+                (conditions: Document) =>
+                  JSON.stringify(Object.keys(conditions).sort()) ===
+                  JSON.stringify(keys),
+              ),
+            "Expected conditions must explicitly contain all 14 reviewed fields",
+          );
+        }
       }
       const source = manifest.sources?.[step.source_key];
       requireValue(
@@ -502,4 +532,154 @@ export function loadManifest(
     }
   }
   return { manifest, hash: sha256(bytes), path, base };
+}
+
+/** /history annotates checkpoint messages; /events independently scopes persisted envelopes. */
+export function attributedMessages(
+  history: Document[],
+  events: Document[],
+  runId: string,
+): Document[] {
+  const messages: Document[] = (history[0]?.values?.messages ?? []).filter(
+    (m: Document) => m.run_id === runId,
+  );
+  const identity = (m: Document) =>
+    m.type === "tool" ? `tool:${m.tool_call_id}` : `message:${m.id}`;
+  const seen = new Set(messages.map(identity));
+  for (const event of events) {
+    if (
+      event.run_id !== runId ||
+      event.category !== "message" ||
+      !["llm.ai.response", "llm.tool.result", "llm.human.input"].includes(
+        event.event_type,
+      )
+    )
+      continue;
+    const message =
+      typeof event.content === "string"
+        ? JSON.parse(event.content)
+        : event.content;
+    if (!message || typeof message !== "object") continue;
+    if (!seen.has(identity(message))) {
+      messages.push({ ...message, run_id: runId });
+      seen.add(identity(message));
+    }
+  }
+  return messages;
+}
+export function eventToolInventory(
+  events: Document[],
+  runId: string,
+): string[] {
+  const ids = new Set<string>();
+  for (const event of events) {
+    if (event.run_id !== runId || event.category !== "message") continue;
+    const content =
+      typeof event.content === "string"
+        ? JSON.parse(event.content)
+        : event.content;
+    if (event.event_type === "llm.ai.response")
+      for (const call of content?.tool_calls ?? []) {
+        requireValue(
+          typeof call.id === "string" && call.id,
+          "Event tool call missing ID",
+        );
+        ids.add(call.id);
+      }
+    if (
+      event.event_type === "llm.tool.result" &&
+      typeof content?.tool_call_id === "string"
+    )
+      ids.add(content.tool_call_id);
+  }
+  return [...ids];
+}
+export function sealSaveDispatch(
+  expected: Document,
+  request: Document,
+  first: Document | undefined,
+): Document {
+  requireValue(
+    typeof request.request_id === "string" && request.request_id.length > 0,
+    "UI save request ID missing",
+  );
+  requireValue(
+    request.result_id === expected.result_id &&
+      JSON.stringify(request.item_ids) === JSON.stringify(expected.item_ids) &&
+      request.note === expected.note,
+    "UI save intent mismatch",
+  );
+  if (typeof expected.request_id === "string")
+    requireValue(
+      request.request_id === expected.request_id,
+      "UI save request ID mismatch",
+    );
+  else
+    requireValue(
+      expected.request_id?.capture_before_dispatch === true,
+      "Dynamic request ID placeholder was not prelocked",
+    );
+  if (first)
+    requireValue(
+      JSON.stringify(request) === JSON.stringify(first),
+      "Raw retry request changed",
+    );
+  return { ...request };
+}
+export function localFixtureTarget(url: string): string {
+  const parsed = new URL(url);
+  requireValue(
+    ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname),
+    "Synthetic fixtures require an isolated localhost target",
+  );
+  return url;
+}
+
+export function ownedSelectionRows(
+  rows: Document[],
+  ownerId: string,
+): Document[] {
+  return rows.map((row) => {
+    requireValue(
+      row.owner_id === undefined || row.owner_id === ownerId,
+      "Selection owner mismatch",
+    );
+    return { ...row, owner_id: ownerId };
+  });
+}
+export function resolveExpected(
+  expected: Document,
+  prior: Document[],
+): Document {
+  if (typeof expected.result_id !== "object" || !expected.result_id)
+    return { ...expected };
+  const binding = expected.result_id;
+  requireValue(
+    binding.from_tool === "pick_query_candidates" &&
+      Number.isSafeInteger(binding.occurrence) &&
+      binding.occurrence > 0,
+    "Invalid prelocked producer binding",
+  );
+  const result = prior.filter(
+    (record) => record.tool_name === binding.from_tool,
+  )[binding.occurrence - 1]?.response;
+  requireValue(
+    result?.id && Array.isArray(result.items),
+    "Bound query occurrence unavailable",
+  );
+  const resolved: Document = { ...expected, result_id: result.id };
+  const item = (position: number) => {
+    requireValue(
+      Number.isSafeInteger(position) &&
+        position > 0 &&
+        result.items[position - 1]?.item_id,
+      "Bound position unavailable",
+    );
+    return result.items[position - 1].item_id;
+  };
+  if (typeof expected.item_id === "object" && expected.item_id)
+    resolved.item_id = item(expected.item_id.position);
+  if (expected.item_ids?.positions)
+    resolved.item_ids = expected.item_ids.positions.map(item);
+  return resolved;
 }

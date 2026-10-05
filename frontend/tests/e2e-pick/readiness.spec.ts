@@ -11,6 +11,11 @@ import {
 
 import {
   appendAttempt,
+  attributedMessages,
+  eventToolInventory,
+  sealSaveDispatch,
+  ownedSelectionRows,
+  resolveExpected,
   budgets,
   extractTools,
   finishAttempt,
@@ -39,6 +44,64 @@ async function get(
     throw new Error(`Readiness read failed: HTTP ${response.status()}`);
   return response.json() as Promise<Document>;
 }
+async function runEvents(
+  request: APIRequestContext,
+  threadId: string,
+  runId: string,
+): Promise<Document[]> {
+  const events: Document[] = [];
+  let cursor = 0;
+  for (;;) {
+    const batch = (await get(
+      request,
+      `/api/threads/${threadId}/runs/${runId}/events?limit=2000${cursor ? `&after_seq=${cursor}` : ""}`,
+    )) as Document[];
+    if (!Array.isArray(batch))
+      throw new Error("Invalid event inventory response");
+    if (!batch.length) return events;
+    const next = Math.max(...batch.map((event) => event.seq));
+    if (!Number.isSafeInteger(next) || next <= cursor)
+      throw new Error("Event inventory cursor did not advance");
+    events.push(...batch);
+    cursor = next;
+    if (batch.length < 2000) return events;
+  }
+}
+function observedResult(
+  result: Document,
+  imports: Document[],
+  source: Document,
+): Document {
+  const batch = imports.find((entry) => entry.id === result.catalog_batch_id);
+  return {
+    ...result,
+    owner_id: runner.identity.owner_id,
+    source: {
+      catalog_batch_id: result.catalog_batch_id,
+      source_type:
+        batch?.shared && batch.validation_json?.source === "realshort"
+          ? "realshort_shared"
+          : "unknown",
+      shared: result.data_as_of?.shared ?? null,
+      rows_sha256:
+        batch?.content_hash === source.content_hash &&
+        result.catalog_batch_id === source.catalog_batch_id
+          ? source.rows_sha256
+          : null,
+    },
+  };
+}
+function toolTime(events: Document[], callId: string): string | null {
+  return (
+    events.find(
+      (event) =>
+        event.event_type === "llm.ai.response" &&
+        (event.content?.tool_calls ?? []).some(
+          (call: Document) => call.id === callId,
+        ),
+    )?.created_at ?? null
+  );
+}
 function artifact(dir: string, name: string, value: unknown) {
   return writePrivate(join(dir, name), value, secrets);
 }
@@ -53,10 +116,7 @@ function ref(
 }
 async function selectionsForOwner(request: APIRequestContext) {
   const response = await get(request, "/api/pick/selections");
-  return response.selections.map((row: Document) => ({
-    ...row,
-    owner_id: runner.identity.owner_id,
-  }));
+  return ownedSelectionRows(response.selections, runner.identity.owner_id);
 }
 async function preflight(request: APIRequestContext, step: Document) {
   if (loadManifest(locked.path).hash !== hash)
@@ -98,6 +158,16 @@ async function browserChecks(page: Page, checks: Document[] = []) {
     assertions.push({ name: check.name ?? check.selector, passed: true });
   }
   return assertions;
+}
+function terminalContractFor(
+  step: Document | undefined | null,
+): Document | undefined {
+  return (
+    step?.terminal_contract ??
+    (step && ["clarification", "recovery"].includes(step.case_type)
+      ? step
+      : undefined)
+  );
 }
 function canonical(tool: Document) {
   const raw = tool.response;
@@ -173,6 +243,7 @@ for (const item of manifest.cases as Document[]) {
     const parents = new Map<string, string | null>();
     let threadId = item.thread_id ?? "";
     let active: Document | null = null;
+    let currentStep: Document | null = null;
     let routeError: Error | null = null;
     const persist = () => {
       const ledger = JSON.parse(
@@ -274,12 +345,10 @@ for (const item of manifest.cases as Document[]) {
         threadId ? `/workspace/chats/${threadId}` : "/workspace/chats/new",
       );
       for (const step of steps) {
+        currentStep = step;
         const stepId = step.step_id ?? "main";
-        artifact(
-          dir,
-          `${stepId}-preflight.json`,
-          await preflight(context.request, step),
-        );
+        const proof = await preflight(context.request, step);
+        artifact(dir, `${stepId}-preflight.json`, proof);
         if (step.action.branch) {
           const previousUrl = page.url();
           await page
@@ -301,8 +370,7 @@ for (const item of manifest.cases as Document[]) {
         if (step.action.reference_from_step && !reference)
           throw new Error("Prior step did not produce required result");
         const bound = reference?.id ?? step.action.bound_result_id;
-        const selections = (await get(context.request, "/api/pick/selections"))
-          .selections;
+        const selections = await selectionsForOwner(context.request);
         const state = manifest.states[step.state_key];
         const attemptId = randomUUID();
         const stateCaptureKey = `${step.state_key}:${attemptId}`;
@@ -320,7 +388,11 @@ for (const item of manifest.cases as Document[]) {
               throw new Error("Cannot independently establish parent chain");
             const parent = parents.get(next);
             chain.push({
-              ...result,
+              ...observedResult(
+                result,
+                proof.imports.batches,
+                manifest.sources[step.source_key],
+              ),
               owner_id: runner.identity.owner_id,
               parent_result_id: parent,
             });
@@ -372,6 +444,7 @@ for (const item of manifest.cases as Document[]) {
           started_at: new Date().toISOString(),
           expected_bound: bound,
           dispatched: false,
+          before_run_ids: [...beforeIds],
         };
         const started = Date.now();
         if (step.action.kind === "regenerate")
@@ -477,10 +550,22 @@ for (const item of manifest.cases as Document[]) {
           )
           .toBe(true);
         persist();
-        const thread = await get(context.request, `/api/threads/${threadId}`);
-        const messages: Document[] = (thread.values?.messages ?? []).filter(
-          (m: Document) => m.run_id === run.run_id,
+        const csrf = (await context.cookies()).find(
+          (cookie) => cookie.name === "csrf_token",
+        )?.value;
+        const historyResponse = await context.request.post(
+          `/api/threads/${threadId}/history`,
+          { data: { limit: 1 }, headers: csrf ? { "X-CSRF-Token": csrf } : {} },
         );
+        if (!historyResponse.ok())
+          throw new Error(
+            `History attribution HTTP ${historyResponse.status()}`,
+          );
+        const history: Document[] = await historyResponse.json();
+        const events = await runEvents(context.request, threadId, run.run_id);
+        const messages = attributedMessages(history, events, run.run_id);
+        artifact(dir, `${active.attempt_id}-history.json`, history);
+        artifact(dir, `${active.attempt_id}-events.json`, events);
         artifact(dir, `${active.attempt_id}-messages.json`, messages);
         const answer = messages
           .filter((m) => m.type === "ai" || m.role === "assistant")
@@ -490,7 +575,12 @@ for (const item of manifest.cases as Document[]) {
               : JSON.stringify(m.content),
           )
           .join("\n");
-        const calls = extractTools(messages);
+        const inventory = eventToolInventory(events, run.run_id);
+        const calls = extractTools(messages).sort(
+          (a, b) =>
+            inventory.indexOf(a.tool_call_id) -
+            inventory.indexOf(b.tool_call_id),
+        );
         finishAttempt(
           runner.ledger_file,
           active.attempt_id,
@@ -498,9 +588,7 @@ for (const item of manifest.cases as Document[]) {
           run.status,
           {
             ended_at: new Date().toISOString(),
-            tool_call_ids: messages.flatMap((m) =>
-              (m.tool_calls ?? []).map((c: Document) => c.id),
-            ),
+            tool_call_ids: eventToolInventory(events, run.run_id),
           },
         );
         const runResults = (
@@ -524,13 +612,17 @@ for (const item of manifest.cases as Document[]) {
           )
             boundResults.set(
               id,
-              await get(
-                context.request,
-                `/api/pick/results/${encodeURIComponent(id)}`,
+              observedResult(
+                await get(
+                  context.request,
+                  `/api/pick/results/${encodeURIComponent(id)}`,
+                ),
+                actualImports,
+                source,
               ),
             );
         }
-        const records = calls.map((call) => {
+        const records: Document[] = calls.map((call) => {
           const normalized = canonical(call);
           const raw = call.response;
           const authoritative = boundResults.get(raw.result_id);
@@ -586,7 +678,7 @@ for (const item of manifest.cases as Document[]) {
             run_id: run.run_id,
             owner_id: runner.identity.owner_id,
             thread_id: threadId,
-            started_at: active!.started_at,
+            started_at: toolTime(events, call.tool_call_id),
             bound_result_id: active!.bound_result_id,
             ...call,
             ...normalized,
@@ -598,14 +690,50 @@ for (const item of manifest.cases as Document[]) {
             terminal_status: run.status,
           };
         });
+        for (const record of records)
+          if (record.authoritative_result)
+            Object.assign(
+              record,
+              ref(
+                "bound_result",
+                artifact(
+                  dir,
+                  `${active.attempt_id}-${encodeURIComponent(record.tool_call_id)}-bound-result.json`,
+                  {
+                    captured_at: new Date().toISOString(),
+                    result: record.authoritative_result,
+                  },
+                ),
+              ),
+            );
         captures.records.push(...records);
         const terminal = artifact(dir, `${active.attempt_id}-terminal.json`, {
           run_id: run.run_id,
           status: run.status,
+          answer_sha256: sha256(answer),
           saved_result_ids: (await selectionsForOwner(context.request)).map(
             (row: Document) => row.source_result_id,
           ),
         });
+        if (terminalContractFor(step)) {
+          const terminalRecord: Document = {
+            record_kind: "terminal",
+            case_id: item.case_id,
+            step_id: stepId,
+            attempt_id: active.attempt_id,
+            run_id: run.run_id,
+            owner_id: runner.identity.owner_id,
+            thread_id: threadId,
+            started_at: active.started_at,
+            state_capture_key: active.state_capture_key,
+            terminal_status: run.status,
+            answer,
+            generated_by: manifest.runtime.model,
+            ...ref("authoritative_terminal", terminal),
+          };
+          records.push(terminalRecord);
+          captures.records.push(terminalRecord);
+        }
         captures.run_records ??= [];
         captures.run_records.push({
           case_id: item.case_id,
@@ -635,7 +763,7 @@ for (const item of manifest.cases as Document[]) {
         if (
           records.some(
             (r) =>
-              r.source.catalog_batch_id &&
+              r.source?.catalog_batch_id &&
               (r.source.catalog_batch_id !== source.catalog_batch_id ||
                 r.source.shared !== true ||
                 !r.source.rows_sha256),
@@ -671,27 +799,93 @@ for (const item of manifest.cases as Document[]) {
               ),
             ),
           );
-          const expected = step.expected;
+          const expected = resolveExpected(
+            step.tool_contracts?.find(
+              (contract: Document) =>
+                contract.tool_name === "pick_prepare_selection",
+            )?.expected ?? step.expected,
+            records.slice(0, records.indexOf(prepared)),
+          );
           const receipts: Document[] = [];
           let tries = 0;
+          let sealed: Document | undefined;
+          let originalBody: string | null = null;
+          const requests: Document[] = [];
+          const saveAttempts: Document[] = [];
           await page.route("**/api/pick/selections", async (route) => {
             if (route.request().method() !== "POST") return route.continue();
             const body = route.request().postDataJSON();
-            expect(body.result_id).toBe(expected.result_id);
-            expect(body.item_ids).toEqual(expected.item_ids);
-            expect(body.note).toBe(expected.note);
-            const command = { ...body, request_id: expected.request_id };
-            const committed = await route.fetch({
-              postData: JSON.stringify(command),
-            });
-            if (!committed.ok())
-              throw new Error(`Save HTTP ${committed.status()}`);
-            const receipt = await committed.json();
-            artifact(dir, `${stepId}-raw-receipt-${tries}.json`, receipt);
-            receipts.push(receipt);
-            artifact(dir, `${stepId}-command-${tries}.json`, command);
-            if (tries++ === 0) await route.abort("connectionreset");
-            else await route.fulfill({ response: committed });
+            const rawBody = route.request().postData();
+            const observedSave: Document = {
+              observed_at: new Date().toISOString(),
+              request: body,
+              raw_body: rawBody,
+              status: "received",
+            };
+            saveAttempts.push(observedSave);
+            artifact(dir, `${stepId}-save-attempts.json`, saveAttempts);
+            try {
+              const command = sealSaveDispatch(expected, body, sealed);
+              if (!sealed) {
+                sealed = command;
+                originalBody = rawBody;
+                Object.assign(
+                  prepared,
+                  ref(
+                    "save_dispatch",
+                    artifact(dir, `${stepId}-save-dispatch.json`, {
+                      captured_at: new Date().toISOString(),
+                      request: command,
+                    }),
+                  ),
+                );
+                persist();
+              } else if (rawBody !== originalBody)
+                throw new Error("Literal UI retry body changed");
+              requests.push({
+                dispatched_at: new Date().toISOString(),
+                request: command,
+              });
+              Object.assign(
+                prepared,
+                ref(
+                  "save_requests",
+                  artifact(dir, `${stepId}-save-requests.json`, requests),
+                ),
+              );
+              persist();
+              // The actual UI request, including its original request_id, is never rewritten.
+              const committed = await route.fetch();
+              if (!committed.ok())
+                throw new Error(`Save HTTP ${committed.status()}`);
+              const receipt = await committed.json();
+              receipts.push(receipt);
+              artifact(dir, `${stepId}-raw-receipt-${tries}.json`, receipt);
+              Object.assign(
+                prepared,
+                ref(
+                  "receipts",
+                  artifact(dir, `${stepId}-receipts.json`, receipts),
+                ),
+              );
+              persist();
+              observedSave.status = "committed";
+              artifact(dir, `${stepId}-save-attempts.json`, saveAttempts);
+              if (tries++ === 0) await route.abort("connectionreset");
+              else await route.fulfill({ response: committed });
+            } catch (saveError) {
+              observedSave.status = "rejected_or_unverified";
+              observedSave.error =
+                saveError instanceof Error
+                  ? saveError.message
+                  : "Save observation failed";
+              artifact(dir, `${stepId}-save-attempts.json`, saveAttempts);
+              routeError =
+                saveError instanceof Error
+                  ? saveError
+                  : new Error("Save request guard failed");
+              await route.abort("blockedbyclient");
+            }
           });
           await page
             .getByRole("button", { name: /^确认保存（/ })
@@ -705,7 +899,7 @@ for (const item of manifest.cases as Document[]) {
           await expect.poll(() => receipts.length).toBe(2);
           const authority = await get(
             context.request,
-            `/api/pick/commands/${encodeURIComponent(expected.request_id)}`,
+            `/api/pick/commands/${encodeURIComponent(sealed!.request_id)}`,
           );
           expect(authority.saved.map((s: Document) => s.id)).toEqual(
             receipts[0]!.saved.map((s: Document) => s.id),
@@ -739,13 +933,23 @@ for (const item of manifest.cases as Document[]) {
           for (const record of records)
             record.browser_evidence = artifact(
               dir,
-              `${stepId}-${encodeURIComponent(record.tool_call_id)}-browser.json`,
+              `${stepId}-${encodeURIComponent(record.tool_call_id ?? "terminal")}-browser.json`,
               {
                 run_id: run.run_id,
-                assertions,
+                assertions: assertions.filter((assertion) =>
+                  (
+                    (record.record_kind === "terminal"
+                      ? terminalContractFor(step)
+                      : step.tool_contracts?.find(
+                          (contract: Document) =>
+                            contract.tool_name === record.tool_name,
+                        )
+                    )?.expected ?? step.expected
+                  )?.browser_assertions?.includes(assertion.name),
+                ),
                 result_id:
-                  record.response.id ?? record.response.result_id ?? null,
-                source: record.source,
+                  record.response?.id ?? record.response?.result_id ?? null,
+                source: record.source ?? null,
                 artifact_refs: [
                   {
                     artifact_file: screenshot,
@@ -759,8 +963,193 @@ for (const item of manifest.cases as Document[]) {
         active = null;
         if (routeError)
           throw new Error("Readiness route guard refused a request");
-        expect(run.status).toBe(step.expected.terminal_status ?? "success");
+        expect(run.status).toBe(
+          terminalContractFor(step)?.expected?.terminal_status ??
+            step.expected?.terminal_status ??
+            "success",
+        );
       }
+    } catch (error) {
+      await context.setOffline(false);
+      captures.failures ??= [];
+      const failure: Document = {
+        case_id: item.case_id,
+        step_id: active?.step_id ?? currentStep?.step_id ?? "main",
+        attempt_id: active?.attempt_id ?? null,
+        captured_at: new Date().toISOString(),
+        error_type: error instanceof Error ? error.name : "UnknownError",
+        error_message: error instanceof Error ? error.message : String(error),
+      };
+      captures.failures.push(failure);
+      try {
+        const screenshot = join(
+          dir,
+          `failed-${active?.attempt_id ?? randomUUID()}.png`,
+        );
+        await page.screenshot({
+          path: screenshot,
+          fullPage: true,
+          timeout: 10000,
+        });
+        chmodSync(screenshot, 0o600);
+        failure.screenshot = {
+          artifact_file: screenshot,
+          artifact_sha256: sha256(readFileSync(screenshot)),
+        };
+      } catch {
+        failure.screenshot_status = "UNVERIFIED";
+      }
+      if (active?.dispatched && threadId && currentStep) {
+        try {
+          const runs = (await get(
+            context.request,
+            `/api/threads/${threadId}/runs`,
+          )) as Document[];
+          const candidates = active.run_id
+            ? runs.filter((run) => run.run_id === active!.run_id)
+            : runs.filter(
+                (run) => !active!.before_run_ids.includes(run.run_id),
+              );
+          if (candidates.length !== 1)
+            throw new Error("Unable to identify a single submitted run");
+          const observed = candidates[0]!;
+          const events = await runEvents(
+            context.request,
+            threadId,
+            observed.run_id,
+          );
+          const csrf = (await context.cookies()).find(
+            (cookie) => cookie.name === "csrf_token",
+          )?.value;
+          const historyResponse = await context.request.post(
+            `/api/threads/${threadId}/history`,
+            {
+              data: { limit: 1 },
+              headers: csrf ? { "X-CSRF-Token": csrf } : {},
+            },
+          );
+          const history = historyResponse.ok()
+            ? await historyResponse.json()
+            : [];
+          const messages = attributedMessages(history, events, observed.run_id);
+          const answer = messages
+            .filter((message) => message.type === "ai")
+            .map((message) =>
+              typeof message.content === "string"
+                ? message.content
+                : JSON.stringify(message.content),
+            )
+            .join("\n");
+          const terminal = [
+            "success",
+            "error",
+            "timeout",
+            "interrupted",
+          ].includes(observed.status);
+          const status = terminal ? observed.status : "unknown";
+          artifact(dir, `${active.attempt_id}-failure-events.json`, events);
+          artifact(dir, `${active.attempt_id}-failure-history.json`, history);
+          finishAttempt(
+            runner.ledger_file,
+            active.attempt_id,
+            observed.run_id,
+            status,
+            {
+              ended_at: terminal ? new Date().toISOString() : null,
+              tool_call_ids: eventToolInventory(events, observed.run_id),
+              observed_status: observed.status,
+            },
+          );
+          const authority = artifact(
+            dir,
+            `${active.attempt_id}-failure-terminal.json`,
+            {
+              run_id: observed.run_id,
+              status,
+              observed_status: observed.status,
+              answer_sha256: sha256(answer),
+              saved_result_ids: (await selectionsForOwner(context.request)).map(
+                (row: Document) => row.source_result_id,
+              ),
+            },
+          );
+          const inventory = eventToolInventory(events, observed.run_id);
+          for (const call of extractTools(messages).sort(
+            (a, b) =>
+              inventory.indexOf(a.tool_call_id) -
+              inventory.indexOf(b.tool_call_id),
+          )) {
+            if (
+              captures.records.some(
+                (record: Document) =>
+                  record.run_id === observed.run_id &&
+                  record.tool_call_id === call.tool_call_id,
+              )
+            )
+              continue;
+            captures.records.push({
+              record_kind: "tool",
+              case_id: item.case_id,
+              step_id: active.step_id,
+              attempt_id: active.attempt_id,
+              run_id: observed.run_id,
+              owner_id: runner.identity.owner_id,
+              thread_id: threadId,
+              started_at: toolTime(events, call.tool_call_id),
+              state_capture_key: active.state_capture_key,
+              bound_result_id: active.bound_result_id,
+              ...call,
+              ...canonical(call),
+              actual_conditions: call.response?.conditions,
+              source: {
+                catalog_batch_id: call.response?.catalog_batch_id ?? null,
+                shared: call.response?.data_as_of?.shared ?? null,
+                source_type: "unknown",
+                rows_sha256: null,
+              },
+              answer,
+              generated_by: manifest.runtime.model,
+              terminal_status: status,
+              ...ref("authoritative_terminal", authority),
+              capture_status: "PARTIAL_AFTER_FAILURE",
+            });
+          }
+          if (
+            terminalContractFor(currentStep) &&
+            !captures.records.some(
+              (record: Document) =>
+                record.record_kind === "terminal" &&
+                record.run_id === observed.run_id,
+            )
+          )
+            captures.records.push({
+              record_kind: "terminal",
+              case_id: item.case_id,
+              step_id: active.step_id,
+              attempt_id: active.attempt_id,
+              run_id: observed.run_id,
+              owner_id: runner.identity.owner_id,
+              thread_id: threadId,
+              started_at: active.started_at,
+              state_capture_key: active.state_capture_key,
+              terminal_status: status,
+              answer,
+              generated_by: manifest.runtime.model,
+              ...ref("authoritative_terminal", authority),
+            });
+          failure.reconciliation_status = terminal
+            ? "OBSERVED_TERMINAL"
+            : "UNVERIFIED_RUNNING";
+        } catch (reconciliationError) {
+          failure.reconciliation_status = "UNVERIFIED";
+          failure.reconciliation_error =
+            reconciliationError instanceof Error
+              ? reconciliationError.message
+              : "Unknown reconciliation error";
+        }
+      }
+      persist();
+      throw error;
     } finally {
       await context.setOffline(false);
       persist();

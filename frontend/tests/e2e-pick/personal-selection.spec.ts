@@ -14,9 +14,7 @@ function modelWaitMs() {
 function validateTarget(url: string) {
   modelWaitMs();
   const target = new URL(url);
-  if (["localhost", "127.0.0.1"].includes(target.hostname)) return;
-  expect(process.env.PICK_E2E_REMOTE_QA).toBe("1");
-  expect(target.protocol).toBe("https:");
+  expect(["localhost", "127.0.0.1", "[::1]"]).toContain(target.hostname);
 }
 
 async function validateRemoteQaOwner(request: APIRequestContext, url: string) {

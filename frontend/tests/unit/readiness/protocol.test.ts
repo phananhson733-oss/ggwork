@@ -21,6 +21,13 @@ import {
   appendAttempt,
   readVerified,
   loadManifest,
+  attributedMessages,
+  eventToolInventory,
+  sealSaveDispatch,
+  ownedSelectionRows,
+  resolveExpected,
+  localFixtureTarget,
+  type Document,
 } from "../../e2e-pick/support/readiness-protocol";
 
 const directories: string[] = [];
@@ -298,7 +305,7 @@ it("loads a fully locked protocol fixture and detects modified runtime evidence"
     posted_account: null,
     hot_only: false,
   };
-  const manifest = {
+  const manifest: Document = {
     spec_version: "pick-readiness-v1.1",
     environment: "remote-qa",
     locked_at: "2026-10-05T00:00:00Z",
@@ -369,6 +376,54 @@ it("loads a fully locked protocol fixture and detects modified runtime evidence"
   expect(loadManifest(path, env).manifest.runtime.run_timeout_seconds).toBe(
     600,
   );
+  const original = manifest.cases[0];
+  const compound = {
+    ...original,
+    tool_contracts: [
+      {
+        tool_name: "pick_count_candidates",
+        case_type: "count",
+        min_occurrences: 1,
+        expected: {
+          ...original.expected,
+          allowed_actions: ["pick_count_candidates"],
+          expected_outcome: "count_success",
+        },
+      },
+      {
+        tool_name: "pick_query_candidates",
+        case_type: "query",
+        min_occurrences: 1,
+        expected: original.expected,
+      },
+    ],
+  };
+  delete compound.expected;
+  delete compound.case_type;
+  manifest.cases = [compound];
+  writeFileSync(path, JSON.stringify(manifest));
+  expect(loadManifest(path, env).manifest.cases[0].tool_contracts).toHaveLength(
+    2,
+  );
+  manifest.cases = [
+    {
+      ...compound,
+      tool_contracts: [],
+      terminal_contract: {
+        case_type: "recovery",
+        expected: {
+          terminal_status: "interrupted",
+          saved_result_ids: [],
+          semantic_rubric: ["No save claim"],
+          browser_assertions: [],
+        },
+      },
+    },
+  ];
+  writeFileSync(path, JSON.stringify(manifest));
+  expect(
+    loadManifest(path, env).manifest.cases[0].terminal_contract.case_type,
+  ).toBe("recovery");
   put("runtime.json", { ...runtime, run_timeout_seconds: 120 });
   expect(() => loadManifest(path, env)).toThrow("hash");
 });
@@ -395,4 +450,157 @@ it("retries within the original whole-case reservation, without exceeding planne
   });
   expect(reserveCase(path, "Q01", 2, "hash", 1)).toBe(first);
   expect(() => reserveCase(path, "Q01", 2, "hash", 1)).toThrow("retry");
+});
+
+it("uses host history attribution while auditing independent run event envelopes", () => {
+  const ai = {
+    type: "ai",
+    id: "ai1",
+    content: "",
+    tool_calls: [
+      {
+        id: "call1",
+        name: "pick_query_candidates",
+        args: { filters: { language: "en" } },
+      },
+    ],
+    additional_kwargs: {},
+  };
+  const tool = {
+    type: "tool",
+    id: "tool1",
+    tool_call_id: "call1",
+    content: '{"id":"result1"}',
+    additional_kwargs: {},
+  };
+  // This is the actual host AIMessage/ToolMessage serialized shape: no top-level run_id.
+  expect([ai, tool].filter((m: Document) => m.run_id === "run1")).toHaveLength(
+    0,
+  );
+  const events = [
+    {
+      seq: 1,
+      run_id: "run1",
+      event_type: "llm.ai.response",
+      category: "message",
+      content: ai,
+    },
+    {
+      seq: 2,
+      run_id: "run1",
+      event_type: "llm.tool.result",
+      category: "message",
+      content: tool,
+    },
+    {
+      seq: 3,
+      run_id: "other",
+      event_type: "llm.ai.response",
+      content: { ...ai, tool_calls: [{ id: "wrong" }] },
+    },
+  ];
+  const history = [
+    {
+      values: {
+        messages: [
+          { ...ai, run_id: "run1" },
+          { ...tool, run_id: "run1" },
+        ],
+      },
+    },
+  ];
+  expect(
+    extractTools(attributedMessages(history, events, "run1")),
+  ).toHaveLength(1);
+  expect(eventToolInventory(events, "run1")).toEqual(["call1"]);
+  // Missing checkpoint attribution must not erase an independently observed event call.
+  expect(
+    extractTools(
+      attributedMessages(
+        [{ values: { messages: [ai, tool] } }],
+        events,
+        "run1",
+      ),
+    ),
+  ).toHaveLength(1);
+});
+
+it("seals the actual UI request id and rejects a regenerated retry id", () => {
+  const expected = {
+    result_id: "r",
+    item_ids: ["i"],
+    note: "review",
+    request_id: { capture_before_dispatch: true },
+  };
+  const first = {
+    request_id: "ui-generated",
+    result_id: "r",
+    item_ids: ["i"],
+    note: "review",
+  };
+  const sealed = sealSaveDispatch(expected, first, undefined);
+  expect(sealed.request_id).toBe("ui-generated");
+  expect(sealSaveDispatch(expected, { ...first }, sealed)).toEqual(first);
+  expect(() =>
+    sealSaveDispatch(expected, { ...first, request_id: "new-ui-id" }, sealed),
+  ).toThrow();
+});
+
+it("refuses remote synthetic fixture targets even with opt-in", () => {
+  expect(localFixtureTarget("http://localhost:3008")).toBe(
+    "http://localhost:3008",
+  );
+  expect(() => localFixtureTarget("https://qa.example.invalid")).toThrow();
+});
+
+it("uses identical verified-owner shape before prepare and after save, including existing rows", () => {
+  const rows = [
+    {
+      id: "existing",
+      identity: "drama",
+      note: "old",
+      snapshot_json: { title: "Synthetic" },
+      state: "selected",
+      version: 1,
+    },
+  ];
+  expect(ownedSelectionRows(rows, "qa")).toEqual([
+    { ...rows[0], owner_id: "qa" },
+  ]);
+  expect(ownedSelectionRows(ownedSelectionRows(rows, "qa"), "qa")).toEqual(
+    ownedSelectionRows(rows, "qa"),
+  );
+  expect(() =>
+    ownedSelectionRows([{ ...rows[0], owner_id: "another" }], "qa"),
+  ).toThrow();
+});
+
+it("resolves compound typed bindings from a prelocked query occurrence, never detail arguments", () => {
+  const records = [
+    { tool_name: "pick_count_candidates", response: { total: 2 } },
+    {
+      tool_name: "pick_query_candidates",
+      response: { id: "first", items: [{ item_id: "a" }, { item_id: "b" }] },
+    },
+    {
+      tool_name: "pick_query_candidates",
+      response: { id: "second", items: [{ item_id: "wrong" }] },
+    },
+    {
+      tool_name: "pick_get_drama_detail",
+      raw_arguments: { result_id: "second", item_id: "wrong" },
+    },
+  ];
+  const expected = {
+    result_id: { from_tool: "pick_query_candidates", occurrence: 1 },
+    item_id: { position: 2 },
+  };
+  expect(resolveExpected(expected, records)).toEqual({
+    result_id: "first",
+    item_id: "b",
+  });
+  expect(expected.result_id).toEqual({
+    from_tool: "pick_query_candidates",
+    occurrence: 1,
+  });
 });
