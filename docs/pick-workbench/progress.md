@@ -1,3 +1,18 @@
+# 当前发布状态（2026-10-06）
+
+PR [#31](https://github.com/phananhson733-oss/ggwork/pull/31) 已合并，生产业务源码为 `d236f951d76d011bc2e704a772b2382345b8335b`。Gateway 部署 `457941b3-0f1d-49d8-8ccf-2b0b6d93b735`，Vercel 部署 `dpl_CKFUdQYs4ofv8TeYEoWGSxQKLKoW`；生产 alias `ggwork-deerflow.vercel.app` 已指向该 READY 部署，前端构建版本 `20261006-d236f95`。
+
+- 合并提交上的复跑：业务双库 4,326 passed / 21 方言或重复计时 skip；后端兼容矩阵 35 passed；宿主 116 passed；真实 PG reader 45 passed / 0 skip；前端全套 2,874 passed，45 reader 项另行通过；旧/新/混合/hot/存量快照矩阵五格通过，check/build 通过。合并提交的 GitHub CI 也已成功。
+- Gateway 实际 1,141 个源码树文件及 installed 145 个业务包文件与合并提交一致；关键模块加载、认证 API、数据库/checkpointer readiness 正常，生产 applied migration head 仍为 0007，没有新迁移或观测 cron 发布。
+- 普通 QA 原两条已保存记录与旧 10 项候选在 Gateway 更替后保持，历史 notes 的 reference 与原 created_at 一致。
+- 上线后只读资料冻结观察到真实 mirror v23，旧 QA 卡仍冻结 v22；这使历史卡/真实资料更新对照具备前置条件。新完整业务矩阵正在按独立预锁预期验收，尚未将其标为全通过。
+- 本次发布与完整业务验收分别记账；下方 2026-10-05 的“未发布”和基线 FAIL/NOT_RUN 是历史记录，不覆盖本段已验证部署状态。最终 QA 结果在验收文档追加。
+
+- `pick-deploy-guard target=gateway commit=d236f951d76d011bc2e704a772b2382345b8335b prod_head=0007 chain_head=0007 at=2026-10-05T16:20:29Z`
+- `pick-deploy-guard target=frontend commit=d236f951d76d011bc2e704a772b2382345b8335b at=2026-10-05T16:27:02Z`
+
+---
+
 # 当前状态（2026-10-05，readiness 集成中）
 
 业务仓库：`phananhson733-oss/ggwork`。本期实现基线 `5c39bdf2`，交付分支 `codex/pick-readiness`，见 [PR #31](https://github.com/phananhson733-oss/ggwork/pull/31)。业务源码完整回归后，仅追加模型字段说明及验收驱动修复；这些增量分别执行定向检查，最终提交以 PR HEAD 和对应 CI 为准。生产仍是前后端 `ddbf9f14`（前端版本 `20261005-ddbf9f1`），已有部署证据见下方历史记录；本期 readiness 改动尚未发布。
