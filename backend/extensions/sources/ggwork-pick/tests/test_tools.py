@@ -627,7 +627,7 @@ async def test_code_bugs_surface_as_errors_not_polite_refusals(tmp_path, monkeyp
     await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task", "r1", "t", "lead"))
     runtime = SimpleNamespace(context={"user_id": "alice", "pick_reference": {"result_id": parent["id"]}, EXTENSION_TASK_STORE_KEY: store}, tool_call_id="d1")
 
-    async def broken(self, result_id, item_id):
+    async def broken(self, result_id, item_id, *, data_as_of=None):
         return {}["item"]
 
     monkeypatch.setattr(SelectionService, "detail", broken)

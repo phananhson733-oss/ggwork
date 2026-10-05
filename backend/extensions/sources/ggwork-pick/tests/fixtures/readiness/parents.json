@@ -1,0 +1,96 @@
+[
+  {
+    "id": "p",
+    "parent_result_id": "gp",
+    "owner_id": "synthetic-owner",
+    "thread_id": "synthetic-thread",
+    "items": [
+      {
+        "identity": "parent",
+        "item_id": "p1"
+      }
+    ],
+    "conditions": {
+      "theater": null,
+      "language": "en",
+      "channel": null,
+      "query": null,
+      "tags": [],
+      "limit": 2,
+      "exclude_selected": true,
+      "confirmed_eligible_only": true,
+      "exclude_previous": true,
+      "signal_kind": null,
+      "sort": "evidence_date",
+      "exclude_posted": false,
+      "posted_account": null,
+      "hot_only": false
+    },
+    "catalog_batch_id": "synthetic-batch",
+    "source": {
+      "catalog_batch_id": "synthetic-batch",
+      "source_type": "synthetic",
+      "shared": false,
+      "rows_sha256": "d4219a271cb0b0f65fc11e74216dec9dbb29ab6fbd2b02ff640531cc663cea7b"
+    },
+    "data_as_of": {
+      "source_as_of": "2026-10-05",
+      "published_at": "2026-10-05",
+      "freshness": {
+        "catalogImportedAt": "2026-10-05T00:00:00Z",
+        "reelshortSyncedAt": "2026-10-05T00:00:00Z"
+      },
+      "shared": false,
+      "scope": "synthetic-scope"
+    },
+    "rule_version": "pick-rules-v1",
+    "ranking_version": "evidence-date-v1"
+  },
+  {
+    "id": "gp",
+    "parent_result_id": null,
+    "owner_id": "synthetic-owner",
+    "thread_id": "synthetic-thread",
+    "items": [
+      {
+        "identity": "grandparent",
+        "item_id": "gp1"
+      }
+    ],
+    "conditions": {
+      "theater": null,
+      "language": "en",
+      "channel": null,
+      "query": null,
+      "tags": [],
+      "limit": 2,
+      "exclude_selected": true,
+      "confirmed_eligible_only": true,
+      "exclude_previous": true,
+      "signal_kind": null,
+      "sort": "evidence_date",
+      "exclude_posted": false,
+      "posted_account": null,
+      "hot_only": false
+    },
+    "catalog_batch_id": "synthetic-batch",
+    "source": {
+      "catalog_batch_id": "synthetic-batch",
+      "source_type": "synthetic",
+      "shared": false,
+      "rows_sha256": "d4219a271cb0b0f65fc11e74216dec9dbb29ab6fbd2b02ff640531cc663cea7b"
+    },
+    "data_as_of": {
+      "source_as_of": "2026-10-05",
+      "published_at": "2026-10-05",
+      "freshness": {
+        "catalogImportedAt": "2026-10-05T00:00:00Z",
+        "reelshortSyncedAt": "2026-10-05T00:00:00Z"
+      },
+      "shared": false,
+      "scope": "synthetic-scope"
+    },
+    "rule_version": "pick-rules-v1",
+    "ranking_version": "evidence-date-v1"
+  }
+]

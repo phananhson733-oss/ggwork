@@ -1,0 +1,8 @@
+{
+  "app_sha": "synthetic-sha",
+  "model": "synthetic-model",
+  "mode": "thinking",
+  "run_timeout_seconds": 600,
+  "request_timeout_seconds": 300,
+  "stream_chunk_timeout_seconds": 300
+}

@@ -39,9 +39,18 @@ _NOT_POSTED = re.compile(
     r"|发(?![布现生展放起出送给挥行货表言声票音酵力售扬觉掘明烧愁怒抖呆光热芽达病散射泄誓问动财福胖]))"
 )
 # A claim quoted inside a disclaimer ("不能声称没发过") is not a claim; a comma ends the disclaimer.
-_NEGATING_PREFIX = re.compile(r"(不能|无法|不代表|不等于|不能声称|不能断言|不能确认|不会|才会|是否|请勿|不要)[^。！？，,；;\n]{0,6}$")
+_NEGATING_PREFIX = re.compile(r"(不能|无法|不代表|不等于|不能声称|不能断言|不能确认|不会|才会|是否|请勿|不要)[^。！？!?，,；;但却\n]{0,6}$")
+# Longer disclaimers need an actual speech/conclusion verb, not an arbitrary intervening predicate.
+_PUBLICATION_NEGATION = re.compile(
+    r"(?:不能|无法)(?:据此|因此|就此)?(?:断言|断定|确认|认定|声称|说|推断)(?:它们|团队|这些剧|(?:所有|全部)(?:候选|剧目|剧)|这[0-9一二两三四五六七八九十]{1,3}部)?(?:都|均)?从?$"
+    r"|(?:不是|并非)(?:它们|这些剧)?(?:都|全都|全部|所有)$"
+)
+_BARE_CONJUNCTIONS = frozenset({"和", "与", "及", "以及"})
+_BARE_ACCOUNT = re.compile(r"在[^。！？!?；;，,\n发]{1,24}(?:账号|账户)[ \t]{0,8}(?:都|均|还)?(?:没有?|未|从未|不曾)发")
+_BARE_PREDICATE = re.compile(r"(?:都|均|团队|还|尚|从){0,2}(?:没有?|未|不曾)(?:发|在|被)")
 # Longer than any disclaimer _NEGATING_PREFIX reads, so a claim looks back this far instead of through the whole answer.
-_PREFIX_WINDOW = 16
+_PREFIX_WINDOW = 32
+_QUOTE_SOURCE = re.compile(r"(?:用户(?:问|说|原话|的问题)|你(?:问|说))\s*[：:]?\s*$")
 _CLAUSE_MARK = re.compile(r"[。！？!?；;，,\n]")
 # The marks after a clause that only lists titles which carry the list on to the next clause.
 _LIST_MARKS = frozenset("，,；;\n")
@@ -120,6 +129,8 @@ class Seen(NamedTuple):
     # Accounts the records name as posting it, and accounts a posted_account query returned it for.
     posters: frozenset[str] = frozenset()
     clear: frozenset[str] = frozenset()
+    # Only the same stable identity can accumulate account clearances across queries.
+    identity: str | None = None
 
 
 def _norm(title: str) -> str:
@@ -131,7 +142,31 @@ def _account(name) -> str:
 
 
 def _claim_starts(pattern: re.Pattern, text: str) -> list[int]:
-    return [match.start() for match in pattern.finditer(text) if not _NEGATING_PREFIX.search(text, max(0, match.start() - _PREFIX_WINDOW), match.start())]
+    # One pass pairs quotes, without repeatedly searching for a missing closing quote.
+    quoted, opening, closer = [], None, None
+    for index, char in enumerate(text):
+        if opening is not None and char == closer:
+            prefix = text[max(0, opening - _PREFIX_WINDOW) : opening]
+            if _QUOTE_SOURCE.search(prefix) or text[opening + 1 : index].rstrip().endswith(("?", "？")):
+                quoted.append((opening, index))
+            opening, closer = None, None
+        elif char in '“「"' and opening is None:
+            opening, closer = index, {"“": "”", "「": "」", '"': '"'}[char]
+        elif char == "\n":
+            opening, closer = None, None
+    starts, quote = [], 0
+    for match in pattern.finditer(text):
+        while quote < len(quoted) and quoted[quote][1] < match.start():
+            quote += 1
+        if quote < len(quoted) and quoted[quote][0] < match.start() < quoted[quote][1]:
+            continue
+        left = max(0, match.start() - _PREFIX_WINDOW)
+        negated = _NEGATING_PREFIX.search(text, left, match.start())
+        if pattern is _NOT_POSTED:
+            negated = negated or _PUBLICATION_NEGATION.search(text, left, match.start())
+        if not negated:
+            starts.append(match.start())
+    return starts
 
 
 def _claims(pattern: re.Pattern, text: str) -> bool:
@@ -162,12 +197,15 @@ def with_posted(seen: dict[str, Seen], items, *, account: str | None = None) -> 
         key, posted = _norm(item["title"]), item.get("posted")
         status = _posted_status(posted)
         posters = frozenset(_account(name) for name in posted.get("accounts") or ()) if isinstance(posted, dict) else frozenset()
+        identity = item.get("identity") or None
         before = merged.get(key)
         if before is None:
-            merged[key] = Seen(item["title"], status, posters, cleared)
+            merged[key] = Seen(item["title"], status, posters, cleared, identity)
         else:
             worse = max(before.status, status, key=_SEVERITY.__getitem__)
-            merged[key] = Seen(before.title, worse, before.posters | posters, before.clear | cleared)
+            same = identity is not None and identity == before.identity
+            clear = before.clear | cleared if same else before.clear & cleared
+            merged[key] = Seen(before.title, worse, before.posters | posters, clear, identity if same else None)
     return merged
 
 
@@ -377,6 +415,8 @@ def _own_subject(text: str, masked: str, clause: tuple[_Accounts, _BareTitles], 
     named, words = accounts.named(masked[left:right])
     found, unknown = bare.scan(words)
     marked, marks = _marked(words, found, [match.group(1).strip() for match in _TITLE.finditer(text, left, right)])
+    # Typography around a title must not break a comma-separated title list. Keep offsets.
+    marked = marked.translate(str.maketrans({char: " " for char in '“”‘’"'}))
     leaves, left_out = _left_out(marked, marks)
     titles = _distinct(mark.title for mark in marks)
     excepted = frozenset(_norm(marks[index].title) for index in left_out if marks[index].title)
@@ -721,6 +761,104 @@ class _Judge:
             self.findings.unfiltered = True
 
 
+def _known_bare_text(text: str, titles) -> str:
+    """Mark known Chinese/punctuated titles before clause splitting; retain the Latin word trie.
+
+    A bounded character trie takes at most 500 steps per input position (the existing title
+    length contract), independent of the number of titles. No regex alternatives or suffix
+    rescans. Normalize case and whitespace just as _norm does, retaining original offsets.
+    """
+    entries = [(title, _norm(title)) for title in titles]
+    entries = [(title, key) for title, key in entries if key and len(key) <= 500]
+    latin = {title for title, key in entries if " ".join(_LATIN_TOKEN.findall(key)) == key}
+    if len(latin) == len(entries):
+        return text
+    # Mixed-script lists need every known title as a boundary witness. Pure Latin
+    # dictionaries retain the existing word-trie path without this additional scan.
+    trie = {}
+    for title, key in entries:
+        node = trie
+        for char in key:
+            node = node.setdefault(char, {})
+        node[_END] = title
+    if not trie:
+        return text
+    folded, offsets = [], []
+    for index, char in enumerate(text):
+        if char.isspace() and char != "\n":
+            if folded and folded[-1] == " ":
+                offsets[-1] = (offsets[-1][0], index + 1)
+                continue
+            char = " "
+        for part in char.casefold():
+            folded.append(part)
+            offsets.append((index, index + 1))
+    folded = "".join(folded)
+    bracketed = iter(_TITLE.finditer(text))
+    bracket = next(bracketed, None)
+    candidates, index = [], 0
+    while index < len(folded):
+        original = offsets[index][0]
+        while bracket is not None and bracket.end() <= original:
+            bracket = next(bracketed, None)
+        if bracket is not None and bracket.start() <= original < bracket.end():
+            index += 1
+            continue
+        node, hit, stop = trie, None, index
+        while stop < min(len(folded), index + 500):
+            node = node.get(folded[stop])
+            if node is None:
+                break
+            stop += 1
+            if _END in node:
+                hit = (node[_END], stop)
+        if hit is None:
+            index += 1
+            continue
+        title, stop = hit
+        candidates.append((title, index, stop))
+        index = stop
+    # Resolve each list from its end, then its start: conjunctions only join complete
+    # known titles, so neither 明月光 nor 明月与未知长名 can lend 明月 its evidence.
+    rights = [False] * len(candidates)
+    for position in range(len(candidates) - 1, -1, -1):
+        _, start, stop = candidates[position]
+        after = stop < len(folded) and folded[stop].isalnum() and (not folded[stop - 1].isascii() or folded[stop].isascii())
+        if after and not folded[stop - 1].isascii():
+            after = not (_BARE_PREDICATE.match(folded, stop) or _BARE_ACCOUNT.match(folded, stop))
+        if after and position + 1 < len(candidates):
+            following = candidates[position + 1][1]
+            if following - stop <= 2 and folded[stop:following] in _BARE_CONJUNCTIONS:
+                after = not rights[position + 1]
+        rights[position] = not after
+    pieces, end, previous = [], 0, None
+    for position, (title, start, stop) in enumerate(candidates):
+        before = start > 0 and folded[start - 1].isalnum() and (not folded[start].isascii() or folded[start - 1].isascii())
+        if before and not folded[start].isascii():
+            before = not (folded[max(0, start - 2) : start] == "推荐" and (start == 2 or not folded[start - 3].isalnum()))
+        if before and previous is not None and start - previous <= 2:
+            before = folded[previous:start] not in _BARE_CONJUNCTIONS
+        if before or not rights[position]:
+            previous = None
+            continue
+        joined_before = previous is not None and start - previous <= 2 and folded[previous:start] in _BARE_CONJUNCTIONS
+        joined_after = (
+            position + 1 < len(candidates)
+            and candidates[position + 1][1] - stop <= 2
+            and folded[stop : candidates[position + 1][1]] in _BARE_CONJUNCTIONS
+            and rights[position + 1]
+        )
+        # Outside an explicit title list, let the legacy scanner resolve Latin words
+        # after account names have been masked (a title named A is not always account A).
+        if title in latin and not (joined_before or joined_after):
+            previous = None
+            continue
+        pieces.extend((text[end : offsets[start][0]], f"《{title}》"))
+        end, previous = offsets[stop - 1][1], stop
+    pieces.append(text[end:])
+    return "".join(pieces)
+
+
 def _not_posted_notes(text: str, posted_checked: bool, seen: dict[str, Seen]) -> list[str]:
     """Notes for "没发过" claims that nothing this run returned backs.
 
@@ -752,5 +890,6 @@ def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, pos
         notes.append("正文提到的" + "、".join(f"《{t}》" for t in list(unknown)[:5]) + "不在本轮查询结果中，请以候选卡为准。")
     if _claims(_SAVE_CLAIM, text):
         notes.append("本轮没有写入个人清单；只有点击「确认保存」并看到回执才算保存。")
-    notes.extend(_not_posted_notes(text, posted_checked, posted_seen or {}))
+    marked = _known_bare_text(text, known_titles | {entry.title for entry in (posted_seen or {}).values()})
+    notes.extend(_not_posted_notes(marked, posted_checked, posted_seen or {}))
     return notes
