@@ -226,7 +226,7 @@ async def test_notes_recheck_freshness_at_creation_and_get_is_read_only(app_clie
         event.remove(Engine, "before_cursor_execute", record_sql)
     assert response.status_code == 200
     body = response.json()
-    assert body["notices_reference_at"] == datetime.fromisoformat(created_at).astimezone(UTC).isoformat()
+    assert body["notices_reference_at"] == datetime.fromisoformat(created_at).astimezone(UTC).isoformat(timespec="microseconds")
     assert bool(body.get("data_notices")) == stale
     assert all("查询时" in notice for notice in body.get("data_notices", []))
     assert not any(word in str(body) for word in ("同步可能停", "回答里", "没有新批次"))

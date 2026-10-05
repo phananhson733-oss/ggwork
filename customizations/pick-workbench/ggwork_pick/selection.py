@@ -550,7 +550,7 @@ class SelectionService:
             # Pydantic's ValidationError included: stored conditions from rules this code no longer runs.
             explained = {}
         return {
-            "notices_reference_at": reference.isoformat() if reference is not None else None,
+            "notices_reference_at": stamp(reference) if reference is not None else None,
             "item_facts": facts_by_item(record["ordered_items_json"], rows),
             **explained,
         }
