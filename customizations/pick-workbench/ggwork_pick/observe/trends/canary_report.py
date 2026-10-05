@@ -82,7 +82,7 @@ async def read_report(step: ReadStep, now: datetime) -> dict:
     now = now.astimezone(UTC)
     anchor = now.date()
     start = anchor - timedelta(days=6)
-    lower, upper = start.isoformat(), anchor.isoformat()
+    lower, upper = str(start), str(anchor)
     runtime = (await step.execute(select(*(obs_runtime.c[name] for name in RUNTIME_FIELDS)).where(obs_runtime.c.channel == "trends"))).mappings().first()
     latest = []
     for table, column in ((obs_batches, obs_batches.c.target_date), (obs_budget, obs_budget.c.budget_day), (obs_requests, obs_requests.c.budget_day)):
@@ -134,7 +134,7 @@ async def read_report(step: ReadStep, now: datetime) -> dict:
     )
     days = []
     for offset in range(7):
-        day = (start + timedelta(days=offset)).isoformat()
+        day = str(start + timedelta(days=offset))
         budget = next((dict(row) for row in budgets if row["budget_day"] == day), None)
         attempts = [row for row in requests if row["budget_day"] == day]
         found = []
