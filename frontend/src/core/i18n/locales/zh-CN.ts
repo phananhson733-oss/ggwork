@@ -1134,17 +1134,17 @@ export const zhCN: Translations = {
 
   // Token Usage
   tokenUsage: {
-    title: "Token 用量",
+    title: "已记录 Token 用量",
     label: "Tokens",
     input: "输入",
     output: "输出",
-    total: "总计",
+    total: "已记录总计",
     view: "显示方式",
     unavailable:
-      "暂无 Token 用量。只有模型成功返回且供应商提供 usage_metadata 时才会显示。",
+      "当前视图暂无可显示的已记录 Token 用量。取消或失败的请求可能未返回完整计量。",
     unavailableShort: "未返回用量",
     collecting: "统计中",
-    note: "顶部总量优先使用后端持久化的线程用量；当当前回复仍在流式返回时，还会叠加可见的进行中用量。每轮和调试用量只来自当前可见消息，可能与平台账单页不完全一致。",
+    note: "顶部总量优先使用后端已记录的线程用量；回复仍在流式返回时，还会叠加可见的进行中用量。每轮和调试用量只来自当前可见消息。取消或失败的请求可能缺少计量，未记录不等于零消耗；这里的总量不是供应商账单。",
     presets: {
       off: "关闭",
       summary: "总览",

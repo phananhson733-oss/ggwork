@@ -226,11 +226,11 @@ async def _ensure_thread_metadata(
         metadata = {
             key: value
             for key, value in run_metadata.items()
-            # Strip the run-scoped trace id (existing) and the reserved
+            # Strip run-scoped trace/usage and the reserved
             # membership key: run admission never modifies project membership —
             # the column is written only by POST /api/threads and
             # /threads/{id}/move — so the key must not persist either.
-            if key not in (DEERFLOW_TRACE_METADATA_KEY, THREAD_PROJECT_METADATA_KEY)
+            if key not in (DEERFLOW_TRACE_METADATA_KEY, "deerflow_usage_observation", THREAD_PROJECT_METADATA_KEY)
         }
         await thread_store.create(
             record.thread_id,

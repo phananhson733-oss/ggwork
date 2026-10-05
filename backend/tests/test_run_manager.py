@@ -288,7 +288,8 @@ async def test_create_and_get(manager: RunManager):
     assert record.status == RunStatus.pending
     assert record.thread_id == "thread-1"
     assert record.assistant_id == "lead_agent"
-    assert record.metadata == {"key": "val"}
+    assert record.metadata["key"] == "val"
+    assert record.metadata["deerflow_usage_observation"]["coverage"] == "unknown"
     assert record.kwargs == {"input": {}}
     assert record.multitask_strategy == "reject"
     assert ISO_RE.match(record.created_at)
@@ -1034,7 +1035,7 @@ async def test_list_by_thread_keyset_accepts_space_decoded_offset():
 async def test_create_defaults(manager: RunManager):
     """Create with no optional args should use defaults."""
     record = await manager.create("thread-1")
-    assert record.metadata == {}
+    assert record.metadata["deerflow_usage_observation"]["coverage"] == "unknown"
     assert record.kwargs == {}
     assert record.multitask_strategy == "reject"
     assert record.assistant_id is None

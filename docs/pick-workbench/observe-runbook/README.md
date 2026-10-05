@@ -31,9 +31,10 @@
 | `identity-churn` | `cmd_identity_churn.py` | TR-18 |
 | `import-legacy` | `cmd_import_legacy.py` | TR-22 |
 | `import-editorial` | `cmd_import_editorial.py` | TR-23b |
-| `canary-report` | `cmd_canary_report.py` | TR-30 |
 | `shadow-sample`、`leadtime-report` | `cmd_shadow_sample.py`、`cmd_leadtime_report.py` | TR-31 |
 | `shadow-e2e` | `cmd_shadow_e2e.py` | TR-36 |
+
+另有独立 Trends 入口 `python -m ggwork_pick.observe.trends canary-report`，不属于上表的 admin 子命令。它是 TR-30 的中性事实切片，见 [使用说明](canary-report.md)，不判上线门槛。
 
 ## 采集合同版本
 

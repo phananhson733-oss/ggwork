@@ -448,6 +448,7 @@ class RunRepository(RunStore):
         message_count: int = 0,
         last_ai_message: str | None = None,
         first_human_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> bool:
         """Update status + token usage + convenience fields on run completion.
@@ -468,6 +469,8 @@ class RunRepository(RunStore):
             "message_count": message_count,
             "updated_at": datetime.now(UTC),
         }
+        if metadata is not None:
+            values["metadata_json"] = self._safe_json(metadata) or {}
         if last_ai_message is not None:
             values["last_ai_message"] = last_ai_message[:2000]
         if first_human_message is not None:
@@ -507,6 +510,7 @@ class RunRepository(RunStore):
         message_count: int | None = None,
         last_ai_message: str | None = None,
         first_human_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Update token usage + convenience fields while a run is still active."""
         values: dict[str, Any] = {"updated_at": datetime.now(UTC)}
@@ -525,6 +529,8 @@ class RunRepository(RunStore):
                 values[key] = value
         if token_usage_by_model is not None:
             values["token_usage_by_model"] = self._safe_json(token_usage_by_model) or {}
+        if metadata is not None:
+            values["metadata_json"] = self._safe_json(metadata) or {}
         if last_ai_message is not None:
             values["last_ai_message"] = last_ai_message[:2000]
         if first_human_message is not None:

@@ -61,24 +61,23 @@ fetch-and-decode of every message row's tool outputs on long threads.
 client input, because a welded-in seq goes stale when a fork re-seeds the feed
 (#4380).
 
-**LLM response callback coalescing** (`runtime/journal.py`): a provider may fire
-`on_llm_end` twice for one LangChain run id, first without usage (or with all token
-counts zero) and immediately again with usage populated. The first callback's generation
-set is always canonical: `RunJournal` stages only its response events and immutable
-message-summary fields while retaining the first caller, and applies that callback's
-fallback state and tool-call bookkeeping immediately; those effects remain canonical.
-It must not retain provider-owned message objects because a provider may mutate and
-reuse the same response for the usage replay. Usage metadata is deep-snapshotted,
-including nested token-detail mappings, before it enters a staged or buffered event.
-An adjacent same-id positive-usage replay may enrich only each corresponding staged
-event's metadata/content usage fields. Replay
-generation-count differences never add, remove, or replace canonical messages. The next
-unrelated event, an effective buffer size (committed plus pending events) reaching the
-flush threshold, or an explicit flush commits the staged unit and updates the message
-summary. Once that ordering boundary is crossed, a late usage replay can still update the
-authoritative run token summary, but it cannot mutate the append-only message event,
-caller attribution, fallback state, or tool-call bookkeeping. Closed journals return
-from `on_llm_end` before inspecting the response or touching any run state.
+**LLM callback coalescing** (`runtime/journal.py`): providers may replay one run id,
+first with absent/all-zero usage, then populated usage. First generations/caller
+stay canonical; apply fallback/tool bookkeeping immediately. Stage immutable events/message
+summaries, never provider-owned messages; deep-copy nested usage details. Adjacent
+positive replays enrich corresponding usage fields only: generation-count changes
+never change messages. An unrelated event, committed-plus-pending buffer threshold,
+or explicit flush commits the stage and summary. Later usage updates run totals only,
+never append-only events/caller/fallback/tools. Closed LLM callbacks return before
+inspecting responses or mutating state.
+
+`usage_observation` persists as server-owned run `metadata.deerflow_usage_observation`
+in the same guarded progress/completion update; both admissions replace forged copies.
+`calls_*` describes local callback UUIDs; external reports preserve deduped known
+subtotals, not child lifecycle. Supplied null/zero remain distinct; error partials
+never create completed AI messages. `finalized` is observation assembly, not billing.
+Legacy/disabled tracking stays unknown. Preserve replay, lease and preflight boundaries;
+see `docs/pick-workbench/usage-observation.md` for fields and coverage states.
 
 **Run delivery receipts** (`runtime/journal.py` + `runs/worker.py`):
 `RunJournal` records each non-empty artifact update once per tool `Command` for

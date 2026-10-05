@@ -1211,17 +1211,17 @@ export const enUS: Translations = {
 
   // Token Usage
   tokenUsage: {
-    title: "Token Usage",
+    title: "Recorded Token Usage",
     label: "Tokens",
     input: "Input",
     output: "Output",
-    total: "Total",
+    total: "Recorded total",
     view: "Display",
     unavailable:
-      "No token usage yet. Usage appears only after a successful model response when the provider returns usage_metadata.",
+      "No recorded token usage is available in this view yet. Cancelled or failed requests may not return complete usage.",
     unavailableShort: "No usage returned",
     collecting: "Collecting tokens",
-    note: "Header totals use persisted thread usage, plus visible in-flight usage while a run is still streaming. Per-turn and debug usage come from currently visible messages only. Totals may differ from provider billing pages.",
+    note: "Header totals use recorded thread usage, plus visible in-flight usage while a run is still streaming. Per-turn and debug usage come from currently visible messages only. Cancelled or failed requests may have missing usage; an unrecorded amount does not mean zero consumption. These totals are not a provider bill.",
     presets: {
       off: "Off",
       summary: "Summary",

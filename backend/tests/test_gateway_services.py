@@ -2528,7 +2528,7 @@ def test_start_run_preserves_ordinary_metadata(_stub_app_config):
     async def _scenario():
         thread_id = "thread-ordinary-metadata"
         metadata = {"token_usage": 7, "source": "regression"}
-        request, _run_store, thread_store = _make_start_run_persistence_context()
+        request, run_store, thread_store = _make_start_run_persistence_context()
         captured: dict[str, Any] = {}
 
         async def fake_run_agent(*args, **kwargs):
@@ -2555,13 +2555,18 @@ def test_start_run_preserves_ordinary_metadata(_stub_app_config):
             )
             await record.task
 
-        # The run is additionally stamped with the server-issued trace id;
-        # the caller's own keys pass through untouched, and both metadata forks
-        # agree. Thread metadata is not run-scoped -- one thread spans many
-        # runs and many trace ids -- so it keeps only what the caller sent.
+        # Caller keys and the trace agree across runnable and run metadata.
+        # The run-owned usage observation changes with progress; it does not
+        # belong to the runnable's frozen metadata or the thread's metadata.
         assert record.metadata[DEERFLOW_TRACE_METADATA_KEY]
-        assert record.metadata == {**metadata, DEERFLOW_TRACE_METADATA_KEY: record.metadata[DEERFLOW_TRACE_METADATA_KEY]}
-        assert captured["config"]["metadata"] == record.metadata
+        expected = {**metadata, DEERFLOW_TRACE_METADATA_KEY: record.metadata[DEERFLOW_TRACE_METADATA_KEY]}
+        assert {key: value for key, value in record.metadata.items() if key != "deerflow_usage_observation"} == expected
+        assert captured["config"]["metadata"] == expected
+        observation = record.metadata["deerflow_usage_observation"]
+        assert observation["coverage"] == "unknown" and observation["finalized"] is False
+        assert observation["reasons"] == ["journal_not_observed"]
+        assert all(observation[key] is None for key in ("known_input_tokens", "known_output_tokens", "known_total_tokens"))
+        assert (await run_store.get(record.run_id))["metadata"] == record.metadata
         assert (await thread_store.get(thread_id))["metadata"] == metadata
 
     asyncio.run(_scenario())

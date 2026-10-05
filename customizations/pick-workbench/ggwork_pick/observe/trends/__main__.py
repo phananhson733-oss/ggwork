@@ -1,4 +1,4 @@
-"""`python -m ggwork_pick.observe.trends [run|status|preflight] [--selfcheck-only]`: the pick-obs-trends cron (plan
+"""`python -m ggwork_pick.observe.trends [run|status|preflight|canary-report] [--selfcheck-only]`: the pick-obs-trends cron (plan
 TR-14, TR-15).
 
 The command line, `status`, `--selfcheck-only` and the exit statuses are observe.cron's, shared with the gsc cron. What
@@ -8,6 +8,8 @@ is the trends channel's own:
   UTC; a trigger before the mode's start or after the 01:45 deadline does nothing and exits 0. Every request is paced
   at the preset PICK_OBS_TRENDS_PACE names (pacing.PRESETS, user unless set), and a canary's task list must pass the
   payload gate (admission.py) before its first request.
+- `canary-report`: seven UTC calendar dates of stored aggregate facts, using only the read-only status reader.
+  Missing dates remain unknown; no collector configuration, HTTP requests or promotion decision.
 - `preflight`: tonight's task list in figures, read-only, no request (preflight.py): 0 when the night would run as a
   valid canary night, 2 when it would be refused. S6a reads it. On Railway it is the second step of the self-check
   config's start command (deploy/pick-obs/trends/selfcheck/railway.toml), run only when --selfcheck-only exited 0, in
@@ -37,7 +39,7 @@ from ggwork_pick.observe.cron import SELFCHECK_VARIABLES, CronEntry, cron_main
 from ggwork_pick.observe.crypto import KEY_FILE_VARIABLE, KEY_VARIABLE, StateCipher, load_cipher
 from ggwork_pick.observe.errors import Refused
 from ggwork_pick.observe.trends import admission as gate
-from ggwork_pick.observe.trends import pacing, preflight
+from ggwork_pick.observe.trends import canary_report, pacing, preflight
 from ggwork_pick.observe.trends.canary import CanaryTaskSource, load_controls
 from ggwork_pick.observe.trends.egress import ECHO_ENV, egress_from_env
 from ggwork_pick.observe.trends.run import TRENDS, TaskSource, Wiring, run_trends
@@ -99,8 +101,11 @@ class TrendsCron:
         print(json.dumps({"preflight": line}, ensure_ascii=False, default=str), file=out)
         return int(preflight.exit_code(line))
 
+    async def report(self, environ: Mapping[str, str], out: TextIO) -> int:
+        return await canary_report.print_report(environ, out, now=self.clock.now())
+
     def entry(self) -> CronEntry:
-        return CronEntry(TRENDS, PROG, DESCRIPTION, TRENDS_VARIABLES, self.check, self.run, {"preflight": self.preflight})
+        return CronEntry(TRENDS, PROG, DESCRIPTION, TRENDS_VARIABLES, self.check, self.run, {"preflight": self.preflight, "canary-report": self.report})
 
 
 async def amain(

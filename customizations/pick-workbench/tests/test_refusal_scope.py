@@ -13,6 +13,7 @@ from test_result_notes import _import, _runtime, drama, signal
     [
         ({"signal_kind": "kw", "sort": "rank"}, "rejected"),
         ({"language": "zz"}, "rejected"),
+        ({"theater": "US"}, "rejected"),
         ({"posted_account": "unknown"}, "rejected"),
         ({"exclude_posted": True}, "posted_unavailable"),
     ],
