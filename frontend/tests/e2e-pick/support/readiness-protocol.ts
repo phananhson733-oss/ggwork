@@ -760,3 +760,7 @@ export function verifyReferenceIdentities(
     "Prerequisite result differs from independently reviewed identities",
   );
 }
+
+// The candidate panel also has a textarea; only the chat form owns the Submit control.
+export const CHAT_COMPOSER_SELECTOR =
+  'form:has(button[aria-label="Submit"]) textarea';

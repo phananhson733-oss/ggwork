@@ -11,6 +11,7 @@ import {
 
 import {
   appendAttempt,
+  CHAT_COMPOSER_SELECTOR,
   attributedMessages,
   eventToolInventory,
   sealSaveDispatch,
@@ -454,7 +455,7 @@ for (const item of manifest.cases as Document[]) {
             .getByRole("button", { name: "更新并重新运行", exact: true })
             .click();
         } else {
-          await page.locator("textarea").last().fill(step.prompt);
+          await page.locator(CHAT_COMPOSER_SELECTOR).fill(step.prompt);
           await page
             .getByRole("button", { name: "Submit", exact: true })
             .click();
