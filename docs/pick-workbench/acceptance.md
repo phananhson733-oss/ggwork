@@ -1,6 +1,6 @@
 # 个人选剧工作台验收记录
 
-当前状态见文末「2026-10-06 后续产品发布与验收追加」：产品 `148fff7b` 已发布，普通 QA 只读浏览器验收通过，新单次取消观察验收仍待执行。此前各节为相应日期的历史证据，不代表当前完整后续目标已经完成。
+当前状态见文末「2026-10-06 后续产品发布与验收追加」：产品 `148fff7b` 已发布，普通 QA 只读浏览器及单次取消功能/观察持久化验收通过，缺失 provider 用量仍为 unknown。此前各节为相应日期的历史证据，不代表当前完整后续目标已经完成。
 
 日期：2026-09-21。基线：DeerFlow固定提交 `29d285731b326a728a9df33d3641f73b68bbe48b`。主实例3007/8007，独立合成资料QA实例3008/8008，真实模型Ollama qwen3:8b。
 
@@ -357,6 +357,17 @@ Gateway 健康、限定源码/已安装包一致性、模块导入与 metadata �
 
 私有浏览器脚本初轮把对话列表只读搜索 POST 当作未批准 POST 拦截，结果保留为 UNVERIFIED；核对实际端点与 store 为只读后，仅补准确路径和读取字段白名单，重新运行 PASS。不将初轮归为产品问题，不跳过 console 错误断言。
 
-**新取消观察验收仍待执行。** 准备用原 producer/protocol、独立新 manifest 与统一账本，只登记一次 Q19 取消运行，等真实 `calls_started >= 1` 后由 UI 停止，并核对 cancel 202、interrupted、finalized metadata 和刷新持久化。沿用 Q19 用例编号不合并旧记录；新的 manifest hash/reservation 区分本轮证据。历史 Q19 的缺失 token 与 provider 成本不回填，也不因后续功能通过改写原 UNVERIFIED。
+**执行前计划（历史记录）：** 准备用原 producer/protocol、独立新 manifest 与统一账本，只登记一次 Q19 取消运行，等真实 `calls_started >= 1` 后由 UI 停止，并核对 cancel 202、interrupted、finalized metadata 和刷新持久化。沿用 Q19 用例编号不合并旧记录；新的 manifest hash/reservation 区分本轮证据。历史 Q19 的缺失 token 与 provider 成本不回填，也不因后续功能通过改写原 UNVERIFIED。
 
 模型输入格式和雷达范围仍未选定，团队/外部写入规格交付不代表功能上线；完整后续目标保持未完成。
+
+
+### 单次取消观察追加结果
+
+新 manifest `10af70d2…` 以独立步骤/证据命名空间复用 Q19，原 producer/protocol 和统一账本保持，实际只新增一次运行。私有目录 ESM 加载失败发生在 collection、认证和派发之前；兼容修复后，真实 CLI `--list` 及独立复审通过，再执行 1 passed（21.5 秒）。原启动失败保留，没有自动重试模型。
+
+功能与本地观测持久化 **PASS**：Stop 前同一 run 的 `calls_started=1`；精确取消 POST 为 202，权威终态 interrupted，metadata finalized；刷新后观测一致、四条个人清单完整一致，运行用量键未污染线程 metadata。收尾只读检查没有 pending/running 用户任务，生产迁移头仍 `0007`。
+
+Provider 用量与计费 **UNVERIFIED**：三个 known token 字段均为 null，coverage=unknown，保留 `provider_usage_missing` 和 `call_terminal_callback_missing`。实际未观测到完成/错误/取消终态模型回调，对应计数仍为 0；不由 run interrupted 推造 `calls_cancelled=1`，不将未知 token 或费用填为 0，不改写历史 Q19 五层矩阵。
+
+账本累计 **37/40**，与运行前快照比较，前 36 次 attempts 和全部旧 reservations 内容保持，仅追加一条 interrupted 运行及其单次 reservation。完整后续目标仍因模型表示和雷达范围两个待决项未完成；团队/外部写入仍仅规格交付。
