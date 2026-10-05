@@ -13,6 +13,7 @@ from langchain_core.tools import BaseTool
 
 from ggwork_pick.answer_check import check_answer, titles_in
 from ggwork_pick.context import task_from_runtime
+from ggwork_pick.host_prompt import pick_system
 from ggwork_pick.lark_policy import LarkRefused, check_args
 from ggwork_pick.lark_tool import CONNECT_LINK, lark_connected
 from ggwork_pick.lark_tool import TOOL_NAME as LARK_TOOL
@@ -91,6 +92,7 @@ class PickModelGate(AgentMiddleware):
         system = request.system_message.content if request.system_message else ""
         if not isinstance(system, str):
             system = str(system)
+        system = pick_system(system)
         reference = ""
         if lark is not None:
             reference += "\n" + (LARK_READY if lark else LARK_NOT_CONNECTED)
