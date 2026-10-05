@@ -753,6 +753,11 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         actual = conditions(record["actual_conditions"])
         intent = intent and actual in allowed
         c = actual if actual in allowed else allowed[0]
+    if kind == "refusal" and "allowed_condition_sets" in expected:
+        allowed = [conditions(x, full=True) for x in expected["allowed_condition_sets"]]
+        require(allowed, "refusal condition contract must not be empty")
+        requested = conditions(record["raw_arguments"]["filters"])
+        intent = intent and requested in allowed
     for key, value in expected.get("required_arguments", {}).items():
         intent = intent and record["raw_arguments"].get(key) == value
     layers = {
