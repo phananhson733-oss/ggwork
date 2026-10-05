@@ -52,7 +52,7 @@ Browser auth sessions are owned by `app.gateway.auth.session_cookie`. Login acce
 Personal Access Tokens (`app.gateway.auth.pat`, `Authorization: Bearer dfp_...`) run as their owning user: an invalid Bearer is a hard 401 with no cookie fallback, which keeps `CSRFMiddleware`'s Bearer skip safe (origin checks still run). Scopes narrow within the allowlisted threads/runs/projects routes (including `POST /api/threads/{id}/move`); every other authenticated route 403s PAT callers (admin included). PAT management and `/change-password` require session auth; only SHA-256 digests are stored (`0017`).
 
 Thread/project membership changes only at `POST /api/threads` (validated project_id),
-branch creation (inherit source; archived/deleted project becomes unassigned), or
+branch creation (inherit source; archived/deleted project → unassigned branch), or
 `POST /api/threads/{id}/move`. Run admission only pins read-only project context.
 `deerflow_project_id` exposes `threads_meta.project_id` read-only and is stripped
 from client writes. New-thread projection also strips run trace/usage observations;

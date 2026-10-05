@@ -62,13 +62,13 @@ client input, because a welded-in seq goes stale when a fork re-seeds the feed
 (#4380).
 
 **LLM callback coalescing** (`runtime/journal.py`): providers may replay one run id,
-first with absent/all-zero usage, then populated usage. First generations, caller,
-fallback and tool bookkeeping remain canonical. Stage immutable events/message
+first with absent/all-zero usage, then populated usage. First generations/caller
+stay canonical; apply fallback/tool bookkeeping immediately. Stage immutable events/message
 summaries, never provider-owned messages; deep-copy nested usage details. Adjacent
 positive replays enrich corresponding usage fields only: generation-count changes
 never change messages. An unrelated event, committed-plus-pending buffer threshold,
 or explicit flush commits the stage and summary. Later usage updates run totals only,
-never append-only events/caller/fallback/tools. Closed callbacks must not mutate state.
+never append-only events/caller/fallback/tools. Closed LLM callbacks must not mutate state.
 
 `usage_observation` persists as server-owned run `metadata.deerflow_usage_observation`
 in the same guarded progress/completion update; both admissions replace forged copies.
