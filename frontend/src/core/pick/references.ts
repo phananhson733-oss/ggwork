@@ -75,3 +75,46 @@ export function chooseReference(
   if (newest) return bindPickReference(threadId, newest, []);
   return undefined;
 }
+
+/** Where a sent turn keeps its pick reference: its human message's additional_kwargs (evaluation batch 2). */
+export const PICK_REFERENCE_KEY = "pick_reference";
+
+type TurnMessage = {
+  id?: string;
+  type: string;
+  additional_kwargs?: Record<string, unknown>;
+};
+
+function storedReference(value: unknown): PickReference | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { result_id: resultId, item_ids: itemIds } = value as Record<
+    string,
+    unknown
+  >;
+  if (
+    typeof resultId !== "string" ||
+    !Array.isArray(itemIds) ||
+    itemIds.length > 20 ||
+    !itemIds.every((id) => typeof id === "string")
+  )
+    return undefined;
+  return { result_id: resultId, item_ids: [...itemIds] };
+}
+
+/**
+ * The pick reference the turn holding `messageId` was sent with, for a regenerate or edit replay: read from that
+ * message when it is the human one, else from the nearest human message before it. Undefined for a turn sent without
+ * one, sent before references were stored, or holding a malformed value; the replay then runs unbound as before.
+ */
+export function turnPickReference(
+  messages: readonly TurnMessage[],
+  messageId: string,
+): PickReference | undefined {
+  const index = messages.findIndex((message) => message.id === messageId);
+  for (let at = index; at >= 0; at -= 1) {
+    const message = messages[at]!;
+    if (message.type === "human")
+      return storedReference(message.additional_kwargs?.[PICK_REFERENCE_KEY]);
+  }
+  return undefined;
+}

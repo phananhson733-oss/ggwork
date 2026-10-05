@@ -2685,11 +2685,14 @@ export function useThreadStream({
       prepare,
       getSupersededMessageIds,
       getOptimisticMessages,
+      extraContext,
     }: {
       threadId: string;
       prepare: () => Promise<TPrepared>;
       getSupersededMessageIds: (prepared: TPrepared) => string[];
       getOptimisticMessages?: (prepared: TPrepared) => Message[];
+      /** The replayed turn's own run context, e.g. the pick reference it was sent with. */
+      extraContext?: Record<string, unknown>;
     }) => {
       if (sendInFlightRef.current || !threadId) {
         return false;
@@ -2784,8 +2787,13 @@ export function useThreadStream({
           ...buildRunStreamOptions(),
           // Replaying a turn never carries conversation references: the grant
           // is per send, so a regenerate or edit runs without them unless the
-          // user attaches them again.
-          context: buildRunContext({ settings: context, threadId }),
+          // user attaches them again. A pick reference is the turn's own, read
+          // back from its human message by the caller.
+          context: buildRunContext({
+            settings: context,
+            threadId,
+            extraContext,
+          }),
         });
         void queryClient.invalidateQueries({ queryKey: ["thread", threadId] });
         void queryClient.invalidateQueries({ queryKey: ["threads", "search"] });
@@ -2835,12 +2843,14 @@ export function useThreadStream({
       threadId: string,
       messageId: string,
       supersededMessageIds: string[] = [messageId],
+      extraContext?: Record<string, unknown>,
     ) => {
       if (!messageId) {
         return false;
       }
       return submitPreparedReplay({
         threadId,
+        extraContext,
         prepare: async () => {
           const response = await fetch(
             `${getBackendBaseURL()}/api/threads/${encodeURIComponent(
@@ -2872,12 +2882,14 @@ export function useThreadStream({
       humanMessageId: string,
       replacementText: string,
       additionalKwargs?: Record<string, unknown>,
+      extraContext?: Record<string, unknown>,
     ) => {
       if (!humanMessageId) {
         return false;
       }
       return submitPreparedReplay<EditRegeneratePrepareResponse>({
         threadId,
+        extraContext,
         prepare: async () => {
           const response = await fetch(
             `${getBackendBaseURL()}/api/threads/${encodeURIComponent(

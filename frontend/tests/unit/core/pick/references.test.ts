@@ -4,6 +4,7 @@ import {
   bindPickReference,
   chooseReference,
   resolvePickOrdinals,
+  turnPickReference,
 } from "@/core/pick/references";
 
 const result = {
@@ -101,6 +102,50 @@ describe("chooseReference", () => {
           selected: [],
         },
         make("y", "2026-09-24T00:00:00Z", "other"),
+      ),
+    ).toBeUndefined();
+  });
+});
+
+// Evaluation batch 2 (2026-10-05): a regenerate or edit replays its turn with
+// the pick reference that turn was sent with, read back from its human message.
+describe("turnPickReference", () => {
+  const reference = { result_id: "r1", item_ids: ["i2", "i1"] };
+  const messages = [
+    { id: "h0", type: "human" },
+    { id: "a0", type: "ai" },
+    {
+      id: "h1",
+      type: "human",
+      additional_kwargs: { pick_reference: reference },
+    },
+    { id: "a1", type: "ai" },
+    { id: "t1", type: "tool" },
+    { id: "a2", type: "ai" },
+  ];
+  it("reads an answer's turn from the human message before it", () => {
+    expect(turnPickReference(messages, "a2")).toEqual(reference);
+    expect(turnPickReference(messages, "a1")).toEqual(reference);
+  });
+  it("reads an edited human message's own reference", () => {
+    expect(turnPickReference(messages, "h1")).toEqual(reference);
+    expect(turnPickReference(messages, "h1")).not.toBe(reference);
+  });
+  it("finds none for an unbound turn, an unknown id or a malformed value", () => {
+    expect(turnPickReference(messages, "a0")).toBeUndefined();
+    expect(turnPickReference(messages, "missing")).toBeUndefined();
+    expect(
+      turnPickReference(
+        [
+          {
+            id: "h",
+            type: "human",
+            additional_kwargs: {
+              pick_reference: { result_id: 1, item_ids: [] },
+            },
+          },
+        ],
+        "h",
       ),
     ).toBeUndefined();
   });

@@ -61,6 +61,7 @@ import {
 import { isHiddenFromUIMessage } from "@/core/messages/utils";
 import { useModels } from "@/core/models/hooks";
 import { useNotification } from "@/core/notification/hooks";
+import { PICK_REFERENCE_KEY, turnPickReference } from "@/core/pick/references";
 import { useProject } from "@/core/projects";
 import { useLocalSettings, useThreadSettings } from "@/core/settings";
 import { resolveThreadContext } from "@/core/settings/store";
@@ -307,15 +308,21 @@ export default function ChatPage() {
       if (submissionEpochRef.current !== submissionEpoch) {
         throw new Error("thread-submission-stale");
       }
-      const scopedOptions = currentKnowledgeScopeSnapshot
-        ? {
-            ...options,
-            additionalKwargs: {
-              ...options?.additionalKwargs,
-              [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot,
-            },
-          }
-        : options;
+      // The turn keeps its knowledge scope and its pick reference on its human
+      // message, so a regenerate or edit can replay it with the same ones.
+      const turnKwargs = {
+        ...(currentKnowledgeScopeSnapshot
+          ? { [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot }
+          : {}),
+        ...(pickReference ? { [PICK_REFERENCE_KEY]: pickReference } : {}),
+      };
+      const scopedOptions =
+        Object.keys(turnKwargs).length > 0
+          ? {
+              ...options,
+              additionalKwargs: { ...options?.additionalKwargs, ...turnKwargs },
+            }
+          : options;
       const sendPromise = sendMessage(
         threadId,
         message,
@@ -366,21 +373,40 @@ export default function ChatPage() {
     await thread.stop();
   }, [thread]);
   const handleRegenerate = useCallback(
-    (messageId: string, supersededMessageIds: string[]) =>
-      regenerateMessage(threadId, messageId, supersededMessageIds),
-    [regenerateMessage, threadId],
+    (messageId: string, supersededMessageIds: string[]) => {
+      const pickReference = turnPickReference(thread.messages, messageId);
+      return regenerateMessage(
+        threadId,
+        messageId,
+        supersededMessageIds,
+        pickReference ? { [PICK_REFERENCE_KEY]: pickReference } : undefined,
+      );
+    },
+    [regenerateMessage, thread.messages, threadId],
   );
   const handleEditAndRegenerate = useCallback(
-    (messageId: string, replacementText: string) =>
-      editAndRegenerateMessage(
+    (messageId: string, replacementText: string) => {
+      const pickReference = turnPickReference(thread.messages, messageId);
+      const turnKwargs = {
+        ...(currentKnowledgeScopeSnapshot
+          ? { [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot }
+          : {}),
+        ...(pickReference ? { [PICK_REFERENCE_KEY]: pickReference } : {}),
+      };
+      return editAndRegenerateMessage(
         threadId,
         messageId,
         replacementText,
-        currentKnowledgeScopeSnapshot
-          ? { [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot }
-          : undefined,
-      ),
-    [currentKnowledgeScopeSnapshot, editAndRegenerateMessage, threadId],
+        Object.keys(turnKwargs).length > 0 ? turnKwargs : undefined,
+        pickReference ? { [PICK_REFERENCE_KEY]: pickReference } : undefined,
+      );
+    },
+    [
+      currentKnowledgeScopeSnapshot,
+      editAndRegenerateMessage,
+      thread.messages,
+      threadId,
+    ],
   );
   const handleBranchTurn = useCallback(
     async (messageId: string, messageIds: string[]) => {
