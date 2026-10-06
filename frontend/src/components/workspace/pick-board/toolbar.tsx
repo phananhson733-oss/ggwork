@@ -45,7 +45,8 @@ export function pickHref(
 /** 证据页是从哪个列表 tab 进来的：在证据页里再点同名行沿用原来源，别的 tab 就是自己；规则与同步 tab 没有行，回选剧 */
 export function originTab(req: PickRequest): ListTab {
   if (req.tab === "row") return req.from;
-  if (req.tab === "rules" || req.tab === "imports") return "pick";
+  if (req.tab === "rules" || req.tab === "imports" || req.tab === "trends")
+    return "pick";
   return req.tab;
 }
 
@@ -63,6 +64,7 @@ export function rowHref(req: PickRequest, rowKey: string): string {
 }
 
 export const TAB_LABELS = {
+  trends: "Google 趋势",
   pick: "选剧",
   all: "全部剧库",
   rank: "榜单",
@@ -165,6 +167,7 @@ export function Tabs({
     { t: "posted", label: TAB_LABELS.posted, count: counts.posted },
     { t: "rules", label: TAB_LABELS.rules },
     { t: "imports", label: TAB_LABELS.imports },
+    { t: "trends", label: TAB_LABELS.trends },
   ];
   if (req.tab === "row") tabs.push({ t: "row", label: TAB_LABELS.row });
   return (

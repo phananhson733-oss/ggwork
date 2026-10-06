@@ -119,3 +119,5 @@ export {
   MirrorVersionGone,
   type MisconfiguredReason,
 } from "./errors";
+
+export { loadTrendsTable, type TrendsTableLoad } from "./trends-table";

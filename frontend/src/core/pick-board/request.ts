@@ -14,6 +14,8 @@
  * 它的候选条件是三种依据、它的七张榜加分成对账在榜单 tab 里。ReelShort 那一侧的白名单
  * （排序 / 上线分桶）沿用 lib/observe/metrics.ts 的，不另抄一份。
  */
+import { TREND_SORTS, type TrendSort } from "@/core/pick/trends-table";
+
 import {
   BUCKETS,
   GROWTH_LIMIT,
@@ -40,6 +42,7 @@ export const TABS = [
   "posted",
   "rules",
   "imports",
+  "trends",
 ] as const;
 export type Tab = (typeof TABS)[number];
 
@@ -390,6 +393,7 @@ export interface PickRequest {
   v: number | null;
   /** 回放的候选结果 id（`result=`，uuid4().hex 的 32 位小写十六进制）；只在选剧 tab 有意义，空串 = 不回放 */
   result: string;
+  trendsSort: TrendSort;
 }
 
 function pick<T extends string>(
@@ -510,6 +514,7 @@ export function parsePickRequest(params: PickParams): PickRequest {
     sd: cleanSd(get("sd")),
     v: cleanVersion(get("v")),
     result: cleanResult(get("result")),
+    trendsSort: pick(get("ts"), TREND_SORTS, "change"),
   };
 }
 
@@ -556,6 +561,8 @@ export function pickQuery(
     if (r.sd) p.set("sd", r.sd);
   }
   /* 回放的证据页也保留 result，让返回链接恢复原名单；显式切换 tab 由 TabLink 清掉它。 */
+  if (r.tab === "trends" && r.trendsSort !== "change")
+    p.set("ts", r.trendsSort);
   if (r.v !== null) p.set("v", String(r.v));
   if ((r.tab === "pick" || (r.tab === "row" && r.from === "pick")) && r.result)
     p.set("result", r.result);
