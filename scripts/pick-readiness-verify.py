@@ -878,6 +878,17 @@ def verify_evidence(item, source_row, *, projected=False):
         )
 
 
+def frozen_asof_equal(actual, frozen):
+    """An explicitly frozen nullable mirror version retains key presence and type."""
+    return actual == frozen and (
+        "mirror_version" not in frozen
+        or (
+            "mirror_version" in actual
+            and type(actual["mirror_version"]) is type(frozen["mirror_version"])
+        )
+    )
+
+
 def check_record(step, record, manifest, exp_base, cap_base, captures):
     expected = step["expected"]
     kind = step["case_type"]
@@ -997,7 +1008,10 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
     )
     if "mirror_version" in frozen:
         require(
-            type(frozen["mirror_version"]) is int and frozen["mirror_version"] >= 1,
+            frozen["mirror_version"] is None
+            or (
+                type(frozen["mirror_version"]) is int and frozen["mirror_version"] >= 1
+            ),
             "unknown mirror version",
         )
     version_fields = (
@@ -1123,7 +1137,7 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         )
         version_ok = (
             version_ok
-            and bound_parent["data_as_of"] == frozen
+            and frozen_asof_equal(bound_parent["data_as_of"], frozen)
             and all(
                 bound_parent[k] == metadata[k]
                 for k in ("rule_version", "ranking_version")
@@ -1134,7 +1148,7 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         require(
             isinstance(response.get("data_as_of"), dict), "missing frozen data_as_of"
         )
-        ok = response["data_as_of"] == metadata["frozen_data_as_of"]
+        ok = frozen_asof_equal(response["data_as_of"], frozen)
     if kind == "query":
         require(
             response.get("rule_version") and response.get("ranking_version"),

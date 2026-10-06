@@ -1468,3 +1468,35 @@ def test_prepare_only_rejects_selection_boolean_number_mutation(bundle, field, o
     rows[0]["snapshot_json"]["flag"] = changed
     rec[field + "_sha256"] = put(root, field + ".json", rows)
     assert run(bundle)["exit_code"] == 1
+
+
+def mirror_bundle(bundle, value):
+    root, exp, cap = bundle
+    metadata = json.loads((root / "metadata.json").read_text())
+    metadata["frozen_data_as_of"]["mirror_version"] = value
+    exp["sources"]["catalog"]["metadata_sha256"] = put(root, "metadata.json", metadata)
+    cap["records"][0]["response"]["data_as_of"]["mirror_version"] = value
+    return cap["records"][0]
+
+
+@pytest.mark.parametrize("value", [None, 1, 23])
+def test_explicit_mirror_version_null_or_positive_integer_passes(bundle, value):
+    mirror_bundle(bundle, value)
+    assert run(bundle)["exit_code"] == 0
+
+
+@pytest.mark.parametrize("value", [True, False, 0, -1, "23", 1.0])
+def test_invalid_frozen_mirror_version_rejected(bundle, value):
+    mirror_bundle(bundle, value)
+    assert run(bundle)["exit_code"] != 0
+
+
+@pytest.mark.parametrize("expected", [None, 1])
+@pytest.mark.parametrize("actual", ["missing", True, False, 0, -1, "1", 1.0])
+def test_actual_mirror_version_preserves_explicit_key_and_type(bundle, expected, actual):
+    record = mirror_bundle(bundle, expected)
+    if actual == "missing":
+        record["response"]["data_as_of"].pop("mirror_version")
+    else:
+        record["response"]["data_as_of"]["mirror_version"] = actual
+    assert run(bundle)["exit_code"] != 0
