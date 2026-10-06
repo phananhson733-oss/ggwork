@@ -16,6 +16,31 @@
       "warnings": [],
       "lock_stuck": null,
       "shared_source_as_of": null
+    },
+    "obs": {
+      "checked_at": "2026-10-06T04:54:17.545895+00:00",
+      "channels": [
+        {
+          "channel": "trends",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        },
+        {
+          "channel": "gsc",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        }
+      ]
     }
   },
   "every_field_set": {
@@ -288,6 +313,31 @@
         "since": "2026-09-24T17:51:38.136118+00:00"
       },
       "shared_source_as_of": "2026-09-23T12:42:00.000Z"
+    },
+    "obs": {
+      "checked_at": "2026-10-06T04:54:17.545895+00:00",
+      "channels": [
+        {
+          "channel": "trends",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        },
+        {
+          "channel": "gsc",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        }
+      ]
     }
   },
   "read_error": {
@@ -538,6 +588,31 @@
     ],
     "mirror": {
       "error": "RuntimeError"
+    },
+    "obs": {
+      "checked_at": "2026-10-06T04:54:17.545895+00:00",
+      "channels": [
+        {
+          "channel": "trends",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        },
+        {
+          "channel": "gsc",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        }
+      ]
     }
   },
   "sqlite": {
@@ -573,6 +648,31 @@
         }
       }
     ],
-    "mirror": null
+    "mirror": null,
+    "obs": {
+      "checked_at": "2026-10-06T04:54:17.545895+00:00",
+      "channels": [
+        {
+          "channel": "trends",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        },
+        {
+          "channel": "gsc",
+          "live_set_id": null,
+          "live_published_at": null,
+          "latest_set_id": null,
+          "latest_published_at": null,
+          "latest_mode": null,
+          "last_run_at": null,
+          "banners": []
+        }
+      ]
+    }
   }
 }
