@@ -36,7 +36,18 @@ def drama(i):
         "tags": ["复仇", "豪门"],
         "availability": "active",
         "channel_rules": {"youtube": "unknown"},
-        "signals": [{"kind": kind, "source_ref": f"ref:{kind}:{i}", "observed_at": "2026-09-28", "rank": i} for kind in KINDS],
+        # Distinct facts keep this pressure fixture above fallback_max_chars even
+        # after dictionary compression; ordinary benchmark fixtures are unchanged.
+        "signals": [
+            {
+                "kind": kind,
+                "source_ref": f"ref:{kind}:{i}",
+                "observed_at": "2026-09-28",
+                "rank": i,
+                "note": f"Synthetic row {i}, source {kind}: independent authorization review is required before publication.",
+            }
+            for kind in KINDS
+        ],
         "posted": {"matched": False, "records": [], "post_count": 0, "sched_count": 0, "last_post_on": None, "accounts": []},
     }
 

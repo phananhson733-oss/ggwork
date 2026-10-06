@@ -16,6 +16,8 @@ from pydantic import Field, ValidationError
 from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.mirror.status import mirror_status
+from ggwork_pick.observe.status import obs_status
+from ggwork_pick.observe.trends_table import trends_table
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import NotesGone, ReplayGone, ReplayUnrunnable, SelectionService, result_view
 
@@ -34,6 +36,29 @@ async def mirror_view(service, shared: PickRepository) -> dict | None:
     except Exception as exc:
         logger.warning("[pick-mirror] reading the mirror status for /sync failed: %s", type(exc).__name__)
         return {"error": type(exc).__name__}
+
+
+async def obs_view(shared: PickRepository) -> dict:
+    """/sync's obs key (TR-25, D10): the radar's status and banners at request time. Extra to the v1 sync status like the
+    mirror key, so a failed read answers {"error": <class>} (logged by class only) instead of failing the request."""
+    try:
+        return await obs_status(shared, now=datetime.now(UTC))
+    except Exception as exc:
+        logger.warning("[pick-obs] reading the observation status for /sync failed: %s", type(exc).__name__)
+        return {"error": type(exc).__name__}
+
+
+TRENDS_TABLE_UNREADABLE = "趋势表暂时读不了，稍后再试"
+
+
+async def trends_table_view(shared: PickRepository) -> dict:
+    """GET /api/pick/obs/trends-table (simplified radar, scope section 6 item 4). A failed read is a 503 with a fixed
+    text, logged by class only (a database message can quote a value)."""
+    try:
+        return await trends_table(shared, now=datetime.now(UTC))
+    except Exception as exc:
+        logger.warning("[pick-obs] reading the trends table failed: %s", type(exc).__name__)
+        raise HTTPException(503, TRENDS_TABLE_UNREADABLE) from None
 
 
 class SaveInput(StrictInput):
@@ -135,7 +160,13 @@ def build_router(service):
         runs = await shared.sync_runs()
         # The mirror's state (P2-8b): null on SQLite; judged on the shared batches, not on this user's current.
         mirror = await mirror_view(service, shared)
-        return {"configured": service.sync_settings.configured, "current": info, "runs": runs, "mirror": mirror}
+        return {"configured": service.sync_settings.configured, "current": info, "runs": runs, "mirror": mirror, "obs": await obs_view(shared)}
+
+    @router.get("/obs/trends-table")
+    async def obs_trends_table(request: Request):
+        """The simplified radar's read-only table: the same for every signed-in user."""
+        repository(request)
+        return await trends_table_view(PickRepository.shared(service.session_factory))
 
     @router.post("/sync", status_code=202)
     async def sync_now(request: Request):

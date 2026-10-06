@@ -381,6 +381,113 @@ it("loads a fully locked protocol fixture and detects modified runtime evidence"
   expect(loadManifest(path, env).manifest.runtime.run_timeout_seconds).toBe(
     600,
   );
+  // Full original loader with the three-run codec query -> detail -> prepare-only contract.
+  const queryStep: Document = {
+    ...structuredClone(manifest.cases[0]),
+    step_id: "codec-query",
+  };
+  delete queryStep.case_id;
+  const reference = {
+    from_step: "codec-query",
+    from_tool: "pick_query_candidates",
+    occurrence: 1,
+  };
+  const detailStep = {
+    ...queryStep,
+    step_id: "codec-detail",
+    case_type: "detail",
+    action: { kind: "prompt", reference_from_step: "codec-query" },
+    expected: {
+      ...queryStep.expected,
+      allowed_actions: ["pick_get_drama_detail"],
+      expected_outcome: "detail_success",
+      result_id: reference,
+      item_id: { position: 2 },
+      fact_fields: ["grade", "note"],
+    },
+  };
+  const prepareStep: Document = {
+    ...queryStep,
+    step_id: "codec-prepare",
+    case_type: "prepare_only",
+    action: { kind: "prompt", reference_from_step: "codec-query" },
+    expected: {
+      ...queryStep.expected,
+      allowed_actions: ["pick_prepare_selection"],
+      expected_outcome: "prepare_success",
+      result_id: reference,
+      item_ids: { positions: [1, 3] },
+      note: "synthetic",
+      requires_confirmation: true,
+    },
+  };
+  const triplet = {
+    ...manifest,
+    cases: [
+      {
+        case_id: "Q03",
+        planned_max_runs: 3,
+        steps: [queryStep, detailStep, prepareStep],
+      },
+    ],
+  };
+  const triplePath = join(root, "codec-three-step.json");
+  writeFileSync(triplePath, JSON.stringify(triplet), { mode: 0o600 });
+  expect(loadManifest(triplePath, env).manifest.cases[0].steps).toHaveLength(3);
+  const inline = {
+    id: "fresh",
+    items: [1, 2, 3].map((i) => ({
+      item_id: `i${i}`,
+      evidence: [
+        {
+          citation_id: `i${i}:1`,
+          kind: "sm",
+          grade: "S",
+          note: "synthetic restriction",
+          value: null,
+        },
+      ],
+    })),
+  };
+  const wire = {
+    ...inline,
+    evidence_encoding: "facts-ref-v1",
+    evidence_facts: {
+      "0": {
+        kind: "sm",
+        grade: "S",
+        note: "synthetic restriction",
+        value: null,
+      },
+    },
+    items: inline.items.map((item) => ({
+      ...item,
+      evidence: [
+        { citation_id: item.evidence[0]!.citation_id, facts_ref: "0" },
+      ],
+    })),
+  };
+  const tools = extractTools([
+    {
+      type: "ai",
+      tool_calls: [{ id: "q", name: "pick_query_candidates", args: {} }],
+    },
+    { type: "tool", tool_call_id: "q", content: JSON.stringify(wire) },
+  ]);
+  const producer = { ...tools[0], step_id: "codec-query" };
+  expect(resolveExpected(detailStep.expected, [producer]).item_id).toBe("i2");
+  expect(resolveExpected(prepareStep.expected, [producer]).item_ids).toEqual([
+    "i1",
+    "i3",
+  ]);
+  prepareStep.save = true;
+  writeFileSync(triplePath, JSON.stringify(triplet), { mode: 0o600 });
+  expect(() => loadManifest(triplePath, env)).toThrow("Prepare-only");
+  delete prepareStep.save;
+  prepareStep.expected.result_id = { ...reference, from_step: "codec-detail" };
+  writeFileSync(triplePath, JSON.stringify(triplet), { mode: 0o600 });
+  expect(() => loadManifest(triplePath, env)).toThrow("earlier locked query");
+
   const original = manifest.cases[0];
   const compound = {
     ...original,
@@ -760,4 +867,92 @@ it("a successful manual-only step retains its screenshot without inventing asser
   expect(runRecord).not.toHaveProperty("browser_evidence");
   expect(runRecord).not.toHaveProperty("assertions");
   expect(JSON.stringify(runRecord)).not.toContain('"PASS"');
+});
+
+it("keeps original encoded tool text and independently expands only audit facts", () => {
+  const encoded = {
+    id: "r",
+    evidence_encoding: "facts-ref-v1",
+    evidence_facts: {
+      "0": {
+        kind: "grade",
+        grade: "S",
+        note: "中文",
+        value: 0,
+        observed_at: null,
+      },
+    },
+    items: [
+      {
+        item_id: "i",
+        evidence: [{ facts_ref: "0", citation_id: "i:1", units: "unknown" }],
+      },
+    ],
+  };
+  const raw = JSON.stringify(encoded);
+  const [tool] = extractTools([
+    {
+      type: "ai",
+      tool_calls: [{ id: "call", name: "pick_query_candidates", args: {} }],
+    },
+    { type: "tool", tool_call_id: "call", content: raw },
+  ]);
+  expect(tool?.raw_response).toBe(raw);
+  expect(tool?.model_response).toEqual(encoded);
+  expect(tool?.model_response_bytes).toBe(Buffer.byteLength(raw));
+  expect(tool?.response.items[0].evidence[0]).toEqual({
+    kind: "grade",
+    grade: "S",
+    note: "中文",
+    value: 0,
+    observed_at: null,
+    citation_id: "i:1",
+    units: "unknown",
+  });
+  expect(encoded.items[0]!.evidence[0]!.facts_ref).toBe("0");
+});
+it("unwraps collision envelope once, never recursively interpreting legacy markers", () => {
+  const inner = {
+    id: "r",
+    evidence_encoding: "facts-ref-v1",
+    evidence_facts: { "0": { value: false } },
+    items: [{ evidence: [{ facts_ref: "0", value: 0 }] }],
+  };
+  const raw = JSON.stringify({
+    id: "r",
+    evidence_encoding: "inline-v1",
+    inline_payload: inner,
+  });
+  const [tool] = extractTools([
+    {
+      type: "ai",
+      tool_calls: [{ id: "c", name: "pick_query_candidates", args: {} }],
+    },
+    { type: "tool", tool_call_id: "c", content: raw },
+  ]);
+  expect(tool?.response).toEqual(inner);
+});
+it("rejects malformed codec rather than silently replacing model facts", () => {
+  for (const evidence of [
+    { facts_ref: 0 },
+    { facts_ref: "missing" },
+    { facts_ref: "0", grade: "S" },
+  ]) {
+    const raw = JSON.stringify({
+      id: "r",
+      evidence_encoding: "facts-ref-v1",
+      evidence_facts: { "0": { grade: "S" } },
+      items: [{ evidence: [evidence] }],
+    });
+    const [tool] = extractTools([
+      {
+        type: "ai",
+        tool_calls: [{ id: "c", name: "pick_query_candidates", args: {} }],
+      },
+      { type: "tool", tool_call_id: "c", content: raw },
+    ]);
+    expect(tool?.raw_response).toBe(raw);
+    expect(tool?.audit_error).toBeTruthy();
+    expect(tool?.response).toEqual({});
+  }
 });

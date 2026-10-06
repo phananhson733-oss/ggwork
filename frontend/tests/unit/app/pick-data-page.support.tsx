@@ -40,6 +40,7 @@ export interface PageState {
 }
 
 const LOADERS = [
+  "loadTrendsTable",
   "loadCandidatePool",
   "loadPickRows",
   "loadFacets",

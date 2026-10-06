@@ -371,3 +371,21 @@ Gateway 健康、限定源码/已安装包一致性、模块导入与 metadata �
 Provider 用量与计费 **UNVERIFIED**：三个 known token 字段均为 null，coverage=unknown，保留 `provider_usage_missing` 和 `call_terminal_callback_missing`。实际未观测到完成/错误/取消终态模型回调，对应计数仍为 0；不由 run interrupted 推造 `calls_cancelled=1`，不将未知 token 或费用填为 0，不改写历史 Q19 五层矩阵。
 
 账本累计 **37/40**，与运行前快照比较，前 36 次 attempts 和全部旧 reservations 内容保持，仅追加一条 interrupted 运行及其单次 reservation。完整后续目标仍因模型表示和雷达范围两个待决项未完成；团队/外部写入仍仅规格交付。
+
+
+## 2026-10-06 可逆字典与简化雷达：集成本地验证
+
+用户明确选择可逆模型证据字典及 09-30 简化雷达范围，基线为业务 main `94e578f9`。候选源提交已集成至 `09e60fb4`；本节仅记录本地验证，生产仍为 `148fff7b`，最终 CI、部署身份及三个真实模型运行尚未完成。
+
+- 原普通 10/20 部 golden 字节和 SHA 不变，当前模型 JSON 为 12,935 / 24,705 B，相对 17,416 / 34,116 B 缩减 25.7292% / 27.5853%。严格 >=20% 字节门槛通过。obs 原格式保留，独立解码覆盖类型、未知字段、独有事实、引用、顺序和命名冲突；HTTP、持久化和缓存仍保留完整证据。该数值不证明 token、账单或模型理解改善。
+- 简化表及日级来源已完成本地实现：三个榜分别取最新一期，按身份去重，用最新滚动 30 天收入补足；当晚任务与同批 raw 驱动参考表，缺日保持空值。无 GSC、智能体趋势排序、集合发布、新迁移或前端数据库扩权。
+- 业务扩展 SQLite/PostgreSQL 全套 4,490 passed、25 skipped。此前完整轮次的一个 `/sync.obs` 夹具失败已保留；修复后完整响应比较及原 PostgreSQL 比较均通过，未放宽旧合同。
+- 前端完整常规测试 2,933 passed、45 reader 项跳过；同 45 项另在本轮拥有的 PostgreSQL 55581 上实际全部通过。类型检查与生产构建通过；新增字典卡片路径 12 项通过。之后集成的 QA 协议单文件 26 项、Python checker 205 项分别通过，不重复累计为额外产品覆盖。
+- QA consumer 使用独立审计解码器，保留实际 raw/model JSON 字节和 hash；同一新 query 的位置 2 详情及位置 1、3 prepare 采用预锁跨步绑定。prepare_only 阻断业务写、拒绝 receipt，要求四条完整清单前后相同。审查发现 Python 普通 equality 漏掉 bool/number 改变，已用严格 JSON 比较修复；四项反例先失败再转绿，旧 prepare_save 两次回执断言保持。
+- 真实 Playwright CLI 的离线 `--list` 注册了一个 Q03、三个 steps；仅使用合成存在性资料，没有登录、模型或 ledger 写。此检查不是业务验收。全球应用预算仍为 37/40，本轮仅计划剩余三次：新 20 部查询、同快照详情、预备保存而不确认。
+
+### 雷达运行门槛仍未通过
+
+2026-10-06 的只读生产报告显示：target_date 10-01 / 10-02 分别发出 105 / 68 个请求，各出现 3 次 HTTP 429 并熄火，第二晚触发 canary_terminated；10-03 至 10-06 为零请求拒跑。前两晚有效但失败，后四晚不构成恢复证据。历史聚合进一步显示 429 出现在 multiline/related，请求间隔中位数约 6.1 秒，出口 IP 字段缺失，不能据此定位根因。
+
+简化代码没有修改 client、pacing、breaker、budget、cookies 或出口，没有证明已解决 429。stable 和 preflight 已补停止历史拦截，不能靠切模式或改计数日期启动。三晚真实出口资格仍需原因诊断及符合既有恢复条件的后续运行；本期本地验证不能替代该门槛。

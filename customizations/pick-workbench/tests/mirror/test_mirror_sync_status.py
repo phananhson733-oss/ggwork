@@ -365,3 +365,11 @@ async def test_sync_answers_match_the_frontend_fixture(harness, monkeypatch, tmp
     if os.environ.get("PICK_WRITE_CONTRACT"):
         SYNC_FIXTURE.write_text(json.dumps(answers, ensure_ascii=False, indent=2) + "\n")
     assert _contract_shape(json.loads(SYNC_FIXTURE.read_text())) == _contract_shape(answers)
+
+
+@pytest.mark.asyncio
+async def test_sqlite_sync_answer_matches_the_same_frontend_fixture(tmp_path):
+    """Keep the complete SQLite envelope checked even when the PostgreSQL mirror suite is unavailable."""
+    answer = await _sqlite_sync_status(tmp_path)
+    fixture = json.loads(SYNC_FIXTURE.read_text())
+    assert _contract_shape({"sqlite": fixture["sqlite"]}) == _contract_shape({"sqlite": answer})

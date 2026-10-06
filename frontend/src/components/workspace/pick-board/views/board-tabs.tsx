@@ -42,6 +42,13 @@ export function ImportsOnlyTabs() {
         ))}
         <Link
           prefetch={false}
+          href="/workspace/pick-data?tab=trends"
+          className="text-helper px-3.5 py-2.5 text-[14px]"
+        >
+          {TAB_LABELS.trends}
+        </Link>
+        <Link
+          prefetch={false}
           href={IMPORTS_HREF}
           className="text-helper hover:text-ink-1 -mb-px border-b-2 border-transparent px-3.5 py-2.5 text-[14px] whitespace-nowrap"
         >

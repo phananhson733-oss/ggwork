@@ -10,17 +10,19 @@ One trigger, in this order (plan TR-14 step 1-6):
    or two target dates put out for any other reason, read from the budget rows), is refused (exit 2) after its code
    is written on the target date's batch row, so the data page's red banner holds while it lasts;
 4. the batch of the target date: created by the first trigger, with window_end fixed then (the creation's whole hour
-   less 3 hours, design 4.9) and the task list cut to the plan (truncated units kept in plan_json); a later trigger of
-   the same date resumes it and never recomputes either (counterexample 1); a finished or published one exits 0. A
-   canary's task list must first pass the payload gate (admission.py): short of it, the date gets a refusal row with
-   not_published_low_coverage and the overview, and the run exits 2 before any request (G3 seam 1). plan_json's notes
-   keep the pace the session runs at, and late_admission: true when a later trigger took the date's refusal row over
-   (its start and window_end moved; TR-30 does not count such a canary night);
+   less 3 hours, design 4.9; for daily units its UTC day boundary, window_end_of) and the task list cut to the plan
+   (truncated units kept in plan_json); a later trigger of the same date resumes it and never recomputes either
+   (counterexample 1); a finished or published one exits 0. A canary's task list must first pass the payload gate
+   (admission.py): short of it, the date gets a refusal row with not_published_low_coverage and the overview, and the
+   run exits 2 before any request (G3 seam 1). plan_json's notes keep the pace the session runs at, and
+   late_admission: true when a later trigger took the date's refusal row over (its start and window_end moved; TR-30
+   does not count such a canary night);
 5. the executor runs what is left of the task list (executor.py: every request paced, reserved and logged under the
    lease);
 6. the summary and the codes; a canary session is withheld: it never publishes a set.
 
-TR-20's seams, both unused here (a canary session never publishes, and a stable one has no task source yet, TR-18):
+TR-20's seams, both unused here (a canary session never publishes, and the stable one runs the simplified radar, which
+publishes no set: its table reads the batch and the raw rows, observe/trends_table.py):
 - `refetch` (executor.Refetch): after the task list, a hook that may run more units through the executor's gate, on
   the same client, for design 4.9 #6's consistency re-fetch of the first hits. The finishing step cannot send a request.
 - `publish`: called in the finishing step with a Finishing (the batch, its plan and progress, the machines, the summary
@@ -61,16 +63,23 @@ logger = logging.getLogger(__name__)
 
 TRENDS = "trends"
 WINDOW_LAG = timedelta(hours=3)  # design 4.9: the latest hours Trends still revises are left out
+DAILY = "D"
 LATE_ADMISSION = "late_admission"  # plan_json's notes: the batch took over its target date's refusal row
 
 
-def window_end_of(created_at: datetime) -> datetime:
-    """The batch's window end: the whole hour it was created in, less three hours (design 4.9, 6.3)."""
-    return instant(created_at).replace(minute=0, second=0, microsecond=0) - WINDOW_LAG
+def window_end_of(created_at: datetime, granularity: str = "H") -> datetime:
+    """The batch's window end. Hourly (H, and HD, whose hourly lines need it): the whole hour it was created in, less
+    three hours (design 4.9, 6.3). Daily (D): the UTC day boundary it was created after, so the window holds whole UTC
+    days only and the day still running is out (simplified scope, section 6 item 2): a stable batch created at 17:30
+    ends its window at 00:00 of that day, and the latest complete day is the day before."""
+    moment = instant(created_at)
+    if granularity == DAILY:
+        return moment.replace(hour=0, minute=0, second=0, microsecond=0)
+    return moment.replace(minute=0, second=0, microsecond=0) - WINDOW_LAG
 
 
 class TaskSource(Protocol):
-    """Where a session's units come from: CanaryTaskSource now, TR-18's WatchTaskSource for the stable mode."""
+    """Where a session's units come from: CanaryTaskSource for the canary, TopDramasTaskSource for the stable mode."""
 
     name: str
 
@@ -123,9 +132,9 @@ def _new_batch(day: Day, **values: Any) -> rows.NewBatch:
 
 async def refusal_codes(step: ReadStep, day: Day, broken: breaker.BreakerState) -> tuple[str, ...]:
     codes = {"disabled_7d"} if broken.disabled_on is not None else set()
-    if day.settings.canary:
-        reasons = await rows.canary_extinguish_reasons(step, since=day.settings.canary_since)
-        codes |= {"canary_terminated"} if summary.canary_terminated(reasons) else set()
+    # Switching to the reference-table mode never clears a stopped canary.
+    reasons = await rows.canary_extinguish_reasons(step, since=day.settings.canary_since)
+    codes |= {"canary_terminated"} if summary.canary_terminated(reasons) else set()
     return summary.ordered_codes(codes)
 
 
@@ -186,7 +195,12 @@ def _kept(plan: SessionPlan, figures: Mapping[str, Any], *, late: bool) -> Sessi
 async def _create(step: LeasedStep, day: Day, batch: rows.BatchRow | None, plan: SessionPlan) -> rows.BatchRow | None:
     closed = await rows.abandon_unfinished(step, day.target_date)
     codes = summary.ordered_codes(await carried_codes(step, day.target_date))  # a refusal's own codes are not carried
-    values = {"window_end": window_end_of(step.now), "plan": plan.to_dict(), "planned_units": len(plan.tasks.planned), "status_codes": codes}
+    values = {
+        "window_end": window_end_of(step.now, day.settings.granularity),
+        "plan": plan.to_dict(),
+        "planned_units": len(plan.tasks.planned),
+        "status_codes": codes,
+    }
     if batch is None:
         await rows.insert_batch(step, _new_batch(day, **values))
     else:  # a refusal row of the same date, now that the channel runs again

@@ -9,6 +9,7 @@ prove an exporter omitted no events: the separately hashed run ledger is require
 """
 
 import argparse
+import copy
 from collections import Counter
 from datetime import datetime
 import hashlib
@@ -39,6 +40,7 @@ TYPES = {
     "count",
     "detail",
     "prepare_save",
+    "prepare_only",
     "clarification",
     "refusal",
     "recovery",
@@ -472,7 +474,7 @@ def attempt_status(step, attempt, ledger):
     return statuses[ordinal]
 
 
-def typed_step(step, record, ledger, captures):
+def typed_step(step, record, ledger, captures, all_steps=None):
     kind = record.get("record_kind", "tool")
     require(kind in ("tool", "terminal"), "invalid record kind")
     if kind == "terminal":
@@ -502,15 +504,37 @@ def typed_step(step, record, ledger, captures):
     reference = expected.get("result_id")
     if isinstance(reference, dict):
         require(
-            set(reference) == {"from_tool", "occurrence"}
+            set(reference)
+            in ({"from_tool", "occurrence"}, {"from_step", "from_tool", "occurrence"})
             and type(reference["occurrence"]) is int
             and reference["occurrence"] >= 1,
             "invalid locked result reference",
         )
+        source_step = step
+        from_step = reference.get("from_step")
+        if from_step is not None:
+            require(
+                isinstance(from_step, str) and all_steps is not None,
+                "invalid cross-step reference",
+            )
+            source_key = (record["case_id"], from_step)
+            current_key = (record["case_id"], record["step_id"])
+            require(
+                source_key in all_steps
+                and list(all_steps).index(source_key)
+                < list(all_steps).index(current_key),
+                "producer step must precede consumer",
+            )
+            source_step = all_steps[source_key]
+        contracts = source_step.get("tool_contracts", [source_step])
         require(
             any(
-                c["tool_name"] == reference["from_tool"] and c["case_type"] == "query"
-                for c in step.get("tool_contracts", [])
+                c["case_type"] == "query"
+                and (
+                    c.get("tool_name") == reference["from_tool"]
+                    or reference["from_tool"] in c["expected"]["allowed_actions"]
+                )
+                for c in contracts
             ),
             "result producer is not a locked query tool",
         )
@@ -519,7 +543,15 @@ def typed_step(step, record, ledger, captures):
             r
             for r in prior
             if r.get("record_kind", "tool") == "tool"
-            and r["run_id"] == record["run_id"]
+            and r["case_id"] == record["case_id"]
+            and r["owner_id"] == record["owner_id"]
+            and r["thread_id"] == record["thread_id"]
+            and (
+                r["step_id"] == from_step
+                if from_step is not None
+                else r["run_id"] == record["run_id"]
+            )
+            and r.get("terminal_status") == "success"
             and r["tool_name"] == reference["from_tool"]
         ]
         require(
@@ -528,6 +560,11 @@ def typed_step(step, record, ledger, captures):
         )
         produced = producers[reference["occurrence"] - 1]["response"]
         expected["result_id"] = produced["id"]
+        if from_step is not None:
+            require(
+                record.get("bound_result_id") == produced["id"],
+                "cross-step active reference mismatch",
+            )
 
         def item_at(position):
             require(
@@ -684,6 +721,134 @@ def save_request_id(expected, record, base):
     return request["request_id"]
 
 
+def json_equal(left, right):
+    """JSON number equality survives JS serialization (1.0 -> 1), never bool -> 0/1."""
+    if type(left) is bool or type(right) is bool:
+        return type(left) is type(right) and left == right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return math.isfinite(left) and math.isfinite(right) and left == right
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            json_equal(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
+def audit_model_payload(value):
+    """Independent QA-only decoding. Never imported from the product or sent to a model."""
+    require(isinstance(value, dict), "model payload must be an object")
+    result = copy.deepcopy(value)
+    encoding = result.get("evidence_encoding")
+    if "evidence_encoding" not in result:
+        return result
+    if encoding == "inline-v1":
+        require(
+            set(result) <= {"id", "result_id", "evidence_encoding", "inline_payload"},
+            "invalid inline envelope",
+        )
+        inner = result.get("inline_payload")
+        require(isinstance(inner, dict), "missing inline payload")
+        for key in ("id", "result_id"):
+            require(
+                (key in result) == (key in inner)
+                and json_equal(result.get(key), inner.get(key)),
+                "inline locator mismatch",
+            )
+        return inner  # Exactly once: marker-looking legacy content remains literal.
+    require(encoding == "facts-ref-v1", "unknown evidence encoding")
+    table = result.pop("evidence_facts", None)
+    require(isinstance(table, dict) and table, "missing evidence dictionary")
+    allowed = {"kind", "label", "observed_at", "rank", "value", "grade", "note"}
+    require(
+        all(
+            isinstance(key, str) and isinstance(facts, dict) and set(facts) <= allowed
+            for key, facts in table.items()
+        ),
+        "invalid dictionary entry",
+    )
+    result.pop("evidence_encoding")
+    items = result.get("items") if "items" in result else [result.get("item")]
+    require(
+        isinstance(items, list) and all(isinstance(item, dict) for item in items),
+        "missing encoded items",
+    )
+    for item in items:
+        require(isinstance(item.get("evidence"), list), "missing encoded evidence")
+        expanded = []
+        for evidence in item["evidence"]:
+            require(isinstance(evidence, dict), "invalid evidence")
+            if "facts_ref" not in evidence:
+                expanded.append(evidence)
+                continue
+            reference = evidence["facts_ref"]
+            require(
+                isinstance(reference, str) and reference in table,
+                "invalid evidence reference",
+            )
+            inline = {key: val for key, val in evidence.items() if key != "facts_ref"}
+            facts = table[reference]
+            require(not set(inline) & set(facts), "dictionary/inline conflict")
+            merged = {**copy.deepcopy(facts), **inline}
+            require(
+                not str(merged.get("kind", "")).startswith("obs_"),
+                "observation evidence cannot use dictionary",
+            )
+            expanded.append(merged)
+        item["evidence"] = expanded
+    return result
+
+
+def verify_model_audit(record):
+    if "model_response" not in record:
+        raw = record.get("raw_response")
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+        except (ValueError, TypeError):
+            return  # Legacy captures predate explicit model response provenance.
+        require(
+            not isinstance(parsed, dict) or "evidence_encoding" not in parsed,
+            "encoded response lacks raw audit provenance",
+        )
+        return
+    raw = record["raw_response"]
+    require(isinstance(raw, str), "raw encoded response must be text")
+    require(
+        json_equal(json.loads(raw), record["model_response"]),
+        "model response differs from raw tool bytes",
+    )
+    require(
+        record["model_response_bytes"] == len(raw.encode("utf-8")),
+        "incorrect model byte measurement",
+    )
+    require(
+        record["model_response_sha256"]
+        == hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        "incorrect model response hash",
+    )
+    audited = audit_model_payload(record["model_response"])
+    tool = record["tool_name"]
+    if tool == "pick_get_drama_detail" and "item" in audited:
+        audited = {**audited, **audited["item"]}
+    elif tool == "pick_search_knowledge" and "documents" in audited:
+        audited = {**audited, "citations": audited["documents"]}
+    elif audited.get("status") in (
+        "rejected",
+        "posted_unavailable",
+        "catalog_unavailable",
+    ):
+        audited = {**audited, "status": "refused", "reason_code": audited["status"]}
+    require(
+        json_equal(audited, record["response"]),
+        "audit view differs from original model payload",
+    )
+
+
 def verify_evidence(item, source_row, *, projected=False):
     """Stored evidence is the complete ordered signal list with item-local citations."""
     require(
@@ -708,8 +873,7 @@ def verify_evidence(item, source_row, *, projected=False):
         ):
             expected.pop("source_ref", None)
         require(
-            json.dumps(actual, sort_keys=True, ensure_ascii=False)
-            == json.dumps(expected, sort_keys=True, ensure_ascii=False),
+            json_equal(actual, expected),
             "evidence disagrees with independent signal facts or citation",
         )
 
@@ -842,12 +1006,20 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         else ("catalog_batch_id", "source_type", "shared", "rows_sha256")
     )
     version_ok = all(record["source"].get(key) == source[key] for key in version_fields)
+    try:
+        verify_model_audit(record)
+    except (Invalid, ValueError, TypeError, KeyError):
+        layers["data_state"] = {"status": "FAIL", "reason_code": "MODEL_AUDIT_MISMATCH"}
+        return layers
     response = record["response"]
     require(isinstance(response, dict), "missing typed response")
     state, dynamic = captured_state(manifest, captures, step, record)
     state_base = cap_base if dynamic else exp_base
     excluded, selected, chain = exclusions(state, state_base, record, c or DEFAULTS)
-    if kind in ("detail", "prepare_save") and "bound_result_file" in record:
+    if (
+        kind in ("detail", "prepare_save", "prepare_only")
+        and "bound_result_file" in record
+    ):
         exported = file_ref(cap_base, record, "bound_result")
         bound = exported["result"]
         require(
@@ -926,7 +1098,7 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
                     "frozen output fact disagrees with independent catalog",
                 )
             chain = [bound]
-    if kind in ("detail", "prepare_save"):
+    if kind in ("detail", "prepare_save", "prepare_only"):
         bound_parent = next(
             (parent for parent in chain if parent["id"] == expected["result_id"]), None
         )
@@ -1084,11 +1256,11 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
                 )
             else:
                 ok = ok and response[key] == item[key]
-    elif kind == "prepare_save":
+    elif kind in ("prepare_save", "prepare_only"):
         require(
             expected.get("result_id")
             and expected.get("item_ids")
-            and expected.get("request_id")
+            and (kind == "prepare_only" or expected.get("request_id"))
             and "note" in expected,
             "missing save expectation",
         )
@@ -1142,92 +1314,134 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
         )
         after_prepare = file_ref(cap_base, record, "selections_after_prepare")
         after = file_ref(cap_base, record, "selections_after")
-        receipts = file_ref(cap_base, record, "receipts")
-        request_id = save_request_id(expected, record, cap_base)
-        ok = ok and after_prepare == selected and len(receipts) >= 2
-        items = [i for i in chain[0]["items"] if i["item_id"] in expected["item_ids"]]
-        require(len(items) == len(expected["item_ids"]), "save items not in snapshot")
-
-        def state_map(values):
+        if kind == "prepare_only":
             require(
-                len({x["id"] for x in values}) == len(values)
-                and len({x["identity"] for x in values}) == len(values),
-                "duplicate selections",
+                expected.get("requires_confirmation") is True
+                and "request_id" not in expected
+                and not step.get("save"),
+                "prepare-only must prelock no confirmation/write",
             )
-            for row in values:
-                require(
-                    row["owner_id"] == record["owner_id"]
-                    and row["state"] in ("selected", "removed")
-                    and type(row["version"]) is int
-                    and row["version"] >= 1,
-                    "invalid selection state",
+            observation = file_ref(cap_base, record, "prepare_only_observation")
+            require(
+                all(
+                    observation.get(key) == record[key]
+                    for key in ("owner_id", "thread_id", "run_id")
                 )
-                require(
-                    all(
-                        k in row
-                        for k in (
-                            "source_result_id",
-                            "source_item_id",
-                            "note",
-                            "snapshot_json",
-                        )
-                    ),
-                    "incomplete selection state",
-                )
-            return {x["identity"]: x for x in values}
-
-        before_map, after_map = state_map(selected), state_map(after)
-        ok = ok and set(after_map) == set(before_map) | {i["identity"] for i in items}
-        saved = receipts[0]["saved"]
-        ok = ok and all(
-            receipt == receipts[0] and receipt["request_id"] == request_id
-            for receipt in receipts
-        )
-        ok = ok and [r["identity"] for r in saved] == [i["identity"] for i in items]
-        for item, receipt in zip(items, saved):
-            current, previous = (
-                after_map.get(item["identity"]),
-                before_map.get(item["identity"]),
+                and observation.get("all_business_mutations_blocked") is True,
+                "prepare-only mutation observation missing",
             )
-            require(current is not None, "saved row missing")
-            expected_status = (
-                "created"
-                if previous is None
-                else "existing"
-                if previous["state"] == "selected"
-                else "restored"
+            require(
+                timestamp(observation["started_at"])
+                <= timestamp(record["started_at"])
+                <= timestamp(observation["finished_at"]),
+                "prepare-only observation does not cover tool call",
             )
-            version = (
-                1
-                if previous is None
-                else previous["version"] + (expected_status == "restored")
-            )
+            requests = file_ref(cap_base, record, "save_requests")
+            receipts = file_ref(cap_base, record, "receipts")
             ok = (
                 ok
-                and receipt
-                == {
-                    "id": current["id"],
-                    "identity": item["identity"],
-                    "status": expected_status,
-                    "version": version,
-                }
-                and current["version"] == version
+                and json_equal(after_prepare, selected)
+                and json_equal(after, selected)
+                and requests == []
+                and receipts == []
             )
-            if previous:
-                ok = ok and current["id"] == previous["id"]
-            if expected_status == "existing":
-                ok = ok and current == previous
-            else:
+            ok = ok and not any(
+                key in response or key in record
+                for key in ("request_id", "saved", "receipt")
+            )
+        else:
+            receipts = file_ref(cap_base, record, "receipts")
+            request_id = save_request_id(expected, record, cap_base)
+            ok = ok and after_prepare == selected and len(receipts) >= 2
+            items = [
+                i for i in chain[0]["items"] if i["item_id"] in expected["item_ids"]
+            ]
+            require(
+                len(items) == len(expected["item_ids"]), "save items not in snapshot"
+            )
+
+            def state_map(values):
+                require(
+                    len({x["id"] for x in values}) == len(values)
+                    and len({x["identity"] for x in values}) == len(values),
+                    "duplicate selections",
+                )
+                for row in values:
+                    require(
+                        row["owner_id"] == record["owner_id"]
+                        and row["state"] in ("selected", "removed")
+                        and type(row["version"]) is int
+                        and row["version"] >= 1,
+                        "invalid selection state",
+                    )
+                    require(
+                        all(
+                            k in row
+                            for k in (
+                                "source_result_id",
+                                "source_item_id",
+                                "note",
+                                "snapshot_json",
+                            )
+                        ),
+                        "incomplete selection state",
+                    )
+                return {x["identity"]: x for x in values}
+
+            before_map, after_map = state_map(selected), state_map(after)
+            ok = ok and set(after_map) == set(before_map) | {
+                i["identity"] for i in items
+            }
+            saved = receipts[0]["saved"]
+            ok = ok and all(
+                receipt == receipts[0] and receipt["request_id"] == request_id
+                for receipt in receipts
+            )
+            ok = ok and [r["identity"] for r in saved] == [i["identity"] for i in items]
+            for item, receipt in zip(items, saved):
+                current, previous = (
+                    after_map.get(item["identity"]),
+                    before_map.get(item["identity"]),
+                )
+                require(current is not None, "saved row missing")
+                expected_status = (
+                    "created"
+                    if previous is None
+                    else "existing"
+                    if previous["state"] == "selected"
+                    else "restored"
+                )
+                version = (
+                    1
+                    if previous is None
+                    else previous["version"] + (expected_status == "restored")
+                )
                 ok = (
                     ok
-                    and current["state"] == "selected"
-                    and current["source_result_id"] == expected["result_id"]
-                    and current["source_item_id"] == item["item_id"]
-                    and current["note"] == expected["note"]
-                    and current["snapshot_json"] == item
+                    and receipt
+                    == {
+                        "id": current["id"],
+                        "identity": item["identity"],
+                        "status": expected_status,
+                        "version": version,
+                    }
+                    and current["version"] == version
                 )
-        for identity in set(before_map) - {i["identity"] for i in items}:
-            ok = ok and before_map[identity] == after_map[identity]
+                if previous:
+                    ok = ok and current["id"] == previous["id"]
+                if expected_status == "existing":
+                    ok = ok and current == previous
+                else:
+                    ok = (
+                        ok
+                        and current["state"] == "selected"
+                        and current["source_result_id"] == expected["result_id"]
+                        and current["source_item_id"] == item["item_id"]
+                        and current["note"] == expected["note"]
+                        and current["snapshot_json"] == item
+                    )
+            for identity in set(before_map) - {i["identity"] for i in items}:
+                ok = ok and before_map[identity] == after_map[identity]
     elif kind == "clarification":
         require(
             expected.get("missing_parameters") and expected.get("allowed_branches"),
@@ -1497,7 +1711,7 @@ def verify(expectations_path, captures_path):
             )
             resolved = steps[key]
             try:
-                resolved = typed_step(steps[key], record, ledger, captures)
+                resolved = typed_step(steps[key], record, ledger, captures, steps)
                 check = (
                     check_terminal
                     if record.get("record_kind") == "terminal"

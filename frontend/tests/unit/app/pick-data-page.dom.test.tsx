@@ -281,6 +281,7 @@ describe("each tab takes its branch", () => {
       "发布记录",
       "剧场规则",
       "同步与导入",
+      "Google 趋势",
     ]);
     expect(links[0]?.getAttribute("href")).toBe("/workspace/pick-data");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
@@ -365,6 +366,7 @@ describe("the resolved version", () => {
       "发布记录9",
       "剧场规则",
       "同步与导入",
+      "Google 趋势",
     ]);
   });
 
@@ -481,11 +483,12 @@ describe("when the mirror cannot answer", () => {
   const onlyImportsLinks = (root: HTMLElement) =>
     tabLinks(root).map((a) => a.getAttribute("href"));
 
-  it("no reader configured: a notice, and only imports is a link", async () => {
+  it("no reader configured: a notice, and imports and trends remain accessible", async () => {
     state.resolved = new errors.MirrorUnavailable();
     const root = await renderPage({ tab: "pick" });
     expect(screen.getByText(/此部署未连接镜像库/)).toBeTruthy();
     expect(onlyImportsLinks(root)).toEqual([
+      "/workspace/pick-data?tab=trends",
       "/workspace/pick-data?tab=imports",
     ]);
     expect(state.calls).not.toContain("setBoardScope");
@@ -497,6 +500,7 @@ describe("when the mirror cannot answer", () => {
     const root = await renderPage({ tab: "all" });
     expect(screen.getByText(/镜像还没有发布任何版本/)).toBeTruthy();
     expect(onlyImportsLinks(root)).toEqual([
+      "/workspace/pick-data?tab=trends",
       "/workspace/pick-data?tab=imports",
     ]);
   });
@@ -615,5 +619,32 @@ describe("the visitor", () => {
       PickDataPage({ searchParams: Promise.resolve({ tab: "pick" }) }),
     ).rejects.toThrow("NEXT_REDIRECT");
     expect(state.calls).toEqual(["requireBoardUser"]);
+  });
+});
+
+describe("simplified trends entry", () => {
+  it("loads only the authenticated gateway table, even without a mirror", async () => {
+    state.resolved = new errors.MirrorUnavailable();
+    state.loaders.loadTrendsTable = () => ({
+      kind: "ok",
+      table: {
+        checked_at: "2026-10-06T03:00:00.000000+00:00",
+        banners: [],
+        batch: null,
+        rows: [],
+        row_limit: 200,
+        truncated: false,
+      },
+    });
+    await renderPage({ tab: "trends", ts: "order" });
+    expect(state.calls).toEqual(["requireBoardUser", "loadTrendsTable"]);
+    expect(screen.getByText(/还没有.*采集|还没有.*批次/)).toBeTruthy();
+  });
+
+  it("retains a fixed notice when the table cannot be read", async () => {
+    state.loaders.loadTrendsTable = () => ({ kind: "unavailable" });
+    await renderPage({ tab: "trends" });
+    expect(state.calls).toEqual(["requireBoardUser", "loadTrendsTable"]);
+    expect(screen.getByRole("alert")).toBeTruthy();
   });
 });

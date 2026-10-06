@@ -88,6 +88,9 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
     exclude_previous=true表示换一批：沿用绑定候选的条件和数据版本，排除它和它之前每一批已给出的剧；要去掉沿用的条件时，可空字段传null、
     tags传[]、开关传false、sort传evidence_date。use_latest=true仅用于用户明确要求最新资料。
     返回持久化的result_id、有序items、matched_total(符合条件总数)、依据、data_as_of(数据时点)；不可自行重排编号。
+    evidence_encoding=facts-ref-v1时，先将每条证据的facts_ref对应的evidence_facts对象与该证据自身字段合并，再解读；缺省字段不是缺失事实。
+    evidence_encoding=inline-v1时只读取inline_payload内的完整原对象，不对内部同名标记/字段再次解码。
+    citation_id及条目、证据顺序不变，独立source_ref保留；obs证据保留原格式。
     每个item另有tags(标签)、listed_at(上架日期)、channel_rules(各渠道规则)，取自查询时的剧库批次。
     matched_total为0时另有zero_diagnosis：去掉每一项条件后各有多少部，据此说明是哪个条件筛空的，不自行推测原因。
     hot_only时另有hot_scope：算作热门依据的信号种类与未算的种类。
@@ -164,7 +167,11 @@ async def _owned_result(runtime, result_id):
 
 @tool("pick_get_drama_detail")
 async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) -> str:
-    """读取指定历史候选条目的依据与当时数据（含tags、listed_at、channel_rules）。使用查询返回的真实result_id与item_id，不猜编号或身份。"""
+    """读取指定历史候选条目的依据与当时数据（含tags、listed_at、channel_rules）。使用查询返回的真实result_id与item_id，不猜编号或身份。
+    evidence_encoding=facts-ref-v1时，先将每条证据的facts_ref对应的evidence_facts对象与该证据自身字段合并，再解读；缺省字段不是缺失事实。
+    evidence_encoding=inline-v1时只读取inline_payload内的完整原对象，不对内部同名标记/字段再次解码。
+    citation_id及条目、证据顺序不变，独立source_ref保留；obs证据保留原格式。
+    """
     await task_from_runtime(runtime).repository(runtime)
 
     async def work():

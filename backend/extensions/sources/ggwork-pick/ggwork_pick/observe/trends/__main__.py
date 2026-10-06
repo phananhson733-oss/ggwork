@@ -18,8 +18,7 @@ is the trends channel's own:
   exiting 2: the mode, the pace (and that the mode fits its window at it, capacity.py) and the other settings
   (settings.py), the canary's control list (canary.py; the default is the package's trends/canary_controls.json, with
   a market series for every geo the canary queries), the state key (crypto.load_cipher) and the egress echo URL
-  (egress.py, off unless set). The stable mode's task source is TR-18's WatchTaskSource: until it is registered here,
-  stable is refused.
+  (egress.py, off unless set). The stable mode uses the simplified daily worldwide task source; it requires D and a_only.
 """
 
 import asyncio
@@ -43,18 +42,28 @@ from ggwork_pick.observe.trends import canary_report, pacing, preflight
 from ggwork_pick.observe.trends.canary import CanaryTaskSource, load_controls
 from ggwork_pick.observe.trends.egress import ECHO_ENV, egress_from_env
 from ggwork_pick.observe.trends.run import TRENDS, TaskSource, Wiring, run_trends
-from ggwork_pick.observe.trends.settings import VARIABLES, Settings, settings_from
+from ggwork_pick.observe.trends.settings import GRANULARITY_VARIABLE, ROUTE_VARIABLE, VARIABLES, Settings, settings_from
+from ggwork_pick.observe.trends.top_dramas import GRANULARITY as TOP_GRANULARITY
+from ggwork_pick.observe.trends.top_dramas import TopDramasTaskSource
 
 PROG = "python -m ggwork_pick.observe.trends"
 DESCRIPTION = "选剧观测雷达的 Trends 采集（pick-obs-trends cron）"
 TRENDS_VARIABLES = frozenset({*SELFCHECK_VARIABLES, *VARIABLES, KEY_VARIABLE, KEY_FILE_VARIABLE, ECHO_ENV})
 
 
+STABLE_ROUTE = "a_only"  # the simplified radar asks no related queries
+
+
 def source_for(settings: Settings, controls_path: Path | None) -> TaskSource:
-    """The mode's task source: the canary's control list and fresh titles; stable waits for TR-18."""
+    """The mode's task source: the canary's control list and fresh titles; stable, the simplified radar's top dramas."""
     if settings.canary:
         return CanaryTaskSource(load_controls(controls_path), granularities=settings.granularities, related=settings.related)
-    raise Refused("stable 模式的任务来源是 TR-18 的 WatchTaskSource，尚未接入：金丝雀结束、TR-18 部署之后再切 stable（计划第 9 节）")
+    if settings.granularity != TOP_GRANULARITY or settings.route != STABLE_ROUTE:
+        raise Refused(
+            f"stable 模式跑简化版任务来源（每部剧日级、全球、不查相关搜索）：须设 {GRANULARITY_VARIABLE}={TOP_GRANULARITY}、"
+            f"{ROUTE_VARIABLE}={STABLE_ROUTE}（简化版范围第 9 节）"
+        )
+    return TopDramasTaskSource()
 
 
 @dataclass(frozen=True)
