@@ -1,6 +1,6 @@
 # 个人选剧工作台验收记录
 
-当前状态见文末「2026-10-06 后续产品发布与验收追加」：产品 `148fff7b` 已发布，普通 QA 只读浏览器及单次取消功能/观察持久化验收通过，缺失 provider 用量仍为 unknown。此前各节为相应日期的历史证据，不代表当前完整后续目标已经完成。
+当前状态见文末「2026-10-06 字典与简化雷达发布、预算内真实验收」：产品 `85c7cdb9` 已发布，普通 QA 只读及三个预算内真实运行通过，完整五层的最后浏览器逐断言审计已通过，最终 3 条记录、15 层检查均 PASS。参考表当前空计划，真实三晚采集资格仍未通过；provider 账单未核对。此前各节为相应日期的历史证据，不代表当前完整目标已经完成。
 
 日期：2026-09-21。基线：DeerFlow固定提交 `29d285731b326a728a9df33d3641f73b68bbe48b`。主实例3007/8007，独立合成资料QA实例3008/8008，真实模型Ollama qwen3:8b。
 
@@ -389,3 +389,52 @@ Provider 用量与计费 **UNVERIFIED**：三个 known token 字段均为 null�
 2026-10-06 的只读生产报告显示：target_date 10-01 / 10-02 分别发出 105 / 68 个请求，各出现 3 次 HTTP 429 并熄火，第二晚触发 canary_terminated；10-03 至 10-06 为零请求拒跑。前两晚有效但失败，后四晚不构成恢复证据。历史聚合进一步显示 429 出现在 multiline/related，请求间隔中位数约 6.1 秒，出口 IP 字段缺失，不能据此定位根因。
 
 简化代码没有修改 client、pacing、breaker、budget、cookies 或出口，没有证明已解决 429。stable 和 preflight 已补停止历史拦截，不能靠切模式或改计数日期启动。三晚真实出口资格仍需原因诊断及符合既有恢复条件的后续运行；本期本地验证不能替代该门槛。
+
+
+## 2026-10-06 字典与简化雷达发布、预算内真实验收
+
+产品发布为 `85c7cdb94684174c3c3ed8e80fe4dbea9986d00f`，来自 [PR #37](https://github.com/phananhson733-oss/ggwork/pull/37)；其文件树与最终 CI HEAD `7f7c3beb` 相同。PR CI `37417233926` 与合并后 main CI `37418843110` 均 SUCCESS。
+
+- Gateway `b2bd9224-b195-4e80-ad13-6c71e39862ea` SUCCESS；实际源码树 1,158 文件及 installed 149 文件与产品提交一致；startup 43 行没有关键错误，health readiness 的数据库/checkpointer 均 ok，应用活跃运行零，业务迁移头 0007，没有新迁移。
+- 前端 `dpl_2STkENAZu2LdsNZTUXj9nVayBjXw` READY，正式域名匹配该部署，普通 QA About 显示 `20261006-85c7cdb`。发布包来自 `git archive` 已跟踪文件及唯一 `.vercel/project.json`。
+- 独立普通 QA HTTP 与只读浏览器验收：旧 Q02 结果、完整 items/data_as_of/created_at、notes 原生成时点、四条完整个人清单及刷新保持，页面没有脚本或控制台错误。
+- 简化雷达实际入口 `?tab=trends&ts=order` 与 `GET /api/pick/obs/trends-table` 匹配。当前批次/计划为空、零行；空态、日期/计数及刷新验证通过，但没有新的采集曲线，十个表头的实测标为 NOT_APPLICABLE_EMPTY_PLAN。qualification 为 NOT_ASSESSED。首次私有 helper 用错 `t` query 参数的 UNVERIFIED 保留；修正后独立批准再只读执行，不改变产品或任何 collector/GSC 标记。
+
+### 三次真实模型运行
+
+专用普通 QA 使用一个新线程和新结果；完整关联 ID、来源原文及映射留在私有封存证据，入仓仅记录 step 标签、脱敏指标和结论。新预锁基于 12,096 条冻结目录记录、1 份知识资料、完整四条已选记录。独立 14 条件过滤得到 3,037 个匹配、前 20 项的确切顺序。当前 catalog 未配对 mirror，`mirror_version` 为显式 null，没有补旧版本。
+
+| 步骤 | 私有证据 step 标签 | 工具输出格式 | 原始 UTF-8 字节 |
+|---|---|---|---:|
+| 新英语 20 项查询 | `codec-query-20` | facts-ref-v1 | 16,246 |
+| 同快照第 2 项详情 | `codec-explain-second` | 无收益时保留原内联 | 1,231 |
+| 同快照第 1、3 项预备保存 | `codec-prepare-two` | 原准备保存合同 | 275 |
+
+Playwright 一个三步用例通过（1.1 分钟），三个 run 均 success。完整四条清单在预备及刷新后保持；save_requests/receipts 均为空，实际响应 requires_confirmation=true，备注精确为 `codec验收待确认`。原始 encoded/raw/model JSON、字节和 SHA 保持；独立 QA 解码仅供审计，不重新发送模型。singleton 详情没有字典收益，保留旧格式符合回退合同；预备保存输出没有压缩改动。
+
+应用模型预算最终为 40 actual / 40 reserved / ceiling 40，不再新增运行。首次启动在模型请求前因 SQL/API 的初态数组排序差异被拦，记录零 attempts/records；独立审计后按相同锁协议仅回收三个未派发预留，保留原 reservation、失败 captures 与账本备份。修正新初态采用已验证 API 顺序，全字段对照 SQL，原始 SQL/API 均未修改；随后新哈希预锁、CLI --list、三次实际派发分别记账，没有自动模型重试。
+
+独立审查已通过：真实新 20 项身份/顺序/全证据、同 result/detail/prepare 因果绑定、四条完整清单无写入，九项回答语义标准。第二项只有一条证据，grade/note 没有非空事实；真实回答如实说明评级未知、备注未记录、数值未提供。这个样本只证明未知值及来源/日期忠实解释，不证明非空 grade/note 理解。准备回答明确点击确认后才保存，没有保存完成声明。
+
+### 已记录用量与时长边界
+
+实际 run API、消息、事件与 finalized complete local_callback_lifecycle 互相核对；原 producer 的 null 指标及 UNVERIFIED wrapper 不被覆盖，补充另写衍生证据。
+
+| 步骤 | 已记录输入 token | 已记录输出 token | 本地回调调用数 | 服务端 run 生命周期 |
+|---|---:|---:|---:|---:|
+| 查询 | 19,762 | 1,779 | 2 | 17.398618 秒 |
+| 详情 | 29,316 | 509 | 2 | 9.398339 秒 |
+| 预备保存 | 15,229 | 54 | 1 | 5.276732 秒 |
+
+这些是本地回调已记录用量。时长为服务端 updated_at − created_at，不是模型延迟；provider billing 未核对，不能把字节降幅、回调数或 token 总量解释为账单节省。
+
+### 浏览器补充与剩余运行门槛
+
+原三张 producer 截图未完整覆盖 20 张展开卡及确认卡，最初五层报告的 NOT_RUN 保留。额外零模型只读回放已经通过：同一新结果 20 项有序卡片、逐条主证据/完整来源、可见第 2 项未知事实、1/3 项确认卡和精确备注/启用按钮，未点击确认；刷新后完整四条清单及原三个 run ID 不变。该回放没有模型或业务写请求，控制台与脚本错误零。独立浏览器逐断言审计已通过：8 项原预锁断言均有实际证据，58 个产物哈希匹配；不是把 combined PASS 直接当作逐项结论。最终 checker 3 条记录、15 层均 PASS，exit 0；原 captures 保持字节不变，browser/performance/semantic 只追加到独立衍生副本，原 NOT_RUN 与失败轮次保留。
+
+三晚真实 Google 出口资格仍未通过。两晚 429 终止及后续零请求拒跑保持，未修改 since、mode、出口、预算或 cron；参考表空态不构成新采集成功。团队协作及外部写入仍只交付下一阶段规格。
+
+
+- `pick-deploy-guard target=gateway commit=85c7cdb94684174c3c3ed8e80fe4dbea9986d00f prod_head=0007 chain_head=0007 at=2026-10-06T05:31:10Z`
+
+QA-only 后续修复和本节文档不作为实际产品部署 SHA。完成的是上述限定字典/参考表和三步验收；完整目标仍有真实采集门槛未完成。

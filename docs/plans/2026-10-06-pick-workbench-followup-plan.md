@@ -10,6 +10,8 @@
 
 ## 1. 权威基线与完成边界
 
+2026-10-06 执行状态：可逆字典与简化雷达参考表已随 PR #37 发布在 `85c7cdb9` / `20261006-85c7cdb`，PR/main CI 均 SUCCESS。固定原样本缩减 25.73% / 27.59%，预算内三个真实 run 均成功，应用累计 40/40，四条清单保持且没有确认保存。完整五层最终 3 条记录、15 层均 PASS，浏览器 8 项与语义 9 项独立判读通过。参考表当前空计划；三晚真实 Google 出口门槛仍未通过，旧 429 终止未解除。下文的 37/40 为这批执行前预算，不是当前剩余额度。
+
 - 业务仓库：`phananhson733-oss/ggwork`，业务 remote `ggwork`；`origin` 为上游 DeerFlow。
 - 前一批基线为 `8f2311da`；取消观察已随 PR #33 发布在产品 `148fff7b` / `20261006-148fff7`，原基准随 PR #36 合入 `94e578f9`。本次字典与简化雷达从 `94e578f9fd96f1c6e94ab3cb6ac7eb4919976892` 实施；不得用文档或 QA-only SHA 冒充实际部署版本。
 - 工作树：`/Users/wzb/Code/ggwork-deerflow-wt/readiness-spec-20261005`，集成分支 `codex/evidence-dictionary-radar-20261006`；原主目录及历史分支保留。
