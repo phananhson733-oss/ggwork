@@ -1009,7 +1009,9 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
     if "mirror_version" in frozen:
         require(
             frozen["mirror_version"] is None
-            or (type(frozen["mirror_version"]) is int and frozen["mirror_version"] >= 1),
+            or (
+                type(frozen["mirror_version"]) is int and frozen["mirror_version"] >= 1
+            ),
             "unknown mirror version",
         )
     version_fields = (
