@@ -1138,3 +1138,318 @@ def test_invalid_refusal_condition_contract_stays_incomplete(bundle, defect):
     else:
         record["raw_arguments"].pop("filters")
     assert run(bundle)["exit_code"] == 2
+
+
+def test_audit_codec_is_independent_lossless_and_single_unwrap():
+    original = {
+        "id": "r",
+        "items": [
+            {
+                "item_id": "i",
+                "evidence": [{"kind": "grade", "grade": "S", "note": "中文", "value": 0, "observed_at": None, "citation_id": "i:1", "units": "unknown"}],
+            }
+        ],
+    }
+    encoded = copy.deepcopy(original)
+    encoded.update(evidence_encoding="facts-ref-v1", evidence_facts={"0": {"kind": "grade", "grade": "S", "note": "中文", "value": 0, "observed_at": None}})
+    encoded["items"][0]["evidence"] = [{"facts_ref": "0", "citation_id": "i:1", "units": "unknown"}]
+    before = copy.deepcopy(encoded)
+    assert checker.audit_model_payload(encoded) == original
+    assert encoded == before
+    wrapped = {"id": "r", "evidence_encoding": "inline-v1", "inline_payload": encoded}
+    assert checker.audit_model_payload(wrapped) == encoded
+
+
+@pytest.mark.parametrize("defect", ["missing_table", "bad_ref", "numeric_ref", "conflict", "unknown_version", "locator"])
+def test_audit_codec_rejects_malformed(defect):
+    encoded = {"id": "r", "evidence_encoding": "facts-ref-v1", "evidence_facts": {"0": {"grade": "S"}}, "items": [{"evidence": [{"facts_ref": "0"}]}]}
+    if defect == "missing_table":
+        encoded.pop("evidence_facts")
+    elif defect == "bad_ref":
+        encoded["items"][0]["evidence"][0]["facts_ref"] = "missing"
+    elif defect == "numeric_ref":
+        encoded["items"][0]["evidence"][0]["facts_ref"] = 0
+    elif defect == "conflict":
+        encoded["items"][0]["evidence"][0]["grade"] = "S"
+    elif defect == "unknown_version":
+        encoded["evidence_encoding"] = "future"
+    else:
+        encoded = {"id": "wrong", "evidence_encoding": "inline-v1", "inline_payload": encoded}
+    with pytest.raises((ValueError, checker.Invalid)):
+        checker.audit_model_payload(encoded)
+
+
+def prepare_only_bundle(bundle):
+    record = save_bundle(bundle)
+    root, manifest, _ = bundle
+    case = manifest["cases"][0]
+    case["case_type"] = "prepare_only"
+    case["expected"].update(requires_confirmation=True, allowed_actions=["prepare_only"], expected_outcome="prepare_success")
+    case["expected"].pop("request_id")
+    record.update(tool_name="prepare_only", outcome="prepare_success")
+    record["selections_after_sha256"] = put(root, "selections_after.json", [])
+    record["receipts_sha256"] = put(root, "receipts.json", [])
+    record["save_requests_file"] = "save_requests.json"
+    record["save_requests_sha256"] = put(root, "save_requests.json", [])
+    record["prepare_only_observation_file"] = "prepare-observation.json"
+    record["prepare_only_observation_sha256"] = put(
+        root,
+        "prepare-observation.json",
+        {
+            **{key: record[key] for key in ("owner_id", "thread_id", "run_id")},
+            "started_at": record["started_at"],
+            "finished_at": "2026-10-05T00:00:03Z",
+            "all_business_mutations_blocked": True,
+        },
+    )
+    refresh_browser(bundle)
+    return record
+
+
+def test_prepare_only_passes_without_saving(bundle):
+    prepare_only_bundle(bundle)
+    assert run(bundle)["exit_code"] == 0
+
+
+@pytest.mark.parametrize("defect", ["receipt", "write", "increment", "ids", "note", "binding", "confirmation", "request_id"])
+def test_prepare_only_never_accepts_save_or_wrong_target(bundle, defect):
+    record = prepare_only_bundle(bundle)
+    root, _, _ = bundle
+    if defect == "receipt":
+        record["receipts_sha256"] = put(root, "receipts.json", [{"saved": []}])
+    elif defect == "write":
+        record["save_requests_sha256"] = put(root, "save_requests.json", [{"method": "POST"}])
+    elif defect == "increment":
+        record["selections_after_sha256"] = put(root, "selections_after.json", [{"id": "new"}])
+    elif defect == "ids":
+        record["response"]["item_ids"] = ["bad"]
+    elif defect == "note":
+        record["response"]["note"] = "wrong"
+    elif defect == "binding":
+        record["response"]["result_id"] = "wrong"
+    elif defect == "confirmation":
+        record["response"]["requires_confirmation"] = False
+    else:
+        record["response"]["request_id"] = "fake"
+    assert run(bundle)["exit_code"] == 1
+
+
+def test_raw_codec_capture_cannot_be_replaced_by_http_or_tampered_audit(bundle):
+    root, _, cap = bundle
+    rec = cap["records"][0]
+    inline = copy.deepcopy(rec["response"])
+    model = {"id": inline["id"], "evidence_encoding": "inline-v1", "inline_payload": inline}
+    raw = json.dumps(model, ensure_ascii=False)
+    rec.update(raw_response=raw, model_response=model, model_response_bytes=len(raw.encode()), model_response_sha256=hashlib.sha256(raw.encode()).hexdigest())
+    assert run(bundle)["exit_code"] == 0
+    rec["model_response"]["inline_payload"]["matched_total"] = 999
+    assert run(bundle)["exit_code"] == 1
+
+
+def three_run_bundle(bundle):
+    root, exp, cap = bundle
+    compound, detail = query_detail_bundle(bundle)
+    query = cap["records"][0]
+    parent = json.loads((root / "new-bound-result.json").read_text())["result"]
+    query_step = {**copy.deepcopy(compound), "step_id": "query", "case_type": "query", "expected": copy.deepcopy(compound["tool_contracts"][0]["expected"])}
+    query_step.pop("tool_contracts")
+    detail_step = {
+        **copy.deepcopy(query_step),
+        "step_id": "detail",
+        "case_type": "detail",
+        "state_key": "after-query",
+        "expected": copy.deepcopy(compound["tool_contracts"][1]["expected"]),
+    }
+    binding = {"from_step": "query", "from_tool": "pick_query_candidates", "occurrence": 1}
+    detail_step["expected"].update(result_id=binding, item_id={"position": 2})
+    prepare_step = {**copy.deepcopy(detail_step), "step_id": "prepare", "case_type": "prepare_only"}
+    prepare_step["expected"].update(
+        allowed_actions=["pick_prepare_selection"],
+        expected_outcome="prepare_success",
+        result_id=binding,
+        item_ids={"positions": [1, 2]},
+        note="synthetic note",
+        requires_confirmation=True,
+    )
+    prepare_step["expected"].pop("item_id")
+    prepare_step["expected"].pop("fact_fields")
+    exp["cases"] = [{"case_id": query["case_id"], "planned_max_runs": 3, "steps": [query_step, detail_step, prepare_step]}]
+    initial = json.loads((root / "selections.json").read_text())
+    exp["states"]["after-query"] = {
+        **exp["states"]["before"],
+        "captured_at": "2026-10-05T00:00:03Z",
+        "parent_chain_file": "query-chain.json",
+        "parent_chain_sha256": put(root, "query-chain.json", [parent]),
+    }
+    # Export/read has no new parent edge; exactly the independently sealed query snapshot.
+    query["step_id"] = "query"
+    detail.update(step_id="detail", run_id="detail-run", attempt_id="detail-attempt", started_at="2026-10-05T00:00:04Z", bound_result_id=parent["id"])
+    second = parent["items"][1]
+    detail["raw_arguments"] = {"result_id": parent["id"], "item_id": second["item_id"]}
+    detail["response"].update(item_id=second["item_id"], identity=second["identity"])
+    prepared = copy.deepcopy(detail)
+    prepared.update(
+        step_id="prepare",
+        run_id="prepare-run",
+        attempt_id="prepare-attempt",
+        tool_call_id="prepare-call",
+        tool_name="pick_prepare_selection",
+        started_at="2026-10-05T00:00:06Z",
+        outcome="prepare_success",
+        raw_arguments={"positions": [1, 2], "note": "synthetic note"},
+    )
+    prepared["response"] = {
+        "result_id": parent["id"],
+        "item_ids": [i["item_id"] for i in parent["items"]],
+        "note": "synthetic note",
+        "requires_confirmation": True,
+    }
+    for prefix, value in [
+        ("selections_after_prepare", initial),
+        ("selections_after", initial),
+        ("save_requests", []),
+        ("receipts", []),
+        (
+            "prepare_only_observation",
+            {
+                "owner_id": prepared["owner_id"],
+                "thread_id": prepared["thread_id"],
+                "run_id": prepared["run_id"],
+                "started_at": prepared["started_at"],
+                "finished_at": "2026-10-05T00:00:07Z",
+                "all_business_mutations_blocked": True,
+            },
+        ),
+    ]:
+        prepared[prefix + "_file"] = prefix + ".json"
+        prepared[prefix + "_sha256"] = put(root, prefix + ".json", value)
+    cap["records"] = [query, detail, prepared]
+    attempts = []
+    for record, end in zip(cap["records"], ["2026-10-05T00:00:03Z", "2026-10-05T00:00:05Z", "2026-10-05T00:00:07Z"]):
+        if "bound_result_file" in record:
+            record["bound_result_file"] = record["step_id"] + "-bound.json"
+            record["bound_result_sha256"] = put(root, record["bound_result_file"], {"captured_at": record["started_at"], "result": parent})
+        browser = json.loads((root / "browser.json").read_text())
+        browser.update(run_id=record["run_id"], result_id=record["response"].get("result_id", record["response"].get("id")), source=record["source"])
+        record["browser_evidence"] = {
+            "evidence_file": record["step_id"] + "-browser.json",
+            "evidence_sha256": put(root, record["step_id"] + "-browser.json", browser),
+        }
+        perf = json.loads((root / "performance.json").read_text())
+        perf.update(run_id=record["run_id"], tool_calls=1)
+        record["performance_evidence"] = {
+            "evidence_file": record["step_id"] + "-perf.json",
+            "evidence_sha256": put(root, record["step_id"] + "-perf.json", perf),
+        }
+        attempts.append(
+            {
+                **cap["attempts"][0],
+                **{key: record[key] for key in ("step_id", "run_id", "attempt_id", "started_at")},
+                "ended_at": end,
+                "tool_call_ids": [record["tool_call_id"]],
+            }
+        )
+    cap["attempts"] = attempts
+    cap["run_ledger_sha256"] = put(root, "run-ledger.json", attempts)
+    return cap["records"]
+
+
+def test_three_distinct_runs_bind_new_query_detail_and_prepare_only(bundle):
+    three_run_bundle(bundle)
+    assert run(bundle)["exit_code"] == 0
+
+
+@pytest.mark.parametrize("defect", ["old_result", "wrong_thread", "future_step", "wrong_position"])
+def test_cross_run_reference_rejects_unrelated_or_unlocked_results(bundle, defect):
+    _, exp, _ = bundle
+    query, detail, _ = three_run_bundle(bundle)
+    if defect == "old_result":
+        detail["bound_result_id"] = "old"
+    elif defect == "wrong_thread":
+        query["thread_id"] = "other-thread"
+    elif defect == "future_step":
+        exp["cases"][0]["steps"][1]["expected"]["result_id"]["from_step"] = "prepare"
+    else:
+        exp["cases"][0]["steps"][1]["expected"]["item_id"] = {"position": 99}
+    assert run(bundle)["exit_code"] != 0
+
+
+@pytest.mark.parametrize("value", [0, False, "0", None, "", {"future": [False, 0, None]}])
+def test_audit_preserves_json_values_and_unknown_inline_fields(value):
+    encoded = {
+        "evidence_encoding": "facts-ref-v1",
+        "evidence_facts": {"0": {"kind": "sm", "grade": "S", "note": "限制" * 50}},
+        "items": [{"evidence": [{"facts_ref": "0", "value": value, "future_unit": {"x": value}}]}],
+    }
+    decoded = checker.audit_model_payload(encoded)["items"][0]["evidence"][0]
+    assert type(decoded["value"]) is type(value)
+    assert decoded["value"] == value and decoded["future_unit"] == {"x": value}
+
+
+def test_prepare_only_keeps_four_full_existing_rows(bundle):
+    rec = prepare_only_bundle(bundle)
+    root, exp, _ = bundle
+    rows = [
+        {
+            "id": str(i),
+            "identity": "old-" + str(i),
+            "owner_id": rec["owner_id"],
+            "state": "selected",
+            "version": i + 1,
+            "note": "original",
+            "snapshot_json": {"value": i},
+        }
+        for i in range(4)
+    ]
+    exp["states"]["before"]["selections_before_sha256"] = put(root, "selections.json", rows)
+    rec["selections_after_prepare_sha256"] = put(root, "selections_after_prepare.json", rows)
+    rec["selections_after_sha256"] = put(root, "selections_after.json", rows)
+    assert run(bundle)["exit_code"] == 0
+    rows[1]["note"] = "changed"
+    rec["selections_after_sha256"] = put(root, "selections_after.json", rows)
+    assert run(bundle)["exit_code"] == 1
+
+
+def test_three_run_codec_views_do_not_replace_raw_model_payload(bundle):
+    query, detail, _ = three_run_bundle(bundle)
+    for record in (query, detail):
+        inline = copy.deepcopy(record["response"])
+        if record["tool_name"] == "pick_get_drama_detail":
+            model = {"result_id": inline["result_id"], "evidence_encoding": "inline-v1", "inline_payload": inline}
+        else:
+            model = copy.deepcopy(inline)
+            model.update(evidence_encoding="facts-ref-v1", evidence_facts={})
+            for item in model["items"]:
+                for evidence in item["evidence"]:
+                    ref = str(len(model["evidence_facts"]))
+                    model["evidence_facts"][ref] = {
+                        key: evidence.pop(key) for key in list(evidence) if key in {"kind", "label", "observed_at", "rank", "value", "grade", "note"}
+                    }
+                    evidence["facts_ref"] = ref
+        raw = json.dumps(model, ensure_ascii=False)
+        record.update(
+            raw_response=raw, model_response=model, model_response_bytes=len(raw.encode()), model_response_sha256=hashlib.sha256(raw.encode()).hexdigest()
+        )
+    assert run(bundle)["exit_code"] == 0
+    query["response"]["items"][0]["evidence"][0]["grade"] = "invented"
+    assert run(bundle)["exit_code"] == 1
+
+
+def test_model_json_number_roundtrip_does_not_accept_boolean_coercion():
+    assert checker.json_equal({"value": 0.0}, {"value": 0})
+    assert not checker.json_equal({"value": False}, {"value": 0})
+    assert not checker.json_equal({"value": "0"}, {"value": 0})
+    assert not checker.json_equal({"unknown": [True]}, {"unknown": [1]})
+    raw = '{"id":"r","items":[],"unknown":1.0}'
+    record = {
+        "raw_response": raw,
+        "model_response": {"id": "r", "items": [], "unknown": 1},
+        "model_response_bytes": len(raw.encode()),
+        "model_response_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+        "response": {"id": "r", "items": [], "unknown": 1},
+        "tool_name": "pick_query_candidates",
+    }
+    checker.verify_model_audit(record)
+    record["response"]["unknown"] = True
+    with pytest.raises(checker.Invalid):
+        checker.verify_model_audit(record)

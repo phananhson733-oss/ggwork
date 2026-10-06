@@ -7,6 +7,7 @@ import {
   test,
   type APIRequestContext,
   type Page,
+  type Route,
 } from "@playwright/test";
 
 import {
@@ -423,6 +424,22 @@ for (const item of manifest.cases as Document[]) {
             parents.set(parent.id, parent.parent_result_id);
           }
         }
+        const prepareOnly = (step.tool_contracts ?? [step]).some(
+          (contract: Document) => contract.case_type === "prepare_only",
+        );
+        const deniedBusinessWrites: Document[] = [];
+        const prepareGuardStartedAt = new Date().toISOString();
+        const prepareGuard = async (route: Route) => {
+          if (["GET", "HEAD", "OPTIONS"].includes(route.request().method()))
+            return route.continue();
+          deniedBusinessWrites.push({
+            method: route.request().method(),
+            path: new URL(route.request().url()).pathname,
+            at: new Date().toISOString(),
+          });
+          await route.abort("blockedbyclient");
+        };
+        if (prepareOnly) await page.route("**/api/pick/**", prepareGuard);
         const beforeRuns = threadId
           ? await get(context.request, `/api/threads/${threadId}/runs`)
           : [];
@@ -776,6 +793,10 @@ for (const item of manifest.cases as Document[]) {
           )
         )
           throw new Error("UNVERIFIED_DATA_VERSION: knowledge source mismatch");
+        if (calls.some((call) => call.audit_error))
+          throw new Error(
+            "Invalid model codec payload; original bytes retained",
+          );
         verifyReviewedSequence(
           step.allowed_action_sequences,
           calls.map((call) => call.tool_name),
@@ -790,6 +811,91 @@ for (const item of manifest.cases as Document[]) {
           )
         )
           throw new Error("use_latest violates independently reviewed intent");
+        if (prepareOnly) {
+          if (step.save) throw new Error("Prepare-only cannot confirm or save");
+          const prepared = records.find(
+            (record) => record.tool_name === "pick_prepare_selection",
+          );
+          if (!prepared)
+            throw new Error("Missing actual preparation tool response");
+          const expected = resolveExpected(
+            step.tool_contracts?.find(
+              (contract: Document) =>
+                contract.tool_name === "pick_prepare_selection",
+            )?.expected ?? step.expected,
+            captures.records.filter(
+              (record: Document) =>
+                record !== prepared &&
+                record.case_id === item.case_id &&
+                record.owner_id === runner.identity.owner_id &&
+                record.thread_id === threadId,
+            ),
+          );
+          expect(prepared.response.requires_confirmation).toBe(true);
+          expect(prepared.response.result_id).toBe(expected.result_id);
+          expect(prepared.response.item_ids).toEqual(expected.item_ids);
+          expect(prepared.response.note).toBe(expected.note);
+          const afterPrepare = await selectionsForOwner(context.request);
+          Object.assign(
+            prepared,
+            ref(
+              "selections_after_prepare",
+              artifact(dir, `${stepId}-after-prepare.json`, afterPrepare),
+            ),
+          );
+          await expect(
+            page.getByText("确认要保存的剧目", { exact: true }).last(),
+          ).toBeVisible();
+          await expect(
+            page
+              .getByRole("button", {
+                name: `确认保存（${expected.item_ids.length}）`,
+                exact: true,
+              })
+              .last(),
+          ).toBeEnabled();
+          await page.reload();
+          const afterRefresh = await selectionsForOwner(context.request);
+          Object.assign(
+            prepared,
+            ref(
+              "selections_after",
+              artifact(
+                dir,
+                `${stepId}-after-prepare-refresh.json`,
+                afterRefresh,
+              ),
+            ),
+            ref(
+              "save_requests",
+              artifact(
+                dir,
+                `${stepId}-blocked-business-writes.json`,
+                deniedBusinessWrites,
+              ),
+            ),
+            ref(
+              "receipts",
+              artifact(dir, `${stepId}-no-save-receipts.json`, []),
+            ),
+            ref(
+              "prepare_only_observation",
+              artifact(dir, `${stepId}-prepare-observation.json`, {
+                owner_id: runner.identity.owner_id,
+                thread_id: threadId,
+                run_id: run.run_id,
+                started_at: prepareGuardStartedAt,
+                finished_at: new Date().toISOString(),
+                all_business_mutations_blocked: true,
+              }),
+            ),
+          );
+          persist();
+          expect(afterPrepare).toEqual(selections);
+          expect(afterRefresh).toEqual(selections);
+          expect(deniedBusinessWrites).toEqual([]);
+          await page.unroute("**/api/pick/**", prepareGuard);
+        }
         if (step.save) {
           const prepared = records.find(
             (r) => r.tool_name === "pick_prepare_selection",
@@ -896,11 +1002,19 @@ for (const item of manifest.cases as Document[]) {
             }
           });
           await page
-            .getByRole("button", { name: `确认保存（${expected.item_ids.length}）`, exact: true })
+            .getByRole("button", {
+              name: `确认保存（${expected.item_ids.length}）`,
+              exact: true,
+            })
             .click();
-          await expect(page.getByRole("alert").filter({ hasText: "Failed to fetch" })).toBeVisible();
+          await expect(
+            page.getByRole("alert").filter({ hasText: "Failed to fetch" }),
+          ).toBeVisible();
           await page
-            .getByRole("button", { name: `确认保存（${expected.item_ids.length}）`, exact: true })
+            .getByRole("button", {
+              name: `确认保存（${expected.item_ids.length}）`,
+              exact: true,
+            })
             .click();
           await expect.poll(() => receipts.length).toBe(2);
           const authority = await get(

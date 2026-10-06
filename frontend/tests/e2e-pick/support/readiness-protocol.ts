@@ -13,6 +13,8 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 
+import { auditModelPayload } from "./readiness-codec";
+
 // Captures deliberately retain unknown provider/tool fields without interpreting them as expectations.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Document = Record<string, any>;
@@ -172,12 +174,28 @@ export function extractTools(messages: Document[]) {
       } catch {
         response = { unparsed_tool_output: raw };
       }
+      const modelResponse = structuredClone(response);
+      let auditError: string | undefined;
+      try {
+        response = auditModelPayload(response);
+      } catch (error) {
+        auditError =
+          error instanceof Error
+            ? error.message
+            : "Invalid model audit payload";
+        response = {};
+      }
       return {
+        model_response: modelResponse,
+        model_response_bytes:
+          typeof raw === "string" ? Buffer.byteLength(raw, "utf8") : null,
+        model_response_sha256: typeof raw === "string" ? sha256(raw) : null,
+        audit_error: auditError,
         tool_call_id: call.id,
         tool_name: call.name,
         raw_arguments: call.args,
         raw_response: raw ?? null,
-        response: response ?? {},
+        response: (response ?? {}) as Document,
         capture_status:
           raw === undefined ? "MISSING_TOOL_RESPONSE" : "CAPTURED",
       };
@@ -448,6 +466,7 @@ export function loadManifest(
             "count",
             "detail",
             "prepare_save",
+            "prepare_only",
             "clarification",
             "refusal",
             "recovery",
@@ -456,6 +475,34 @@ export function loadManifest(
           "Invalid case type",
         );
         const expected = contract.expected;
+        if (expected?.result_id?.from_step) {
+          const index = steps.indexOf(step);
+          const sourceStep = steps
+            .slice(0, index)
+            .find(
+              (candidate: Document) =>
+                candidate.step_id === expected.result_id.from_step,
+            );
+          requireValue(
+            sourceStep &&
+              (sourceStep.tool_contracts ?? [sourceStep]).some(
+                (candidate: Document) =>
+                  candidate.case_type === "query" &&
+                  (candidate.tool_name === expected.result_id.from_tool ||
+                    candidate.expected?.allowed_actions?.includes(
+                      expected.result_id.from_tool,
+                    )),
+              ),
+            "Cross-step producer must be an earlier locked query",
+          );
+        }
+        if (contract.case_type === "prepare_only")
+          requireValue(
+            !step.save &&
+              expected?.requires_confirmation === true &&
+              !Object.prototype.hasOwnProperty.call(expected, "request_id"),
+            "Prepare-only forbids confirmation/save and receipt expectations",
+          );
         requireValue(
           expected?.semantic_rubric?.length &&
             Array.isArray(expected.browser_assertions) &&
@@ -668,8 +715,17 @@ export function resolveExpected(
       binding.occurrence > 0,
     "Invalid prelocked producer binding",
   );
+  requireValue(
+    Object.keys(binding).every((key) =>
+      ["from_step", "from_tool", "occurrence"].includes(key),
+    ) &&
+      (!binding.from_step || typeof binding.from_step === "string"),
+    "Invalid cross-step binding",
+  );
   const result = prior.filter(
-    (record) => record.tool_name === binding.from_tool,
+    (record) =>
+      record.tool_name === binding.from_tool &&
+      (!binding.from_step || record.step_id === binding.from_step),
   )[binding.occurrence - 1]?.response;
   requireValue(
     result?.id && Array.isArray(result.items),
