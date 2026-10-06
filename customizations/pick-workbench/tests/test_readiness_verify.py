@@ -1453,3 +1453,18 @@ def test_model_json_number_roundtrip_does_not_accept_boolean_coercion():
     record["response"]["unknown"] = True
     with pytest.raises(checker.Invalid):
         checker.verify_model_audit(record)
+
+
+@pytest.mark.parametrize("field", ["selections_after_prepare", "selections_after"])
+@pytest.mark.parametrize("original,changed", [(False, 0), (True, 1)])
+def test_prepare_only_rejects_selection_boolean_number_mutation(bundle, field, original, changed):
+    rec = prepare_only_bundle(bundle)
+    root, exp, _ = bundle
+    rows = [{"id": "old", "identity": "old", "owner_id": rec["owner_id"], "state": "selected", "snapshot_json": {"flag": original}}]
+    exp["states"]["before"]["selections_before_sha256"] = put(root, "selections.json", rows)
+    for name in ("selections_after_prepare", "selections_after"):
+        rec[name + "_sha256"] = put(root, name + ".json", rows)
+    assert run(bundle)["exit_code"] == 0
+    rows[0]["snapshot_json"]["flag"] = changed
+    rec[field + "_sha256"] = put(root, field + ".json", rows)
+    assert run(bundle)["exit_code"] == 1

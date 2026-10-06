@@ -1340,8 +1340,8 @@ def check_record(step, record, manifest, exp_base, cap_base, captures):
             receipts = file_ref(cap_base, record, "receipts")
             ok = (
                 ok
-                and after_prepare == selected
-                and after == selected
+                and json_equal(after_prepare, selected)
+                and json_equal(after, selected)
                 and requests == []
                 and receipts == []
             )
