@@ -214,10 +214,15 @@ def _walk(start: str, graph: Mapping[str, Facts], sources: Mapping[str, str]) ->
     return bad
 
 
+def is_collector(name: str, collectors: tuple[str, ...] = COLLECTOR_PACKAGES) -> bool:
+    """A module of a collector package (the package itself or below it), not a sibling whose name starts the same."""
+    return any(name == package or name.startswith(package + ".") for package in collectors)
+
+
 def violations(sources: Mapping[str, str], collectors: tuple[str, ...] = COLLECTOR_PACKAGES) -> dict[str, list[str]]:
     """For each collector module, what its import closure (stopping at the doors) reaches that it must not."""
     graph = {name: facts_of(name, text, sources) for name, text in sources.items()}
-    found = {start: _walk(start, graph, sources) for start in sources if start.startswith(collectors)}
+    found = {start: _walk(start, graph, sources) for start in sources if is_collector(start, collectors)}
     return {start: bad for start, bad in found.items() if bad}
 
 
@@ -257,7 +262,7 @@ def store_signature_problems(source: str) -> list[str]:
 def test_collectors_write_only_via_lease():
     """[counterexample 10] No collector module reaches the database except through LeasedWriter (or TR-20's store)."""
     sources = package_sources()
-    collectors = [name for name in sources if name.startswith(COLLECTOR_PACKAGES)]
+    collectors = [name for name in sources if is_collector(name)]
     assert len(collectors) > 10  # the walk has something to walk
     assert violations(sources) == {}
     # The doors are real: the lease module is where observe.db is imported.
@@ -334,6 +339,16 @@ def _bypass_sources(bypass: str) -> dict[str, str]:
 def test_the_walk_catches_a_bypass(bypass):
     """The checker is not vacuous: each way around the lease is caught, including one hidden behind a helper."""
     assert "ggwork_pick.observe.trends.sneaky" in violations(_bypass_sources(bypass))
+
+
+def test_a_sibling_sharing_the_name_is_not_a_collector():
+    """A collector is a module of observe/trends or observe/gsc, not one whose name merely starts the same way: the
+    gateway's trends table (observe/trends_table.py) reads through the repository like observe/status.py does."""
+    reader = "from sqlalchemy.ext.asyncio import AsyncSession\n"
+    sources = {**_bypass_sources("async_engine_api"), "ggwork_pick.observe.trends_table": reader, "ggwork_pick.observe.gsc_view": reader}
+    assert sorted(violations(sources)) == ["ggwork_pick.observe.trends.sneaky"]
+    assert is_collector("ggwork_pick.observe.trends") and is_collector("ggwork_pick.observe.gsc.client")
+    assert not is_collector("ggwork_pick.observe.trends_table")
 
 
 def test_the_doors_are_not_walked_into():

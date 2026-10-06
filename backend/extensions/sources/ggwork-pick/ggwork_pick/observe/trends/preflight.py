@@ -70,7 +70,7 @@ async def tonight(settings: Settings, source: TaskSource, *, now: datetime, envi
         "pace": settings.pace_note,
         "start": stamp(start),
         "deadline": stamp(deadline),
-        "window_end_if_started_on_time": stamp(window_end_of(start)),
+        "window_end_if_started_on_time": stamp(window_end_of(start, settings.granularity)),
         **figures,
         "reasons": reasons,
         "refused_by": list(refusals),

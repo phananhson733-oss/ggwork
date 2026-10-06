@@ -205,3 +205,265 @@ def test_catalog_ingestion_rejects_non_string_evidence_kind(kind):
     with pytest.raises(ValidationError) as refused:
         parse_catalog(json.dumps([row]).encode(), "json")
     assert any(error["loc"] == ("signals", 0, "kind") and error["type"] == "string_type" for error in refused.value.errors())
+
+
+def decode_model_evidence(payload):
+    """Independent consumer: expand only the explicitly versioned model dictionary."""
+    decoded = copy.deepcopy(payload)
+    if decoded.get("evidence_encoding") == "inline-v1":
+        return decoded["inline_payload"]
+    if decoded.get("evidence_encoding") != "facts-ref-v1":
+        return decoded
+    decoded.pop("evidence_encoding")
+    table = decoded.pop("evidence_facts")
+    for item in decoded.get("items", []) if "items" in decoded else [decoded["item"]]:
+        for evidence in item.get("evidence", []):
+            if "facts_ref" in evidence:
+                facts = table[evidence.pop("facts_ref")]
+                assert not facts.keys() & evidence.keys()
+                evidence.update(copy.deepcopy(facts))
+    return decoded
+
+
+def canonical_json(value):
+    # Dict equality alone conflates True/1 and 1/1.0; JSON preserves these distinctions.
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+@pytest.mark.parametrize("count", [5, 10, 20])
+def test_dictionary_roundtrips_original_ordinary_evidence_without_reordering(count):
+    from ggwork_pick.model_projection import model_payload
+
+    original = json.loads((Path(__file__).parent / f"fixtures/model_projection/ordinary-{max(10, count)}.json").read_text())
+    if count == 5:
+        original["items"] = original["items"][:5]
+    before = canonical_json(original)
+    encoded = model_payload(original)
+    assert encoded.get("evidence_encoding") == "facts-ref-v1"
+    assert canonical_json(decode_model_evidence(encoded)) == before
+    assert canonical_json(original) == before
+    assert model_payload(original) == encoded
+    assert [item["item_id"] for item in encoded["items"]] == [item["item_id"] for item in original["items"]]
+    for source, shown in zip(original["items"], encoded["items"], strict=True):
+        assert len(source["evidence"]) == len(shown["evidence"])
+        for a, b in zip(source["evidence"], shown["evidence"], strict=True):
+            assert (b["citation_id"], b["source_ref"]) == (a["citation_id"], a["source_ref"])
+            if a["kind"].startswith("obs_"):
+                assert b == a
+    encoded["evidence_facts"][next(iter(encoded["evidence_facts"]))]["note"] = "changed"
+    assert canonical_json(original) == before
+
+
+@pytest.mark.parametrize("shape", ["items", "item"])
+def test_dictionary_preserves_missing_fields_unknowns_and_type_distinctions(shape):
+    from ggwork_pick.model_projection import model_payload
+
+    evidence = [
+        {
+            "citation_id": f"x:{i}",
+            "source_ref": f"opaque:{i}",
+            "kind": "ad",
+            "label": "A" * 80,
+            "note": "Only operational fact " * 8,
+            "value": value,
+            "rank": None,
+            "grade": "S",
+            "observed_at": None,
+            "unit": "unknown",
+            "future": {"values": [None, "", 0, False, 1, True, 1.0]},
+        }
+        for i, value in enumerate([None, "", 0, False, 1, True, 1.0, -0.0])
+    ]
+    evidence[0].pop("rank")
+    item = {"item_id": "x", "evidence": evidence}
+    original = {shape: [item] if shape == "items" else item}
+    encoded = model_payload(original)
+    assert encoded.get("evidence_encoding") == "facts-ref-v1"
+    assert canonical_json(decode_model_evidence(encoded)) == canonical_json(original)
+    shown = encoded[shape][0] if shape == "items" else encoded[shape]
+    for source, compact in zip(evidence, shown["evidence"], strict=True):
+        assert compact["future"] == source["future"] and compact["unit"] == "unknown"
+        assert canonical_json(compact["value"]) == canonical_json(source["value"])
+    restored = decode_model_evidence(encoded)
+    restored_item = restored[shape][0] if shape == "items" else restored[shape]
+    assert "rank" not in restored_item["evidence"][0]
+
+
+@pytest.mark.parametrize("collision", ["evidence_facts", "evidence_encoding", "facts_ref"])
+def test_dictionary_reserved_field_conflicts_fall_back_without_overwriting(collision):
+    from ggwork_pick.model_projection import model_payload
+
+    original = json.loads((Path(__file__).parent / "fixtures/model_projection/ordinary-10.json").read_text())
+    if collision == "facts_ref":
+        original["items"][0]["evidence"][0][collision] = {"future": "must survive"}
+    else:
+        original[collision] = {"future": "must survive"}
+    encoded = model_payload(original)
+    assert encoded["evidence_encoding"] == "inline-v1"
+    assert decode_model_evidence(encoded) == original
+
+
+def test_original_ordinary_samples_reach_target_with_reversible_dictionary():
+    from test_projection_benchmark import benchmark_module
+
+    assert all(sample["target_met"] for sample in benchmark_module().benchmark_report()["samples"])
+
+
+def test_small_or_missing_kind_evidence_stays_inline_and_never_grows():
+    from ggwork_pick.model_projection import model_payload
+
+    for evidence in [[], [{"kind": "a"}, {"kind": "a"}], [{"note": "unknown source"}, {"note": "unknown source"}]]:
+        original = {"item": {"evidence": evidence}}
+        assert model_payload(original) == original
+
+
+def test_dictionary_does_not_mix_sources_or_move_unknown_nested_fields():
+    from ggwork_pick.model_projection import model_payload
+
+    original = {
+        "item": {
+            "evidence": [
+                {
+                    "kind": kind,
+                    "source_ref": source,
+                    "citation_id": f"i:{i}",
+                    "label": "repeated label " * 10,
+                    "note": "shared caveat " * 10,
+                    "value": None,
+                    "future": {"note": "retain inline"},
+                }
+                for i, (kind, source) in enumerate([("kd", "opaque:a"), ("kd", "opaque:b"), ("ad", "opaque:c"), ("ad", "opaque:d")])
+            ]
+        }
+    }
+    encoded = model_payload(original)
+    assert encoded["evidence_encoding"] == "facts-ref-v1"
+    assert canonical_json(decode_model_evidence(encoded)) == canonical_json(original)
+    evidence = encoded["item"]["evidence"]
+    assert evidence[0]["facts_ref"] != evidence[2]["facts_ref"]
+    assert [e["source_ref"] for e in evidence] == ["opaque:a", "opaque:b", "opaque:c", "opaque:d"]
+    assert all(e["future"] == {"note": "retain inline"} for e in evidence)
+    evidence[0]["future"]["note"] = "changed"
+    assert original["item"]["evidence"][0]["future"]["note"] == "retain inline"
+
+
+def test_only_query_and_detail_tool_descriptions_explain_dictionary_reading():
+    from ggwork_pick import tools
+
+    for tool in (tools.query_candidates_tool, tools.get_drama_detail_tool):
+        assert all(word in tool.description for word in ("facts-ref-v1", "facts_ref", "evidence_facts", "合并", "obs"))
+    for tool in (tools.count_candidates_tool, tools.search_knowledge_tool, tools.prepare_selection_tool):
+        assert "facts_ref" not in tool.description
+
+
+@pytest.mark.asyncio
+async def test_real_query_and_detail_encode_but_http_cache_and_checker_keep_full_data(app_client):
+    from test_result_notes import _import, _runtime, drama
+
+    from ggwork_pick import tools
+    from ggwork_pick.answer_check import with_posted
+    from ggwork_pick.context import task_from_runtime
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+
+    client, service = app_client
+    await _import(
+        service,
+        [
+            drama(
+                i,
+                signals=[
+                    {
+                        "kind": "ad",
+                        "source_ref": f"opaque:{i}:{j}",
+                        "observed_at": None,
+                        "label": "Synthetic note " * 10,
+                        "note": "Synthetic authorization caveat " * 10,
+                        "value": None,
+                        "grade": "S",
+                    }
+                    for j in range(2)
+                ],
+            )
+            for i in range(10)
+        ],
+    )
+    runtime = await _runtime(service, "dictionary-query")
+    queried = json.loads(await tools.query_candidates_tool.coroutine(filters={"limit": 10}, runtime=runtime))
+    assert queried["evidence_encoding"] == "facts-ref-v1"
+    repo = PickRepository(service.session_factory, "alice")
+    stored = await repo.result(queried["id"])
+    cached_rows = await repo.catalog_rows(stored["catalog_batch_id"])
+    cached_before = copy.deepcopy(cached_rows)
+    stored_before = copy.deepcopy(stored)
+    data_as_of = await repo.result_data_as_of(stored, emit_mirror_version=False)
+    model_view = await SelectionService(repo).model_view(stored, data_as_of=data_as_of)
+    decoded = decode_model_evidence(queried)
+    assert canonical_json(decoded["items"]) == canonical_json(model_view["items"])
+    task = task_from_runtime(runtime)
+    assert task.known_titles == {item["title"] for item in model_view["items"]}
+    assert task.posted_seen == with_posted({}, model_view["items"])
+    item = decoded["items"][0]
+    detail = json.loads(await tools.get_drama_detail_tool.coroutine(result_id=queried["id"], item_id=item["item_id"], runtime=runtime))
+    assert detail["evidence_encoding"] == "facts-ref-v1"
+    full_detail = await SelectionService(repo).detail(queried["id"], item["item_id"], data_as_of=data_as_of)
+    assert canonical_json(decode_model_evidence(detail)) == canonical_json({**full_detail, "data_as_of": data_as_of})
+    http = (await client.get(f"/api/pick/results/{queried['id']}", headers={"test-owner": "alice"})).json()
+    assert "evidence_facts" not in http and "evidence_encoding" not in http
+    assert all("kind" in evidence and "facts_ref" not in evidence for row in http["items"] for evidence in row["evidence"])
+    assert await repo.result(queried["id"]) == stored_before
+    assert cached_rows == cached_before
+
+
+def test_colliding_valid_looking_marker_is_preserved_as_inline_data_not_decoded():
+    from ggwork_pick.model_projection import model_payload
+
+    original = {
+        "id": "r",
+        "evidence_encoding": "facts-ref-v1",
+        "evidence_facts": {"0": {"note": "future meaning"}},
+        "items": [{"evidence": [{"facts_ref": "0", "note": "original meaning", "value": None}]}],
+    }
+    encoded = model_payload(original)
+    assert encoded["id"] == "r"
+    assert encoded["evidence_encoding"] == "inline-v1"
+    assert encoded["inline_payload"] == original
+    assert decode_model_evidence(encoded) == original
+    assert original["items"][0]["evidence"][0]["note"] == "original meaning"
+
+
+def test_collision_fallback_preserves_falsy_root_ids_and_does_not_recurse():
+    from ggwork_pick.model_projection import model_payload
+
+    original = {
+        "id": None,
+        "result_id": "",
+        "evidence_encoding": "facts-ref-v1",
+        "evidence_facts": {"0": {"note": "future field, not inherited"}},
+        "inline_payload": {"future": [0, None, ""]},
+        "items": [{"evidence": [{"facts_ref": "0", "value": None}]}],
+    }
+    before = canonical_json(original)
+    shown = model_payload(original)
+    assert "id" in shown and shown["id"] is None
+    assert "result_id" in shown and shown["result_id"] == ""
+    assert canonical_json(decode_model_evidence(shown)) == before
+    assert "note" not in decode_model_evidence(shown)["items"][0]["evidence"][0]
+    shown["inline_payload"]["inline_payload"]["future"].append("changed")
+    assert canonical_json(original) == before
+
+
+def test_valid_observation_schema_stays_inline_beside_encoded_ordinary_evidence():
+    from ggwork_pick.model_projection import model_payload
+    from ggwork_pick.observe.contract import ObsEvidence
+
+    examples = json.loads((Path(__file__).parent / "fixtures/obs_contract/evidence.json").read_text())["valid"]
+    observations = [copy.deepcopy(example["value"]) for example in examples]
+    ordinary = [{"kind": "ad", "citation_id": f"i:{i}", "source_ref": f"opaque:{i}", "note": "same operational caveat " * 20} for i in range(3)]
+    original = {"item": {"evidence": observations + ordinary}}
+    shown = model_payload(original)
+    assert shown["evidence_encoding"] == "facts-ref-v1"
+    for expected, actual in zip(observations, shown["item"]["evidence"], strict=False):
+        assert actual == expected and "facts_ref" not in actual
+        ObsEvidence.model_validate(actual)
+    assert canonical_json(decode_model_evidence(shown)) == canonical_json(original)

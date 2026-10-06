@@ -1,5 +1,7 @@
 # Trends 夜间会话与 cron 入口（TR-14）
 
+> 2026-10-06 简化版候选代码说明：stable 已接入 `TopDramasTaskSource`，只允许 `D` + `a_only`，使用全球近 30 天日级曲线；每日 `window_end` 为建批次当天 00:00 UTC。现有 canary 的来源、负载闸门、节奏、预算和停止规则保留。简化版不做集合发布，资料表读取当晚任务及同批 raw。此说明对应当前候选实现，生产仍为 `148fff7b`；上线身份以 progress 中的实际发布记录为准。旧小时级窗口、WatchTaskSource 和发布接缝的说明在下文作为历史保留，不能据此配置新版 stable。已有两晚限流终止未解除，三晚真实出口门槛仍未通过。
+
 代码：`ggwork_pick/observe/trends/{__main__,run,executor,units,canary,admission,capacity,preflight,contract_check,settings,session_rows,session_summary}.py`，以及两个 cron 共用的 `ggwork_pick/observe/{cron,cron_status}.py`。设计 3.2、4.2–4.5、4.9–4.11、6.3；计划 TR-14、第 8 节、第 9 节、D10、D11、D23、D34；反例 1、2、10。
 
 启动顺序（自检、租约、库内状态）与退出码的来历见 `lease-and-selfcheck.md`；客户端与执行器的接口见 `trends-client.md`。本页只讲会话本身。
@@ -27,7 +29,7 @@
 |---|---|---|
 | 0 | 跑完了；或者不到起跑时刻、已过 01:45 截止、当天批次已结束或已发布，什么都不做 | 无 |
 | 1 | 中途失败：租约在别的进程手里、启动时等锁或语句超时、跑到一半租约被接管（`LeaseLost`） | 下一次触发自动接着跑 |
-| 2 | 拒跑，一个请求都没发：配置不对（包括模式在所设节奏下放不进窗口，见「容量」）、金丝雀对照清单缺失或不合格式、清单缺某个要查的 geo 的市场序列、没有已发布的共享剧库批次、金丝雀负载不够（`not_published_low_coverage`）、自检不过、stable 还没有任务来源、`disabled_7d`、`canary_terminated`；`preflight` 预演到今晚会被拒跑 | 看报错一行；负载不够见「金丝雀的负载闸门」，后两种见下文 |
+| 2 | 拒跑，一个请求都没发：配置不对（包括模式在所设节奏下放不进窗口，见「容量」）、金丝雀对照清单缺失或不合格式、清单缺某个要查的 geo 的市场序列、没有已发布的共享剧库批次、金丝雀负载不够（`not_published_low_coverage`）、自检不过、stable 粒度或去向不符合简化版要求、`disabled_7d`、`canary_terminated`；`preflight` 预演到今晚会被拒跑 | 看报错一行；负载不够见「金丝雀的负载闸门」，后两种见下文 |
 | 3 | 库内状态或运行时行读不回来（D34）；当天批次的 `plan_json` 读不回来 | 按 `lease-and-selfcheck.md` 处理，不要删运行时行；`plan_json` 坏了先查那一行，程序不会另起任务清单（反例 1） |
 | 130 | 被中断 | 重跑是安全的 |
 
@@ -63,7 +65,7 @@ target_date 是这晚要供给的那次 02:00 UTC 发布的日期：起跑到次
 
 cron 每 30 分钟触发一次（17:00 到 01:30，TR-15 配置）。早于起跑时刻的触发、01:45 及之后的触发，退出码 0，不取租约、不连库做任何事。01:45 是硬截止：会话里任何请求都不会在它之后发出，剩下的单元记 `deadline`。
 
-**`window_end`**（设计 4.9）是建批次那个整点减 3 小时。按时起跑时：canary1 21:00 建批次，`window_end` 18:00；canary2 18:30 建，15:00；stable 17:30 建，14:00。起跑那次触发晚了几分钟不影响（21:10 建的也是 18:00）；会话崩溃后续跑不重算（D23）。
+**旧 H/HD 模式的 `window_end`**（设计 4.9）是建批次那个整点减 3 小时。按时起跑时：canary1 21:00 建批次，`window_end` 18:00；canary2 18:30 建，15:00；stable 17:30 建，14:00。起跑那次触发晚了几分钟不影响（21:10 建的也是 18:00）；会话崩溃后续跑不重算（D23）。
 
 **换起跑时刻的第一天**：改模式就换了起跑时刻，换后第一天的 `window_end` 与前一天的间隔不再是 24 小时：canary1 → canary2 是 21 小时（18:00 → 次日 15:00），canary2 → stable 是 23 小时（15:00 → 次日 14:00）。设计 4.9 第 6 条的 `confirmed` 要求相邻两天的 `window_end` 前移 20–28 小时，所以这两次切换当天仍可确认；以后 TR-18、G4 重定 stable 的起跑时，前后两个起跑相差超过 4 小时，换后第一天只能记 `first`，不会自动确认。金丝雀期间改节奏（`PICK_OBS_TRENDS_PACE`）、起跑时刻或负载，都从改后的第一天起重新数验收（计划第 9 节「金丝雀期间不换参数」）。
 
@@ -136,7 +138,7 @@ G3 之前的参数在这个节奏下放不进窗口：canary2 22:00 起 430 个�
 - 按截断顺序每第 4 个剧目单元加 relatedsearches，去向为 `a_only` 时不加；
 - 对照清单里的 identity 在当前批次里找不到的，记在 `plan_json.notes.missing_controls`，不中断；各组对照的列出数与匹配数记在 `notes.controls`，近 14 天剧目数记在 `notes.recent_dramas`。
 
-stable 模式的任务来源是 TR-18 的 `WatchTaskSource`，本任务里还没接上：`PICK_OBS_TRENDS_MODE=stable` 以 2 拒跑，报错说明要等 TR-18。
+历史 TR-14 实现中 stable 原计划使用 TR-18 的 `WatchTaskSource`，当时未接入并以 2 拒跑；2026-10-06 简化版改用上述 `TopDramasTaskSource`，但仍受停止历史拦截。
 
 ## 金丝雀的负载闸门（`admission.py`）
 
@@ -186,7 +188,7 @@ stable 模式的任务来源是 TR-18 的 `WatchTaskSource`，本任务里还没
 
 ## 金丝雀终止（设计 4.11）
 
-金丝雀期（`canary1`、`canary2`）的预算行里，只要有一天的熄火原因是验证码或同意页（`wall`），或者因其他原因（限流、熔断次数、探针失败）熄火的 target_date 累计到 2 天，就写 `canary_terminated`，之后每次触发都以 2 拒跑、零 HTTP，批次行一直带着这个码。只看金丝雀模式的预算行；stable 不适用这条。
+金丝雀期（`canary1`、`canary2`）的预算行里，只要有一天的熄火原因是验证码或同意页（`wall`），或者因其他原因（限流、熔断次数、探针失败）熄火的 target_date 累计到 2 天，就写 `canary_terminated`，之后每次触发都以 2 拒跑、零 HTTP，批次行一直带着这个码。判定的历史输入只看金丝雀模式的预算行；2026-10-06 简化版修复后，已终止的金丝雀同样阻止 stable，不能靠改模式绕过历史停止条件。
 
 判定只读库里已提交的预算行（熄火原因与模式跟请求行在同一个租约步骤里写），起跑前的拒跑检查与收尾用同一条规则（`session_summary.canary_terminated`）。所以撞墙那一晚即使在收尾之前崩溃，下一次触发也会在起跑前判出终止、写码、以 2 拒跑，不会再发请求（`test_canary_wall_terminates_after_a_crash`）。其他原因熄火一天不终止，第二天熄火才终止（`test_canary_other_extinguished_days_terminate_on_the_second`）。
 
@@ -204,7 +206,7 @@ TR-30 修复原因后要重跑金丝雀：设 `PICK_OBS_CANARY_SINCE=YYYY-MM-DD`
 
 ## 发布接缝（TR-20）
 
-两个接缝，本任务里都不接（金丝雀从不发布；stable 还没有任务来源），收尾一律记 withheld：
+历史 TR-14 的两个发布接缝当时均未接入（金丝雀从不发布；当时 stable 没有任务来源），收尾记 withheld。2026-10-06 简化版同样不做集合发布，但资料表直接读取其任务/raw 批次，不能用 withheld 判定该表没有数据。原接缝说明：
 
 - `refetch`（`executor.Refetch`）：任务清单跑完之后、客户端关闭之前调用，拿到一个「再跑一个单元」的函数。设计 4.9 第 6 条对 first 命中的一致性复取要发 HTTP，而收尾步骤里不能发请求，所以放在这里；复取的每个请求照样等限速器、扣预算、写请求行。
 - `publish`：在收尾那个租约步骤里调用，拿到 `Finishing`（批次、任务清单与进度、状态机、汇总文档、会话得出的状态码，以及 `uncovered_dramas`：按合同 `UncoveredUnit` 的形状列出没覆盖的剧目单元，市场序列与合同检查单元没有 identity，已滤掉），返回 `Published`（集合 id 或 None，外加它要加的状态码，比如 80% 覆盖门槛没过时的 `not_published_low_coverage`；只收合同 `STATUS_CODES` 里的码）。有 id 记 published，否则 withheld，码并进批次行。
