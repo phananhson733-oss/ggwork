@@ -44,7 +44,7 @@ export function TrendsCandidatesView({
         <p>目前没有可用于趋势查询的榜单或收入候选。</p>
       ) : (
         <div className="mt-3 overflow-x-auto">
-          <table className={TABLE}>
+          <table className={`${TABLE} min-w-[760px]`}>
             <thead>
               <tr>
                 {[
