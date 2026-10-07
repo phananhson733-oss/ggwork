@@ -4,6 +4,7 @@
 // 计划、有数据、未返回数据、未查到的部数；没有批次、清单为空都写成一句话。排序按变化或按入选顺序，走链接（ts=）。
 // 同步、纯展示：均值与标签由 core/pick/trends-table.ts 算。
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { ObsBannerList } from "@/components/workspace/pick/obs-banner-list";
 import {
@@ -213,17 +214,27 @@ function Body({ table, req }: { table: TrendsTable; req: PickRequest }) {
 export function TrendsTableView({
   table,
   req,
+  preview,
 }: {
   table: TrendsTable;
   req: PickRequest;
+  preview?: ReactNode;
 }) {
   return (
     <div data-trends-view="table">
       <Banners table={table} />
       <p className={`${MUTED} mb-3 text-[13px]`}>{INTRO}</p>
-      <Body table={table} req={req} />
-      <Rules />
-      <p className={MUTED}>{DATA_SOURCE_TRENDS}</p>
+      {table.batch === null && preview ? (
+        preview
+      ) : (
+        <Body table={table} req={req} />
+      )}
+      {table.batch !== null ? (
+        <>
+          <Rules />
+          <p className={MUTED}>{DATA_SOURCE_TRENDS}</p>
+        </>
+      ) : null}
     </div>
   );
 }

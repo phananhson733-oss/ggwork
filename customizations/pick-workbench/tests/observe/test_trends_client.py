@@ -71,6 +71,38 @@ def test_status_sets_partition_the_ten_kinds():
     assert FAILURES.isdisjoint(JUDGEABLE | {FetchStatus.NO_DATA})
 
 
+@pytest.mark.parametrize(
+    ("header", "seconds"),
+    [(None, None), ("", None), ("60", 60), ("999999999", 86400), ("-1", None), ("private-value", None), ("Wed, 21 Oct 2015 07:28:00 GMT", 0)],
+)
+def test_retry_after_is_bounded_numeric_metadata_only(header, seconds):
+    from ggwork_pick.observe.trends.client import retry_after_seconds
+
+    assert retry_after_seconds(header, now=START) == seconds
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("header", "seconds"), [("120", 120), ("private-value", None)])
+async def test_retry_after_is_recorded_without_headers_or_automatic_retry(header, seconds, caplog):
+    fake = FakeTrends(
+        explore=lambda request: httpx.Response(
+            429,
+            headers={"Retry-After": header, "Set-Cookie": "NID=private-cookie"},
+            content=b"private-body",
+            request=request,
+        )
+    )
+    recorder = Recorder(fake)
+    with caplog.at_level(logging.WARNING):
+        async with make_client(fake, recorder) as client:
+            result = await client.fetch(query_of("explore_1line_ww_d"))
+    assert fake.phases() == ["explore"]
+    assert result.requests[0].retry_after_seconds == seconds
+    assert "[pick-trends-response]" in caplog.text
+    assert f'"retry_after_seconds":{json.dumps(seconds)}' in caplog.text
+    assert "private" not in caplog.text
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", sorted(TEN_KINDS))
 async def test_fetch_status_ten_kinds(kind):

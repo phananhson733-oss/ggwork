@@ -1,0 +1,93 @@
+{
+  "checked_at": "2026-10-07T08:49:50.591030+00:00",
+  "kind": "candidate_preview",
+  "selection_state": "ready",
+  "catalog_batch_id": "cat-1",
+  "target": 100,
+  "selected": 3,
+  "unusable_titles": 1,
+  "sources": {
+    "boards": [
+      {
+        "kind": "qc",
+        "board_date": "2026-09-24",
+        "listed": 2
+      },
+      {
+        "kind": "qr",
+        "board_date": "2026-09-24",
+        "listed": 1
+      },
+      {
+        "kind": "kd",
+        "board_date": "2026-09-24",
+        "listed": 2
+      }
+    ],
+    "revenue": {
+      "available": false,
+      "reason": "sqlite",
+      "mirror_version": null,
+      "day": null,
+      "filled": 0
+    }
+  },
+  "rows": [
+    {
+      "order": 1,
+      "identity": "[\"realshort-pick\",\"sid0002\",\"en\"]",
+      "title": "First Choice",
+      "platform": "DramaBox",
+      "language": "en",
+      "term": "First Choice",
+      "geo": "WW",
+      "time_range": "today 1-m",
+      "basis": [
+        {
+          "kind": "qc",
+          "board_date": "2026-09-24",
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "order": 2,
+      "identity": "[\"realshort-pick\",\"sid0001\",\"en\"]",
+      "title": "Alpha’s Bride (Dubbed)",
+      "platform": "DramaBox",
+      "language": "en",
+      "term": "Alpha's Bride",
+      "geo": "WW",
+      "time_range": "today 1-m",
+      "basis": [
+        {
+          "kind": "qc",
+          "board_date": "2026-09-24",
+          "rank": 2
+        },
+        {
+          "kind": "qr",
+          "board_date": "2026-09-24",
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "order": 3,
+      "identity": "[\"realshort-pick\",\"sid0004\",\"en\"]",
+      "title": "First Choice",
+      "platform": "DramaBox",
+      "language": "en",
+      "term": "First Choice",
+      "geo": "WW",
+      "time_range": "today 1-m",
+      "basis": [
+        {
+          "kind": "kd",
+          "board_date": "2026-09-24",
+          "rank": 2
+        }
+      ]
+    }
+  ]
+}

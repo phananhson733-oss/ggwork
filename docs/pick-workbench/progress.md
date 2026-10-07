@@ -1,5 +1,11 @@
 # 当前发布状态（2026-10-06，PR #37）
 
+2026-10-07 实施进度（未发布）：候选预览已实现，复用正式任务的目录/榜单/收入选择；无正式批次时展示真实待采集剧集，失败与认证过期分别处理。新增 Retry-After 有界数值诊断，不改变节奏和停止规则。生产只读核实共享目录 14,784 条语言版本记录（published_at 2026-10-07 03:42:32 UTC）。SQLite/PostgreSQL 并发发布快照测试通过；前端 104 项定向测试、check、build 通过，完整前端 2,946 passed / 45 数据库 reader skip。真实本地普通 QA 浏览器 API/UI 对账、刷新、零 Google 请求通过（本地 fixture 为 1 条，不能替代生产 100 条验收）。源码与托管副本一致性通过。业务双库全套初次为 4,563 passed / 25 skipped / 1 failed（新增日志未用统一时间函数）；该处已修正，时间合同及客户端定向 77 passed。45 个前端 PG reader 项另行全部通过。Python/前端独立审查均无待修缺陷；最终以本期提交 CI 为准。尚未创建本期发布记录，采集停止状态未解除。
+
+2026-10-07 规格补充：用户确认没有 API，要求借鉴旧 HTML 并复用现有剧集。已交付 [Google Trends 剧库复用实施 Spec](../plans/2026-10-07-trends-existing-catalog-implementation-spec.md)：现有目录/榜单/收入直接复用，新增无正式计划时的候选预览，采集恢复另按真实门槛验收。本次仅交付文档，未实现预览、未恢复 Google 请求或发布新版本。
+
+2026-10-07 范围更新：用户明确暂缓团队制作流程；飞书多维表格写入留待后续，目前不实施。当前优先完善 Google Trends 的真实采集闭环，见 [恢复计划与现场诊断](../plans/2026-10-07-trends-recovery-plan.md)。最新生产目标日仍因 `canary_terminated` 零请求拒跑；历史请求包络和 30/60 分钟退避核对未发现超发或遗漏，服务端限流的具体原因仍待确定。
+
 当前产品源码为 `85c7cdb94684174c3c3ed8e80fe4dbea9986d00f`，前端实际版本 `20261006-85c7cdb`。可逆字典与简化雷达参考表已随 PR #37 合并发布，PR 最终 CI 与合并后 main CI 均 SUCCESS。实际 Gateway 源码 1,158 个文件和 installed 149 个业务包文件逐字节匹配；数据库与 checkpointer readiness 正常，生产业务迁移头仍为 0007，没有新迁移。
 
 普通 QA 的 About、旧 Q02 候选与 notes、四条完整个人清单、只读页面及刷新均通过。简化雷达入口 [资料页参考表](https://ggwork-deerflow.vercel.app/workspace/pick-data?tab=trends&ts=order) 与同批只读 API 匹配；当前没有计划，显示零行，没有采集曲线，不能据此宣称三个合格采集夜晚通过。此前两晚 429 终止历史保留，采集器没有恢复或切到 stable，GSC 未开启。

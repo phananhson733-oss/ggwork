@@ -17,14 +17,17 @@ Redirects are never followed; a sorry or consent page is reported, and the conse
 
 import asyncio
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime
+from email.utils import parsedate_to_datetime
 from types import MappingProxyType
 
 import httpx
 
 from ggwork_pick.observe.clock import Clock
+from ggwork_pick.observe.instants import stamp
 from ggwork_pick.observe.trends.egress import EgressProbe, refuse_all_cookies
 from ggwork_pick.observe.trends.parse import (
     Explore,
@@ -75,6 +78,24 @@ ACCEPT_LANGUAGE = "en-US,en;q=0.9"
 # tries both and settles the default; the widget calls are GET.
 EXPLORE_METHODS = ("GET", "POST")
 DEFAULT_EXPLORE_METHOD = "GET"
+logger = logging.getLogger(__name__)
+
+
+def retry_after_seconds(value: str | None, *, now: datetime) -> int | None:
+    """Safe diagnostic metadata only; never log the header text or change retry policy."""
+    if not value or len(value) > 128:
+        return None
+    value = value.strip()
+    if value.isascii() and value.isdigit():
+        return min(int(value), 86400)
+    try:
+        deadline = parsedate_to_datetime(value)
+        if deadline.tzinfo is None:
+            return None
+        return max(0, min(int((deadline - now).total_seconds()), 86400))
+    except (ValueError, TypeError, OverflowError):
+        return None
+
 
 Gate = Callable[[RequestStep], Awaitable[None]]
 OnRequest = Callable[[RequestRecord], Awaitable[None]]
@@ -301,9 +322,24 @@ class TrendsClient:
             bytes=len(answer.body),
             error_class=answer.error_class,
             egress=exchange.egress,
+            retry_after_seconds=retry_after_seconds(answer.headers.get("retry-after"), now=self._clock.now()),
         )
         cookies = set_cookies(answer.headers.get_list("set-cookie"), now=self._clock.now()) if status not in FAILURES else ()
         await self._on_request(record)
+        if answer.status in (429, 503):
+            # Request identity and HTTP facts remain in obs_requests. This private operational log adds the
+            # missing header metadata without a schema change; absent/unparseable stays null, never zero.
+            logger.warning(
+                "[pick-trends-response] %s",
+                _compact(
+                    {
+                        "phase": record.phase.value,
+                        "sent_at": stamp(record.started_at),
+                        "http_status": record.http_status,
+                        "retry_after_seconds": record.retry_after_seconds,
+                    }
+                ),
+            )
         if self._capture is not None:
             await self._capture(record, answer.body)
         return _Outcome(record, value, cookies)
