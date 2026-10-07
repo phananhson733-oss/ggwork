@@ -2,6 +2,8 @@
 
 2026-10-07 用户回复“按照你的建议去落地”，确认替换旧小时级、多地区 canary 的恢复验收：全球日级、仅曲线，按不同夜晚 10 → 30 → 100 部验证，之后每天维持最多 100 部。此文件替代 `2026-10-07-trends-existing-catalog-implementation-spec.md` 第 8 节关于原 canary 三晚后才能切 stable 的规定；旧记录保留，不删数据。团队流程、飞书写入、GSC 和模型运行仍不在范围内。
 
+部署更新：本方案已随 PR #42 发布并完成 collector 自检、预检和正式 cron 配置。新 campaign 尚无实际请求，三个真实合格夜晚及首周观察仍待运行。详见 [当前发布记录](../pick-workbench/progress.md)。
+
 ## 执行合同
 
 - 使用现有 stable 调度/存储与 `top_dramas` 选择逻辑；D、WW、`today 1-m`、a_only，不查 related，不启用 contract check 或集合发布。

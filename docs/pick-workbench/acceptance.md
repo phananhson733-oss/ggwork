@@ -462,3 +462,23 @@ QA-only 后续修复和本节文档不作为实际产品部署 SHA。完成的�
 测试证据：前端完整 2,946 passed，45 个 PG reader 另行全部通过；check/build 和 source/managed 一致性通过；宿主入口 61 passed；独立 Python/前端审查通过。后端全套第一次有统一 UTC 时间函数合同失败（4,563 passed / 25 skipped / 1 failed），修正后时间合同及客户端 77 passed；最终 PR CI `37599881336` SUCCESS。合并后主线 CI 的最终结果以 progress 当前记录为准。
 
 发布完成的是现有目录候选预览及 Gateway 诊断代码；Google Trends 的持续采集闭环仍未完成。
+
+
+## 2026-10-07 日级分阶段恢复部署验收
+
+PR #42 产品提交 `fef2b8910f019fe69be3cf5028fc1ef2005f6674` 已发布到 Gateway 和前端；实际版本、包文件、普通 QA 身份及个人清单保持均通过。主线合并期间的侧边栏变更已集成并重新执行前端检查与测试。最终 PR 和 main CI 均成功。
+
+恢复执行器的 44 个双库测试覆盖：10→30→100→100、不在同夜扩量、profile/epoch 防绕过、失败不晋级、停止后拒绝、崩溃后未知请求不计资格、证书收尾回滚、原始记录清理后保留阶段、迟准入不计资格、实际 HTTP/raw 缺失拒绝、no_data 合法结果及只读预检。角色与调用流程没有新增表/授权。该测试证据来自合成临时库与 FakeGoogle，不能作为真实 Google 夜晚。
+
+生产 collector 的自检与预检在该服务自己的容器中完成：实际角色 pick_observer，迁移头 0007，包摘要与源码匹配；10 部/20 基础请求/40 总上限，目标日 2026-10-08，停止检查为空。正式 cron 的服务设置与实际部署 manifest 通过核对，八项配置回读一致；新 campaign 请求及批次仍为 0，历史 173 请求保留。此前漏读 Railway 顶层 preflight JSON 的工具解析问题已确认，没有重跑自检或用伪结果补值。
+
+| 验收项 | 当前结果 |
+|---|---|
+| 代码、双库与前端回归、独立审查、CI | PASS |
+| Gateway/前端发布、canonical alias、普通 QA 只读验收 | PASS |
+| Collector 自检、实际预检、配置与正式部署 manifest | PASS |
+| 首个真实 10 部夜晚与同批 raw/UI 对账 | NOT_RUN：等待计划窗口 |
+| 30/100 部真实资格、三晚汇总 | NOT_RUN |
+| 下一次真实调度与首次 100 部后的首周记录 | NOT_RUN |
+
+计划窗口为 America/Chicago 2026-10-07 12:30～20:45（UTC 17:30～次日01:45）。本对话的 google-trends heartbeat 每日当地21:00只读核验，实际采集仍由 Railway cron 执行；不会由跟进任务补跑 Google 或模型。

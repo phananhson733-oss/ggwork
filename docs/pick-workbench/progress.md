@@ -1,4 +1,25 @@
-# 当前发布状态（2026-10-07，PR #39）
+# 当前发布状态（2026-10-07，PR #42 日级恢复）
+
+用户确认日级分阶段恢复后，PR [#42](https://github.com/phananhson733-oss/ggwork/pull/42) 已合并并发布。产品源码 `fef2b8910f019fe69be3cf5028fc1ef2005f6674`；前端版本 `20261007-fef2b89`。期间合入了主线 PR #41 的侧边栏改动，组合后的前端 check 与 2,949 项测试通过。最终 PR CI `37613904145` 和主线 CI `37616846801` 均 SUCCESS。
+
+- Gateway `b47979ee-a41c-47b4-abda-e2a5ad837a0d` SUCCESS，实际 installed 151 个业务文件与发布源码一致；Vercel `dpl_CSFBeDiMAJwJueX2qFG9YRM5BMdp` READY，正式域名已指向该部署。
+- 普通 QA 身份已核实为 user；线上版本、100 部候选预览、逐行剧名/顺序/链接、刷新和移动端验证通过；原 4 条个人清单完整内容哈希不变，零页面脚本错误，验收未发起 Google 查询或应用模型运行。
+- Collector 自检部署 `b0ffb003-bdcf-4926-9f26-3b6fab9390bf` 在自己的容器与变量下通过 selfcheck/preflight。角色 pick_observer、迁移头 0007，包摘要 `sha256:d5f7b122487db23d0d80f94de5a08fb6bb32bde2eae588edd0516b820849c3e9` 与本提交源码一致。Railway 把预检 JSON 提升成日志顶层字段；初次只读取 message 导致漏读，补读原日志后确认结果，未重启自检或发送 Google 请求。
+- 预检 target_date=2026-10-08，stable/D/a_only/conservative；第一阶段 10 部、基础请求 20、总 cap 40；qualified_nights=0，reasons/refused_by 都为空，正常估算约 31 分钟。
+- 正式 cron 部署 `cc0eb04e-7f27-45a1-92b0-be3b8778fd71` SUCCESS，服务设置及该部署 manifest 与仓库 cron 配置逐项一致。恢复参数独立回读相符，状态密钥和原状态保留。部署核验时尚未到采集窗口，没有新 campaign 请求或批次；旧 2026-10-01/02 的 105/68 条请求仍在。
+- 首晚计划为 2026-10-07 17:30 UTC 至次日 01:45 UTC，即当前 America/Chicago 的 10 月 7 日 12:30～20:45；批次标签是 2026-10-08。后续只在真实资格证据通过后于另一夜晚升至 30、100 部。未知请求、不完整/迟准入夜晚不升级；本次任何停用都阻止后续运行。
+- 新恢复测试 SQLite/PostgreSQL 44 passed、0 skipped，Python/数据库/前端独立审查通过。完整后端本地初跑 4,608 passed /25 skipped，唯一旧停止文案夹具失败修正后 20 项复验通过；最终 CI 完整通过。无迁移、无新增授权、无新增应用模型运行，既有 40/40 预算未重置。
+- 同一对话已创建 heartbeat `google-trends`，每日 21:00（America/Chicago）只读跟进真实阶段和首周覆盖；无变化静默，阶段推进/失败/需要决策时通知，不额外查询 Google，不改参数或停止状态。
+
+**部署时仍待验收**：第一晚真实采集、三个真实合格夜晚、下一次调度事实及首周观察。自检通过、cron 配置成功及模拟测试不能替代这些证据，整个 Google Trends 目标尚未达到最终完成标准。
+
+- `pick-deploy-guard target=gateway commit=fef2b8910f019fe69be3cf5028fc1ef2005f6674 prod_head=0007 chain_head=0007 at=2026-10-07T11:53:28Z`
+- `pick-deploy-guard target=frontend commit=fef2b8910f019fe69be3cf5028fc1ef2005f6674 at=2026-10-07T12:02:59Z`
+- `pick-deploy-guard target=cron:trends commit=fef2b8910f019fe69be3cf5028fc1ef2005f6674 prod_head=0007 chain_head=0007 at=2026-10-07T12:35:46Z`
+
+---
+
+# 历史发布状态（2026-10-07，PR #39）
 
 2026-10-07 后续授权：用户已确认采用全球日级、仅曲线、10 → 30 → 100 部分晚恢复；执行合同见 [日级恢复计划](../plans/2026-10-07-trends-daily-recovery.md)。代码已实现阶段资格、预算 40/80/220、未知请求不计资格、epoch/profile 防绕过、停止事实跨崩溃保留及页面进度。新增恢复用例 SQLite/PostgreSQL 44 passed、0 skipped，独立 Python/数据库/前端审查通过；完整回归、CI、collector 实际配置及真实夜晚仍待完成。下文待确认记录是此前状态。
 
