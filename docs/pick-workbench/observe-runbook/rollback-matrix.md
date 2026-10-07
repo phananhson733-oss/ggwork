@@ -57,7 +57,7 @@ pnpm test tests/unit/core/pick/api.test.ts -t "rollback matrix" --reporter verbo
 pnpm test tests/unit/core/pick/contract-fixtures.test.ts
 ```
 
-第一条的输出里必须有四行 ✓，名字分别以 `F1 x old card`、`F1 x new card`、`F1 x mixed session`、`F1 x stored snapshots` 开头，汇总是 `Tests 4 passed`。少一行、改了名、被跳过，或者报找不到测试文件，都按没过处理：revert 掉 TR-16 的提交通常连这些用例一起删掉，只看「全绿」会漏掉它。退出码 0 也不够：`-t` 一个也没匹配到时，rstest 把整个文件记为 skipped，照样以 0 退出（2026-09-25 在 rstest 0.10.6 上核实）。然后照常跑一遍 `pnpm test` 与 `pnpm typecheck` 全量。
+第一条的输出里，除了文件那一行，必须有 5 行 ✓，describe 名之后的用例名依次以 `F1 x old card`、`F1 x new card`、`F1 x mixed session`、`F1 x hot card`、`F1 x stored snapshots` 开头，汇总行以 `Tests 5 passed` 开头。第四行不属于四格，是 2026-09-28 随 `hot_only` 加进同一个 describe 的用例（见下文「前端四格」）；`-t` 选中整个 describe，它同样必须在。汇总行后半的 skipped 是同一文件里没被 `-t` 选中的 `pick API` 用例，个数随那个 describe 变，不作要求（2026-09-29 在 rstest 0.10.6 上核实，整行是 `Tests 5 passed | 5 skipped (10)`）。这 5 行里少一行、改了名、被跳过，或者报找不到测试文件，都按没过处理：revert 掉 TR-16 的提交通常连这些用例一起删掉，只看「全绿」会漏掉它。退出码 0 也不够：`-t` 一个也没匹配到时，rstest 把整个文件记为 skipped，照样以 0 退出（2026-09-25 在 rstest 0.10.6 上核实）。然后照常跑一遍 `pnpm test` 与 `pnpm typecheck` 全量。
 
 **gateway 的命令**（仓库根目录下）：在要部署的提交上先跑扩展完整套件（两种库，不带 `-k`，计划第 10 节 S3；按 D21 在集成分支与 main 上跑，含 `test_managed_copy`），再把上表 gateway 一列点名的文件单独跑一遍、逐个看结果。`PICK_TEST_PG_URL` 指向本机一次性的 PostgreSQL 17（起法见 `local-run.md`「扩展单元测试」），绝不是生产库：用例会在上面建删数据库和角色。
 
@@ -80,6 +80,8 @@ PICK_TEST_PG_URL=<一次性测试库> backend/.venv/bin/python -m pytest -v -rs 
 | 新前端 × 新卡 | `F1 x new card` | `getPickResult` 读 `backend-result-obs.json`：`sort=obs`、`observations`、三种 obs 证据都在 |
 | 新前端 × 混合会话 | `F1 x mixed session` | `listPickResults` 一次返回旧、新、旧三张卡，整批解析成功（它对整个会话做 strict 解析，一张解析不了整个面板就报错） |
 | 新前端 × 存量快照 | `F1 x stored snapshots` | `listSavedPicks` 一次返回改动前保存的条目与带 obs 证据的条目，都能解析 |
+
+同一个 describe 里还有第五个用例 `F1 x hot card`（2026-09-28，提交 95be88d2），按文件里的顺序排在 `F1 x mixed session` 之后、`F1 x stored snapshots` 之前：`listPickResults` 一次返回一张旧卡和一张 `conditions.hot_only` 为 true 的卡（`ranking_version` 为 `hot-evidence-date-v1`），整批解析成功；`hot_only` 只在为 true 时才存，旧卡的条件里没有这个键。它不在计划第 10 节的四格之内，逐格表也没有它的行；但上文前端命令的 `-t` 选中整个 describe，所以输出是 5 行。
 
 「换成错误实现后变红」的记录（2026-09-25，任务分支 `feat/trends-radar-tr-16`）：
 
