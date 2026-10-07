@@ -2,6 +2,8 @@
 
 状态：可交给 Code Agent 的实施草案。2026-10-07 根据用户“没有 API，参考旧 HTML 逻辑，复用选剧台已有剧集”编写。本次交付是规格，不表示采集已经恢复。
 
+实施更新：A/B 已随 PR #39 发布，产品提交 `723ba4fa`，线上普通 QA 的 100 行候选与 API、刷新、移动端及原清单保持验收通过。C/D 尚未完成，collector 仍停止；调整恢复验收为日级分阶段的提议尚待用户确认。以 [当前发布记录](../pick-workbench/progress.md) 和 [验收记录](../pick-workbench/acceptance.md#2026-10-07-google-trends-候选预览发布验收) 为准，不把本 Spec 的待做项视作已实现。
+
 业务仓库：`phananhson733-oss/ggwork`，本地项目为 ggwork-deerflow。代码核对基线：`79bb8e1cd87a1864113f2365d8420da38e8c2517`。该检出中的 `ggwork` remote 是业务仓库，`origin` 是上游 DeerFlow；实施前重新核实 remote 和当前主线，不向上游提交业务代码。
 
 ## 1. 目标与边界

@@ -1,4 +1,21 @@
-# 当前发布状态（2026-10-06，PR #37）
+# 当前发布状态（2026-10-07，PR #39）
+
+PR [#39](https://github.com/phananhson733-oss/ggwork/pull/39) 已合并并发布，产品源码为 `723ba4fadb740701e6a33814beeca5be9e0b8369`，前端版本 `20261007-723ba4f`。Gateway 部署 `5dab998c-a71c-4d53-b5ca-c56f50f99870` SUCCESS；Vercel 部署 `dpl_HX9WMS8qi87QpYHwUnTtVjcb4P1a` READY，正式域名 `ggwork-deerflow.vercel.app` 已指向该部署。实际 installed 业务包 150 个文件与该提交逐一匹配；迁移仍为 0007。
+
+- **已上线**：无正式 Trends 批次时展示真实的待采集候选，复用原有榜单/收入选择，不重复抓剧库。生产当前选满 100 部：55 部来自榜单，45 部由收入镜像 v24 的 2026-10-07 快照补足；不同来源的日期保留。候选没有伪造曲线、指数或采集时间，原 canary_terminated 红色提示保留。
+- **线上验收通过**：普通 QA 的 100 行剧名/顺序/查询链接与 API 一致，刷新、移动端横向滚动、About 版本均验证；原 4 条个人清单逐项哈希不变，浏览器零 Google 请求、零模型运行请求、零脚本错误。接口实测约 1.8 秒。静态文件首次下载较慢，6 个文件完整 HTTP 200、单文件约 2～20 秒；最初网络空闲等待和菜单定位失败保留，最终按实际可交互状态通过，没有据此改产品代码。
+- **验证**：PR 最终 CI `37599881336` SUCCESS；合并后 CI `37601891793` SUCCESS。前端完整 2,946 项与额外 45 项 PG reader 通过，check/build 通过；双库候选并发快照 8 项通过，Python/前端独立审查通过。本地全套的时间格式失败及修正后 77 项通过记录保留在下方历史中。
+- **尚未恢复真实采集**：collector 仍是原部署 `4d1d6e5b-c62a-4859-96f4-a8b4e30818b1`，停止历史、模式、节奏、since 和 cron 未改。Gateway 上一次限定诊断的预热/explore/multiline 共 3 次 HTTP 全部 200；运行位置不同，且只有一个公开对照词，不能计作 collector 出口或三晚资格通过。新增 Retry-After 诊断代码已发布到 Gateway，尚未发布到 collector。
+- **待决策**：已向用户提出按全球日级、仅曲线的 10 → 30 → 100 部分晚恢复验收；尚未收到确认，原批准规则继续有效。三个有效夜晚、首个真实 stable 批次、下一次调度及首周观察均未完成。整个 Google Trends 目标未完成，候选预览发布不替代这些门槛。
+
+- `pick-deploy-guard target=gateway commit=723ba4fadb740701e6a33814beeca5be9e0b8369 prod_head=0007 chain_head=0007 at=2026-10-07T09:38:06Z`
+- `pick-deploy-guard target=frontend commit=723ba4fadb740701e6a33814beeca5be9e0b8369 at=2026-10-07T09:43:36Z`
+
+详细验收见 [2026-10-07 记录](acceptance.md#2026-10-07-google-trends-候选预览发布验收)。
+
+---
+
+# 历史发布状态（2026-10-06，PR #37）
 
 2026-10-07 实施进度（未发布）：候选预览已实现，复用正式任务的目录/榜单/收入选择；无正式批次时展示真实待采集剧集，失败与认证过期分别处理。新增 Retry-After 有界数值诊断，不改变节奏和停止规则。生产只读核实共享目录 14,784 条语言版本记录（published_at 2026-10-07 03:42:32 UTC）。SQLite/PostgreSQL 并发发布快照测试通过；前端 104 项定向测试、check、build 通过，完整前端 2,946 passed / 45 数据库 reader skip。真实本地普通 QA 浏览器 API/UI 对账、刷新、零 Google 请求通过（本地 fixture 为 1 条，不能替代生产 100 条验收）。源码与托管副本一致性通过。业务双库全套初次为 4,563 passed / 25 skipped / 1 failed（新增日志未用统一时间函数）；该处已修正，时间合同及客户端定向 77 passed。45 个前端 PG reader 项另行全部通过。Python/前端独立审查均无待修缺陷；最终以本期提交 CI 为准。尚未创建本期发布记录，采集停止状态未解除。
 
