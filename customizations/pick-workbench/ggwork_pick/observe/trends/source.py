@@ -207,6 +207,8 @@ class RequestRecord:
     error_class: str | None
     egress: EgressReading
 
+    retry_after_seconds: int | None = None
+
 
 @dataclass(frozen=True)
 class Line:

@@ -30,8 +30,11 @@ function revenueLine(revenue: Sources["revenue"]): string {
   return `ReelShort 收入补足 ${revenue.filled} 部（滚动 30 天收入，${snapshot}${version}）。`;
 }
 
-export function TableSources({ batch }: { batch: TrendsTableBatch }) {
-  const { boards, revenue } = batch.sources;
+export function TableSources(
+  props: { batch: TrendsTableBatch } | { sources: Sources },
+) {
+  const { boards, revenue } =
+    "batch" in props ? props.batch.sources : props.sources;
   return (
     <p className={MUTED} data-trends-sources="true">
       剧的来源：

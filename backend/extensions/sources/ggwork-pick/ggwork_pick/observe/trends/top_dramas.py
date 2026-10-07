@@ -338,6 +338,31 @@ def query_unit(pick: Pick, order: int) -> QueryUnit:
     return QueryUnit(key, ITEM, GEO, (pick.term,), pick.term, GRANULARITY, order, identity=pick.identity)
 
 
+@dataclass(frozen=True)
+class Selection:
+    catalog_batch_id: str | None
+    catalog_dramas: int
+    picks: tuple[Pick, ...]
+    boards: tuple[Board, ...]
+    revenue: Revenue
+    filled: int
+    unusable_titles: int
+
+
+async def select_candidates(step: ReadStep, *, target: int = TARGET_DRAMAS) -> Selection:
+    """Shared read-only selection; an empty preview is valid, while the collector refuses an empty night."""
+    batch_id, entries = await shared_catalog(step)
+    boards = tuple(board(entries, kind) for kind in BOARDS)
+    from_boards = tuple(candidate for found in boards for candidate in found.candidates)
+    picks, unusable = merged(from_boards, target=target)
+    filled = Revenue(reason="not_needed")
+    if len(picks) < target:
+        filled = await revenue(step, limit=max(REVENUE_LOOKUP, 2 * target))
+        picks, unusable = merged((*from_boards, *filled.candidates), target=target)
+    from_revenue = sum(1 for pick in picks if pick.basis[0].kind == REVENUE)
+    return Selection(batch_id, len(entries), picks, boards, filled, from_revenue, unusable)
+
+
 class TopDramasTaskSource:
     """The stable mode's units for a target date: the day's picks, one daily worldwide unit each."""
 
@@ -349,27 +374,20 @@ class TopDramasTaskSource:
         self._target = target
 
     async def units(self, step: ReadStep, *, target_date: date) -> SourceUnits:
-        batch_id, entries = await shared_catalog(step)
-        boards = tuple(board(entries, kind) for kind in BOARDS)
-        from_boards = tuple(candidate for found in boards for candidate in found.candidates)
-        picks, unusable = merged(from_boards, target=self._target)
-        filled = Revenue(reason="not_needed")
-        if len(picks) < self._target:
-            filled = await revenue(step, limit=max(REVENUE_LOOKUP, 2 * self._target))
-            picks, unusable = merged((*from_boards, *filled.candidates), target=self._target)
+        selected = await select_candidates(step, target=self._target)
+        picks = selected.picks
         if not picks:
             raise Refused("简化版任务来源一部剧都没取到：三个榜的最新一期与 ReelShort 收入补足都是空的（手册 trends-session.md「简化版」）")
-        from_revenue = sum(1 for pick in picks if pick.basis[0].kind == REVENUE)
         units = tuple(query_unit(pick, order) for order, pick in enumerate(picks, start=1))
         notes = {
-            "catalog_dramas": len(entries),
+            "catalog_dramas": selected.catalog_dramas,
             NOTES_KEY: {
                 "target": self._target,
                 "picked": len(picks),
-                "boards": [found.note() for found in boards],
-                "revenue": filled.note(from_revenue),
-                "unusable_titles": unusable,
+                "boards": [found.note() for found in selected.boards],
+                "revenue": selected.revenue.note(selected.filled),
+                "unusable_titles": selected.unusable_titles,
                 "picks": {unit.key: pick.to_note(order) for order, (unit, pick) in enumerate(zip(units, picks, strict=True), start=1)},
             },
         }
-        return SourceUnits(units, batch_id, notes)
+        return SourceUnits(units, selected.catalog_batch_id, notes)

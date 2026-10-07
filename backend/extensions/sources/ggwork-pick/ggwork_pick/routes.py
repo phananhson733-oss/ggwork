@@ -17,6 +17,7 @@ from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.mirror.status import mirror_status
 from ggwork_pick.observe.status import obs_status
+from ggwork_pick.observe.trends_candidates import trends_candidates
 from ggwork_pick.observe.trends_table import trends_table
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import NotesGone, ReplayGone, ReplayUnrunnable, SelectionService, result_view
@@ -49,6 +50,14 @@ async def obs_view(shared: PickRepository) -> dict:
 
 
 TRENDS_TABLE_UNREADABLE = "趋势表暂时读不了，稍后再试"
+
+
+async def trends_candidates_view(shared: PickRepository) -> dict:
+    try:
+        return await trends_candidates(shared, now=datetime.now(UTC))
+    except Exception as exc:
+        logger.warning("[pick-obs] reading trends candidates failed: %s", type(exc).__name__)
+        raise HTTPException(503, "待采集剧集暂时读不了，稍后再试") from None
 
 
 async def trends_table_view(shared: PickRepository) -> dict:
@@ -167,6 +176,11 @@ def build_router(service):
         """The simplified radar's read-only table: the same for every signed-in user."""
         repository(request)
         return await trends_table_view(PickRepository.shared(service.session_factory))
+
+    @router.get("/obs/trends-candidates")
+    async def obs_trends_candidates(request: Request):
+        repository(request)
+        return await trends_candidates_view(PickRepository.shared(service.session_factory))
 
     @router.post("/sync", status_code=202)
     async def sync_now(request: Request):

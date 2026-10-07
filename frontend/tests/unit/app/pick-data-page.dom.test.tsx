@@ -15,6 +15,8 @@ import * as pageModule from "@/app/workspace/pick-data/page";
 import * as errors from "@/server/pick-board/errors";
 
 import { boardRules } from "../components/workspace/pick-board/fixtures";
+import candidatesFixture from "../core/pick/fixtures/backend-trends-candidates.json";
+import trendsFixture from "../core/pick/fixtures/backend-trends-table.json";
 
 import type * as Support from "./pick-data-page.support";
 import {
@@ -623,6 +625,42 @@ describe("the visitor", () => {
 });
 
 describe("simplified trends entry", () => {
+  it("redirects when the session expires before candidate preview", async () => {
+    state.loaders.loadTrendsTable = () => ({
+      kind: "ok",
+      table: { ...trendsFixture, batch: null, rows: [] },
+    });
+    state.loaders.loadTrendsCandidates = () => ({ kind: "unauthenticated" });
+    await expect(renderPage({ tab: "trends" })).rejects.toThrow(
+      "NEXT_REDIRECT",
+    );
+    expect(state.calls).toEqual([
+      "requireBoardUser",
+      "loadTrendsTable",
+      "loadTrendsCandidates",
+    ]);
+  });
+
+  it("shows an empty selection without calling it a database failure", async () => {
+    state.loaders.loadTrendsTable = () => ({
+      kind: "ok",
+      table: { ...trendsFixture, batch: null, rows: [] },
+    });
+    state.loaders.loadTrendsCandidates = () => ({
+      kind: "ok",
+      candidates: {
+        ...candidatesFixture,
+        selection_state: "empty",
+        selected: 0,
+        rows: [],
+      },
+    });
+    await renderPage({ tab: "trends" });
+    expect(
+      screen.getByText(/目前没有可用于趋势查询的榜单或收入候选/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/待采集剧集暂时读不了/)).toBeNull();
+  });
   it("loads only the authenticated gateway table, even without a mirror", async () => {
     state.resolved = new errors.MirrorUnavailable();
     state.loaders.loadTrendsTable = () => ({
@@ -636,9 +674,43 @@ describe("simplified trends entry", () => {
         truncated: false,
       },
     });
+    state.loaders.loadTrendsCandidates = () => ({
+      kind: "ok",
+      candidates: candidatesFixture,
+    });
     await renderPage({ tab: "trends", ts: "order" });
+    expect(state.calls).toEqual([
+      "requireBoardUser",
+      "loadTrendsTable",
+      "loadTrendsCandidates",
+    ]);
+    expect(screen.getByRole("heading", { name: /待采集剧集/ })).toBeTruthy();
+    expect(screen.getAllByText("First Choice")).toHaveLength(2);
+    expect(screen.getByText(/尚未形成采集批次/)).toBeTruthy();
+  });
+
+  it("never loads current candidates over an existing observation batch", async () => {
+    state.loaders.loadTrendsTable = () => ({
+      kind: "ok",
+      table: trendsFixture,
+    });
+    await renderPage({ tab: "trends" });
     expect(state.calls).toEqual(["requireBoardUser", "loadTrendsTable"]);
-    expect(screen.getByText(/还没有.*采集|还没有.*批次/)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /待采集剧集/ })).toBeNull();
+  });
+
+  it("retains stop banners and the no-plan state when preview fails", async () => {
+    state.loaders.loadTrendsTable = () => ({
+      kind: "ok",
+      table: { ...trendsFixture, batch: null, rows: [] },
+    });
+    state.loaders.loadTrendsCandidates = () => ({ kind: "unavailable" });
+    await renderPage({ tab: "trends" });
+    expect(screen.getByText(/待采集剧集暂时读不了/)).toBeTruthy();
+    expect(document.querySelector("[data-trends-banners]")).not.toBeNull();
+    expect(
+      document.querySelector("[data-trends-empty='batch']"),
+    ).not.toBeNull();
   });
 
   it("retains a fixed notice when the table cannot be read", async () => {

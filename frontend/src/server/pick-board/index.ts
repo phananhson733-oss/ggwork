@@ -121,3 +121,7 @@ export {
 } from "./errors";
 
 export { loadTrendsTable, type TrendsTableLoad } from "./trends-table";
+export {
+  loadTrendsCandidates,
+  type TrendsCandidatesLoad,
+} from "./trends-candidates";
