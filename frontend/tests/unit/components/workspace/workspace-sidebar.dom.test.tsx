@@ -1,17 +1,25 @@
 /**
  * The sidebar's pick links (P3-5): 选剧资料 is marked current on every
- * /workspace/pick-data page (any tab, any query), and nowhere else;
- * 我的选剧 the same on /workspace/picks. "Current" means both the selected
+ * /workspace/pick-data page (any tab, any query), and nowhere else.
+ * 我的选剧 and 定时任务 remain visible but only show a notice. "Current" means both the selected
  * style (data-active, which the sidebar primitive paints) and aria-current.
  */
 import { afterEach, describe, expect, it, rs } from "@rstest/core";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { toast } from "sonner";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { WorkspaceNavChatList } from "@/components/workspace/workspace-nav-chat-list";
 import { PickNav } from "@/components/workspace/workspace-sidebar";
+import { I18nProvider } from "@/core/i18n/context";
 
 const nav = rs.hoisted(() => ({ pathname: "/workspace/chats" }));
+
+rs.mock("sonner", () => ({ toast: { info: rs.fn() } }));
+rs.mock("@/core/agents", () => ({
+  useAgentsApiEnabled: () => ({ enabled: true, isLoading: false }),
+}));
 
 rs.mock("next/navigation", () => ({
   usePathname: () => nav.pathname,
@@ -37,6 +45,7 @@ rs.mock("next/link", () => ({
 
 afterEach(() => {
   cleanup();
+  rs.clearAllMocks();
 });
 
 function link(name: string): HTMLElement {
@@ -44,10 +53,14 @@ function link(name: string): HTMLElement {
 }
 
 function renderNav() {
+  document.cookie = "locale=zh-CN; path=/";
   return render(
-    <SidebarProvider>
-      <PickNav />
-    </SidebarProvider>,
+    <I18nProvider initialLocale="zh-CN">
+      <SidebarProvider>
+        <WorkspaceNavChatList />
+        <PickNav />
+      </SidebarProvider>
+    </I18nProvider>,
   );
 }
 
@@ -70,7 +83,6 @@ describe("PickNav", () => {
     nav.pathname = "/workspace/pick-data";
     renderNav();
     expect(isCurrent("选剧资料")).toBe(true);
-    expect(isCurrent("我的选剧")).toBe(false);
   });
 
   it("keeps the mark below the page path", () => {
@@ -79,10 +91,14 @@ describe("PickNav", () => {
     expect(isCurrent("选剧资料")).toBe(true);
   });
 
-  it("marks 我的选剧 current on the picks page only", () => {
+  it("does not mark the unavailable 我的选剧 entry current", () => {
     nav.pathname = "/workspace/picks";
     renderNav();
-    expect(isCurrent("我的选剧")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "我的选剧" })
+        .getAttribute("data-active"),
+    ).toBe("false");
     expect(isCurrent("选剧资料")).toBe(false);
   });
 
@@ -95,14 +111,25 @@ describe("PickNav", () => {
       nav.pathname = pathname;
       renderNav();
       expect(isCurrent("选剧资料")).toBe(false);
-      expect(isCurrent("我的选剧")).toBe(false);
       cleanup();
     }
   });
 
-  it("links to both pick pages", () => {
+  it("keeps 选剧资料 linked to its page", () => {
     renderNav();
-    expect(link("我的选剧").getAttribute("href")).toBe("/workspace/picks");
     expect(link("选剧资料").getAttribute("href")).toBe("/workspace/pick-data");
   });
+
+  it.each(["我的选剧", "定时任务"])(
+    "%s shows 暂未开放 without providing a destination",
+    (name) => {
+      renderNav();
+      const entry = screen.getByRole("button", { name });
+      expect(screen.queryByRole("link", { name })).toBeNull();
+      expect(entry.getAttribute("href")).toBeNull();
+      expect((entry as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.click(entry);
+      expect(toast.info).toHaveBeenCalledWith("暂未开放");
+    },
+  );
 });
