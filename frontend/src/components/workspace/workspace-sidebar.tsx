@@ -4,6 +4,7 @@ import { DatabaseIcon, ListChecksIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useId } from "react";
+import { toast } from "sonner";
 
 import {
   Sidebar,
@@ -18,6 +19,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { useI18n } from "@/core/i18n/hooks";
 
 import { WorkspaceChannelsList } from "./channels/workspace-channels-list";
 import { ProjectsSection } from "./projects-section";
@@ -36,10 +38,11 @@ function isUnder(pathname: string | null, base: string): boolean {
 }
 
 /**
- * The 选剧工作台 group: 我的选剧 and 选剧资料, each marked current (selected
- * style plus aria-current) on its own pages.
+ * The 选剧工作台 group: 我的选剧 shows an availability notice;
+ * 选剧资料 is marked current on its own pages.
  */
 export function PickNav() {
+  const { t } = useI18n();
   const pathname = usePathname();
   const labelId = useId();
   const links = [
@@ -47,7 +50,7 @@ export function PickNav() {
       href: PICKS_PATH,
       label: "我的选剧",
       icon: ListChecksIcon,
-      current: isUnder(pathname, PICKS_PATH),
+      current: false,
     },
     {
       href: PICK_DATA_PATH,
@@ -63,12 +66,22 @@ export function PickNav() {
         <SidebarMenu>
           {links.map(({ href, label, icon: Icon, current }) => (
             <SidebarMenuItem key={href}>
-              <SidebarMenuButton isActive={current} asChild>
-                <Link href={href} aria-current={current ? "page" : undefined}>
+              {href === PICKS_PATH ? (
+                <SidebarMenuButton
+                  type="button"
+                  onClick={() => toast.info(t.sidebar.notOpenYet)}
+                >
                   <Icon />
                   <span>{label}</span>
-                </Link>
-              </SidebarMenuButton>
+                </SidebarMenuButton>
+              ) : (
+                <SidebarMenuButton isActive={current} asChild>
+                  <Link href={href} aria-current={current ? "page" : undefined}>
+                    <Icon />
+                    <span>{label}</span>
+                  </Link>
+                </SidebarMenuButton>
+              )}
             </SidebarMenuItem>
           ))}
         </SidebarMenu>

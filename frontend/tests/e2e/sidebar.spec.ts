@@ -3,6 +3,31 @@ import { expect, test } from "@playwright/test";
 import { mockLangGraphAPI } from "./utils/mock-api";
 
 test.describe("Sidebar navigation", () => {
+  test("unavailable entries show a notice and keep the current page", async ({
+    page,
+    baseURL,
+  }) => {
+    mockLangGraphAPI(page);
+    await page
+      .context()
+      .addCookies([{ name: "locale", value: "zh-CN", url: baseURL! }]);
+    await page.goto("/workspace/chats/new");
+
+    const sidebar = page.locator("[data-sidebar='sidebar']");
+    for (const name of ["定时任务", "我的选剧"]) {
+      const entry = sidebar.getByRole("button", { name, exact: true });
+      await expect(entry).toBeVisible();
+      await entry.click();
+      await expect(page.locator("[data-sonner-toast]").last()).toContainText(
+        "暂未开放",
+      );
+      await expect(page).toHaveURL(/\/workspace\/chats\/new$/);
+    }
+    await expect(
+      sidebar.locator("a[href='/workspace/pick-data']"),
+    ).toBeVisible();
+  });
+
   test("sidebar contains Chats and Agents nav links", async ({ page }) => {
     mockLangGraphAPI(page);
 
@@ -48,7 +73,7 @@ test.describe("Sidebar navigation", () => {
     });
     // Neither a link nor a greyed-out placeholder: the entry is not rendered.
     await expect(
-      sidebar.locator("a[href='/workspace/scheduled-tasks']"),
+      sidebar.getByRole("button", { name: "Scheduled tasks", exact: true }),
     ).toBeVisible();
     await expect(sidebar.locator("a[href='/workspace/agents']")).toHaveCount(0);
     await expect(sidebar.getByText("Agents", { exact: true })).toHaveCount(0);
