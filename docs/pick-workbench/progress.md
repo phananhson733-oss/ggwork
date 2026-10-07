@@ -1,5 +1,7 @@
 # 当前发布状态（2026-10-07，PR #39）
 
+2026-10-07 后续授权：用户已确认采用全球日级、仅曲线、10 → 30 → 100 部分晚恢复；执行合同见 [日级恢复计划](../plans/2026-10-07-trends-daily-recovery.md)。代码已实现阶段资格、预算 40/80/220、未知请求不计资格、epoch/profile 防绕过、停止事实跨崩溃保留及页面进度。新增恢复用例 SQLite/PostgreSQL 44 passed、0 skipped，独立 Python/数据库/前端审查通过；完整回归、CI、collector 实际配置及真实夜晚仍待完成。下文待确认记录是此前状态。
+
 PR [#39](https://github.com/phananhson733-oss/ggwork/pull/39) 已合并并发布，产品源码为 `723ba4fadb740701e6a33814beeca5be9e0b8369`，前端版本 `20261007-723ba4f`。Gateway 部署 `5dab998c-a71c-4d53-b5ca-c56f50f99870` SUCCESS；Vercel 部署 `dpl_HX9WMS8qi87QpYHwUnTtVjcb4P1a` READY，正式域名 `ggwork-deerflow.vercel.app` 已指向该部署。实际 installed 业务包 150 个文件与该提交逐一匹配；迁移仍为 0007。
 
 - **已上线**：无正式 Trends 批次时展示真实的待采集候选，复用原有榜单/收入选择，不重复抓剧库。生产当前选满 100 部：55 部来自榜单，45 部由收入镜像 v24 的 2026-10-07 快照补足；不同来源的日期保留。候选没有伪造曲线、指数或采集时间，原 canary_terminated 红色提示保留。

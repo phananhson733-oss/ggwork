@@ -44,6 +44,31 @@ afterEach(cleanup);
 const BASE: TrendsTable = trendsTableSchema.parse(fixture);
 const WINDOW_END = "2026-09-25T00:00:00.000000+00:00";
 
+it("shows stored recovery progress without counting an unfinished night", () => {
+  if (!BASE.batch) throw new Error("fixture requires batch");
+  render(
+    <TrendsTableView
+      req={parsePickRequest({ tab: "trends" })}
+      table={{
+        ...BASE,
+        batch: {
+          ...BASE.batch,
+          daily_recovery: {
+            since: "2026-09-25",
+            target: 30,
+            qualified_nights: 1,
+            qualified: null,
+          },
+        },
+      }}
+    />,
+  );
+  expect(
+    screen.getByText(/恢复验证：本晚目标 30 部，已通过 1\/3 个有效夜晚/),
+  ).toBeTruthy();
+  expect(screen.getByText(/本晚尚未完成资格核验/)).toBeTruthy();
+});
+
 /** 14 complete days up to 09-24 (prior 7, recent 7), then the partial 09-25. */
 function series(
   prior: number,

@@ -68,7 +68,7 @@ export const OBS_STATUS_TEXT: Readonly<Record<ObsStatusCode, string>> = {
   extinguished_today:
     "今天的直连采集已熄火（限流、验证页或同意墙），剩余单元未采",
   disabled_7d: "7 天内熄火 3 次，直连已停用，人工重置后才恢复",
-  canary_terminated: "金丝雀已终止（验证码或熄火达到 2 次），不再运行",
+  canary_terminated: "采集验证已停止，请检查恢复记录后再运行",
   usertype_changed: "Trends 返回的 userType 变了，会话可能被标成自动访问",
   all_zero_jump: "全零序列的比例比前一天明显升高",
   legacy_unmapped_2pct:

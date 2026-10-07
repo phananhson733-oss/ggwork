@@ -13,6 +13,11 @@ Only these variables steer a session; each is checked before anything is read or
 | PICK_OBS_CONTRACT_CHECK       | 1 to turn it on           | off     | the weekly live contract check, after U12 only      |
 | PICK_OBS_PUBLISH              | 1 for live                | shadow  | D11; a canary session never publishes anyway       |
 | PICK_OBS_CANARY_SINCE         | YYYY-MM-DD                | (none)  | canary termination counts days from here (TR-30)   |
+| PICK_OBS_TRENDS_RECOVERY_SINCE | YYYY-MM-DD               | (none)  | approved daily 10/30/100 campaign epoch             |
+
+The daily recovery profile additionally requires pace=conservative, stable/D/a_only, matching SINCE dates and
+contract check/publish off. It validates the actual 100 daily units against the conservative window; each night's
+plan further caps requests at twice its stage size plus 20 overhead. Legacy presets and defaults remain unchanged.
 
 Route `neither` (both gates failed) means the Trends collector does not go live at all (section 8): refused. Route
 b_only keeps the canary's load as it is (its seeds and discovery queue come with TR-19); only a_only changes it here.
@@ -23,7 +28,7 @@ The mode must fit its window at the pace (capacity.mode_fit: a clear night cover
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
@@ -38,7 +43,19 @@ ROUTE_VARIABLE = "PICK_OBS_TRENDS_ROUTE"
 CONTRACT_CHECK_VARIABLE = "PICK_OBS_CONTRACT_CHECK"
 PUBLISH_VARIABLE = "PICK_OBS_PUBLISH"
 CANARY_SINCE_VARIABLE = "PICK_OBS_CANARY_SINCE"
-VARIABLES = frozenset({MODE_VARIABLE, PACE_VARIABLE, GRANULARITY_VARIABLE, ROUTE_VARIABLE, CONTRACT_CHECK_VARIABLE, PUBLISH_VARIABLE, CANARY_SINCE_VARIABLE})
+RECOVERY_SINCE_VARIABLE = "PICK_OBS_TRENDS_RECOVERY_SINCE"
+VARIABLES = frozenset(
+    {
+        MODE_VARIABLE,
+        PACE_VARIABLE,
+        GRANULARITY_VARIABLE,
+        ROUTE_VARIABLE,
+        CONTRACT_CHECK_VARIABLE,
+        PUBLISH_VARIABLE,
+        CANARY_SINCE_VARIABLE,
+        RECOVERY_SINCE_VARIABLE,
+    }
+)
 
 CANARY_MODES = ("canary1", "canary2")
 GRANULARITIES = ("H", "D", "HD")  # contract GRANULARITIES
@@ -57,6 +74,7 @@ class Settings:
     publish_live: bool
     canary_since: date | None = None
     pace: str = pacing.PRODUCTION_PRESET
+    recovery_since: date | None = None
 
     @property
     def mode(self) -> str:
@@ -71,6 +89,8 @@ class Settings:
     def pace_note(self) -> dict[str, Any]:
         """The pace as a batch keeps it (plan_json's notes) and preflight prints it: the preset, its bucket and its
         refill. A canary parameter (plan section 9), so TR-30 reads it night by night from the database."""
+        if self.recovery_since is not None:
+            return pacing.recovery_note()
         params = self.pace_params
         return {"preset": self.pace, "bucket_capacity": params.bucket_capacity, "refill_per_minute": params.refill_per_minute}
 
@@ -111,14 +131,14 @@ def _route(env: Mapping[str, str]) -> str:
     return _choice(env, ROUTE_VARIABLE, ROUTES, DEFAULT_ROUTE)
 
 
-def _since(env: Mapping[str, str]) -> date | None:
-    value = env.get(CANARY_SINCE_VARIABLE, "").strip()
+def _since(env: Mapping[str, str], name: str = CANARY_SINCE_VARIABLE) -> date | None:
+    value = env.get(name, "").strip()
     if not value:
         return None
     try:
-        return codec.decode_day(value, CANARY_SINCE_VARIABLE)
+        return codec.decode_day(value, name)
     except ValueError:
-        raise Refused(f"{CANARY_SINCE_VARIABLE} 须是 YYYY-MM-DD 日期") from None
+        raise Refused(f"{name} 须是 YYYY-MM-DD 日期") from None
 
 
 def _fitting(limits: budget.ModeLimits, pace: str) -> budget.ModeLimits:
@@ -133,12 +153,29 @@ def settings_from(environ: Mapping[str, str]) -> Settings:
     not fit its window at the pace."""
     mode = _choice(environ, MODE_VARIABLE, tuple(budget.MODES), None)
     pace = _choice(environ, PACE_VARIABLE, tuple(pacing.PRESETS), pacing.PRODUCTION_PRESET)
-    return Settings(
-        limits=_fitting(budget.mode_limits(mode), pace),
+    recovery_since = _since(environ, RECOVERY_SINCE_VARIABLE)
+    settings = Settings(
+        limits=budget.mode_limits(mode),
         granularity=_choice(environ, GRANULARITY_VARIABLE, GRANULARITIES, DEFAULT_GRANULARITY),
         route=_route(environ),
         contract_check=environ.get(CONTRACT_CHECK_VARIABLE, "").strip() == SWITCH_ON,
         publish_live=environ.get(PUBLISH_VARIABLE, "").strip() == SWITCH_ON,
         canary_since=_since(environ),
         pace=pace,
+        recovery_since=recovery_since,
     )
+    if recovery_since is not None:
+        if (mode, settings.granularity, settings.route, pace) != ("stable", "D", "a_only", "conservative") or (
+            settings.canary_since != recovery_since or settings.contract_check or settings.publish_live
+        ):
+            raise Refused("日级恢复须 stable、D、a_only、conservative、相同的 CANARY_SINCE，且关闭 contract check/publish")
+        limits = replace(settings.limits, plan=220, cap=220)
+        estimates = [
+            capacity.estimate([2] * 100, limits=limits, target_date=recovery_since, params=settings.pace_params, scenario=s) for s in capacity.SCENARIOS
+        ]
+        if estimates[0].coverage < 1 or estimates[1].coverage < capacity.MIN_LIMITED_COVERAGE:
+            raise Refused("日级恢复的 100 部实际任务放不进夜间窗口")
+        return replace(settings, limits=limits)
+    if pace == "conservative":
+        raise Refused("conservative 仅用于有明确恢复起点的日级分阶段任务")
+    return replace(settings, limits=_fitting(settings.limits, pace))

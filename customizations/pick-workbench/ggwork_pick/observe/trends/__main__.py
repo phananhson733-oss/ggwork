@@ -41,6 +41,7 @@ from ggwork_pick.observe.trends import admission as gate
 from ggwork_pick.observe.trends import canary_report, pacing, preflight
 from ggwork_pick.observe.trends.canary import CanaryTaskSource, load_controls
 from ggwork_pick.observe.trends.egress import ECHO_ENV, egress_from_env
+from ggwork_pick.observe.trends.recovery import DailyRecoverySource
 from ggwork_pick.observe.trends.run import TRENDS, TaskSource, Wiring, run_trends
 from ggwork_pick.observe.trends.settings import GRANULARITY_VARIABLE, ROUTE_VARIABLE, VARIABLES, Settings, settings_from
 from ggwork_pick.observe.trends.top_dramas import GRANULARITY as TOP_GRANULARITY
@@ -56,6 +57,8 @@ STABLE_ROUTE = "a_only"  # the simplified radar asks no related queries
 
 def source_for(settings: Settings, controls_path: Path | None) -> TaskSource:
     """The mode's task source: the canary's control list and fresh titles; stable, the simplified radar's top dramas."""
+    if settings.recovery_since is not None:
+        return DailyRecoverySource(settings.recovery_since)
     if settings.canary:
         return CanaryTaskSource(load_controls(controls_path), granularities=settings.granularities, related=settings.related)
     if settings.granularity != TOP_GRANULARITY or settings.route != STABLE_ROUTE:

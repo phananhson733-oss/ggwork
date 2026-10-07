@@ -7,7 +7,7 @@
     }
   ],
   "batch": {
-    "batch_id": "trends-2026-09-26-d8f53a0e",
+    "batch_id": "trends-2026-09-26-a2c26afe",
     "target_date": "2026-09-26",
     "collect_mode": "stable",
     "outcome": "withheld",
@@ -48,7 +48,8 @@
       "no_data": 0,
       "not_fetched": 1,
       "pending": 0
-    }
+    },
+    "daily_recovery": null
   },
   "rows": [
     {

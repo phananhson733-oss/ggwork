@@ -49,7 +49,7 @@ from ggwork_pick.observe.errors import ExitCode, Refused, StateUnavailable
 from ggwork_pick.observe.instants import instant, stamp
 from ggwork_pick.observe.lease import DbStateStore, LeasedStep, LeasedWriter, ReadStep, collector_session
 from ggwork_pick.observe.trends import admission as gate
-from ggwork_pick.observe.trends import breaker, budget, pacing
+from ggwork_pick.observe.trends import breaker, budget, pacing, recovery
 from ggwork_pick.observe.trends import session_rows as rows
 from ggwork_pick.observe.trends import session_summary as summary
 from ggwork_pick.observe.trends.canary import SourceUnits
@@ -112,9 +112,16 @@ def build_plan(day: Day, source: TaskSource, found: SourceUnits) -> SessionPlan:
     """The day's task list: the contract check first on its Monday, then the source's units, in truncation order, cut
     to the mode's plan."""
     checks = contract_check_units() if contract_check_due(day.target_date, enabled=day.settings.contract_check) else ()
-    tasks = cut_to_plan(ordered((*checks, *found.units), day.target_date), budget.plan_budget(day.limits))
-    notes = {**found.notes, "contract_check": bool(checks), "plan": day.limits.plan, "cap": day.limits.cap, "pace": day.settings.pace_note}
+    limits = recovery.limits_for(day.limits, found.notes) if day.settings.recovery_since is not None else day.limits
+    tasks = cut_to_plan(ordered((*checks, *found.units), day.target_date), budget.plan_budget(limits))
+    notes = {**found.notes, "contract_check": bool(checks), "plan": limits.plan, "cap": limits.cap, "pace": day.settings.pace_note}
     return SessionPlan(source.name, day.settings.granularity, day.settings.related, tasks, found.catalog_batch_id, notes)
+
+
+def payload_overview(day: Day, plan: SessionPlan, admission: gate.Admission) -> dict:
+    limits = recovery.limits_for(day.limits, plan.notes) if day.settings.recovery_since is not None else day.limits
+    figures = gate.overview(plan, limits, admission)
+    return recovery.overview(plan, figures) if day.settings.recovery_since is not None else figures
 
 
 async def carried_codes(step: ReadStep, target_date: date) -> frozenset[str]:
@@ -132,9 +139,14 @@ def _new_batch(day: Day, **values: Any) -> rows.NewBatch:
 
 async def refusal_codes(step: ReadStep, day: Day, broken: breaker.BreakerState) -> tuple[str, ...]:
     codes = {"disabled_7d"} if broken.disabled_on is not None else set()
+    active = await recovery.active_since(step)
+    if active is not None and active != day.settings.recovery_since:
+        codes.add("canary_terminated")  # Removing the profile or changing its epoch cannot bypass stored history.
     # Switching to the reference-table mode never clears a stopped canary.
     reasons = await rows.canary_extinguish_reasons(step, since=day.settings.canary_since)
     codes |= {"canary_terminated"} if summary.canary_terminated(reasons) else set()
+    if day.settings.recovery_since is not None and await recovery.halted(step, day.settings.recovery_since):
+        codes.add("canary_terminated")
     return summary.ordered_codes(codes)
 
 
@@ -175,10 +187,12 @@ async def open_batch(writer: LeasedWriter, day: Day, source: TaskSource, admissi
     async with writer.step() as step:
         batch = await rows.find_batch(step, day.target_date)
         if batch is not None and batch.plan is not None:
+            if day.settings.recovery_since is not None:
+                recovery.require_same_campaign(plan_of(batch), day.settings.recovery_since)
             return None if batch.finished or batch.outcome == "published" else batch
         plan = build_plan(day, source, await source.units(step, target_date=day.target_date))
-        figures = gate.overview(plan, day.limits, admission)
-        if not day.settings.canary or gate.admitted(figures):
+        figures = payload_overview(day, plan, admission)
+        if not (day.settings.canary or day.settings.recovery_since is not None) or gate.admitted(figures):
             return await _create(step, day, batch, _kept(plan, figures, late=batch is not None))
         await _refuse_payload(step, day, batch, figures)
     raise Refused(gate.refusal_text(figures))
@@ -371,6 +385,10 @@ async def _finish(writer: LeasedWriter, day: Day, ran: Ran, publish: Publish | N
         judged = await _judge(step, day, ran)
         codes = summary.session_codes(ran.machines.breaker, judged)
         document = _document(ran, judged)
+        if day.settings.recovery_since is not None:
+            document[recovery.KEY] = await recovery.certificate(step, ran.batch.id, ran.plan, document)
+            if ran.machines.breaker.day.extinguished:
+                codes = summary.ordered_codes({*codes, "canary_terminated"})
         published = Published(None) if day.settings.canary or publish is None else await publish(step, Finishing(ran, document, codes))
         codes = summary.ordered_codes({*codes, *published.codes})
         outcome = "published" if published.set_id is not None else "withheld"
@@ -416,6 +434,8 @@ async def run_session(
         logger.info("[pick-obs] trends %s is done already: nothing to do", day.target_date)
         return ExitCode.OK
     plan = plan_of(batch)
+    if day.settings.recovery_since is not None:
+        day = replace(day, limits=recovery.limits_for(day.limits, plan.notes))
     progress = Progress(batch, plan)
     store = DbStateStore(writer, cipher, limits=day.limits)
     executor = Executor(

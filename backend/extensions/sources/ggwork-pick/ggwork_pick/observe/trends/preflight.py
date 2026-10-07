@@ -29,8 +29,8 @@ from ggwork_pick.observe.errors import ExitCode, StateUnavailable
 from ggwork_pick.observe.instants import stamp
 from ggwork_pick.observe.lease import ReadStep, status_reader, stored_breaker
 from ggwork_pick.observe.trends import admission as gate
-from ggwork_pick.observe.trends import breaker, budget, capacity
-from ggwork_pick.observe.trends.run import TRENDS, Day, TaskSource, build_plan, refusal_codes, window_end_of
+from ggwork_pick.observe.trends import breaker, budget, capacity, recovery
+from ggwork_pick.observe.trends.run import TRENDS, Day, TaskSource, build_plan, payload_overview, refusal_codes, window_end_of
 from ggwork_pick.observe.trends.settings import Settings
 from ggwork_pick.observe.trends.units import SessionPlan
 
@@ -49,7 +49,8 @@ async def _breaker(step: ReadStep, target_date: date, now: datetime) -> breaker.
 def _estimates(plan: SessionPlan, day: Day) -> list[dict[str, Any]]:
     sizes = [unit.http for unit in plan.tasks.planned]
     params = day.settings.pace_params
-    found = (capacity.estimate(sizes, limits=day.limits, target_date=day.target_date, params=params, scenario=scenario) for scenario in capacity.SCENARIOS)
+    limits = recovery.limits_for(day.limits, plan.notes) if day.settings.recovery_since is not None else day.limits
+    found = (capacity.estimate(sizes, limits=limits, target_date=day.target_date, params=params, scenario=scenario) for scenario in capacity.SCENARIOS)
     return [estimate.summary() for estimate in found]
 
 
@@ -62,8 +63,8 @@ async def tonight(settings: Settings, source: TaskSource, *, now: datetime, envi
         refusals = await refusal_codes(step, day, broken)
         plan = build_plan(day, source, await source.units(step, target_date=target))
     start, deadline = day.limits.window(target)
-    figures = gate.overview(plan, day.limits, admission)
-    reasons = figures["reasons"] if settings.canary else []  # only a canary's payload is gated
+    figures = payload_overview(day, plan, admission)
+    reasons = figures["reasons"] if settings.canary or settings.recovery_since is not None else []
     return {
         "target_date": f"{target:%Y-%m-%d}",
         "mode": settings.mode,

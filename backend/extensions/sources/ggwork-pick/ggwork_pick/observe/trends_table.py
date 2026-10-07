@@ -112,6 +112,13 @@ class TableCounts(Frozen):
     pending: int
 
 
+class TableRecovery(Frozen):
+    since: Day
+    target: Literal[10, 30, 100]
+    qualified_nights: Annotated[int, Field(ge=0, le=3)]
+    qualified: bool | None
+
+
 class TableBatch(Frozen):
     batch_id: Short
     target_date: Day
@@ -126,6 +133,7 @@ class TableBatch(Frozen):
     catalog_batch_id: Annotated[str, Field(max_length=200)] | None
     sources: TableSources
     counts: TableCounts
+    daily_recovery: TableRecovery | None = None
 
 
 class TrendsTable(Frozen):
@@ -272,8 +280,16 @@ def table_of(batch: Mapping[str, Any], lines: Mapping[str, Mapping[str, Any]], n
         "catalog_batch_id": plan.catalog_batch_id,
         "sources": {"boards": list(notes.get("boards") or []), "revenue": _revenue_note(notes.get("revenue"))},
         "counts": _counts(rows),
+        "daily_recovery": _recovery_note(plan.notes.get("daily_recovery"), summary.get("daily_recovery")),
     }
     return header, rows, len(listed) > ROW_LIMIT
+
+
+def _recovery_note(planned: object, proof: object) -> dict | None:
+    if not isinstance(planned, Mapping):
+        return None
+    qualified = proof.get("qualified") if isinstance(proof, Mapping) else None
+    return {**{key: planned.get(key) for key in ("since", "target", "qualified_nights")}, "qualified": qualified if type(qualified) is bool else None}
 
 
 def _revenue_note(value: object) -> dict[str, Any] | None:
