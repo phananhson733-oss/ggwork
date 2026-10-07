@@ -1973,6 +1973,8 @@ Deleting a project moves its entire shelf to trash in the same step.
 
 ## Scheduled Tasks
 
+In this GGWork customization, the Scheduled tasks and 我的选剧 sidebar entries are temporarily unavailable. Both remain visible and show “暂未开放” (or “Not available yet” in English) when clicked, keeping the current page open. 选剧资料 remains accessible.
+
 DeerFlow now includes a first-class scheduled-task MVP in the workspace.
 
 Editing a one-time task's title or prompt preserves its original execution time, including seconds and the selected occurrence during a daylight-saving clock rollback. Changing its date, time, or timezone recalculates the execution time. Switching tasks while editing loads the selected task's own title, prompt, and schedule.

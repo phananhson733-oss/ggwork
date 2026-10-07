@@ -354,6 +354,7 @@ export interface Translations {
     demoChats: string;
     agents: string;
     scheduledTasks: string;
+    notOpenYet: string;
     channels: string;
   };
   // Sidebar projects section

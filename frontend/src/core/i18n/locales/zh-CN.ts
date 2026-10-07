@@ -434,6 +434,7 @@ export const zhCN: Translations = {
     demoChats: "演示对话",
     agents: "智能体",
     scheduledTasks: "定时任务",
+    notOpenYet: "暂未开放",
   },
 
   // 自定义智能体聊天中的知识库范围

@@ -464,6 +464,7 @@ export const enUS: Translations = {
     demoChats: "Demo chats",
     agents: "Agents",
     scheduledTasks: "Scheduled tasks",
+    notOpenYet: "Not available yet",
   },
 
   // Knowledge scope for custom-agent chat

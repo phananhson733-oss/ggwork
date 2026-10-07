@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { toast } from "sonner";
 
 import {
   SidebarGroup,
@@ -52,13 +53,11 @@ export function WorkspaceNavChatList() {
         )}
         <SidebarMenuItem>
           <SidebarMenuButton
-            isActive={pathname.startsWith("/workspace/scheduled-tasks")}
-            asChild
+            type="button"
+            onClick={() => toast.info(t.sidebar.notOpenYet)}
           >
-            <Link href="/workspace/scheduled-tasks">
-              <CalendarClock />
-              <span>{t.sidebar.scheduledTasks}</span>
-            </Link>
+            <CalendarClock />
+            <span>{t.sidebar.scheduledTasks}</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>
