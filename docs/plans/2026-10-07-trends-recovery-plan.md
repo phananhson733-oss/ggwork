@@ -1,5 +1,7 @@
 # Google Trends 完善与恢复计划
 
+2026-10-07 用户已确认采用 [日级分阶段恢复](2026-10-07-trends-daily-recovery.md)。该文件替代下文旧 canary 验收顺序；历史诊断与失败记录保留。
+
 状态：2026-10-07 用户明确本阶段只推进 Google Trends。团队制作流程暂缓；飞书多维表格写入保留为后续需求，暂不实施。本文件覆盖采集恢复和简化参考表，不重新引入 GSC 或智能体排序。
 
 实施入口见 [复用现有剧库的 Google Trends Spec](2026-10-07-trends-existing-catalog-implementation-spec.md)。该规格补充了旧 HTML 参考的取舍、目录候选预览、API 合同和分层验收；本文保留现场诊断与恢复门槛。

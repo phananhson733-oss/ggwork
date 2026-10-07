@@ -99,6 +99,15 @@ const batchSchema = z.object({
     not_fetched: count,
     pending: count,
   }),
+  daily_recovery: z
+    .object({
+      since: day,
+      target: z.union([z.literal(10), z.literal(30), z.literal(100)]),
+      qualified_nights: z.number().int().min(0).max(3),
+      qualified: z.boolean().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 
 export const trendsTableSchema = z.object({

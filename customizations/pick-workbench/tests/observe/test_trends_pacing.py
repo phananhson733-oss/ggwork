@@ -305,7 +305,7 @@ def test_default_params_are_design_4_2():
 def test_presets_are_the_one_source():
     """G3 seam 2: stage 0's --pace and the cron's PICK_OBS_TRENDS_PACE read the same named presets. user is the user's
     rhythm (a bucket of 4 refilled at 2 a minute) and differs from design in nothing else; the cron defaults to it."""
-    assert pacing.PRESETS == {"design": pacing.DESIGN_PARAMS, "user": pacing.USER_PARAMS}
+    assert pacing.PRESETS == {"design": pacing.DESIGN_PARAMS, "user": pacing.USER_PARAMS, "conservative": pacing.CONSERVATIVE_PARAMS}
     assert pacing.DESIGN_PARAMS == pacing.DEFAULT_PARAMS == pacing.PacingParams()
     assert pacing.USER_PARAMS == replace(pacing.DESIGN_PARAMS, bucket_capacity=4, refill_per_minute=2)
     assert pacing.PRODUCTION_PRESET == "user"

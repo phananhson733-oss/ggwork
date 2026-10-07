@@ -81,6 +81,13 @@ function Counts({ batch }: { batch: TrendsTableBatch }) {
 }
 
 function Header({ batch, last }: { batch: TrendsTableBatch; last: string }) {
+  const recovery = batch.daily_recovery;
+  const qualified = recovery
+    ? Math.min(
+        3,
+        recovery.qualified_nights + (recovery.qualified === true ? 1 : 0),
+      )
+    : 0;
   return (
     <section className={SECTION} data-trends-header="true">
       <h2 className={HEADING}>
@@ -88,6 +95,20 @@ function Header({ batch, last }: { batch: TrendsTableBatch; last: string }) {
         {nightOutcomeText(batch.outcome, batch.collecting)}）
       </h2>
       <Counts batch={batch} />
+      {recovery ? (
+        <p data-trends-recovery="true">
+          恢复验证：本晚目标 {recovery.target} 部，已通过 {qualified}/3
+          个有效夜晚。
+          {recovery.qualified === null
+            ? "本晚尚未完成资格核验。"
+            : recovery.qualified
+              ? "本晚通过资格核验。"
+              : "本晚未通过资格核验，不据此升级阶段。"}
+          {qualified === 3
+            ? "后续维持每天最多 100 部；停止提示仍然优先。"
+            : "只有完整且有真实请求与原始结果的夜晚才计入。"}
+        </p>
+      ) : null}
       <p className={MUTED}>
         {at(batch.started_at)} 开始采集
         {batch.finished_at ? `，${at(batch.finished_at)} 结束` : ""}

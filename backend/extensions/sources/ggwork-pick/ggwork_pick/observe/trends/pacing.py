@@ -18,12 +18,14 @@ Together that averages about 2.9 requests a minute. At half speed (after a succe
 doubles and the bucket refills at half the rate. The state is immutable and round-trips through a plain dict; time
 and randomness always come from the caller.
 
-Two named presets, the one source for stage 0's --pace and the cron's PICK_OBS_TRENDS_PACE (settings.py):
+Named presets, the one source for stage 0's --pace and the cron's PICK_OBS_TRENDS_PACE (settings.py):
 - design: the numbers above, design 4.2's envelope;
 - user: the user's own tested rhythm, a bucket of 4 refilled at 2 a minute, everything else as design. Stage 0's day 1
   met a 429 at the 56th request at the design's speed, and none at half of it. The production default (G3, seam 2):
   about 1.7 requests a minute with the rests, 0.9 at half speed. It limits the average rate; it is not a strict
   "four, then a minute's pause".
+- conservative: the approved daily recovery's bucket of 2, refill of 1/minute, 60/hour and 100-120s between units.
+  The cron accepts it only with an explicit daily recovery epoch and a fitting actual daily plan.
 """
 
 import math
@@ -66,9 +68,25 @@ class PacingParams:
 
 DESIGN_PARAMS = PacingParams()
 USER_PARAMS = replace(DESIGN_PARAMS, bucket_capacity=4, refill_per_minute=2)
-PRESETS: Mapping[str, PacingParams] = MappingProxyType({"design": DESIGN_PARAMS, "user": USER_PARAMS})
+CONSERVATIVE_PARAMS = replace(USER_PARAMS, bucket_capacity=2, refill_per_minute=1, hour_cap=60, inter_unit_seconds=(100, 120))
+PRESETS: Mapping[str, PacingParams] = MappingProxyType({"design": DESIGN_PARAMS, "user": USER_PARAMS, "conservative": CONSERVATIVE_PARAMS})
 PRODUCTION_PRESET = "user"  # the cron's default (settings.PICK_OBS_TRENDS_PACE)
 DEFAULT_PARAMS = DESIGN_PARAMS  # what a bare EnvelopePacer() paces at: stage 0's default and the TR-03 tests'
+
+
+def recovery_note() -> dict[str, Any]:
+    p = CONSERVATIVE_PARAMS
+    return {
+        "preset": "conservative",
+        "bucket_capacity": p.bucket_capacity,
+        "refill_per_minute": p.refill_per_minute,
+        "hour_cap": p.hour_cap,
+        "segment_minutes": p.segment_minutes,
+        "rest_minutes": p.rest_minutes,
+        "intra_unit_seconds": list(p.intra_unit_seconds),
+        "inter_unit_seconds": list(p.inter_unit_seconds),
+    }
+
 
 _KEYS = frozenset({"tokens", "settled_at", "recent", "segment_started_at", "last_done_at", "intra_gap", "unit_gap"})
 
