@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/core/auth/AuthProvider";
 import { importPickData, listPickBatches } from "@/core/pick/api";
 
+import { FeedbackStatus } from "./feedback-status";
 import { SyncStatus } from "./sync-status";
 
 export function DataImports() {
@@ -48,6 +49,7 @@ export function DataImports() {
         剧库用于筛选，知识资料用于解释规则。每次导入保存独立版本。
       </p>
       <SyncStatus />
+      <FeedbackStatus />
       <section className="bg-card space-y-4 rounded-lg border p-5">
         <label className="block text-sm">
           资料类型

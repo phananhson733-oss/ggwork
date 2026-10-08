@@ -20,6 +20,12 @@ TABLES = {
     "ggwp_selection_commands",
     "ggwp_sync_runs",
     "ggwp_answer_checks",
+    "ggwp_feedback_scopes",
+    "ggwp_feedback_versions",
+    "ggwp_feedback_records",
+    "ggwp_feedback_runs",
+    "ggwp_feedback_result_evidence",
+    "ggwp_feedback_identity_links",
     # Migration 0007: the observation radar (design 3.5's seventeen, then D12, D13, D26 and D27).
     "ggwp_obs_watch",
     "ggwp_obs_runtime",

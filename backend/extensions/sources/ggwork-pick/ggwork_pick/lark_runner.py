@@ -95,6 +95,13 @@ class Completed:
     truncated: bool = False
 
 
+@dataclass(frozen=True)
+class FeedbackExport:
+    completed: Completed
+    records: str = ""
+    manifest: str = ""
+
+
 def resolve_binary() -> str:
     """The Gateway's lark-cli; with a pinned image, only the pinned release."""
     with _CACHE_LOCK:
@@ -176,6 +183,61 @@ def run_guide(args: tuple[str, ...], *, timeout: float = HELP_TIMEOUT_SECONDS) -
 
 def run_for_user(user_id: str, args: tuple[str, ...], *, timeout: float = TIMEOUT_SECONDS) -> Completed:
     """One command with a private copy of ``user_id``'s credentials; keeps what lark-cli refreshed in it."""
+    return _run_user(user_id, args, timeout=timeout)
+
+
+def run_feedback_export(user_id: str, table_id: str, field_ids: tuple[str, ...], offset: int, *, timeout: float = TIMEOUT_SECONDS) -> FeedbackExport:
+    """Server-only fixed Base export. The general model tool still cannot read local artifacts."""
+    from ggwork_pick.feedback.contracts import BASE_TOKEN, TABLE_BY_ID
+
+    if table_id not in TABLE_BY_ID or type(offset) is not int or offset < 0:
+        raise ValueError("反馈表或分页参数无效")
+    if not 1 <= len(field_ids) <= 200 or any(not re.fullmatch(r"fld[A-Za-z0-9]+", value) for value in field_ids):
+        raise ValueError("反馈字段无效")
+    if not user_id or user_id in ("default", "system:shared"):
+        raise ValueError("缺少反馈用户身份")
+    if command_risk(("base", "+record-list")) != "read":
+        raise LarkUnavailable("无法核实反馈导出为只读")
+    projection = tuple(argument for field_id in field_ids for argument in ("--field-id", field_id))
+    args = (
+        "base",
+        "+record-list",
+        "--base-token",
+        BASE_TOKEN,
+        "--table-id",
+        table_id,
+        *projection,
+        "--offset",
+        str(offset),
+        "--limit",
+        "2000",
+        "--format",
+        "ndjson",
+        "--output",
+        "feedback.ndjson",
+        "--as",
+        "user",
+    )
+    return _run_user(user_id, args, timeout=timeout, export=True)
+
+
+def _read_feedback_file(work: Path, name: str) -> str:
+    if not stat.S_ISDIR(work.lstat().st_mode):
+        raise LarkUnavailable("反馈导出目录无效")
+    # The child has been reaped. Still refuse symlinks/devices and bound reads before parsing any contents.
+    descriptor = os.open(work / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        cap = 8 * 1024 * 1024
+        if not stat.S_ISREG(info.st_mode) or info.st_size > cap:
+            raise LarkUnavailable("反馈导出不是有界普通文件")
+        data = stream.read(cap + 1)
+        if len(data) > cap:
+            raise LarkUnavailable("反馈导出超过容量限制")
+        return data.decode("utf-8")
+
+
+def _run_user(user_id: str, args: tuple[str, ...], *, timeout: float, export: bool = False):
     binary, owner = resolve_binary(), run_as()
     deadline = time.monotonic() + timeout
     with _failures_as_unavailable("飞书凭据或 lark-cli 无法使用"), _user_lock(user_id, deadline), _slot(deadline):
@@ -188,6 +250,17 @@ def run_for_user(user_id: str, args: tuple[str, ...], *, timeout: float = TIMEOU
             _hand_over(scratch, owner)
             completed = _execute(binary, args, scratch, owner, deadline)
             _keep_changes(user_id, scratch, real, before)
+            if export:
+                if completed.exit_code != 0 or completed.truncated:
+                    return FeedbackExport(completed)
+                work = scratch / "work"
+                rows = _read_feedback_file(work, "feedback.ndjson")
+                # Accept only these two fixed suffix conventions, pending live CLI verification. Reject
+                # ambiguity rather than follow a path supplied in stdout; none come from model input.
+                candidates = [name for name in ("feedback.manifest.json", "feedback.ndjson.manifest.json") if (work / name).exists()]
+                if len(candidates) != 1:
+                    raise LarkUnavailable("反馈导出清单缺失或不唯一")
+                return FeedbackExport(completed, rows, _read_feedback_file(work, candidates[0]))
     return completed
 
 

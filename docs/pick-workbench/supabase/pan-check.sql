@@ -3,8 +3,9 @@
 -- find 出的线程（逗号隔开，没有就传空串），不传直接报错：
 --   psql "postgresql://deerflow_app.<ref>@aws-0-us-east-1.pooler.supabase.com:5432/postgres" -X -v disk_threads='<线程>' -f pan-check.sql
 -- 输出两张表，只有条数、线程 id 和属主，不输出命中的文本：
---   1. 工作台 43 个位置各有几行命中。前 39 个 pan-redact.sql 会清除：GSC 的查询词（ggwp_gsc_query_daily.query）整行删除，
---      其余就地改写；最后 4 个（知识正文、知识来源、候选的排除集合、旧页快照的跳转链）脚本不改，命中时停下来另议。
+--   1. 工作台 47 个位置各有几行命中。前 39 个 pan-redact.sql 会清除：GSC 的查询词（ggwp_gsc_query_daily.query）整行删除，
+--      其余就地改写；最后 8 个（知识正文/来源、候选排除集合、旧页跳转链、反馈清单/原始记录/冻结证据/身份依据）
+--      脚本不改，命中时停止并按来源属主处理，不能原地改写反馈内容哈希和历史证明。
 --      库还在迁移 0005 之前时，data_as_of_json、details_json、excluded_json 三列还不存在；还在迁移 0007 之前时，观察雷达的
 --      表和 obs_as_of_json 还不存在：这些位置照样列出、记 0。
 --   2. 含命中的线程、属主邮箱和命中所在：宿主的表，或者 .tool-results。宿主把超过阈值的工具输出整份写进线程目录下的
@@ -39,7 +40,8 @@ BEGIN READ ONLY;
 SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_candidate_sets'::regclass AND attname = 'data_as_of_json' AND NOT attisdropped) AS has_data_as_of,
        EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_sync_runs'::regclass AND attname = 'details_json' AND NOT attisdropped) AS has_details,
        EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_candidate_sets'::regclass AND attname = 'excluded_json' AND NOT attisdropped) AS has_excluded,
-       to_regclass('deerflow.ggwp_obs_sets') IS NOT NULL AS has_obs \gset
+       to_regclass('deerflow.ggwp_obs_sets') IS NOT NULL AS has_obs,
+       to_regclass('deerflow.ggwp_feedback_versions') IS NOT NULL AS has_feedback \gset
 -- JSON 列先转 jsonb 再转文本，\uXXXX 转义的中文还原成字符再匹配；与 pan-redact.sql 选行的条件相同
 SELECT location, count AS rows FROM (
             SELECT 1 AS n, 'ggwp_drama_versions.payload_json' AS location, count(*) FROM deerflow.ggwp_drama_versions WHERE payload_json::jsonb::text ~* :'pan'
@@ -134,6 +136,17 @@ SELECT location, count AS rows FROM (
   UNION ALL SELECT 43, 'ggwp_obs_legacy.hops_json', count(*) FROM deerflow.ggwp_obs_legacy WHERE hops_json::jsonb::text ~* :'pan'
 \else
   UNION ALL SELECT 43, 'ggwp_obs_legacy.hops_json', 0
+\endif
+\if :has_feedback
+  UNION ALL SELECT 44, 'ggwp_feedback_versions.manifest_json', count(*) FROM deerflow.ggwp_feedback_versions WHERE manifest_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 45, 'ggwp_feedback_records.values_json', count(*) FROM deerflow.ggwp_feedback_records WHERE values_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 46, 'ggwp_feedback_result_evidence.evidence_json', count(*) FROM deerflow.ggwp_feedback_result_evidence WHERE evidence_json::jsonb::text ~* :'pan'
+  UNION ALL SELECT 47, 'ggwp_feedback_identity_links.evidence_json', count(*) FROM deerflow.ggwp_feedback_identity_links WHERE evidence_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 44, 'ggwp_feedback_versions.manifest_json', 0
+  UNION ALL SELECT 45, 'ggwp_feedback_records.values_json', 0
+  UNION ALL SELECT 46, 'ggwp_feedback_result_evidence.evidence_json', 0
+  UNION ALL SELECT 47, 'ggwp_feedback_identity_links.evidence_json', 0
 \endif
 ) AS located ORDER BY n;
 -- 线程的 DELETE 接口会删掉下面每张表里这个线程的行（runs 只删 operation_kind = 'run' 的）和属主目录下的线程目录，

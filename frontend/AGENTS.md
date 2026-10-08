@@ -160,6 +160,8 @@ restore the exact original timestamp when those edits are reverted.
 
 ## Resources
 
+Operational pick feedback is optional on result notes, not on the strict candidate snapshot. `core/pick/feedback-schema.ts` validates decimal-string revenue and source provenance; `feedback-status.tsx` shows its separate owner-scoped refresh state beside catalogue sync. Keep missing distinct from measured zero, financial source/currency/grain separate, and source links on the fixed Feishu host. Abort old-user requests, stop polling terminal runs, and never show raw HTTP/JSON-decoding error bodies. The feature is disabled unless the backend enables it for that owner.
+
 - [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
 - [LangChain Core Concepts](https://js.langchain.com/docs/concepts)
 - [TanStack Query Documentation](https://tanstack.com/query/latest)

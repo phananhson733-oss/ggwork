@@ -458,6 +458,36 @@ def test_the_scripts_cover_every_json_column_of_the_workbench(workbench):
     assert sorted(columns) == sorted((table, column, "json") for table, _, column in [*JSON_COLUMNS, *KEPT_JSON_COLUMNS])
 
 
+def test_feedback_json_is_detected_without_rewriting_immutable_provenance(workbench):
+    payload = json.dumps({"note": "https://pan.quark.cn/s/synthetic-feedback"})
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_feedback_versions (id,owner_id,content_hash,scan_started_at,scan_completed_at,published_at,manifest_json)"
+        " VALUES ('fv-test','alice','synthetic-hash','2026-10-07','2026-10-07','2026-10-07',%s::json) RETURNING id",
+        payload,
+    )
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_feedback_records (version_id,table_id,record_id,values_json)"
+        " VALUES ('fv-test','tbl-test','rec-test',%s::json) RETURNING record_id",
+        payload,
+    )
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_feedback_result_evidence (result_id,owner_id,version_id,evidence_json,created_at)"
+        " VALUES ('result-test','alice','fv-test',%s::json,'2026-10-07') RETURNING result_id",
+        payload,
+    )
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_feedback_identity_links (owner_id,source_record_id,catalog_identity,method,evidence_json,confirmed_at)"
+        " VALUES ('alice','rec-test','synthetic','confirmed',%s::json,'2026-10-07') RETURNING source_record_id",
+        payload,
+    )
+    locations = [f"{table}.{column}" for table, _, column in KEPT_JSON_COLUMNS if table.startswith("ggwp_feedback_")]
+    assert len(locations) == 4
+    assert all(workbench.check()[0][location] == 1 for location in locations)
+    assert workbench.redact() == CLEARED_NONE
+    assert all(workbench.check()[0][location] == 1 for location in locations)
+    assert workbench.fetch("SELECT content_hash,manifest_json::text FROM deerflow.ggwp_feedback_versions") == [("synthetic-hash", payload)]
+
+
 @pytest.mark.asyncio
 async def test_text_escaped_as_unicode_escapes_is_found_and_redacted(workbench, service):
     # The host serializer keeps non-ASCII verbatim; a writer with ensure_ascii would store \\uXXXX escapes instead.

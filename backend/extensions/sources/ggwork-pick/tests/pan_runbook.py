@@ -84,7 +84,16 @@ DELETED_TEXT = [("ggwp_gsc_query_daily", "query")]
 KEPT_TEXT = [("ggwp_knowledge_versions", "text"), ("ggwp_knowledge_versions", "source_ref")]
 # Checked, never rewritten: the identities a query excluded, which 换一批 replays against, and the resolution hops of an
 # immutable legacy-page snapshot (design 5.5).
-KEPT_JSON_COLUMNS = [("ggwp_candidate_sets", "id", "excluded_json"), ("ggwp_obs_legacy", "snapshot_id, raw_url", "hops_json")]
+KEPT_JSON_COLUMNS = [
+    ("ggwp_candidate_sets", "id", "excluded_json"),
+    ("ggwp_obs_legacy", "snapshot_id, raw_url", "hops_json"),
+    # Feedback manifests/records are content-hashed and result evidence is immutable. Detect and stop for
+    # owner-scoped incident handling; a generic in-place replacement would silently falsify their provenance.
+    ("ggwp_feedback_versions", "id", "manifest_json"),
+    ("ggwp_feedback_records", "version_id, table_id, record_id", "values_json"),
+    ("ggwp_feedback_result_evidence", "result_id", "evidence_json"),
+    ("ggwp_feedback_identity_links", "owner_id, source_record_id", "evidence_json"),
+]
 # JSON keys whose string values pan-redact.sql never replaces: changing an identity or a request id would break what refers to it.
 REDACT_KEEPS_KEYS = ("identity", "source_id", "item_id", "citation_id", "request_id", "old_identity", "new_identity", "root_identity", "matched_identity")
 # What pan-redact.sql clears, in the order it prints one UPDATE (then DELETE) line for each; then what it leaves.

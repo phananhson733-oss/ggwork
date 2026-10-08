@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { feedbackReplySchema } from "./feedback-schema";
 import { day, postedLine } from "./format";
 import type { PickConditions, PickEvidence, PickItem } from "./types";
 
@@ -24,6 +25,7 @@ const relaxation = z.object({
 
 export const pickResultNotesSchema = z.object({
   item_facts: z.record(z.string(), facts),
+  feedback: feedbackReplySchema.optional(),
   zero_diagnosis: z
     .object({
       catalog_rows: z.number().int().nonnegative(),
