@@ -100,12 +100,10 @@ async def test_ready_export_is_exact_csv_and_retry_remains_frozen_after_edit(app
     assert download.content.startswith(b"\xef\xbb\xbf")
     assert hashlib.sha256(download.content).hexdigest() == receipt["sha256"]
     rows = list(csv.reader(io.StringIO(download.content.decode("utf-8-sig"))))
-    assert (
-        rows[0]
-        == "plan_id,plan_version,row_id,identity,source_result_id,source_item_id,title,theater,language,account,channel,local_time,timezone,scheduled_at,copy_text,note".split(
-            ","
-        )
-    )
+    assert rows[0] == (
+        "plan_id,plan_version,row_id,identity,source_result_id,source_item_id,title,theater,language,"
+        "account,channel,local_time,timezone,scheduled_at,copy_text,note"
+    ).split(",")
     assert rows[1] == [
         plan["id"],
         "1",

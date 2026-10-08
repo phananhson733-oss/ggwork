@@ -19,6 +19,12 @@ from ggwork_pick.query_reader import QueryFailure
 from ggwork_pick.repository import stamp
 
 
+class SourceConflict(QueryFailure):
+    def __init__(self, current_version):
+        super().__init__("version_conflict", "当前来源或规则版本已变化，请按当前草稿重新预览并确认")
+        self.current_version = current_version
+
+
 class PlanningExportService:
     def __init__(self, repository, query_service):
         self.repository, self.query = repository, query_service
@@ -36,7 +42,9 @@ class PlanningExportService:
         try:
             async with asyncio.timeout_at(deadline):
                 pin, facts, warnings = await current_facts(self.query, {r["identity"] for r in plan["rows"]}, deadline=deadline)
-        except (QueryFailure, TimeoutError, LookupError):
+        except QueryFailure as exc:
+            failure = f"当前必要来源不可完整读取：{exc}"
+        except (TimeoutError, LookupError):
             failure = "当前必要来源不可完整读取，请稍后重新预览"
         duplicates = Counter((r["identity"], r["account"], r["channel"]) for r in plan["rows"] if r["account"] and r["channel"])
         checks = []
@@ -47,6 +55,8 @@ class PlanningExportService:
             for field, label in (("account", "账号"), ("channel", "渠道"), ("scheduled_at", "有效排期时间")):
                 if not row[field] or not row[field].strip():
                     blockers.append(f"缺少{label}")
+            if pin is not None and pin.mirror_version is not None and row["channel"] not in (None, "youtube"):
+                blockers.append("当前镜像尚无此目标渠道的完整发布规则")
             fact = facts.get(row["identity"])
             if failure:
                 blockers.append(failure)
@@ -79,7 +89,7 @@ class PlanningExportService:
             await session.execute(text("LOCK TABLE ggwp_import_batches, pick_mirror.versions IN SHARE MODE"))
         current = pin_from_row((await session.execute(pin_statement(self.owner, session.bind.dialect.name))).one())
         if (current.catalog_id, current.knowledge_id, current.mirror_version) != (pin.catalog_batch_id, pin.knowledge_batch_id, pin.mirror_version):
-            raise PlanConflict(version)
+            raise SourceConflict(version)
 
     async def _bounded(self, operation, plan_id, body):
         deadline = asyncio.get_running_loop().time() + 10
@@ -152,7 +162,7 @@ class PlanningExportService:
         if not checks or any(c["status"] != "ready" for c in checks):
             raise QueryFailure("export_blocked", "当前必要执行依据不完整或已变化，请保留草稿并重新预览")
         if any(check["current_pin"] != pin.model_dump(mode="json") for check in preview["checks"]):
-            raise PlanConflict(plan["version"])
+            raise SourceConflict(plan["version"])
         data = execution_csv(plan)
         export_id = uuid4().hex
         result = PlanExport(

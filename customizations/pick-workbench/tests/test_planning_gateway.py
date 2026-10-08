@@ -1,5 +1,6 @@
 """Real loopback Gateway cookies/CSRF, using isolated SQLite and no configured models."""
 
+import asyncio
 import json
 import os
 import secrets
@@ -78,12 +79,78 @@ def test_plan_routes_use_real_gateway_authentication_and_csrf(tmp_path):
             assert client.patch("/api/pick/plans/" + plan["id"], json=patch).status_code == 403
             saved = client.patch("/api/pick/plans/" + plan["id"], headers={"X-CSRF-Token": csrf}, json=patch)
             assert saved.status_code == 200 and saved.json()["version"] == 2
+
+            # Seed a real owner-bound source card without configuring or invoking a model.
+            async def source_body():
+                from engines import host_engine
+                from sqlalchemy.ext.asyncio import async_sessionmaker
+
+                from ggwork_pick.imports import Importer
+                from ggwork_pick.repository import PickRepository
+                from ggwork_pick.selection import SelectionService
+
+                engine = host_engine(f"sqlite+aiosqlite:///{tmp_path / 'db' / 'deerflow.db'}")
+                try:
+                    repo = PickRepository(async_sessionmaker(engine), initialized.json()["id"])
+                    await Importer(repo, tmp_path / "pick").catalog(
+                        json.dumps(
+                            [
+                                {
+                                    "source": "synthetic",
+                                    "source_id": "gateway-export",
+                                    "title": "Gateway export",
+                                    "language": "en",
+                                    "availability": "active",
+                                    "channel_rules": {"youtube": "allowed"},
+                                }
+                            ]
+                        ).encode(),
+                        "json",
+                    )
+                    card = await SelectionService(repo).query({"limit": 1}, thread_id="gateway-export", run_id="gateway-export", call_id="source")
+                    item = card["items"][0]
+                    return {
+                        "request_id": "execution-plan",
+                        "title": "Execution",
+                        "timezone": "UTC",
+                        "rows": [
+                            {
+                                "row_id": "execution-row",
+                                "identity": item["identity"],
+                                "source_result_id": card["id"],
+                                "source_item_id": item["item_id"],
+                                "account": "Gateway account",
+                                "channel": "youtube",
+                                "local_time": "2026-10-15T09:00",
+                            }
+                        ],
+                    }
+                finally:
+                    await engine.dispose()
+
+            ready = client.post("/api/pick/plans", headers={"X-CSRF-Token": csrf}, json=asyncio.run(source_body()))
+            assert ready.status_code == 200, ready.text
+            path = "/api/pick/plans/" + ready.json()["id"]
+            preview_body = {"request_id": "gateway-preview", "expected_version": 1}
+            assert client.post(path + "/preview", json=preview_body).status_code == 403
+            preview = client.post(path + "/preview", headers={"X-CSRF-Token": csrf}, json=preview_body)
+            assert preview.status_code == 200 and preview.json()["exportable"] is True
+            export_body = {"request_id": "gateway-export", "expected_version": 1, "preview_id": preview.json()["preview_id"]}
+            assert client.post(path + "/exports", json=export_body).status_code == 403
+            exported = client.post(path + "/exports", headers={"X-CSRF-Token": csrf}, json=export_body)
+            assert exported.status_code == 200, exported.text
+            download_path = "/api/pick/exports/" + exported.json()["id"]
+            download = client.get(download_path)
+            assert download.status_code == 200 and download.content.startswith(b"\xef\xbb\xbf")
             with httpx.Client(base_url=origin, timeout=10, trust_env=False) as other:
                 assert other.get("/api/pick/plans/" + plan["id"]).status_code == 401
+                assert other.get(download_path).status_code == 401
                 registered = other.post("/api/v1/auth/register", json={"email": "planning-other@example.com", "password": password})
                 assert registered.status_code == 201
                 assert other.get("/api/pick/plans/" + plan["id"]).status_code == 404
                 assert other.get("/api/pick/plans").json()["items"] == []
+                assert other.get(download_path).status_code == 404
+                assert other.post(path + "/exports", headers={"X-CSRF-Token": other.cookies.get("csrf_token")}, json=export_body).status_code == 404
                 assert other.patch("/api/pick/plans/" + plan["id"], headers={"X-CSRF-Token": other.cookies.get("csrf_token")}, json=patch).status_code == 404
     finally:
         process.terminate()

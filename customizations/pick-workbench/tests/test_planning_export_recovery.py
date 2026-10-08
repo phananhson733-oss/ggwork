@@ -228,3 +228,57 @@ async def test_asgi_disconnect_cancels_actual_source_read_and_allows_clean_retry
         event.remove(engine, "after_cursor_execute", pause)
     retried = await client.post(path, headers={"test-owner": "alice"}, json=body)
     assert retried.status_code == 200 and retried.json()["exportable"] is True
+
+
+@pytest.mark.asyncio
+async def test_source_publication_during_validation_requires_new_confirmation(app_client):
+    import json
+
+    from sqlalchemy import event
+    from sqlalchemy.util import await_only
+
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import CATALOG_CACHE, PickRepository
+
+    client, service = app_client
+    h = {"test-owner": "alice"}
+    plan = await ready_plan(client, service)
+    path = f"/api/pick/plans/{plan['id']}/preview"
+    entered, release = asyncio.Event(), asyncio.Event()
+    engine = service.session_factory.kw["bind"].sync_engine
+    CATALOG_CACHE.clear()
+    armed = True
+
+    def pause(conn, cursor, statement, parameters, context, executemany):
+        nonlocal armed
+        if armed and statement.startswith("SELECT") and "FROM ggwp_drama_versions" in statement:
+            armed = False
+            entered.set()
+            await_only(release.wait())
+
+    event.listen(engine, "after_cursor_execute", pause)
+    body = {"request_id": "publish-during-read", "expected_version": 1}
+    pending = asyncio.create_task(client.post(path, headers=h, json=body))
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        row = {
+            "source": "synthetic",
+            "source_id": "export-1",
+            "title": "New permission",
+            "language": "en",
+            "theater": "Example",
+            "availability": "active",
+            "channel_rules": {"youtube": "denied"},
+        }
+        await Importer(PickRepository.shared(service.session_factory), service.data_dir).catalog(json.dumps([row]).encode(), "json")
+        release.set()
+        refused = await pending
+        assert refused.status_code == 409 and refused.json()["detail"]["code"] == "version_conflict"
+    finally:
+        release.set()
+        if not pending.done():
+            pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        event.remove(engine, "after_cursor_execute", pause)
+    fresh = (await client.post(path, headers=h, json=body)).json()
+    assert fresh["exportable"] is False and any("不允许" in b for b in fresh["checks"][0]["blockers"])
