@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from deerflow.runtime.user_context import resolve_runtime_user_id
 from deerflow_extension_api import TaskInfo, task_store_from_runtime
+from deerflow_extension_api.pick_publication import PickPublication
 
 from ggwork_pick.answer_check import Seen
 from ggwork_pick.answer_evidence import AnswerEvidence
@@ -66,6 +67,7 @@ class PickTask:
     plugin_read: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     budget: float = field(default_factory=run_seconds)
+    publication: PickPublication | None = None
 
     def __post_init__(self) -> None:
         if self.deadline is None:
@@ -130,7 +132,21 @@ class PickLifecycle:
         self.service = service
 
     async def on_task_start(self, app_store, task_store, info):
-        task_store.set(PickTask(self.service, info))
+        from deerflow_extension_api.pick_publication import PickCompletionMetadata
+
+        from ggwork_pick.answer_check import incomplete_publication
+
+        publication = task_store.get(PickPublication)
+        task = PickTask(self.service, info)
+        if publication is not None and info.kind == "lead":
+            fallback = incomplete_publication(thread_id=info.thread_id, run_id=info.run_id, message_id=publication.message_id)
+            publication.prepare(
+                fallback.content, PickCompletionMetadata(fallback.status, fallback.checker_version, fallback.checked_at, fallback.correction_count)
+            )
+            task.publication = publication
+            if publication.deadline is not None:
+                task.deadline = min(task.deadline, publication.deadline)
+        task_store.set(task)
 
     async def on_task_stop(self, app_store, task_store, info, outcome):
         task_store.remove(PickTask)

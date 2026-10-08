@@ -140,6 +140,7 @@ _SERVER_OWNED_MESSAGE_METADATA_KEYS = (
             # A replayed message carrying it back would write a thread-scoped seq
             # into the checkpoint, which a fork then re-seeds and reassigns (#4380).
             MESSAGE_SEQ_KEY,
+            "pick_completion",
             # The transient project-context request message marker (spec §12):
             # a client-supplied copy must never survive into a run, where the
             # renderer would treat the message as its own.
