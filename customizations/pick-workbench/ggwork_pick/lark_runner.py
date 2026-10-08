@@ -412,18 +412,32 @@ def _run_process(args: list[str], *, timeout: float, deadline: float | None = No
         raise subprocess.TimeoutExpired(args, timeout)
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **options)  # noqa: S603 - argv list, no shell, checked by lark_policy
     out, err = _Capped(process.stdout), _Capped(process.stderr)
+    completed = False
     try:
         remaining = timeout if deadline is None else max(0.0, min(timeout, deadline - time.monotonic()))
         returncode = process.wait(timeout=remaining)
-    except subprocess.TimeoutExpired:
-        _kill(process, group=bool(options.get("start_new_session")))
-        process.wait(timeout=_DRAIN_SECONDS)
-        raise
-    finally:
-        # The reader threads close the pipes once they end; closing them here would wait on a blocked read.
         drained = time.monotonic() + _DRAIN_SECONDS
+        if deadline is not None:
+            drained = min(drained, deadline)
         stdout, stderr = out.text(until=drained), err.text(until=drained)
-    return subprocess.CompletedProcess(args, returncode, stdout, stderr)
+        if deadline is not None and (not out.finished or not err.finished):
+            # A successful parent can leave children holding its output pipes.
+            # Partial output after the deadline is not a successful probe/read.
+            raise subprocess.TimeoutExpired(args, timeout)
+        completed = True
+        return subprocess.CompletedProcess(args, returncode, stdout, stderr)
+    finally:
+        if deadline is not None or not completed:
+            # Deadline-bound commands own their entire process group, including
+            # children whose parent exited successfully or closed its pipes.
+            _kill(process, group=bool(options.get("start_new_session")))
+            cleanup_until = time.monotonic() + _DRAIN_SECONDS
+            try:
+                process.wait(timeout=max(0.0, cleanup_until - time.monotonic()))
+            finally:
+                # One shared bounded cleanup budget for reap and both drains.
+                out.text(until=cleanup_until)
+                err.text(until=cleanup_until)
 
 
 class _Capped:
@@ -441,6 +455,10 @@ class _Capped:
                 room = MAX_OUTPUT_BYTES - len(self._kept)
                 if room > 0:
                     self._kept += chunk[:room]
+
+    @property
+    def finished(self) -> bool:
+        return not self._thread.is_alive()
 
     def text(self, *, until: float) -> str:
         self._thread.join(max(0.0, until - time.monotonic()))

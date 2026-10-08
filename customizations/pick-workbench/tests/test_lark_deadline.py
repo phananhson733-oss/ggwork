@@ -116,7 +116,8 @@ async def test_expired_ordinary_await_kills_process_group_cleans_scratch_and_reu
 
 
 @pytest.mark.asyncio
-async def test_cancelled_cold_probe_uses_remaining_deadline_and_never_starts_command(monkeypatch, tmp_path, worker_finished):
+@pytest.mark.parametrize("parent_exits_first", [False, True])
+async def test_cancelled_cold_probe_uses_remaining_deadline_and_never_starts_command(monkeypatch, tmp_path, worker_finished, parent_exits_first):
     ready, command = tmp_path / "probe.json", tmp_path / "command-started"
     survived = tmp_path / "probe-descendant-survived"
     child_ready = tmp_path / "probe-child-ready"
@@ -133,8 +134,7 @@ async def test_cancelled_cold_probe_uses_remaining_deadline_and_never_starts_com
         f"    ready = Path({str(ready)!r})\n"
         "    pending = ready.with_suffix('.tmp')\n"
         "    pending.write_text(json.dumps({'pid':os.getpid(), 'child':child.pid}))\n"
-        "    pending.replace(ready)\n    threading.Event().wait(30)\n"
-        "else:\n"
+        "    pending.replace(ready)\n" + ("    print('0.0.0', flush=True)\n" if parent_exits_first else "    threading.Event().wait(30)\n") + "else:\n"
         f"    Path({str(command)!r}).write_text('must not start')\n",
         encoding="utf-8",
     )
@@ -168,7 +168,8 @@ async def test_cancelled_cold_probe_uses_remaining_deadline_and_never_starts_com
                 except ProcessLookupError:
                     break
                 await asyncio.sleep(0.01)
-        assert await asyncio.to_thread(worker_finished.wait, 1), "probe worker is still waiting on descendant pipes"
+        remaining = max(0.0, task.ordinary_deadline - asyncio.get_running_loop().time())
+        assert await asyncio.to_thread(worker_finished.wait, remaining + 1), "probe worker is still waiting on descendant pipes"
         assert 18 < task.remaining() <= 20
         assert not command.exists()
         await asyncio.sleep(1.9)
