@@ -25,6 +25,7 @@ async def test_incomplete_draft_preview_blocks_whole_export_and_preserves_draft(
 
 async def ready_plan(client, service, *, title="=Synthetic", availability="active", permission="allowed"):
     import json
+
     from ggwork_pick.imports import Importer
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.selection import SelectionService
@@ -78,6 +79,7 @@ async def test_ready_export_is_exact_csv_and_retry_remains_frozen_after_edit(app
     import csv
     import hashlib
     import io
+
     from test_planning import editable
 
     client, service = app_client
@@ -133,6 +135,7 @@ async def test_ready_export_is_exact_csv_and_retry_remains_frozen_after_edit(app
 @pytest.mark.parametrize("change", ["denied", "delisted", "unknown", "missing", "new_allowed_pin"])
 async def test_export_rechecks_current_source_and_never_turns_old_preview_into_authority(app_client, change):
     import json
+
     from ggwork_pick.imports import Importer
     from ggwork_pick.repository import PickRepository
 
@@ -190,3 +193,28 @@ async def test_export_commands_owner_binding_empty_plan_and_exact_retry(app_clie
     assert ep.json()["exportable"] is False and ep.json()["checks"] == []
     wrong = await client.post(f"/api/pick/plans/{empty['id']}/exports", headers=headers, json={**body, "request_id": "wrong-plan"})
     assert wrong.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_same_account_identity_duplicates_block_but_source_age_only_warns(app_client):
+    from sqlalchemy import update
+    from test_planning import editable
+
+    from ggwork_pick.models import import_batches
+
+    client, service = app_client
+    h = {"test-owner": "alice"}
+    plan = await ready_plan(client, service)
+    async with service.session_factory() as session, session.begin():
+        await session.execute(
+            update(import_batches).where(import_batches.c.id == plan["rows"][0]["source_pin"]["catalog_batch_id"]).values(source_as_of="2020-01-01T00:00:00Z")
+        )
+    path = f"/api/pick/plans/{plan['id']}"
+    old = (await client.post(path + "/preview", headers=h, json={"request_id": "old-data", "expected_version": 1})).json()
+    assert old["exportable"] is True and old["checks"][0]["warnings"]
+    patch = {**editable(plan), "request_id": "duplicate", "expected_version": 1}
+    patch["rows"].append({**patch["rows"][0], "row_id": "row-b", "local_time": "2026-11-02T09:00", "fold": None})
+    assert (await client.patch(path, headers=h, json=patch)).status_code == 200
+    duplicate = (await client.post(path + "/preview", headers=h, json={"request_id": "duplicate-check", "expected_version": 2})).json()
+    assert duplicate["exportable"] is False
+    assert all(any("重复" in reason for reason in check["blockers"]) for check in duplicate["checks"])

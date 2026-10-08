@@ -1,7 +1,8 @@
 """Current mandatory execution facts, bounded to the plan's exact identities."""
 
 from ggwork_pick.completion_contracts import CommonQuery
-from ggwork_pick.contracts import DramaInput
+from ggwork_pick.contracts import DramaInput, PickConditions
+from ggwork_pick.freshness import data_notices
 
 
 async def current_facts(query_service, identities, *, deadline):
@@ -19,4 +20,5 @@ async def current_facts(query_service, identities, *, deadline):
         drama = DramaInput.model_validate({k: v for k, v in raw.items() if k in DramaInput.model_fields})
         if drama.identity in identities:
             facts[drama.identity] = drama
-    return result.pin, facts
+    ages = await query_service.repository.data_as_of(result.pin.catalog_batch_id)
+    return result.pin, facts, data_notices(ages, [], PickConditions())

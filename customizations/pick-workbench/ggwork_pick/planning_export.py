@@ -4,6 +4,7 @@ import asyncio
 import csv
 import hashlib
 import io
+from collections import Counter
 from uuid import uuid4
 
 from sqlalchemy import insert, select, text
@@ -31,15 +32,18 @@ class PlanningExportService:
         return plan
 
     async def _checks(self, plan, deadline):
-        pin, facts, failure = None, {}, None
+        pin, facts, failure, warnings = None, {}, None, []
         try:
             async with asyncio.timeout_at(deadline):
-                pin, facts = await current_facts(self.query, {r["identity"] for r in plan["rows"]}, deadline=deadline)
+                pin, facts, warnings = await current_facts(self.query, {r["identity"] for r in plan["rows"]}, deadline=deadline)
         except (QueryFailure, TimeoutError, LookupError):
             failure = "当前必要来源不可完整读取，请稍后重新预览"
+        duplicates = Counter((r["identity"], r["account"], r["channel"]) for r in plan["rows"] if r["account"] and r["channel"])
         checks = []
         for row in plan["rows"]:
             blockers = []
+            if duplicates[(row["identity"], row["account"], row["channel"])] > 1:
+                blockers.append("同一账号与渠道重复安排此完整剧目身份，请确认后移除重复行")
             for field, label in (("account", "账号"), ("channel", "渠道"), ("scheduled_at", "有效排期时间")):
                 if not row[field] or not row[field].strip():
                     blockers.append(f"缺少{label}")
@@ -58,7 +62,7 @@ class PlanningExportService:
                     "row_id": row["row_id"],
                     "status": "blocked" if blockers else "ready",
                     "blockers": blockers,
-                    "warnings": [],
+                    "warnings": warnings[:30],
                     "current_pin": pin.model_dump(mode="json") if pin else None,
                 }
             )
