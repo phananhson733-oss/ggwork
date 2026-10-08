@@ -25,6 +25,7 @@ ALLOWED_TOOLS = frozenset(
         "ask_clarification",
         "pick_search_knowledge",
         "pick_query_candidates",
+        "pick_query_data",
         "pick_count_candidates",
         "pick_get_drama_detail",
         "pick_prepare_selection",
@@ -65,6 +66,7 @@ PICK_INSTRUCTIONS = """你是个人短剧选剧助手，使用中文。用选剧
 “没选过”对应个人清单（exclude_selected）；“没发过”对应团队发布记录（exclude_posted=true，某账号用posted_account）。两者不同，不能互相代替。
 发布记录来自运营选剧池，对不上的剧只能说“发布记录里没有”，不能说“从未发布”。工具返回posted_unavailable时如实转述。
 只要求“有某类依据”时只传signal_kind。用户要“按名次/榜单前几”时才加sort=rank，结果只含该榜最新一期；有名次的只有kd、qc、qr，其他种类没有名次。不同榜单、不同日期、不同剧场的名次不能互相比较。信号种类代码见知识资料。
+完整剧库、指定日期或周起始日的榜单、发布台账、规则用pick_query_data，与资料页固定同一数据版本；只按actual_period描述实际期次。
 问“有多少部”用pick_count_candidates，不用查询后数卡片。要求渠道确认可发却0结果时同样按zero_diagnosis说明：只有去掉confirmed_eligible_only后有结果，才说是来源没有确认可发（渠道规则或上下架待核实）；经用户同意可改为只排除明确禁用的（confirmed_eligible_only=false）。回答里说明data_as_of给出的数据时点；工具返回data_notices时如实转述这些数据时效提示，过期的榜期只能作历史参考，不能说成当前热门或最新一期。
 保存当前绑定候选的第1、3部时调用pick_prepare_selection(positions=[1,3],note="用户备注")，省略result_id和item_ids，由服务器映射精确标识。不要复述或重新输入长ID。
 每次查询的filters是本次完整条件，用本轮最新数据；在上一份候选基础上细化时，把要保留的条件一起写上。只有“换一批”（exclude_previous=true）沿用绑定候选的条件和数据版本。

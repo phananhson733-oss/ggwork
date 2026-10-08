@@ -8,6 +8,7 @@ from langchain.tools import tool
 from pydantic import Field
 
 from ggwork_pick.answer_check import with_posted
+from ggwork_pick.completion_contracts import CommonQuery, QueryPin
 from ggwork_pick.context import task_from_runtime
 from ggwork_pick.contracts import PickConditions
 from ggwork_pick.knowledge_excerpts import MAX_EXCERPTS, choose_excerpts, fit
@@ -136,7 +137,7 @@ async def query_candidates_tool(
         async def feedback_builder(record):
             return await candidate_feedback(task, repo, record, feedback_pin)
 
-        result, record = await SelectionService(repo).query_with_record(
+        result, record = await SelectionService(repo, query_service=task.service.common_query(repo), deadline=task.deadline).query_with_record(
             requested,
             thread_id=task.info.thread_id,
             run_id=task.info.run_id,
@@ -192,7 +193,9 @@ async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> st
         parent = await _bound_parent(task, repo, requested)
         # data_as_of comes with the count: the parent's frozen value for 换一批, the run's pin otherwise; so does the
         # mirror version while the P4-1 switch is on.
-        counted = await SelectionService(repo).count(requested, parent=parent, pinned_versions=task.pin(), emit_mirror_version=_emits_mirror_version(task))
+        counted = await SelectionService(repo, query_service=task.service.common_query(repo), deadline=task.deadline).count(
+            requested, parent=parent, pinned_versions=task.pin(), emit_mirror_version=_emits_mirror_version(task)
+        )
         if PickConditions.model_validate(counted["conditions"]).filters_posted:
             task.posted_checked = True
         return json.dumps(_capture(task, runtime, "pick_count_candidates", counted), ensure_ascii=False)
@@ -342,3 +345,36 @@ async def search_knowledge_tool(query: str, runtime: Runtime) -> str:
     result = {"documents": [_knowledge_entry(task, ranked[found.index], found.start, found.end, found.truncated) for found in chosen]}
     omitted += len(scored) - len(ranked)
     return json.dumps({**result, "omitted": omitted} if omitted else result, ensure_ascii=False)
+
+
+@tool("pick_query_data")
+async def query_data_tool(query: CommonQuery, runtime: Runtime) -> str:
+    """与选剧资料页使用相同固定版本，查询 candidates/catalog/rankings/posted/rules。
+    完整剧库用 scope=full_catalog；历史榜单明确 rank 与 period 日期，周榜日期为周起始日。
+    只用返回的 actual_period 描述实际期次；posted_status=unknown 不可说从未发布。
+    此工具只读，不创建候选卡；保存候选请用 pick_query_candidates。不要自行设置 pin。
+    """
+    task = task_from_runtime(runtime)
+    repo = await task.repository(runtime)
+
+    async def work():
+        from ggwork_pick.query_service import rule_id
+        from ggwork_pick.selection import RULE_VERSION
+
+        request = CommonQuery.model_validate(query)
+        if task.catalog_id is None:
+            return _catalog_unavailable()
+        pin = QueryPin(
+            catalog_batch_id=task.catalog_id,
+            knowledge_batch_id=task.knowledge_id,
+            mirror_version=task.mirror_version,
+            rule_version=rule_id(task.mirror_version) if task.mirror_version else RULE_VERSION,
+        )
+        if request.pin is not None and request.pin != pin:
+            raise ValueError("查询版本与本轮已固定的数据版本不一致")
+        request = request.model_copy(update={"pin": pin})
+        response = await task.service.common_query(repo).query(request, deadline=task.deadline)
+        payload = response.model_dump(mode="json")
+        return json.dumps(_capture(task, runtime, "pick_query_data", payload), ensure_ascii=False, separators=(",", ":"))
+
+    return await _answer(work, task=task, runtime=runtime, tool_name="pick_query_data")

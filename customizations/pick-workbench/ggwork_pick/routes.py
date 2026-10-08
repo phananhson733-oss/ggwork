@@ -13,12 +13,14 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import Field, ValidationError
 
+from ggwork_pick.completion_contracts import CommonQuery, CompletionError, QueryResponse
 from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.mirror.status import mirror_status
 from ggwork_pick.observe.status import obs_status
 from ggwork_pick.observe.trends_candidates import trends_candidates
 from ggwork_pick.observe.trends_table import trends_table
+from ggwork_pick.query_reader import QueryFailure
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import NotesGone, ReplayGone, ReplayUnrunnable, SelectionService, result_view
 
@@ -163,6 +165,25 @@ def build_router(service):
     from ggwork_pick.feedback.routes import register_feedback_routes
 
     register_feedback_routes(router, service, repository)
+
+    @router.post("/query", response_model=QueryResponse)
+    async def common_query(body: CommonQuery, request: Request):
+        repo = repository(request)
+        try:
+            return await service.common_query(repo).query(body)
+        except QueryFailure as exc:
+            status = {
+                "invalid_query": 422,
+                "not_found": 404,
+                "version_gone": 410,
+                "source_unavailable": 503,
+                "query_timeout": 504,
+                "version_conflict": 409,
+                "period_missing": 422,
+            }[exc.code]
+            raise HTTPException(status, CompletionError(code=exc.code, message=str(exc), retryable=exc.retryable).model_dump()) from None
+        except LookupError:
+            raise HTTPException(404, CompletionError(code="not_found", message="查询引用不存在", retryable=False).model_dump()) from None
 
     @router.get("/sync")
     async def sync_status(request: Request):

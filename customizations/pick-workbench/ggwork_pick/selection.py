@@ -368,8 +368,10 @@ def _request_hash(conditions: PickConditions, parent_result_id: str | None, use_
 
 
 class SelectionService:
-    def __init__(self, repository: PickRepository):
+    def __init__(self, repository: PickRepository, *, query_service=None, deadline=None):
         self.repository = repository
+        self.query_service = query_service
+        self.deadline = deadline
 
     async def _parent(self, parent_result_id: str | None, thread_id: str) -> dict | None:
         if not parent_result_id:
@@ -442,6 +444,8 @@ class SelectionService:
     async def _matched_in_scope(self, rows, conditions: PickConditions, excluded, pin: Pin):
         """Only called after catalog_rows has checked ownership and loaded this Pin's rows."""
         try:
+            if self.query_service is not None:
+                return await self.query_service.candidate_matches(rows, conditions, excluded, pin, deadline=self.deadline)
             return matching_rows(rows, conditions, excluded)
         except ValueError as exc:
             refused = PostedDataUnavailable if isinstance(exc, PostedDataUnavailable) else CatalogRefusal

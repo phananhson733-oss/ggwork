@@ -112,6 +112,7 @@ class PickService:
     ):
         self.data_dir = data_dir
         self.run_evidence_reader = None
+        self.query_reader = None
         self.session_factory: async_sessionmaker | None = None
         self.sync_settings = sync_settings or SyncSettings()
         self.sync_transport = None
@@ -122,6 +123,14 @@ class PickService:
         self.feedback_settings = feedback_settings or FeedbackSettings()
         self.feedback: FeedbackSyncService | None = None
         self.feedback_scheduler: asyncio.Task | None = None
+
+    def common_query(self, repository):
+        from ggwork_pick.query_reader import QueryReader
+        from ggwork_pick.query_service import CommonQueryService
+
+        if self.query_reader is None:
+            self.query_reader = QueryReader.from_env()
+        return CommonQueryService(repository, self.query_reader)
 
     def _engine(self):
         return self.session_factory.kw.get("bind") if self.session_factory is not None else None
@@ -224,6 +233,8 @@ class PickService:
             self.feedback_scheduler = asyncio.create_task(run_feedback_schedule(self.feedback))
 
     async def stop(self) -> None:
+        if self.query_reader is not None:
+            await self.query_reader.close()
         if self.feedback_scheduler is not None:
             self.feedback_scheduler.cancel()
             await asyncio.gather(self.feedback_scheduler, return_exceptions=True)

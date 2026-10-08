@@ -610,6 +610,36 @@ export const rulesSchema = z
   })
   .strict();
 
+const mirrorScalar = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const mirrorSourceSchema = z
+  .object({
+    source: mirrorScalar,
+    status: mirrorScalar,
+    attemptedAt: mirrorScalar,
+    completedAt: mirrorScalar,
+    details: z
+      .object({
+        startDate: mirrorScalar.optional(),
+        endDate: mirrorScalar.optional(),
+        timezone: mirrorScalar.optional(),
+        dataState: mirrorScalar.optional(),
+        rows: mirrorScalar.optional(),
+        expectedRows: mirrorScalar.optional(),
+        unresolvedPages: mirrorScalar.optional(),
+        unmatchedQueries: mirrorScalar.optional(),
+        pageRows: mirrorScalar.optional(),
+        queryRows: mirrorScalar.optional(),
+        truncated: mirrorScalar.optional(),
+        partial: mirrorScalar.optional(),
+        scope: mirrorScalar.optional(),
+        ratio: mirrorScalar.optional(),
+        billPeriod: mirrorScalar.optional(),
+        termsFetchedAt: mirrorScalar.optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const queryBoardDataSchema = z
   .object({
     catalog_rows: z.array(catalogRowsRowSchema).max(200).default([]),
@@ -617,7 +647,112 @@ export const queryBoardDataSchema = z
     posted: z.array(catalogPostedRowSchema).max(1000).default([]),
     accounts: z.array(catalogAccountsRowSchema).max(1000).default([]),
     rs_rows: z.array(rsRowsRowSchema).max(200).default([]),
+    rs_ids: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            canonical_id: z.string().nullable(),
+            locale: z.string(),
+            slug: z.string(),
+            title: z.string(),
+            chapter_count: z.number().int(),
+            pay_start: z.number().int(),
+            is_public_canonical: z.boolean(),
+          })
+          .strict(),
+      )
+      .max(10000)
+      .default([]),
     bill_orders: z.array(rsBillOrdersRowSchema).max(200).default([]),
+    rs_counts: z
+      .object({
+        all: mirrorScalar,
+        cand: mirrorScalar,
+        growthD1: mirrorScalar,
+        growthD7: mirrorScalar,
+        growthDp1: mirrorScalar,
+        growthDp7: mirrorScalar,
+        pc: mirrorScalar,
+        clk: mirrorScalar,
+        gsc: mirrorScalar,
+        bill: mirrorScalar,
+        ledger: mirrorScalar,
+      })
+      .strict()
+      .nullable()
+      .default(null),
+    growth_baseline: z
+      .record(
+        z.string(),
+        z
+          .object({
+            baselineDay: mirrorScalar,
+            baselineSnapshot: mirrorScalar,
+            earliestVerifiedOn: mirrorScalar,
+          })
+          .strict(),
+      )
+      .default({}),
+    sources: z.record(z.string(), mirrorSourceSchema).default({}),
+    posted_stats: z
+      .object({
+        total: mirrorScalar,
+        pubCount: mirrorScalar,
+        postsSum: mirrorScalar,
+        viewsSum: mirrorScalar,
+        metricAt: mirrorScalar,
+        importedAt: mirrorScalar,
+        accountCount: mirrorScalar,
+      })
+      .strict()
+      .nullable()
+      .default(null),
+    rank_rows: z
+      .array(
+        z
+          .object({
+            row_key: z.string().min(1).max(512),
+            signal: catalogSignalsRowSchema,
+            day_rank: z.number().int().nullable().default(null),
+            day_note: z.string().default(""),
+          })
+          .strict(),
+      )
+      .max(200)
+      .default([]),
+    bill_rows: z
+      .array(
+        z
+          .object({
+            bill_date: z.string(),
+            book_id: z.string(),
+            promotion_type: z.string(),
+            canonical_id: z.string().nullable(),
+            title: z.string(),
+            locale: z.string().nullable(),
+            order_cnt: z.number().int(),
+            source_rows: z.number().int(),
+            same_day_clicks: z.number().int(),
+          })
+          .strict(),
+      )
+      .max(200)
+      .default([]),
+    bill_totals: z
+      .object({
+        rows: z.number().int().min(0),
+        merged_rows: z.number().int().min(0),
+        orders: z.number().int().min(0),
+        merged_with_clicks: z.number().int().min(0),
+        rows_with_clicks: z.number().int().min(0),
+      })
+      .strict()
+      .nullable()
+      .default(null),
+    effective_sort: z.string().nullable().default(null),
+    legacy_total: z.number().int().min(0).nullable().default(null),
+    rank_limit: z.number().int().min(0).nullable().default(null),
     rules: z.union([rulesSchema, z.null()]).default(null),
     row_keys: z.array(z.string().min(1).max(512)).max(200).default([]),
   })
@@ -625,6 +760,7 @@ export const queryBoardDataSchema = z
 
 export const queryFacetsSchema = z
   .object({
+    language_order: z.array(z.string()).default([]),
     platforms: z.record(z.string(), z.number().int().min(0)).default({}),
     languages: z.record(z.string(), z.number().int().min(0)).default({}),
     bases: z.record(z.string(), z.number().int().min(0)).default({}),

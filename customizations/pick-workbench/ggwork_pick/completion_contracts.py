@@ -10,7 +10,7 @@ from pydantic import Field, StrictBool, StrictInt, model_validator
 
 from ggwork_pick.contracts import DramaInput, StrictInput
 from ggwork_pick.feedback.contracts import RevenueObservation
-from ggwork_pick.mirror.contracts import ROW_MODELS, Rules
+from ggwork_pick.mirror.contracts import ROW_MODELS, GrowthBaseline, PostedStats, RsCounts, Rules, Source
 
 Identifier = Annotated[str, Field(min_length=1, max_length=64)]
 Identity = Annotated[str, Field(min_length=1, max_length=512)]
@@ -131,7 +131,35 @@ CatalogSignal = ROW_MODELS["catalog_signals"]
 CatalogPosted = ROW_MODELS["catalog_posted"]
 CatalogAccount = ROW_MODELS["catalog_accounts"]
 RsRow = ROW_MODELS["rs_rows"]
+RsId = ROW_MODELS["rs_ids"]
 RsBillOrder = ROW_MODELS["rs_bill_orders"]
+
+
+class QueryRankRow(StrictInput):
+    row_key: Identity
+    signal: CatalogSignal
+    day_rank: StrictInt | None = None
+    day_note: str = ""
+
+
+class QueryBillRow(StrictInput):
+    bill_date: str
+    book_id: str
+    promotion_type: str
+    canonical_id: str | None
+    title: str
+    locale: str | None
+    order_cnt: StrictInt
+    source_rows: StrictInt
+    same_day_clicks: StrictInt
+
+
+class QueryBillTotals(StrictInput):
+    rows: Count
+    merged_rows: Count
+    orders: Count
+    merged_with_clicks: Count
+    rows_with_clicks: Count
 
 
 class QueryBoardData(StrictInput):
@@ -140,13 +168,25 @@ class QueryBoardData(StrictInput):
     posted: list[CatalogPosted] = Field(default_factory=list, max_length=1000)
     accounts: list[CatalogAccount] = Field(default_factory=list, max_length=1000)
     rs_rows: list[RsRow] = Field(default_factory=list, max_length=200)
+    rs_ids: list[RsId] = Field(default_factory=list, max_length=10000)
     bill_orders: list[RsBillOrder] = Field(default_factory=list, max_length=200)
     rules: Rules | None = None
+    rs_counts: RsCounts | None = None
+    growth_baseline: dict[str, GrowthBaseline] = Field(default_factory=dict)
+    sources: dict[str, Source] = Field(default_factory=dict)
+    posted_stats: PostedStats | None = None
+    rank_rows: list[QueryRankRow] = Field(default_factory=list, max_length=200)
+    bill_rows: list[QueryBillRow] = Field(default_factory=list, max_length=200)
+    bill_totals: QueryBillTotals | None = None
+    effective_sort: str | None = None
+    legacy_total: Count | None = None
+    rank_limit: Count | None = None
     # Ordered page identities; decoration arrays above are not independent pages.
     row_keys: list[Identity] = Field(default_factory=list, max_length=200)
 
 
 class QueryFacets(StrictInput):
+    language_order: list[str] = Field(default_factory=list)
     platforms: dict[str, Count] = Field(default_factory=dict)
     languages: dict[str, Count] = Field(default_factory=dict)
     bases: dict[str, Count] = Field(default_factory=dict)
