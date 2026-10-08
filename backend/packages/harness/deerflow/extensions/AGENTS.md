@@ -338,7 +338,22 @@ later routers from mounting. Do not introduce a framework-bound `RouterContribut
 contract: the public registry accepts `Sequence[Any]`
 to keep extension-api dependency-free.
 
-Contributed routes are session-authenticated and cannot opt out. Within that, an extension
+Contributed routes require authentication and cannot opt out. `registry.routers(...)`
+uses normal host authentication. `registry.bearer_routers((router,), authenticator)`
+registers bearer-only HTTP operations with the same reserved-path, collision, and
+atomic mounting rules. Its async `authenticate(token)` receives only the opaque token
+and returns frozen `ExtensionCredential(user_id, subject_id)` or `None`. The extension
+owns credential issuance, expiry, digest storage, revocation, and subject/task ownership;
+keep browser pairing and credential management on ordinary CSRF-protected routes.
+The host resolves an existing owner, binds the authenticator only to successfully copied
+routes, and follows the first full Starlette route/method match (including `root_path`).
+Missing or rejected bearer credentials never fall back to cookies, internal credentials,
+PATs, or auth-disabled mode on these operations. Registry rollback and mount rejection
+remove routes and authentication together. Successful credentials carry `subject_id`
+and no admin/internal flags, roles, or host permissions. Other routes retain ordinary
+host admission; CSRF keeps its existing Authorization-header rule without new exemptions.
+
+Within ordinary authentication, an extension
 distinguishes an ordinary user from an administrator through `deerflow_extension_api.auth`:
 `resolve_principal(request)` returns the caller, `require_admin(request)` raises
 `PermissionError` for anyone else and fails closed when identity cannot be determined.
