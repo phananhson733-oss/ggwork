@@ -61,6 +61,13 @@ const rowSchema = z.object({
   result: z.enum(TABLE_RESULTS),
   status: short.nullable(),
   series: z.array(pointSchema).max(TABLE_MAX_POINTS).nullable(),
+  query_group: short.nullable().optional(),
+  comparison_terms: z
+    .array(z.string().min(1).max(200))
+    .min(1)
+    .max(5)
+    .nullable()
+    .optional(),
 });
 
 const boardSchema = z.object({

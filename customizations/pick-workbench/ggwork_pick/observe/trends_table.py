@@ -38,7 +38,7 @@ from ggwork_pick.observe.instants import instant, stamp
 from ggwork_pick.observe.status import banners_of, status_row, table_batch
 from ggwork_pick.observe.trends.budget import DEADLINE
 from ggwork_pick.observe.trends.top_dramas import NOTES_KEY, SOURCE_NAME
-from ggwork_pick.observe.trends.units import QueryUnit, SessionPlan
+from ggwork_pick.observe.trends.units import QueryUnit, SessionPlan, drama_units
 from ggwork_pick.repository import SHARED_OWNER, PickRepository
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,8 @@ class TableRow(Frozen):
     result: Result
     status: Short | None
     series: list[TablePoint] | None
+    query_group: Short | None = None
+    comparison_terms: list[Annotated[str, Field(max_length=200)]] | None = None
 
 
 class TableBoard(Frozen):
@@ -264,10 +266,22 @@ def table_of(batch: Mapping[str, Any], lines: Mapping[str, Mapping[str, Any]], n
     pending = _pending(batch, now)
     listed = [(unit, False) for unit in plan.tasks.planned if unit.identity is not None]
     listed += [(unit, True) for unit in plan.tasks.truncated if unit.identity is not None]
+    expanded = []
+    groups = {}
+    for unit, cut in listed:
+        for member in drama_units(unit):
+            expanded.append((member, cut))
+            if unit.members:
+                groups[member.key] = {"query_group": unit.key, "comparison_terms": list(unit.terms)}
+            if unit.key in reasons:
+                reasons[member.key] = reasons[unit.key]
+    listed = expanded
     rows = [
         _row(order, unit, picks.get(unit.key) or {}, _outcome(unit, lines.get(unit.key), reasons, truncated=cut, pending=pending, window_end=window_end))
         for order, (unit, cut) in enumerate(listed[:ROW_LIMIT], start=1)
     ]
+    for row in rows:
+        row.update(groups.get(row["unit"], {}))
     header = {
         "batch_id": batch["id"],
         "target_date": batch["target_date"],
@@ -309,7 +323,12 @@ async def trends_table(repo: PickRepository, *, now: datetime) -> dict[str, Any]
         found = await _bare_lines(session, batch["id"]) if batch is not None else {}
     header, rows, cut = table_of(batch, found, moment) if batch is not None and _is_ours(batch) else (None, [], False)
     table = TrendsTable(checked_at=stamp(moment), banners=banners, batch=header, rows=rows, row_limit=ROW_LIMIT, truncated=cut)
-    return table.model_dump(mode="json")
+    answer = table.model_dump(mode="json")
+    for row in answer["rows"]:
+        if row["query_group"] is None:
+            row.pop("query_group")
+            row.pop("comparison_terms")
+    return answer
 
 
 def _is_ours(batch: Mapping[str, Any]) -> bool:

@@ -15,7 +15,7 @@ hard ceiling on top of it, enforced request by request (budget.plan_budget).
 import hashlib
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from types import MappingProxyType
 from typing import Any
@@ -51,6 +51,8 @@ class QueryUnit:
     evidence_on: date | None = None
     group: str | None = None  # the canary control's group (positive, negative, regional), for the report
 
+    members: tuple[tuple[str, str, str], ...] = ()  # (per-drama key, identity, term); empty for legacy units
+
     def __post_init__(self) -> None:
         if self.item not in UNIT_ITEMS:
             raise ValueError(f"unit item is one of {UNIT_ITEMS}")
@@ -58,6 +60,23 @@ class QueryUnit:
             raise ValueError("unit key is <item>:<12 hex digits>")
         if type(self.priority) is not int or self.priority < 0 or not (self.timeline or self.related):
             raise ValueError("a unit has a priority of 0 or more and asks for a series, related queries or both")
+        if self.members:
+            if not self.timeline or self.related or self.item != "title" or self.bare is not None or not self.identity:
+                raise ValueError("grouped drama units require timeline-only title queries and a group identity")
+            if not isinstance(self.members, tuple) or any(
+                not isinstance(m, tuple) or len(m) != 3 or not all(isinstance(v, str) and v for v in m) for m in self.members
+            ):
+                raise ValueError("group member shape")
+            if (
+                tuple(m[2] for m in self.members) != self.terms
+                or len({m[0] for m in self.members}) != len(self.members)
+                or len({m[1] for m in self.members}) != len(self.members)
+            ):
+                raise ValueError("group members must uniquely match query terms")
+            if any(not _KEY.fullmatch(m[0]) for m in self.members):
+                raise ValueError("group member key")
+            if self.identity != self.key or self.key != unit_key("group", *(m[0] for m in self.members)):
+                raise ValueError("group identity must be its canonical member-derived key")
         self.query()  # the terms, geo and granularity are a valid request
 
     @property
@@ -84,11 +103,16 @@ class QueryUnit:
             "listed_at": codec.encode_day(self.listed_at),
             "evidence_on": codec.encode_day(self.evidence_on),
             "group": self.group,
+            **({"members": [list(m) for m in self.members]} if self.members else {}),
         }
 
     @classmethod
     def from_dict(cls, data: Any) -> "QueryUnit":
-        data = codec.exact_keys(data, _UNIT_KEYS, "query unit")
+        keys = _UNIT_KEYS if isinstance(data, Mapping) and "members" in data else _UNIT_KEYS - {"members"}
+        data = codec.exact_keys(data, keys, "query unit")
+        members = data.get("members", [])
+        if not isinstance(members, list) or any(not isinstance(m, list) or len(m) != 3 for m in members):
+            raise ValueError("group members are triples")
         terms = data["terms"]
         if not isinstance(terms, list | tuple):
             raise ValueError("query unit terms must be a list")
@@ -106,6 +130,7 @@ class QueryUnit:
             listed_at=codec.decode_day(data["listed_at"], "listed_at"),
             evidence_on=codec.decode_day(data["evidence_on"], "evidence_on"),
             group=data["group"],
+            members=tuple(tuple(m) for m in members),
         )
 
 
@@ -199,3 +224,10 @@ class SessionPlan:
         tasks = TaskList(tuple(map(QueryUnit.from_dict, data["units"])), tuple(map(QueryUnit.from_dict, data["truncated"])))
         related = codec.flag(data["related"], "related")
         return cls(data["source"], data["granularity"], related, tasks, data["catalog_batch_id"], MappingProxyType(dict(data["notes"])))
+
+
+def drama_units(unit: QueryUnit) -> tuple[QueryUnit, ...]:
+    """Expand a shared request only for per-drama evidence, never for HTTP execution."""
+    if not unit.members:
+        return (unit,)
+    return tuple(replace(unit, key=key, identity=identity, terms=(term,), bare=term, members=()) for key, identity, term in unit.members)

@@ -1,4 +1,4 @@
-"""The stable mode's task source for the simplified radar: each night our hottest dramas, one daily worldwide unit each
+"""The stable mode's task source: selected dramas with daily worldwide queries
 (simplified scope 2026-09-30, sections 3 and 6 item 1; user decisions 1 to 3).
 
 Who is in, in this order, TARGET_DRAMAS at most:
@@ -9,7 +9,8 @@ Who is in, in this order, TARGET_DRAMAS at most:
    never summed or subtracted. Titles and languages come from that version's rs_ids.
 A drama already in (the same identity: one language version of one drama) takes no second unit: its basis joins the
 pick already in. Two identities never merge, even when their titles clean to the same term (scope sections 3 and 5: each
-language title is its own row, nothing is merged automatically); each asks Google on its own. Every pick keeps its basis
+language title is its own row, nothing is merged automatically). The legacy profile asks separately; the explicitly
+approved five-title profile groups distinct terms, retaining each identity in QueryUnit.members. Every pick keeps its basis
 (the board, its issue and the rank; or the revenue rank and day) in plan_json's notes under NOTES_KEY, which the
 gateway's table reads (observe/trends_table.py).
 
@@ -368,17 +369,21 @@ class TopDramasTaskSource:
 
     name = SOURCE_NAME
 
-    def __init__(self, *, target: int = TARGET_DRAMAS):
+    def __init__(self, *, target: int = TARGET_DRAMAS, batch_size: int = 1):
         if type(target) is not int or target < 1:
             raise ValueError("target is a positive number of dramas")
+        if batch_size not in (1, 5):
+            raise ValueError("batch size is 1 or 5")
         self._target = target
+        self._batch_size = batch_size
 
     async def units(self, step: ReadStep, *, target_date: date) -> SourceUnits:
         selected = await select_candidates(step, target=self._target)
         picks = selected.picks
         if not picks:
             raise Refused("简化版任务来源一部剧都没取到：三个榜的最新一期与 ReelShort 收入补足都是空的（手册 trends-session.md「简化版」）")
-        units = tuple(query_unit(pick, order) for order, pick in enumerate(picks, start=1))
+        singles = tuple(query_unit(pick, order) for order, pick in enumerate(picks, start=1))
+        units = grouped_units(singles) if self._batch_size == 5 else singles
         notes = {
             "catalog_dramas": selected.catalog_dramas,
             NOTES_KEY: {
@@ -387,7 +392,24 @@ class TopDramasTaskSource:
                 "boards": [found.note() for found in selected.boards],
                 "revenue": selected.revenue.note(selected.filled),
                 "unusable_titles": selected.unusable_titles,
-                "picks": {unit.key: pick.to_note(order) for order, (unit, pick) in enumerate(zip(units, picks, strict=True), start=1)},
+                "picks": {unit.key: pick.to_note(order) for order, (unit, pick) in enumerate(zip(singles, picks, strict=True), start=1)},
             },
         }
         return SourceUnits(units, selected.catalog_batch_id, notes)
+
+
+def grouped_units(singles: Sequence[QueryUnit]) -> tuple[QueryUnit, ...]:
+    """Pack at most five unique terms; duplicate names retain separate identities and groups."""
+    groups: list[list[QueryUnit]] = []
+    for unit in singles:
+        if not groups or len(groups[-1]) == 5 or unit.bare in {u.bare for u in groups[-1]}:
+            groups.append([])
+        groups[-1].append(unit)
+    result = []
+    for group in groups:
+        terms = tuple(u.terms[0] for u in group)
+        key = unit_key("group", *(u.key for u in group))
+        result.append(
+            QueryUnit(key, ITEM, GEO, terms, None, GRANULARITY, group[0].priority, identity=key, members=tuple((u.key, u.identity, u.terms[0]) for u in group))
+        )
+    return tuple(result)

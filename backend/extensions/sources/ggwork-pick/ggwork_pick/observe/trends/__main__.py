@@ -58,7 +58,7 @@ STABLE_ROUTE = "a_only"  # the simplified radar asks no related queries
 def source_for(settings: Settings, controls_path: Path | None) -> TaskSource:
     """The mode's task source: the canary's control list and fresh titles; stable, the simplified radar's top dramas."""
     if settings.recovery_since is not None:
-        return DailyRecoverySource(settings.recovery_since)
+        return DailyRecoverySource(settings.recovery_since, batch_size=settings.batch_size, approval=settings.recovery_approval)
     if settings.canary:
         return CanaryTaskSource(load_controls(controls_path), granularities=settings.granularities, related=settings.related)
     if settings.granularity != TOP_GRANULARITY or settings.route != STABLE_ROUTE:

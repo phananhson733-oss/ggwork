@@ -2181,3 +2181,5 @@ The Google Trends tab uses an evidence-first table in the shared GGWork theme, w
 ### Historical Trends radar
 
 The Google Trends tab now opens the complete historical DramaRadar view: source/coverage cards, comprehensive and historical-signal lists, platform/experimental-grade/status/date/search/sort filters, pagination, evidence details and CSV of all matches. It uses an authenticated, sealed US snapshot with per-drama dates and unverified-source labels. Worldwide daily collection remains available through “日级采集记录与状态”; collector stop facts are preserved. See [integration and operation](docs/plans/2026-10-08-radar-integration.md).
+
+The daily Trends collector supports opt-in five-title batches with 120–180 second group spacing. Request budgets count groups; raw evidence and table coverage count individual dramas. A pinned operator approval can start a later recovery campaign without deleting prior stop history; see [five-title recovery](docs/plans/2026-10-08-trends-five-title-recovery.md).
