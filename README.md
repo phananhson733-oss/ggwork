@@ -2185,3 +2185,5 @@ The Google Trends tab now opens the complete historical DramaRadar view: source/
 ### Independent selection data
 
 GGWork can collect and publish its selection data independently of the retired RealShort public website. Operator-enabled native mode preserves existing versioned browsing and replay, reports each collector's actual state, and reads current resource links only for the configured source owner. It preserves historical traffic dates and explicitly labels retained sources. See the [native source operating guide](docs/pick-workbench/native-source.md) for verified restoration, configuration, source-access requirements and rollback.
+
+Explicit CPS service overloads receive bounded, cancellable retries of the same page. Persistent failures keep the previous complete workbench version available.

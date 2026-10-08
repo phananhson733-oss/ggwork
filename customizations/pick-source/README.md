@@ -30,3 +30,5 @@ CPS collection runs every six hours; daily catalog and Queyu slots are 02:45 UTC
 `PICK_SOURCE_RETAIN_MOBOREELS=1` is the explicitly approved exception for its inaccessible sheet. It preserves existing MoboReels rows, signals and imported timestamps without attempting that sheet. It cannot substitute an empty source. All other source-read failures still stop catalog publication. The UI and feed freshness metadata disclose the retained source.
 
 A missing Queyu browser state is a visible `queyu_auth_required` receipt. Retained ranking histories retain their original dates; they are not reported as newly collected. The separate Queyu receipt also distinguishes a library failure after successful rank collection.
+
+CPS reads retry the same page up to three times after explicit service overload or HTTP 429/502/503/504, waiting 1, 2 and 4 seconds. Cancellation interrupts the wait. Parameter errors are not retried; persistent errors still prevent incomplete mirror publication.
