@@ -95,6 +95,55 @@ class InstalledImportGuard(unittest.TestCase):
             finally:
                 sys.path[:] = previous
 
+    def test_symlink_into_source_cannot_certify_installed_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            purelib = root / "venv/site-packages"
+            purelib.mkdir(parents=True)
+            source = root / "customizations/ggwork_pick"
+            source.mkdir(parents=True)
+            package = purelib / "ggwork_pick"
+            package.symlink_to(source, target_is_directory=True)
+            config = root / "cluster.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "purpose": "throwaway tests only",
+                        "test_pg_url": "postgresql://synthetic@127.0.0.1:5432/postgres",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fixture = SimpleNamespace(
+                up=Mock(side_effect=RuntimeError("fixture creation reached"))
+            )
+            modules = {
+                "ggwork_pick": SimpleNamespace(__file__=str(package / "__init__.py")),
+                "ggwork_pick.observe.selfcheck": SimpleNamespace(
+                    package_digest=lambda *_args: "sha256:fixture"
+                ),
+                "board_fixture": fixture,
+                "pg": SimpleNamespace(PgCluster=lambda _url: object()),
+            }
+            previous = list(sys.path)
+            try:
+                with (
+                    patch.dict(sys.modules, modules),
+                    patch.object(
+                        module.sysconfig, "get_path", return_value=str(purelib)
+                    ),
+                    self.assertRaisesRegex(RuntimeError, "site-packages"),
+                ):
+                    module.run(
+                        config,
+                        root / "output",
+                        mode="installed",
+                        expected_package_digest="sha256:fixture",
+                    )
+                fixture.up.assert_not_called()
+            finally:
+                sys.path[:] = previous
+
 
 class OwnedTlsTeardown(unittest.TestCase):
     def test_foreign_data_or_marker_is_rejected_before_pg_ctl(self):

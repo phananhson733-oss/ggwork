@@ -216,6 +216,15 @@ def run(
         if mode == "installed"
         else ROOT / "customizations/pick-workbench/ggwork_pick"
     )
+    if mode == "installed" and (
+        expected_package.is_symlink()
+        or not expected_package.resolve().is_relative_to(
+            Path(sysconfig.get_path("purelib")).resolve()
+        )
+    ):
+        raise RuntimeError(
+            "Installed package must be physically contained in site-packages"
+        )
     sys.path[:0] = list(map(str, paths))
     import ggwork_pick
 
@@ -282,8 +291,12 @@ def run(
         )
         gateway_source = """import os
 from pathlib import Path
+import sysconfig
 import ggwork_pick
 assert Path(ggwork_pick.__file__).resolve().parent == Path(os.environ["QA_PACKAGE_ROOT"]).resolve()
+if os.environ["QA_MODE"] == "installed":
+    assert not Path(os.environ["QA_PACKAGE_ROOT"]).is_symlink()
+    assert Path(ggwork_pick.__file__).resolve().is_relative_to(Path(sysconfig.get_path("purelib")).resolve())
 from ggwork_pick.observe.selfcheck import package_digest
 assert package_digest() == os.environ["QA_PACKAGE_DIGEST"]
 from ggwork_pick.query_reader import QueryReader
