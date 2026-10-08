@@ -746,29 +746,32 @@ def build_middlewares(
     # above, changing what "the final request" means for observers.
     from deerflow_extension_api import AgentScope
 
+    from deerflow.agents.middlewares.pick_publication_middleware import with_pick_publication_boundary
     from deerflow.extensions.stack import compose_with_extensions
 
     if not resolved_extensions.has_middleware_contributors:
-        return compose_with_extensions(middlewares, AgentScope.LEAD, None, resolved_extensions)
+        return with_pick_publication_boundary(compose_with_extensions(middlewares, AgentScope.LEAD, None, resolved_extensions))
 
     from deerflow_extension_api import AgentBuildContext
 
     from deerflow.extensions.policy import project_host_policy
 
-    return compose_with_extensions(
-        middlewares,
-        AgentScope.LEAD,
-        AgentBuildContext(
-            scope=AgentScope.LEAD,
-            agent_name=agent_name,
-            model_name=model_name,
-            policy=project_host_policy(
-                resolved_app_config,
-                token_budget_config=token_budget_config,
-                max_subagents_per_run=effective_max_subagents_per_run,
+    return with_pick_publication_boundary(
+        compose_with_extensions(
+            middlewares,
+            AgentScope.LEAD,
+            AgentBuildContext(
+                scope=AgentScope.LEAD,
+                agent_name=agent_name,
+                model_name=model_name,
+                policy=project_host_policy(
+                    resolved_app_config,
+                    token_budget_config=token_budget_config,
+                    max_subagents_per_run=effective_max_subagents_per_run,
+                ),
             ),
-        ),
-        resolved_extensions,
+            resolved_extensions,
+        )
     )
 
 
