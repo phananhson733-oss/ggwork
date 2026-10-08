@@ -127,3 +127,56 @@ it("renders arbitrary source labels as text without inheriting object properties
   expect(container.textContent).toContain("来源排序");
   expect(container.textContent).not.toContain("[object Object]");
 });
+it("labels posted cumulative source counts separately from the requested account/window", () => {
+  const posted = {
+    ...fixture.posted,
+    request: {
+      ...fixture.posted.request,
+      account: "ScopedAccount",
+      published_from: "2026-01-01",
+    },
+    rows: fixture.posted.rows.map((row) => ({
+      ...row,
+      post_count: 7,
+      sched_count: 2,
+    })),
+  };
+  render(<CommonQueryCard result={posted} />);
+  expect(
+    screen.getByText(/来源记录累计已发布 7 条 · 累计已排期 2 条/),
+  ).toBeTruthy();
+  expect(
+    screen.getByText("累计数不等于当前账号或日期窗口内的条数。"),
+  ).toBeTruthy();
+});
+it("keeps bill promotion type visible as part of the source record identity", () => {
+  render(<CommonQueryCard result={fixture.bill} />);
+  expect(screen.getByText(/推广类型：cps/)).toBeTruthy();
+  expect(screen.getByText(/本次仅查询资料，未执行保存或发布/)).toBeTruthy();
+});
+it("does not invent row omissions for query pagination or apply ignored eligibility defaults", () => {
+  const page = {
+    ...fixture.catalog_record,
+    query_truncated: true,
+    query_next_offset: 20,
+    projection: {
+      ...fixture.catalog_record.projection,
+      truncated: true,
+      omitted_rows: 0,
+      next_offset: 20,
+    },
+  };
+  const mounted = render(<CommonQueryCard result={page} />);
+  expect(screen.getByText("查询按页返回，当前不是完整清单。")).toBeTruthy();
+  expect(screen.queryByText(/本卡片省略/)).toBeNull();
+  expect(mounted.container.textContent).not.toContain("仅确认符合资格");
+  mounted.rerender(
+    <CommonQueryCard
+      result={{
+        ...fixture.drama,
+        request: { ...fixture.drama.request, channel: "youtube" },
+      }}
+    />,
+  );
+  expect(mounted.container.textContent).toContain("仅确认符合资格");
+});

@@ -117,7 +117,11 @@ export function CommonQueryCard({
     request.tags.length ? `标签：${request.tags.join("、")}` : null,
     request.exclude_posted ? "排除当前范围已发布" : null,
     request.exclude_selected ? "排除我的已选" : null,
-    request.confirmed_eligible_only ? "仅确认符合资格" : null,
+    request.confirmed_eligible_only &&
+    request.channel &&
+    ["candidates", "catalog"].includes(request.domain)
+      ? "仅确认符合资格"
+      : null,
     request.hot_only ? "仅热门" : null,
     request.exclude_previous ? "排除前批" : null,
     request.youtube_ok ? "仅 YouTube 可发" : null,
@@ -194,7 +198,7 @@ export function CommonQueryCard({
         </p>
       )}
       {data.query_truncated && <p>查询按页返回，当前不是完整清单。</p>}
-      {data.projection.truncated && (
+      {data.projection.omitted_rows > 0 && (
         <p className="text-warning-ink">
           为控制展示长度，本卡片省略 {data.projection.omitted_rows}{" "}
           项；可打开固定版本资料继续核对。
@@ -258,9 +262,7 @@ export function CommonQueryCard({
           </li>
         ))}
       </ul>
-      <p className="text-helper">
-        这是查询时的只读资料；未保存为选剧，也未执行发布。
-      </p>
+      <p className="text-helper">本次仅查询资料，未执行保存或发布。</p>
     </section>
   );
 }
@@ -387,9 +389,10 @@ function ProjectionRow({
             来源编号：{row.sd} · 最近发布 {row.last_post_on ?? "未提供"}
           </p>
           <p>
-            已发布 {row.post_count} 条 · 已排期 {row.sched_count} 条
-            {row.archived ? " · 记录已归档" : ""}
+            来源记录累计已发布 {row.post_count} 条 · 累计已排期{" "}
+            {row.sched_count} 条{row.archived ? " · 记录已归档" : ""}
           </p>
+          <p>累计数不等于当前账号或日期窗口内的条数。</p>
           <p>
             账号：{row.accounts.join("、") || "未提供"}
             {row.accounts_truncated
@@ -401,7 +404,8 @@ function ProjectionRow({
       {row.kind === "bill" && (
         <>
           <p>
-            来源编号：{row.book_id} · 账单日：{row.bill_date} · 订单笔数：
+            来源编号：{row.book_id} · 账单日：{row.bill_date} · 推广类型：
+            {row.promotion_type || "未提供"} · 订单笔数：
             {row.order_cnt}
           </p>
           <p>
