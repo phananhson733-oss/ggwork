@@ -31,7 +31,6 @@ import {
   dramas,
   outboundClicks,
   syncRuns,
-  type NewChapter,
   type NewDrama,
 } from "@/db/schema";
 
@@ -226,22 +225,6 @@ async function syncList(
   return { upserted, skipped };
 }
 
-function detailToChapterRows(detail: CpsBookDetail): NewChapter[] {
-  return detail.chapters.map((chapter, index) => {
-    const parsed = Number.parseInt(chapter.t_chapter_id, 10);
-    const serial = Number.isFinite(parsed) && parsed > 0 ? parsed : index + 1;
-    return {
-      id: chapter.chapter_id,
-      dramaId: detail.id,
-      serial,
-      videoPic: chapter.video_pic,
-      // play_url 刻意不写库：带签名且有时效，落库等于缓存一个必然过期的地址
-      iframeSrc: chapter.iframe_src,
-      updatedAt: new Date(),
-    };
-  });
-}
-
 /**
  * 写入顺序很重要：【先写章节，再标记 detailSyncedAt】。
  *
@@ -261,7 +244,6 @@ async function syncOneDetail(
   const publishAt = toDate(detail.publish_at);
   const groupKey = resolveReviewedDramaGroupKeyFromDetail(detail);
 
-  const rows = detailToChapterRows(detail);
   // Selection needs detail metadata; playback chapters remain in the original backup.
 
 
@@ -339,7 +321,7 @@ async function syncOneDetail(
     .returning({ updatedAt: dramas.updatedAt });
 
   const changed = updated?.updatedAt?.getTime() === now.getTime();
-  return { rows: rows.length, changed };
+  return { rows: 0, changed };
 }
 
 /**
