@@ -34,16 +34,33 @@ def _rejected(exc: Exception) -> str:
     return json.dumps({"status": "rejected", "notice": str(exc), **_refusal_scope(exc)}, ensure_ascii=False)
 
 
-async def _answer(work) -> str:
+async def _answer(work, *, task=None, runtime=None, tool_name=None) -> str:
     """Business refusals become answers the model can relay; code bugs (KeyError, IndexError) stay errors."""
     try:
         return await work()
     except PostedDataUnavailable as exc:
-        return _posted_unavailable(exc)
+        answer = _posted_unavailable(exc)
     except (KeyError, IndexError):
+        if task is not None:
+            _capture(task, runtime, tool_name, {"status": "unavailable"})
         raise
     except (ValueError, LookupError) as exc:
-        return _rejected(exc)
+        answer = _rejected(exc)
+    except BaseException:
+        # A timeout/cancellation must not leave an older query looking current.
+        if task is not None:
+            _capture(task, runtime, tool_name, {"status": "unavailable"})
+        raise
+
+    if task is not None:
+        task.answer_evidence.capture(tool_name, runtime.tool_call_id, json.loads(answer))
+    return answer
+
+
+def _capture(task, runtime, name: str, payload: dict) -> dict:
+    # Capture before model projection removes duplicate source refs; stored snapshots are untouched.
+    task.answer_evidence.capture(name, runtime.tool_call_id, payload)
+    return payload
 
 
 def _catalog_unavailable() -> str:
@@ -104,7 +121,7 @@ async def query_candidates_tool(
     if use_latest:
         await _pin_latest(task, repo)
     if task.catalog_id is None:
-        return _catalog_unavailable()
+        return json.dumps(_capture(task, runtime, "pick_query_candidates", json.loads(_catalog_unavailable())), ensure_ascii=False)
     requested = PickConditions.model_validate(filters).requested()
 
     async def work():
@@ -114,7 +131,7 @@ async def query_candidates_tool(
         parent = await _bound_parent(task, repo, requested) if not task.versions_refreshed else None
         feedback_pin, feedback_failure = await prepare_feedback(task, parent=parent, resume_run_id=feedback_refresh_id)
         if feedback_failure and requested.get("sort") != "rank":
-            return json.dumps(feedback_failure, ensure_ascii=False)
+            return json.dumps(_capture(task, runtime, "pick_query_candidates", feedback_failure), ensure_ascii=False)
 
         async def feedback_builder(record):
             return await candidate_feedback(task, repo, record, feedback_pin)
@@ -150,9 +167,13 @@ async def query_candidates_tool(
         task.posted_seen = with_posted(task.posted_seen, result["items"], account=conditions.posted_account)
         if conditions.filters_posted:
             task.posted_checked = True
-        return json.dumps(model_payload({**result, "data_as_of": data_as_of, **explained}), ensure_ascii=False, separators=(",", ":"))
+        return json.dumps(
+            model_payload(_capture(task, runtime, "pick_query_candidates", {**result, "data_as_of": data_as_of, **explained})),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
 
-    return await _answer(work)
+    return await _answer(work, task=task_from_runtime(runtime), runtime=runtime, tool_name="pick_query_candidates")
 
 
 @tool("pick_count_candidates")
@@ -164,7 +185,7 @@ async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> st
     task = task_from_runtime(runtime)
     repo = await task.repository(runtime)
     if task.catalog_id is None:
-        return _catalog_unavailable()
+        return json.dumps(_capture(task, runtime, "pick_count_candidates", json.loads(_catalog_unavailable())), ensure_ascii=False)
     requested = PickConditions.model_validate(filters).requested()
 
     async def work():
@@ -174,9 +195,9 @@ async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> st
         counted = await SelectionService(repo).count(requested, parent=parent, pinned_versions=task.pin(), emit_mirror_version=_emits_mirror_version(task))
         if PickConditions.model_validate(counted["conditions"]).filters_posted:
             task.posted_checked = True
-        return json.dumps(counted, ensure_ascii=False)
+        return json.dumps(_capture(task, runtime, "pick_count_candidates", counted), ensure_ascii=False)
 
-    return await _answer(work)
+    return await _answer(work, task=task_from_runtime(runtime), runtime=runtime, tool_name="pick_count_candidates")
 
 
 async def _owned_result(runtime, result_id):
@@ -211,9 +232,11 @@ async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) 
         feedback = await frozen_feedback(task, result_id)
         if feedback.status == "ok" or task.feedback_checked:
             detail["feedback"] = model_feedback(feedback)
-        return json.dumps(model_payload({**detail, "data_as_of": data_as_of}), ensure_ascii=False, separators=(",", ":"))
+        return json.dumps(
+            model_payload(_capture(task, runtime, "pick_get_drama_detail", {**detail, "data_as_of": data_as_of})), ensure_ascii=False, separators=(",", ":")
+        )
 
-    return await _answer(work)
+    return await _answer(work, task=task_from_runtime(runtime), runtime=runtime, tool_name="pick_get_drama_detail")
 
 
 @tool("pick_prepare_selection")

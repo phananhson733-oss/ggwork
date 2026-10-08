@@ -1,0 +1,25 @@
+# Completion checker (T2)
+
+`ggwork_pick.answer_check.build_checked_publication` prepares an internal `CheckedPublication` using the frozen completion DTOs. It does **not** publish to the host, run a model correction, or withhold streaming. The legacy `check_answer` sidecar-note API and its posted/account/save/title checks remain intact. T3 must connect the new payload to the single canonical message gate; existing sidecar notes are not that guarantee.
+
+## Trusted input and evidence
+
+The caller supplies host-bound thread/run/message IDs and the task's `answer_evidence`, plus existing known-title/posted guards. Query, count and detail tools record `AnswerEvidence` before model projection removes redundant source references. `EvidenceRead` freezes call/result/items, catalog identity, conditions and data timestamps; `EvidenceAtom` binds subject, field, source reference, observed time and an explicit unit when the source kind defines one. No additional key is added to stored results, items or HTTP results.
+
+Only a complete typed assertion can be confirmed. Imported numeric text must be a plain numeric scalar; arbitrary prose in values, labels, kind, grade or source fields cannot certify itself. Unrecognized grammar remains unknown even if all its numbers occur elsewhere in evidence. Web/Lark text, knowledge excerpts, feedback prose and selection preparation do not establish authoritative catalog facts. A preparation is never a save receipt.
+
+Supported prose includes `《甲》共80集`, `《甲》在2026-09-10的KalosTV日榜第2名`, `本次查询共1部`, listing dates, source URLs and explicit channel permissions. Unknown signal kinds are labelled as source fields rather than given invented business units. Internal field grammar remains accepted, but confirmed content is rendered with readable labels. Named channels use the source's allowed/denied value; unknown rules never become permission. Other language/style variants currently remain unknown and can use the one correction reserved for T3.
+
+For correction context, each non-null `atom.display_claim` is the server's supported statement; append ` [atom.reference]` to select its precise evidence. A citation selects a fact, not a whole paragraph. Different calls, versions or periods need explicit references even when their numbers agree. Dates in a neighbouring assertion do not change another fact's period. Query totals refer only to that filtered query; zero never proves whole-catalog absence. A failed or unknown later query prevents unqualified reuse of a previous count.
+
+## Safe output and T3 integration
+
+Call `build_checked_publication(text, evidence=task.answer_evidence, thread_id=..., run_id=..., message_id=..., known_titles=task.known_titles, posted_checked=task.posted_checked, posted_seen=task.posted_seen, correction_count=0|1)`. `facts` reports confirmed/unknown/contradicted with source references and reasons. `content` contains only confirmed assertions. Partial/incomplete content includes an explicit unconfirmed notice; contradicted or unsupported draft text never appears there. No eligible confirmed assertions produces incomplete output. Output limits and unstorable text fail closed.
+
+`incomplete_publication(thread_id=..., run_id=..., message_id=..., correction_count=0|1)` is the safe host fallback after checker failure, cancellation or exhausted budget. It accepts no raw exception/draft. The caller must preserve the effective deadline and one-correction cap. The checker makes no model calls, cannot extend the deadline, and does not modify host message IDs. Result references remain empty until the host's selected-item context is validated; this does not replace the existing result-reference parser.
+
+T3 must withhold provisional provider/journal/stream/checkpoint content, publish only `content`, and emit the same server metadata on stream/history/reconnect/context. Do not expose the internal `facts` draft-claim audit as canonical user content. A checker result alone proves none of those host surfaces.
+
+## Verification
+
+Public checker tests and real query/count/detail tool tests run with synthetic data on SQLite and disposable PostgreSQL. Counterexamples come from both RealShort `tests/ask-answer-check.test.ts` and legacy `pick-workbench/tests/loop-answer-check.test.ts`: row value 80 versus 999, total 1 versus 999, value-as-total, invalid citations/URLs, missing values, negative full-catalog inference and unrelated metric/window/account wording. Tests also cover source-prose injection, duplicate evidence scopes, safe partial output and all pre-existing nuanced posted/title/save regressions. No model acceptance or production result is claimed by T2.

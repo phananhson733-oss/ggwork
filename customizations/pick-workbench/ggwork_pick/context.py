@@ -10,6 +10,7 @@ from deerflow.runtime.user_context import resolve_runtime_user_id
 from deerflow_extension_api import TaskInfo, task_store_from_runtime
 
 from ggwork_pick.answer_check import Seen
+from ggwork_pick.answer_evidence import AnswerEvidence
 from ggwork_pick.pin import Pin
 from ggwork_pick.repository import PickRepository
 
@@ -47,6 +48,7 @@ class PickTask:
     reference_order: list[str] = field(default_factory=list)
     produced_result_ids: set[str] = field(default_factory=set)
     known_titles: set[str] = field(default_factory=set)
+    answer_evidence: AnswerEvidence = field(default_factory=AnswerEvidence)
     posted_checked: bool = False
     # Normalized title -> what the posted summaries of items a tool returned say (answer_check.with_posted).
     posted_seen: dict[str, Seen] = field(default_factory=dict)
