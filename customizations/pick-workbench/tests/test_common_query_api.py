@@ -135,8 +135,7 @@ def test_common_failure_invalidates_older_count_evidence():
     evidence = AnswerEvidence()
     evidence.capture("pick_query_data", "read1", {"counts": {"matched": 4}, "request": {"domain": "catalog"}, "pin": {"catalog_batch_id": "b"}, "rows": []})
     evidence.capture("pick_query_data", "read2", {"status": "unavailable"})
-    assert evidence.atoms[-1].field_name == "matched_total"
-    assert evidence.atoms[-1].value is None
+    assert next(a for a in reversed(evidence.atoms) if a.field_name == "matched_total").value is None
 
 
 @pytest.mark.asyncio
@@ -284,3 +283,41 @@ def test_common_evidence_does_not_certify_prose_inside_source_fields(field, labe
     )
     result = build_checked_publication(f"《甲》的{label}为X 保证盈利。", evidence=evidence, thread_id="t", run_id="r", message_id="m")
     assert result.status == "incomplete"
+
+
+@pytest.mark.parametrize(
+    "claim", ["本次榜单期次为2026-09-02", "本次资料来源时点为2026-09-02", "本次镜像版本为1", "本次规则版本为mirror-rules-v1", "本次查询范围为完整剧库"]
+)
+def test_common_failed_read_invalidates_all_current_scope_claims(claim):
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.answer_evidence import AnswerEvidence
+
+    evidence = AnswerEvidence()
+    evidence.capture(
+        "pick_query_data",
+        "old",
+        {
+            "counts": {"matched": 1},
+            "request": {"domain": "rankings", "scope": "full_catalog"},
+            "pin": {"catalog_batch_id": "b", "mirror_version": 1, "rule_version": "mirror-rules-v1"},
+            "actual_period": {"value": "2026-09-02"},
+            "source_as_of": "2026-09-02",
+            "rows": [],
+        },
+    )
+    evidence.capture("pick_query_data", "failed", {"status": "rejected"})
+
+    def check(text):
+        return build_checked_publication(text, evidence=evidence, thread_id="t", run_id="r", message_id="m")
+
+    assert check(claim + "。").status == "incomplete"
+    assert check(claim + " [tool:old]。").status == "confirmed"
+
+
+@pytest.mark.parametrize("value", ["20260901", "2026-W36-2", "2026-02-30", "TBD"])
+def test_noncanonical_publication_dates_remain_unknown(value):
+    from ggwork_pick.completion_contracts import CommonQuery
+    from ggwork_pick.query_posted import publication_truth
+
+    request = CommonQuery(domain="catalog", scope="full_catalog", account="A", published_from="2026-09-01", published_to="2026-09-30")
+    assert publication_truth([{"post_count": 1, "sched_count": 0, "posts": [{"st": "已公开", "acct": "A", "d": value}]}], request) == ("unknown", False)

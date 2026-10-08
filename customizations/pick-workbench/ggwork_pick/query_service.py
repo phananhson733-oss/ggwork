@@ -229,6 +229,10 @@ class CommonQueryService:
                         excluded_keys.append(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)).decode())
                     except (ValueError, UnicodeError):
                         pass
+            if req.published_from or req.published_to:
+                from ggwork_pick.query_posted import validate_publication_window
+
+                await validate_publication_window(conn, req)
             board = None
             rank_result = None
             if req.domain == "rankings":

@@ -58,6 +58,14 @@ def capture_common(evidence, call_id, payload):
         )
     )
     if not success:
+        for prefix, field in (
+            ("本次榜单期次为", "actual_period"),
+            ("本次资料来源时点为", "source_as_of"),
+            ("本次镜像版本为", "mirror_version"),
+            ("本次规则版本为", "rule_version"),
+            ("本次查询范围为", "scope"),
+        ):
+            evidence.atoms.append(EvidenceAtom(prefix, None, "", ref, field_name=field))
         return
 
     def atom(prefix, value, field, *, subject=None, reference=ref, suffix="", **kwargs):

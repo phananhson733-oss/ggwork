@@ -232,3 +232,87 @@ async def test_query_tool_historical_facts_reach_checker_with_actual_data(common
     finally:
         await service.stop()
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scoped_scheduled_account_and_checked_absence_use_actual_posts(common_board, pg_cluster):
+    import json
+    from types import SimpleNamespace
+
+    from deerflow_extension_api import ExtensionData, TaskInfo
+    from deerflow_extension_api.runtime_bridge import EXTENSION_TASK_STORE_KEY
+    from sqlalchemy import text
+
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.completion_contracts import CommonQuery
+    from ggwork_pick.context import PickLifecycle, task_from_runtime
+    from ggwork_pick.query_reader import QueryFailure, QueryReader
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import query_data_tool
+
+    engine = host_engine(pg_cluster.async_url(common_board["info"]["database"]))
+    service = PickService(common_board["data_dir"])
+    await service.initialize(async_sessionmaker(engine))
+    service.query_reader = QueryReader(common_board["reader"], ssl=False)
+    schema = f"pickm_v{common_board['info']['versions']['v2']:06d}"
+    async with engine.begin() as conn:
+        old = dict(
+            (await conn.execute(text(f"SELECT posts,row_keys,post_count,sched_count,accounts FROM {schema}.catalog_posted WHERE sd='SD-2'"))).mappings().one()
+        )
+    update = text(
+        f"UPDATE {schema}.catalog_posted SET posts=CAST(:posts AS jsonb),row_keys=:keys,post_count=:pub,sched_count=:sched,accounts=:accounts WHERE sd='SD-2'"
+    )
+    try:
+        # Fault/edge injection is confined to the disposable synthetic fixture and restored below.
+        async with engine.begin() as conn:
+            await conn.execute(
+                update, {"posts": json.dumps([{"st": "待公开", "acct": "Account A", "d": "2026-09-01"}]), "keys": ["c-2"], "pub": 0, "sched": 1, "accounts": []}
+            )
+        repo = PickRepository(service.session_factory, "alice")
+        posted = await service.common_query(repo).query(CommonQuery(domain="posted", scope="full_catalog", account="Account A", posted_state="sched"))
+        assert [p.sd for p in posted.board.posted] == ["SD-2"]
+        store = ExtensionData("posted-tool")
+        await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("posted-tool", "r", "t", "lead"))
+        runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="scoped")
+        answer = json.loads(
+            await query_data_tool.coroutine(query={"domain": "catalog", "scope": "full_catalog", "source_id": "c-2", "account": "Account A"}, runtime=runtime)
+        )
+        assert answer["rows"][0]["posted_status"] == "not_posted" and answer["rows"][0]["posted_scope_complete"]
+        evidence = task_from_runtime(runtime).answer_evidence
+        atom = next(a for a in evidence.atoms if a.field_name == "posted_status")
+
+        def check(claim):
+            return build_checked_publication(claim, evidence=evidence, thread_id="t", run_id="r", message_id="m")
+
+        assert check(atom.claim + "。").status == "confirmed"
+        assert check(atom.claim.replace("Account A", "Account B") + "。").status == "incomplete"
+        assert check("以上都从未发布。").status == "incomplete"
+        async with engine.begin() as conn:
+            await conn.execute(
+                update,
+                {
+                    "posts": json.dumps([{"st": "已公开", "acct": "Account A", "d": "20260901"}]),
+                    "keys": ["c-2"],
+                    "pub": 1,
+                    "sched": 0,
+                    "accounts": ["Account A"],
+                },
+            )
+        with pytest.raises(QueryFailure) as error:
+            await service.common_query(repo).query(CommonQuery(domain="posted", scope="full_catalog", account="Account A", published_from="2026-09-01"))
+        assert error.value.code == "source_unavailable"
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(
+                update,
+                {
+                    "posts": json.dumps(old["posts"]),
+                    "keys": old["row_keys"],
+                    "pub": old["post_count"],
+                    "sched": old["sched_count"],
+                    "accounts": old["accounts"],
+                },
+            )
+        await service.stop()
+        await engine.dispose()

@@ -33,7 +33,11 @@ async def posted_page(conn, req, rules):
     if req.published_to:
         scoped.append(f"e->>'d' <= {bind(req.published_to)}")
     if scoped:
-        clauses.append("EXISTS (SELECT 1 FROM jsonb_array_elements(posts) e WHERE e->>'st' IN ('已回填','已公开') AND " + " AND ".join(scoped) + ")")
+        public = "e->>'st' IN ('已回填','已公开')"
+        state = public if req.published_from or req.published_to or req.posted_state == "pub" else "true"
+        if req.posted_state == "sched" and not (req.published_from or req.published_to):
+            state = "COALESCE(e->>'st','') NOT IN ('已回填','已公开')"
+        clauses.append("EXISTS (SELECT 1 FROM jsonb_array_elements(posts) e WHERE " + state + " AND " + " AND ".join(scoped) + ")")
     if req.language is not None:
         clauses.append(f"lang = {bind(req.language)}")
     if req.theater:
@@ -87,7 +91,9 @@ def publication_truth(records, req):
                 continue
             if req.published_from or req.published_to:
                 try:
-                    date.fromisoformat(post.get("d", ""))
+                    parsed = date.fromisoformat(post.get("d", ""))
+                    if parsed.isoformat() != post.get("d"):
+                        raise ValueError("noncanonical source date")
                 except (ValueError, TypeError):
                     complete = False
                     continue
@@ -97,3 +103,26 @@ def publication_truth(records, req):
                 continue
             found = True
     return ("posted" if found else "not_posted" if complete else "unknown"), complete
+
+
+async def validate_publication_window(conn, req):
+    """Text dates cannot prove a bounded window when source details are incomplete."""
+    from ggwork_pick.query_reader import QueryFailure
+
+    records = await conn.fetch("SELECT post_count,posts,accounts FROM catalog_posted")
+    for record in records:
+        posts = record["posts"]
+        published = [p for p in posts if p.get("st") in {"已回填", "已公开"}]
+        if req.account and req.account not in record["accounts"] and not any(p.get("acct") == req.account for p in published):
+            continue
+        if len(published) != record["post_count"]:
+            raise QueryFailure("source_unavailable", "来源缺少完整发布明细，无法核对日期范围")
+        for post in published:
+            if req.account and post.get("acct") != req.account:
+                continue
+            try:
+                value = post.get("d")
+                if date.fromisoformat(value).isoformat() != value:
+                    raise ValueError("noncanonical source date")
+            except (ValueError, TypeError):
+                raise QueryFailure("source_unavailable", "来源发布日期未知，无法核对日期范围") from None

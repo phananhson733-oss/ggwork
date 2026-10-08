@@ -886,7 +886,7 @@ def _not_posted_notes(text: str, posted_checked: bool, seen: dict[str, Seen]) ->
     return judge.findings.notes()
 
 
-def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, posted_seen: dict[str, Seen] | None = None) -> list[str]:
+def _title_and_write_notes(text: str, known_titles: set[str]) -> list[str]:
     notes = []
     known = {_norm(title) for title in known_titles}
     # A dict keeps the titles in order and finds a repeated one at once, however many there are.
@@ -895,6 +895,11 @@ def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, pos
         notes.append("正文提到的" + "、".join(f"《{t}》" for t in list(unknown)[:5]) + "不在本轮查询结果中，请以候选卡为准。")
     if _claims(_SAVE_CLAIM, text):
         notes.append("本轮没有写入个人清单；只有点击「确认保存」并看到回执才算保存。")
+    return notes
+
+
+def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, posted_seen: dict[str, Seen] | None = None) -> list[str]:
+    notes = _title_and_write_notes(text, known_titles)
     marked = _known_bare_text(text, known_titles | {entry.title for entry in (posted_seen or {}).values()})
     notes.extend(_not_posted_notes(marked, posted_checked, posted_seen or {}))
     return notes
@@ -943,7 +948,13 @@ def build_checked_publication(
         values = {atom.value for atom in candidates}
         ambiguous = len(values) != 1 or None in values or (citation is None and len({atom.reference for atom in candidates}) > 1)
         status = "unknown" if ambiguous else "confirmed" if exact else "contradicted"
-        notes = check_answer(claim, known_titles=(known_titles or set()) | evidence.titles, posted_checked=posted_checked, posted_seen=posted_seen)
+        titles = (known_titles or set()) | evidence.titles
+        if status == "confirmed" and exact and all(atom.field_name == "posted_status" for atom in exact):
+            # Exact owner-checked common-query scope facts already encode completeness.
+            # Retain unknown-title/save checks; do not widen legacy free-prose absence rules.
+            notes = _title_and_write_notes(claim, titles)
+        else:
+            notes = check_answer(claim, known_titles=titles, posted_checked=posted_checked, posted_seen=posted_seen)
         if notes:
             status = "unknown"
         if status == "confirmed":
