@@ -55,6 +55,7 @@ export function PlanConflictReview({
 }) {
   const remote = editablePlan(server);
   const [choices, setChoices] = useState<Record<string, Side>>({});
+  const [clearedFolds, setClearedFolds] = useState<Record<string, boolean>>({});
   const [timeMode, setTimeMode] = useState<PlanUpdate["timezone_change"]>(null);
   const same = (a: unknown, b: unknown) =>
     JSON.stringify(a) === JSON.stringify(b);
@@ -82,7 +83,16 @@ export function PlanConflictReview({
     const a = local.rows.find((row) => row.row_id === id);
     const b = remote.rows.find((row) => row.row_id === id);
     if (!a || !b) {
-      if (take(`row:${id}`, !!a, !!b)) mergedRows.push({ ...(a ?? b)! });
+      if (take(`row:${id}`, !!a, !!b)) {
+        const retained = { ...(a ?? b)! };
+        const time = b && converted?.find((row) => row.row_id === id);
+        if (time)
+          Object.assign(retained, {
+            local_time: time.local_time,
+            fold: time.fold,
+          });
+        mergedRows.push(retained);
+      }
       continue;
     }
     const merged = { ...b };
@@ -94,6 +104,20 @@ export function PlanConflictReview({
     if (time)
       Object.assign(merged, { local_time: time.local_time, fold: time.fold });
     mergedRows.push(merged);
+  }
+  const incompatibleFolds = new Set<string>();
+  for (const row of mergedRows) {
+    if (clearedFolds[row.row_id]) row.fold = null;
+    if (
+      row.fold !== null &&
+      (!row.local_time ||
+        !localTimeChoices(row.local_time, timezone).some(
+          (choice) => choice.fold === row.fold,
+        ))
+    ) {
+      incompatibleFolds.add(row.row_id);
+      complete = false;
+    }
   }
   const compare = (
     key: string,
@@ -121,12 +145,13 @@ export function PlanConflictReview({
           <select
             className={control}
             value={choices[key] ?? ""}
-            onChange={(event) =>
+            onChange={(event) => {
+              setClearedFolds({});
               setChoices((current) => ({
                 ...current,
                 [key]: event.target.value as Side,
-              }))
-            }
+              }));
+            }}
           >
             <option value="">请明确选择</option>
             <option value="local">本地</option>
@@ -157,9 +182,10 @@ export function PlanConflictReview({
           <select
             className={control}
             value={timeMode ?? ""}
-            onChange={(event) =>
-              setTimeMode(event.target.value as PlanUpdate["timezone_change"])
-            }
+            onChange={(event) => {
+              setClearedFolds({});
+              setTimeMode(event.target.value as PlanUpdate["timezone_change"]);
+            }}
           >
             <option value="">请明确选择</option>
             <option value="keep_local_time">按所选当地时间使用所选时区</option>
@@ -223,6 +249,26 @@ export function PlanConflictReview({
                   timezone,
                 )}
               </p>
+            )}
+            {incompatibleFolds.has(id) && (
+              <div role="alert">
+                <p>
+                  所选偏移与所选当地时间不一致。请重新选择时间或明确清除偏移。
+                </p>
+                <Button
+                  className="min-h-11"
+                  variant="outline"
+                  aria-label={`${id} · 清除不适用的偏移`}
+                  onClick={() =>
+                    setClearedFolds((current) => ({ ...current, [id]: true }))
+                  }
+                >
+                  清除不适用的偏移
+                </Button>
+              </div>
+            )}
+            {clearedFolds[id] && (
+              <p>已明确清除不适用的偏移；其他字段选择不变。</p>
             )}
           </fieldset>
         );
