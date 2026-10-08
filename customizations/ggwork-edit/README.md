@@ -55,8 +55,28 @@ use without injecting a synthetic principal. Include this checkout's `backend`,
 `backend/packages/harness`, and `backend/packages/extension-api` on `PYTHONPATH`
 when using another checkout's Python environment.
 
+Online file delivery uses the [bounded transient relay](docs/relay.md). Browser
+uploads report progress only after the selected Mac acknowledges each chunk;
+received bytes still require native media verification. Completed outputs expose
+an authenticated same-origin streaming URL supporting a single HTTP byte Range,
+plus an access preflight to distinguish missing files from an offline Mac. Both
+sides must remain online. Deploy one Gateway process/replica; restart requires a
+fresh transfer. Media bytes are never written to Gateway storage.
+
 Native preparation failures are reported through the worker `preparation-error`
 endpoint using fixed safe codes, not paths or raw exception text. They persist on
 the waiting intent as `native_preparation_error` and a preparation reason. A
 successful discovery/verification or explicit owner preparation clears the error
 without creating another request. Admitted and terminal tasks reject these reports.
+
+An output can publish only against its corresponding approved stored plan. The
+planner validates source ranges and requested duration; publication checks the
+encoded duration against that output's planned segment sum with a one-second
+mux tolerance. Rendering retries retain the existing approved plan; transcription
+or planning retries clear it and require a new current-attempt plan.
+
+The configured planner injects a live per-owner Skill/model profile policy through
+`service.execution_profiles`. Browser and worker execution paths both enforce it,
+including automatic admission and repeated claims. Policy lookup failure closes
+admission. Reading history, stopping, heartbeats and terminal failure acknowledgments
+remain available for safe cleanup when execution becomes unavailable.

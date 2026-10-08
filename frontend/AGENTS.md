@@ -289,3 +289,25 @@ This checkout adds `/workspace/picks` and `/workspace/pick-data`, `core/pick/`, 
 Pick-board pagination must round-trip every generated page without a fixed catalog-size cap. `__unknown__` is the URL-only empty-language filter; bind it as `''` in SQL. Explicit tab changes clear replay identity, but candidate → evidence → return preserves `result`, page and version through the server page. Catalog and posted freshness are separate: the latter comes from the chosen version's `meta.control.postedStats.importedAt`. Assess archived versions at their capture time, and never use a fresh mirror timestamp to claim fresh upstream data.
 
 The Trends tab keeps its authenticated server fetch and statistics in the existing route/view. `pick-board/trends-table-explorer.tsx` is a small client island for same-batch text/platform/result filters and CSV export; it must not fetch replacement observations or import server modules. Rows use the shared GGWork theme and existing completeness/zero-value rules. Production data must never be filled from the standalone DramaRadar US snapshot.
+
+## Editing workspace
+
+`/workspace/editing` owns independent paginated editing history; `/new` owns page
+execution drafts and `/[task_id]` owns the stable shared detail. Thin host mounts
+live under `components/workspace/editing`; native/planner/task policy stays in
+`customizations/ggwork-edit`. `core/editing` is the authenticated REST adapter.
+Queries carry owner and task/page identity and consume AbortSignals. A 401 follows
+the host login flow and clears editing-visible auth state. Do not serve a previous
+owner's task or turn a read failure into empty history. Uncertain creates retain
+their exact request payload/id in owner-scoped session storage until resolved;
+file selection never starts rendering before the explicit Start action.
+
+The registered `clip_*` tool results render the same live task query in chat;
+historical narration is not live task state. Requirements/profiles/limits come
+from the extension capability response. Directory selections are grant-relative
+Mac paths, not browser or Gateway paths. Browser upload progress advances only
+on native acknowledgement, and receipt is distinct from manifest verification.
+Output previews use the relay access preflight and Range-capable content URL;
+never fetch a whole MP4 into a browser Blob. Offline, missing-file, authorization,
+transfer errors, partial results and pending stop acknowledgement remain distinct.
+Changing requirements creates a parent-linked task and preserves original outputs.
