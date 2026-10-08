@@ -32,7 +32,11 @@ def _posted_unavailable(exc: Exception) -> str:
 def _rejected(exc: Exception) -> str:
     # Host tool-error middleware would print a raw "Error: Tool ... failed" line into the chat;
     # a business refusal is an answer the model can relay, with provenance only after a catalog read.
-    return json.dumps({"status": "rejected", "notice": str(exc), **_refusal_scope(exc)}, ensure_ascii=False)
+    from ggwork_pick.query_reader import QueryFailure
+
+    failure = exc if isinstance(exc, QueryFailure) else exc.query_failure if isinstance(exc, CatalogRefusal) else None
+    fields = {"code": failure.code, "retryable": failure.retryable} if failure is not None else {}
+    return json.dumps({"status": "rejected", "notice": str(exc), **_refusal_scope(exc), **fields}, ensure_ascii=False)
 
 
 async def _answer(work, *, task=None, runtime=None, tool_name=None) -> str:
