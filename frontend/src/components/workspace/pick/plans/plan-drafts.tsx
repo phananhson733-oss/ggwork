@@ -5,12 +5,15 @@ import {
   useContext,
   useEffect,
   useState,
+  useRef,
   type ReactNode,
 } from "react";
 
 import { useAuth } from "@/core/auth/AuthProvider";
 import { type Plan, type PlanUpdate } from "@/core/pick/completion-types";
 import { type editablePlan } from "@/core/pick/plan-draft";
+
+import { watchPlanHistory, type PlanHistoryGuard } from "./plan-history";
 
 type Draft = {
   base: Plan;
@@ -21,9 +24,18 @@ type Draft = {
 const Context = createContext<{
   drafts: Record<string, Draft>;
   setDraft: (id: string, draft: Draft | null) => void;
+  registerHistoryGuard: (guard: PlanHistoryGuard) => () => void;
 } | null>(null);
 function OwnedPlanDrafts({ children }: { children: ReactNode }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const historyGuard = useRef<PlanHistoryGuard | null>(null);
+  const registerHistoryGuard = useCallback((guard: PlanHistoryGuard) => {
+    historyGuard.current = guard;
+    return () => {
+      if (historyGuard.current === guard) historyGuard.current = null;
+    };
+  }, []);
+  useEffect(() => watchPlanHistory(() => historyGuard.current), []);
   const setDraft = useCallback(
     (id: string, draft: Draft | null) =>
       setDrafts((current) => {
@@ -45,7 +57,9 @@ function OwnedPlanDrafts({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("beforeunload", unload);
   }, [dirty]);
   return (
-    <Context.Provider value={{ drafts, setDraft }}>{children}</Context.Provider>
+    <Context.Provider value={{ drafts, setDraft, registerHistoryGuard }}>
+      {children}
+    </Context.Provider>
   );
 }
 export function PlanDraftProvider({ children }: { children: ReactNode }) {

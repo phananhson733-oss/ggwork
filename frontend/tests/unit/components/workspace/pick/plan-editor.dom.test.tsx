@@ -64,7 +64,7 @@ it("retains local title after a version conflict and compares the current server
     "我的未保存修改",
   );
   expect(
-    screen.getByRole("button", { name: "保留本地修改，以新版本继续" }),
+    screen.getByRole("button", { name: "应用所选字段，以新版本继续" }),
   ).toBeTruthy();
 });
 it("a mandatory blocked row prevents execution export and links to the row", async () => {
@@ -279,17 +279,24 @@ it("reconciles a server timezone conflict with an explicit choice without losing
     target: { value: "本地备注" },
   });
   fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
-  await screen.findByLabelText("时区冲突处理");
+  await screen.findByLabelText("计划时区：保留版本");
+  fireEvent.change(screen.getByLabelText("计划时区：保留版本"), {
+    target: { value: "local" },
+  });
+  fireEvent.change(
+    screen.getByLabelText(`${original.rows[0]!.row_id} · 个人备注：保留版本`),
+    { target: { value: "local" } },
+  );
   expect(
     screen.getByRole<HTMLButtonElement>("button", {
-      name: "保留本地修改，以新版本继续",
+      name: "应用所选字段，以新版本继续",
     }).disabled,
   ).toBe(true);
   fireEvent.change(screen.getByLabelText("时区冲突处理"), {
     target: { value: "keep_local_time" },
   });
   fireEvent.click(
-    screen.getByRole("button", { name: "保留本地修改，以新版本继续" }),
+    screen.getByRole("button", { name: "应用所选字段，以新版本继续" }),
   );
   fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
   await screen.findByText("已保存版本 3");
@@ -315,3 +322,132 @@ it("keeps the row edit button compact while retaining its full accessible title"
   expect(button.getAttribute("title")).toBe(`编辑 ${plan.rows[0]!.title}`);
   expect(screen.getByText(plan.rows[0]!.title)).toBeTruthy();
 });
+
+it("reconciles each displayed row field without overwriting unseen remote changes", async () => {
+  const original = planSchema.parse(fixture.plan);
+  original.rows[0]!.local_time = "2026-11-01T01:30";
+  original.rows[0]!.fold = 0;
+  const id = original.rows[0]!.row_id;
+  const remote = planSchema.parse({
+    ...original,
+    version: 2,
+    rows: original.rows.map((row) => ({
+      ...row,
+      channel: "tiktok",
+      copy_text: "服务器文案",
+      fold: 1,
+    })),
+  });
+  rs.mocked(fetcher)
+    .mockResolvedValueOnce(
+      Response.json(
+        {
+          detail: {
+            code: "version_conflict",
+            message: "版本变化",
+            retryable: false,
+          },
+        },
+        { status: 409 },
+      ),
+    )
+    .mockResolvedValueOnce(Response.json(remote))
+    .mockResolvedValueOnce(Response.json({ ...remote, version: 3 }));
+  render(<PlanEditor initial={original} />);
+  fireEvent.click(
+    screen.getByRole("button", { name: `编辑 ${original.rows[0]!.title}` }),
+  );
+  fireEvent.change(screen.getByLabelText("个人备注"), {
+    target: { value: "本地保留备注" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
+  await screen.findByText("服务器文案");
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", {
+      name: "应用所选字段，以新版本继续",
+    }).disabled,
+  ).toBe(true);
+  for (const label of ["目标渠道", "文案草稿", "重复时刻偏移"]) {
+    fireEvent.change(screen.getByLabelText(`${id} · ${label}：保留版本`), {
+      target: { value: "server" },
+    });
+  }
+  fireEvent.change(screen.getByLabelText(`${id} · 个人备注：保留版本`), {
+    target: { value: "local" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "应用所选字段，以新版本继续" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
+  await screen.findByText("已保存版本 3");
+  const payload = JSON.parse(
+    rs.mocked(fetcher).mock.calls[2]![1]!.body as string,
+  );
+  expect(payload.rows[0]).toMatchObject({
+    channel: "tiktok",
+    copy_text: "服务器文案",
+    fold: 1,
+    note: "本地保留备注",
+  });
+  expect(payload.expected_version).toBe(2);
+});
+
+it.each(["local", "server"] as const)(
+  "requires explicit added/removed row decisions (%s)",
+  async (retention) => {
+    const original = planSchema.parse(fixture.plan);
+    const id = original.rows[0]!.row_id;
+    const remote = planSchema.parse({
+      ...original,
+      version: 2,
+      rows: [
+        { ...original.rows[0], row_id: "new-row", copy_text: "远端新增文案" },
+      ],
+    });
+    rs.mocked(fetcher)
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            detail: {
+              code: "version_conflict",
+              message: "版本变化",
+              retryable: false,
+            },
+          },
+          { status: 409 },
+        ),
+      )
+      .mockResolvedValueOnce(Response.json(remote))
+      .mockResolvedValueOnce(Response.json({ ...remote, version: 3 }));
+    render(<PlanEditor initial={original} />);
+    fireEvent.change(screen.getByLabelText("计划名称"), {
+      target: { value: "本地标题" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
+    await screen.findByLabelText("计划名称：保留版本");
+    fireEvent.change(screen.getByLabelText("计划名称：保留版本"), {
+      target: { value: "local" },
+    });
+    fireEvent.change(screen.getByLabelText("行顺序：保留版本"), {
+      target: { value: "server" },
+    });
+    fireEvent.change(screen.getByLabelText(`${id} · 行保留状态：保留版本`), {
+      target: { value: retention },
+    });
+    fireEvent.change(screen.getByLabelText("new-row · 行保留状态：保留版本"), {
+      target: { value: "server" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "应用所选字段，以新版本继续" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
+    await screen.findByText("已保存版本 3");
+    const payload = JSON.parse(
+      rs.mocked(fetcher).mock.calls[2]![1]!.body as string,
+    );
+    expect(payload.rows.map((row: { row_id: string }) => row.row_id)).toEqual(
+      retention === "local" ? ["new-row", id] : ["new-row"],
+    );
+    expect(payload.rows[0].copy_text).toBe("远端新增文案");
+  },
+);

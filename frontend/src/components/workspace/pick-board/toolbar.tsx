@@ -24,6 +24,7 @@ import {
   type Sort,
 } from "@/core/pick-board/request";
 import type { BoardRules } from "@/core/pick-board/rules";
+import { cn } from "@/lib/utils";
 import type { PickFacets } from "@/server/pick-board";
 
 import controls from "../pick/control-scope.module.css";
@@ -218,7 +219,7 @@ export function Chip({
       {item.text}
       {item.count !== undefined ? (
         <small
-          className={`ml-[3px] text-[11px] tabular-nums ${on ? "" : "text-helper"}`}
+          className={cn("ml-[3px] text-[11px] tabular-nums", !on && "text-helper")}
         >
           {item.count.toLocaleString("en-US")}
         </small>

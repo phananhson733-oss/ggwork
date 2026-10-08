@@ -44,7 +44,9 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import controls from "../control-scope.module.css";
 import { SourceResult } from "../my-selections";
 
+import { PlanConflictReview } from "./plan-conflict";
 import { usePlanDrafts } from "./plan-drafts";
+import { type PlanHistoryAttempt } from "./plan-history";
 
 const field =
   "min-h-11 w-full rounded-md border border-line bg-surface p-2 text-base";
@@ -58,11 +60,9 @@ export function PlanEditor({ initial }: { initial: Plan }) {
   const [conflict, setConflict] = useState<Plan | null>(
     recovered && initial.version > recovered.base.version ? initial : null,
   );
-  const [conflictTimeMode, setConflictTimeMode] =
-    useState<PlanUpdate["timezone_change"]>(null);
   const [preview, setPreview] = useState<PlanPreview | null>(null);
   const [receipt, setReceipt] = useState<PlanExport | null>(null);
-  const [departure, setDeparture] = useState<string | null>(null);
+  const [departure, setDeparture] = useState<PlanHistoryAttempt | null>(null);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
@@ -82,7 +82,6 @@ export function PlanEditor({ initial }: { initial: Plan }) {
   const dirty = JSON.stringify(draft) !== JSON.stringify(editablePlan(base));
   if (initial.version > base.version && conflict?.version !== initial.version) {
     setZonePreview(null);
-    setConflictTimeMode(null);
     if (dirty) setConflict(initial);
     else {
       setBase(initial);
@@ -132,7 +131,8 @@ export function PlanEditor({ initial }: { initial: Plan }) {
         return;
       event.preventDefault();
       event.stopPropagation();
-      setDeparture(link.getAttribute("href"));
+      const href = link.getAttribute("href")!;
+      setDeparture({ href, proceed: () => window.location.assign(href) });
     };
     window.addEventListener("beforeunload", unload);
     document.addEventListener("click", leave, true);
@@ -141,6 +141,11 @@ export function PlanEditor({ initial }: { initial: Plan }) {
       document.removeEventListener("click", leave, true);
     };
   }, [dirty, remember, base.id]);
+  const registerHistoryGuard = recovery?.registerHistoryGuard;
+  useEffect(() => {
+    if (!dirty || !registerHistoryGuard) return;
+    return registerHistoryGuard(setDeparture);
+  }, [dirty, registerHistoryGuard]);
   const edit = (next: typeof draft) => {
     setZonePreview(null);
     setDraft(next);
@@ -184,7 +189,6 @@ export function PlanEditor({ initial }: { initial: Plan }) {
           const current = await getPlan(base.id, controller.current.signal);
           if (active.current) {
             setConflict(current);
-            setConflictTimeMode(null);
             setZonePreview(null);
           }
         } catch {
@@ -228,36 +232,16 @@ export function PlanEditor({ initial }: { initial: Plan }) {
       pending.current = null;
       setStatus(`已保存版本 ${saved.version}`);
     });
-  const rebase = (keep: boolean) => {
+  const rebase = (
+    resolved: typeof draft,
+    resolvedTimeMode: PlanUpdate["timezone_change"],
+  ) => {
     if (!conflict) return;
-    const changedZone = draft.timezone !== conflict.timezone;
-    if (keep && changedZone && !conflictTimeMode) return;
     setBase(conflict);
-    if (!keep) {
-      setDraft(editablePlan(conflict));
-      setZone(conflict.timezone);
-      setZoneChange(null);
-    } else if (changedZone) {
-      if (conflictTimeMode === "keep_instant") {
-        const converted = timezonePreview(
-          conflict,
-          draft.timezone,
-          "keep_instant",
-        );
-        setDraft({
-          ...draft,
-          rows: draft.rows.map((row) => {
-            const time = converted.find((item) => item.row_id === row.row_id);
-            return time
-              ? { ...row, local_time: time.local_time, fold: time.fold }
-              : row;
-          }),
-        });
-      }
-      setZoneChange(conflictTimeMode);
-    } else setZoneChange(null);
+    setDraft(resolved);
+    setZone(resolved.timezone);
+    setZoneChange(resolvedTimeMode);
     setConflict(null);
-    setConflictTimeMode(null);
     pending.current = null;
     setError("");
     setPreview(null);
@@ -265,11 +249,11 @@ export function PlanEditor({ initial }: { initial: Plan }) {
   };
   const depart = (discard = true) => {
     if (!departure) return;
-    const href = departure;
+    const next = departure;
     remember?.(base.id, null);
     if (discard) setDraft(editablePlan(base));
     setDeparture(null);
-    window.setTimeout(() => window.location.assign(href), 0);
+    window.setTimeout(next.proceed, 0);
   };
   return (
     <section
@@ -338,56 +322,15 @@ export function PlanEditor({ initial }: { initial: Plan }) {
       )}
       {status && <p role="status">{status}</p>}
       {conflict && (
-        <section className="border-warning-ink space-y-3 border p-4">
-          <h2 className="text-lg">服务器版本 {conflict.version} 已变化</h2>
-          <p>{conflict.title}</p>
-          <p>服务器时区：{conflict.timezone}</p>
-          <ul>
-            {conflict.rows.map((row) => (
-              <li key={row.row_id}>
-                {row.title} · {row.account ?? "未填账号"} ·{" "}
-                {row.local_time ?? "未填时间"} · 备注：{row.note || "无"}
-              </li>
-            ))}
-          </ul>
-          <p>本地输入仍保留。比较后决定采用哪一份。</p>
-          {draft.timezone !== conflict.timezone && (
-            <label className="block">
-              时区冲突处理
-              <select
-                className={field}
-                value={conflictTimeMode ?? ""}
-                onChange={(event) =>
-                  setConflictTimeMode(
-                    event.target.value as PlanUpdate["timezone_change"],
-                  )
-                }
-              >
-                <option value="">请明确选择</option>
-                <option value="keep_local_time">保留本地时区与当地时间</option>
-                <option value="keep_instant">
-                  保留服务器时刻，采用本地其他字段
-                </option>
-              </select>
-            </label>
-          )}
-          <Button
-            className="min-h-11"
-            disabled={draft.timezone !== conflict.timezone && !conflictTimeMode}
-            onClick={() => rebase(true)}
-          >
-            保留本地修改，以新版本继续
-          </Button>
-          <Button
-            className="min-h-11"
-            variant="outline"
-            onClick={() => rebase(false)}
-          >
-            采用服务器版本
-          </Button>
-        </section>
+        <PlanConflictReview
+          key={conflict.version}
+          base={base}
+          local={draft}
+          server={conflict}
+          onApply={rebase}
+        />
       )}
-      <fieldset disabled={busy} className="min-w-0 space-y-4">
+      <fieldset disabled={busy || !!conflict} className="min-w-0 space-y-4">
         <label className="block">
           计划名称
           <Input
