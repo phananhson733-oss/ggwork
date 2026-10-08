@@ -41,6 +41,7 @@ import {
 } from "@/core/pick/plan-draft";
 import { useIsMobile } from "@/hooks/use-mobile";
 
+import controls from "../control-scope.module.css";
 import { SourceResult } from "../my-selections";
 
 import { usePlanDrafts } from "./plan-drafts";
@@ -271,14 +272,16 @@ export function PlanEditor({ initial }: { initial: Plan }) {
     window.setTimeout(() => window.location.assign(href), 0);
   };
   return (
-    <section className="mx-auto w-full max-w-6xl min-w-0 space-y-5 p-4 text-base leading-6 sm:p-6 [&_button]:text-base [&_input]:!text-base [&_textarea]:!text-base">
+    <section
+      className={`${controls.controls} mx-auto w-full max-w-6xl min-w-0 space-y-5 p-4 text-base leading-6 sm:p-6 [&_button]:text-base [&_input]:!text-base [&_textarea]:!text-base`}
+    >
       <Dialog
         open={departure !== null}
         onOpenChange={(open) => {
           if (!open && !busy) setDeparture(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className={controls.controls}>
           <DialogTitle>计划有未保存修改</DialogTitle>
           <DialogDescription>
             选择留在本页、丢弃修改，或保存成功后继续。
@@ -860,7 +863,7 @@ function RowEditorSurface({
         }}
       >
         <SheetContent
-          className="w-full overflow-y-auto rounded-none p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-none [&>button]:min-h-11 [&>button]:min-w-11"
+          className={`${controls.controls} w-full overflow-y-auto rounded-none p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-none [&>button]:min-h-11 [&>button]:min-w-11`}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             returnFocus();

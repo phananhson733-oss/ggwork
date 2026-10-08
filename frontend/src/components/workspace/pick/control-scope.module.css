@@ -1,0 +1,21 @@
+/* Local pick-workbench controls, including their portalled editors.
+ * Reuse opaque theme inks: decorative --line colors do not identify inputs.
+ */
+.controls
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea,
+    [data-slot="button"][data-variant="outline"],
+    [data-slot="button"][data-variant="secondary"]
+  ):not([aria-invalid="true"]) {
+  border-color: var(--helper);
+}
+
+/* The existing translucent rings remain supplementary. This opaque outline
+ * identifies keyboard focus against the surrounding light or dark surface.
+ */
+.controls :is(input, select, textarea, button, a, summary):focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}

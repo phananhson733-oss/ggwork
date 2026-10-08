@@ -20,6 +20,8 @@ import { CandidateView } from "./candidate-view";
 import { useSelectionDrafts } from "./selection-drafts";
 import { useResultNotes } from "./use-result-notes";
 
+import controls from "./control-scope.module.css";
+
 export function SourceResult({ id }: { id: string }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -368,7 +370,9 @@ function OwnedSelections({ ownerId }: { ownerId: string }) {
     ),
   ];
   return (
-    <div className="mx-auto w-full max-w-5xl min-w-0 space-y-5 p-4 text-base leading-6 sm:p-6">
+    <div
+      className={`${controls.controls} mx-auto w-full max-w-5xl min-w-0 space-y-5 p-4 text-base leading-6 sm:p-6`}
+    >
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl leading-8 font-bold">我的选剧</h1>
