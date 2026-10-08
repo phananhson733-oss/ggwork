@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, MagicMock
 
 SCRIPT = Path(__file__).resolve().parents[3] / "scripts/pick-completion-browser.py"
 spec = importlib.util.spec_from_file_location("completion_browser", SCRIPT)
@@ -130,39 +130,142 @@ class OwnedTlsTeardown(unittest.TestCase):
 
 
 class SupervisedRunner(unittest.TestCase):
-    @unittest.skipUnless(
-        os.name == "posix", "The local QA process-group contract is POSIX"
-    )
-    def test_group_cleanup_reaches_owned_descendants(self):
-        with tempfile.TemporaryDirectory() as directory:
-            ready = Path(directory) / "ready"
-            child = "import signal,time,sys; from pathlib import Path; signal.signal(signal.SIGTERM, signal.SIG_IGN); Path(sys.argv[1]).write_text('ready'); time.sleep(30)"
-            code = "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2]]); time.sleep(30)"
-            process = subprocess.Popen(
-                [sys.executable, "-c", code, child, str(ready)], start_new_session=True
+    def spawn_owned(self, root, *, exit_parent):
+        ready = root / "child.pid"
+        marker = root / "child.tick"
+        child = (
+            "import os,signal,time,sys; from pathlib import Path; signal.signal(signal.SIGTERM,signal.SIG_IGN); Path(sys.argv[1]).write_text(str(os.getpid())); "
+            + "\nwhile True: Path(sys.argv[2]).write_text(str(time.monotonic())); time.sleep(.02)"
+        )
+        parent = (
+            "import subprocess,sys,time; from pathlib import Path; subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2],sys.argv[3]]); "
+            + "\nwhile not Path(sys.argv[2]).exists(): time.sleep(.01)\n"
+            + ("" if exit_parent else "time.sleep(30)")
+        )
+        real_popen = subprocess.Popen
+        holder = {}
+
+        def spawn(_command, **kwargs):
+            self.assertTrue(
+                kwargs.get("start_new_session"),
+                "Every QA supervisor must own its process group",
             )
+            process = real_popen(
+                [sys.executable, "-c", parent, child, str(ready), str(marker)], **kwargs
+            )
+            holder["process"] = process
+            deadline = time.monotonic() + 5
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(ready.exists())
+            return process
+
+        return spawn, holder, ready, marker
+
+    def assert_child_stopped(self, ready):
+        child_pid = int(ready.read_text())
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            result = subprocess.run(
+                ["ps", "-p", str(child_pid), "-o", "stat="],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertIn(result.returncode, (0, 1))
+            self.assertEqual(result.stderr, "")
+            # A killed adopted child can briefly remain a zombie. It cannot write
+            # or execute; killpg(...,0) is not a reliable liveness proof on macOS.
+            state = result.stdout.strip()
+            if not state or state.startswith("Z"):
+                return
+            time.sleep(0.02)
+        self.fail("Owned child remained executable after cleanup")
+
+    def emergency_cleanup(self, holder):
+        process = holder.get("process")
+        if process is None:
+            return
+        if holder.get("cleaned"):
+            process.wait(timeout=5)
+            return
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
+
+    @unittest.skipUnless(os.name == "posix", "Local QA process-group contract is POSIX")
+    def test_gateway_owns_group_and_cleans_term_ignoring_descendant(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "backend").mkdir()
+            spawn, holder, ready, _marker = self.spawn_owned(root, exit_parent=False)
+            probe = MagicMock()
+            probe.__enter__.return_value.get.return_value.status_code = 200
             try:
-                deadline = time.monotonic() + 5
-                while not ready.exists() and time.monotonic() < deadline:
-                    time.sleep(0.02)
-                self.assertTrue(ready.exists())
+                with (
+                    patch.object(module.subprocess, "Popen", side_effect=spawn),
+                    patch.object(
+                        module.parity, "direct_http_client", return_value=probe
+                    ),
+                ):
+                    process = module.launch_gateway(
+                        {"DEER_FLOW_PROJECT_ROOT": str(root)}, 12345, root
+                    )
                 module.stop_group(process)
-                self.assertIsNotNone(process.poll())
-                deadline = time.monotonic() + 5
-                while time.monotonic() < deadline:
-                    try:
-                        os.killpg(process.pid, 0)
-                    except ProcessLookupError:
-                        break
-                    time.sleep(0.02)
-                else:
-                    self.fail("Owned descendant process group survived teardown")
+                self.assert_child_stopped(ready)
+                holder["cleaned"] = True
             finally:
-                module.stop_group(process)
+                self.emergency_cleanup(holder)
+
+    @unittest.skipUnless(os.name == "posix", "Local QA process-group contract is POSIX")
+    def test_browser_cleans_descendant_after_normal_exit_timeout_and_interrupt(self):
+        for outcome in ("normal", "timeout", "interrupt"):
+            with (
+                self.subTest(outcome=outcome),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                spawn, holder, ready, _marker = self.spawn_owned(
+                    root, exit_parent=outcome == "normal"
+                )
+
+                def wrapped(command, **kwargs):
+                    process = spawn(command, **kwargs)
+                    actual_wait = process.wait
+                    first = True
+
+                    def wait(timeout=None):
+                        nonlocal first
+                        if first and outcome != "normal":
+                            first = False
+                            if outcome == "timeout":
+                                raise subprocess.TimeoutExpired("synthetic", timeout)
+                            raise KeyboardInterrupt
+                        return actual_wait(timeout)
+
+                    process.wait = wait
+                    return process
+
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                    with patch.object(module.subprocess, "Popen", side_effect=wrapped):
+                        if outcome == "normal":
+                            self.assertEqual(
+                                module.run_browser(module.clean_environment(), root), 0
+                            )
+                        else:
+                            error = (
+                                subprocess.TimeoutExpired
+                                if outcome == "timeout"
+                                else KeyboardInterrupt
+                            )
+                            with self.assertRaises(error):
+                                module.run_browser(module.clean_environment(), root)
+                    self.assert_child_stopped(ready)
+                    holder["cleaned"] = True
+                finally:
+                    self.emergency_cleanup(holder)
 
 
 if __name__ == "__main__":

@@ -40,16 +40,6 @@ def unused_port():
         return listener.getsockname()[1]
 
 
-def stop_process(process):
-    if process is not None and process.poll() is None:
-        process.terminate()
-        try:
-            process.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
-
-
 def launch_gateway(env, port, output):
     import httpx
 
@@ -73,6 +63,7 @@ def launch_gateway(env, port, output):
             env=env,
             stdout=stream,
             stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
     try:
         with parity.direct_http_client(f"http://127.0.0.1:{port}") as client:
@@ -88,7 +79,7 @@ def launch_gateway(env, port, output):
                 time.sleep(0.2)
             raise RuntimeError("Gateway readiness timeout")
     except BaseException:
-        stop_process(process)
+        stop_group(process)
         raise
 
 
@@ -175,13 +166,7 @@ def run_browser(env, output):
         try:
             return result.wait(timeout=900)
         finally:
-            if result.poll() is None:
-                os.killpg(result.pid, signal.SIGTERM)
-                try:
-                    result.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    os.killpg(result.pid, signal.SIGKILL)
-                    result.wait(timeout=5)
+            stop_group(result)
 
 
 def run(
@@ -435,7 +420,8 @@ with open(os.environ["PICK_COMPLETION_RUNTIME_PROOF"], "a", encoding="utf-8") as
                 plan_response = client.get(f"/api/pick/plans/{evidence['plan_id']}")
                 assert plan_response.status_code == 200
                 plan = plan_response.json()
-            stop_process(process)
+            stop_group(process)
+            process = None
             version = asyncio.run(
                 publish_review_fixture(database_url, output, owner, plan["rows"][0])
             )
@@ -470,9 +456,15 @@ with open(os.environ["PICK_COMPLETION_RUNTIME_PROOF"], "a", encoding="utf-8") as
         )
         return return_code
     finally:
-        stop_group(frontend)
-        stop_process(process)
-        board_fixture.down(cluster, database=fixture["database"], role=fixture["role"])
+        try:
+            stop_group(frontend)
+        finally:
+            try:
+                stop_group(process)
+            finally:
+                board_fixture.down(
+                    cluster, database=fixture["database"], role=fixture["role"]
+                )
 
 
 if __name__ == "__main__":
