@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
+import httpx
 from deerflow_extension_api.auth import resolve_principal
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -16,6 +17,7 @@ from pydantic import Field, ValidationError
 from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.mirror.status import mirror_status
+from ggwork_pick.native_source import native_resource, native_status
 from ggwork_pick.observe.status import obs_status
 from ggwork_pick.observe.trends_candidates import trends_candidates
 from ggwork_pick.observe.trends_table import trends_table
@@ -168,6 +170,19 @@ def build_router(service):
 
     register_radar_routes(router, service, repository)
 
+    @router.get("/resources")
+    async def source_resource(request: Request, row: str = Query(min_length=1, max_length=512)):
+        repo = repository(request)
+        try:
+            value = await native_resource(service, repo.owner_id, row)
+        except PermissionError:
+            raise HTTPException(403, "只有资料所有者可以查看取货链接") from None
+        except (httpx.HTTPError, ValueError, RuntimeError):
+            raise HTTPException(503, "暂时无法读取取货资料") from None
+        if value is None:
+            raise HTTPException(404, "未找到这部剧的取货资料")
+        return JSONResponse(value, headers={"Cache-Control": "private, no-store"})
+
     @router.get("/sync")
     async def sync_status(request: Request):
         repo = repository(request)
@@ -177,7 +192,16 @@ def build_router(service):
         runs = await shared.sync_runs()
         # The mirror's state (P2-8b): null on SQLite; judged on the shared batches, not on this user's current.
         mirror = await mirror_view(service, shared)
-        return {"configured": service.sync_settings.configured, "current": info, "runs": runs, "mirror": mirror, "obs": await obs_view(shared)}
+        status = {
+            "configured": service.sync_settings.configured,
+            "current": info,
+            "runs": runs,
+            "mirror": mirror,
+            "obs": await obs_view(shared),
+        }
+        if service.native_source.enabled:
+            status["native_source"] = await native_status(service)
+        return status
 
     @router.get("/obs/trends-table")
     async def obs_trends_table(request: Request):

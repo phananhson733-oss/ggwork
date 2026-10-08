@@ -21,14 +21,13 @@ import {
 } from "@/core/pick-board/metrics";
 import { PLATFORM_LABELS, type PickRequest } from "@/core/pick-board/request";
 import type { BoardRules } from "@/core/pick-board/rules";
-import { dramaPath } from "@/core/pick-board/site";
 import type { BillRow, ObserveRow, ReelshortDetail } from "@/server/pick-board";
 
 import { MetricsValidTag, Tag } from "./cells";
-import { ExternalLink } from "./links";
 import { PostedRecordCard } from "./posted-record";
 import { Delta, TagChips } from "./reelshort-cells";
 import { Spark } from "./reelshort-spark";
+import { ResourceLink } from "./resource-link";
 import { TAB_LABELS, pickHref, rowHref } from "./toolbar";
 
 /**
@@ -105,12 +104,7 @@ function IdentityLine({ row, asOf }: { row: ObserveRow; asOf: Date }) {
         {formatInt(row.chapterCount)} 集 ·{" "}
         {episodeAvailability(row.chapterCount, row.payStart)}
       </span>
-      <ExternalLink
-        href={dramaPath(row.locale, row.slug)}
-        className="text-link hover:underline"
-      >
-        公开页 ↗
-      </ExternalLink>
+      <ResourceLink rowKey={`reelshort-${row.id}`} />
     </div>
   );
 }

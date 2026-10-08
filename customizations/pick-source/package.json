@@ -1,0 +1,32 @@
+{
+  "name": "@ggwork/pick-source",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --conditions=react-server --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "start": "node --conditions=react-server --import tsx runtime/server.ts",
+    "refresh:cps": "node --conditions=react-server --import tsx runtime/refresh.ts cps",
+    "refresh:catalog": "node --conditions=react-server --import tsx runtime/refresh.ts catalog",
+    "migrate": "node --conditions=react-server --import tsx runtime/migrate.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.2",
+    "pg": "8.23.0",
+    "zod": "4.5.4",
+    "server-only": "0.0.1",
+    "tsx": "4.23.13",
+    "playwright": "1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/pg": "8.23.1",
+    "typescript": "5.9.3",
+    "drizzle-kit": "0.31.10"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@10.32.1"
+}

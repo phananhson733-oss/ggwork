@@ -26,6 +26,11 @@ RUN set -eu; \
     tar -xzf /tmp/lark-cli.tar.gz -C /tmp/lark-cli lark-cli; \
     install -m 0755 /tmp/lark-cli/lark-cli /usr/local/bin/lark-cli; \
     LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 /usr/local/bin/lark-cli --version | grep -qF "${LARK_CLI_VERSION#v}"
+FROM node:24.12.0-bookworm-slim AS pick-source
+WORKDIR /source
+COPY customizations/pick-source/package.json customizations/pick-source/pnpm-lock.yaml ./
+RUN corepack enable && corepack pnpm install --frozen-lockfile --ignore-scripts
+COPY customizations/pick-source ./
 FROM python:3.12-slim-bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
 COPY --from=uv-source /uv /uvx /usr/local/bin/
@@ -36,6 +41,10 @@ FROM python:3.12-slim-bookworm
 ARG LARK_CLI_VERSION
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONIOENCODING=utf-8
 COPY --from=uv-source /uv /uvx /usr/local/bin/
+COPY --from=pick-source /usr/local/bin/node /usr/local/bin/node
+COPY --from=pick-source /source /app/customizations/pick-source
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN /app/customizations/pick-source/node_modules/.bin/playwright install --with-deps chromium
 COPY --from=lark-cli /usr/local/bin/lark-cli /usr/local/bin/lark-cli
 RUN useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin larkrun
 ENV DEER_FLOW_LARK_CLI_PINNED_VERSION=${LARK_CLI_VERSION} DEER_FLOW_LARK_CLI_RUN_AS=larkrun

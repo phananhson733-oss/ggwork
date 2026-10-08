@@ -70,3 +70,6 @@ config.yaml.bak
 # Monocle agent-observability trace output (local file exporter)
 .monocle/
 .vercel
+
+# Local migration backups and credentials; never publish.
+.private/
