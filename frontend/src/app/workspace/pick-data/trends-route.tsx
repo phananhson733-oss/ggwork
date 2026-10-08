@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import type { ReactElement } from "react";
 
-
 import { BoardTitle } from "@/components/workspace/pick-board/views/board-header";
 import { BoardShell } from "@/components/workspace/pick-board/views/board-shell";
 import { BoardTabs } from "@/components/workspace/pick-board/views/board-tabs";
@@ -41,6 +40,13 @@ export async function trendsRoute(
     <BoardShell>
       <BoardTitle />
       <BoardTabs req={req} />
+      <a
+        href={`?tab=trends${req.v !== null ? `&v=${req.v}` : ""}`}
+        className="text-link text-sm"
+      >
+        ← 返回历史趋势雷达（US 历史快照）
+      </a>
+      <h2 className="text-lg font-semibold">全球日级采集记录</h2>
       {loaded.kind === "ok" ? (
         <>
           <TrendsTableView

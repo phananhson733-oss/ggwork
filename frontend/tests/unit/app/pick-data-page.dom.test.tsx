@@ -631,7 +631,7 @@ describe("simplified trends entry", () => {
       table: { ...trendsFixture, batch: null, rows: [] },
     });
     state.loaders.loadTrendsCandidates = () => ({ kind: "unauthenticated" });
-    await expect(renderPage({ tab: "trends" })).rejects.toThrow(
+    await expect(renderPage({ tab: "trends", rv: "daily" })).rejects.toThrow(
       "NEXT_REDIRECT",
     );
     expect(state.calls).toEqual([
@@ -655,7 +655,7 @@ describe("simplified trends entry", () => {
         rows: [],
       },
     });
-    await renderPage({ tab: "trends" });
+    await renderPage({ tab: "trends", rv: "daily" });
     expect(
       screen.getByText(/目前没有可用于趋势查询的榜单或收入候选/),
     ).toBeTruthy();
@@ -678,7 +678,7 @@ describe("simplified trends entry", () => {
       kind: "ok",
       candidates: candidatesFixture,
     });
-    await renderPage({ tab: "trends", ts: "order" });
+    await renderPage({ tab: "trends", rv: "daily", ts: "order" });
     expect(state.calls).toEqual([
       "requireBoardUser",
       "loadTrendsTable",
@@ -694,7 +694,7 @@ describe("simplified trends entry", () => {
       kind: "ok",
       table: trendsFixture,
     });
-    await renderPage({ tab: "trends" });
+    await renderPage({ tab: "trends", rv: "daily" });
     expect(state.calls).toEqual(["requireBoardUser", "loadTrendsTable"]);
     expect(screen.queryByRole("heading", { name: /待采集剧集/ })).toBeNull();
   });
@@ -705,7 +705,7 @@ describe("simplified trends entry", () => {
       table: { ...trendsFixture, batch: null, rows: [] },
     });
     state.loaders.loadTrendsCandidates = () => ({ kind: "unavailable" });
-    await renderPage({ tab: "trends" });
+    await renderPage({ tab: "trends", rv: "daily" });
     expect(screen.getByText(/待采集剧集暂时读不了/)).toBeTruthy();
     expect(document.querySelector("[data-trends-banners]")).not.toBeNull();
     expect(
@@ -715,7 +715,7 @@ describe("simplified trends entry", () => {
 
   it("retains a fixed notice when the table cannot be read", async () => {
     state.loaders.loadTrendsTable = () => ({ kind: "unavailable" });
-    await renderPage({ tab: "trends" });
+    await renderPage({ tab: "trends", rv: "daily" });
     expect(state.calls).toEqual(["requireBoardUser", "loadTrendsTable"]);
     expect(screen.getByRole("alert")).toBeTruthy();
   });

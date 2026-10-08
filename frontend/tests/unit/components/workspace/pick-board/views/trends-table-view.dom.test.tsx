@@ -211,7 +211,7 @@ describe("the table", () => {
       "Zero Curve Nights",
     ]);
     const change = screen.getByRole("link", { name: "按变化" });
-    expect(change.getAttribute("href")).toBe("/workspace/pick-data?tab=trends");
+    expect(change.getAttribute("href")).toBe("/workspace/pick-data?tab=trends&rv=daily");
     expect(change.getAttribute("data-prefetch")).toBe("false");
   });
 

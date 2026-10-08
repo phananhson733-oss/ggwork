@@ -145,7 +145,7 @@ function SortLinks({ req }: { req: PickRequest }) {
           <Link
             key={sort}
             prefetch={false}
-            href={pickHref(req, { trendsSort: sort })}
+            href={`${pickHref(req, { trendsSort: sort })}&rv=daily`}
             className={`${LINK} mr-3`}
           >
             {SORT_TEXT[sort]}
