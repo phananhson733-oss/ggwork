@@ -75,6 +75,14 @@ it("shows coverage and composes filters, signal view and all-matches export", as
       ),
     ).toBe(true),
   );
+  const search = screen.getByRole("searchbox", { name: "搜索剧名" });
+  fireEvent.change(search, { target: { value: "Fir" } });
+  fireEvent.change(search, { target: { value: "First" } });
+  expect(calls.some((u) => u.includes("search="))).toBe(false);
+  await waitFor(() =>
+    expect(calls.some((u) => u.includes("search=First"))).toBe(true),
+  );
+  expect(calls.some((u) => u.includes("search=Fir&"))).toBe(false);
   const href = screen
     .getByRole("link", { name: "导出当前筛选 CSV" })
     .getAttribute("href")!;

@@ -100,6 +100,22 @@ export function RadarDetailDialog({
               {fmt(matched.pilot.platform_score)} / 标签分{" "}
               {fmt(matched.pilot.promo_score)}
             </p>
+            <p className="text-muted-foreground text-sm">
+              总分由热度 35%、动量 30%、平台 20%、标签 15%
+              加权，沿用原规则的活跃点与短时脉冲降权。分项分数已经包含降权，不应再按原始指数直接相加。
+            </p>
+            <details className="text-muted-foreground text-sm">
+              <summary className="text-link cursor-pointer">
+                查看降权规则与适用边界
+              </summary>
+              <p className="mt-2">
+                曲线含正值不超过 2 天且峰值大于 0 时，热度分乘 0.4，动量分上限为
+                30；含正值 3～5 天时按活跃天数折减。末 3 日均值为 0
+                且动量为正时，动量分上限为 25；平均指数低于 5
+                且动量为正时，上限为
+                40。平台归并和标签来自原包，未核验同名剧；跨批次尺度未校准。
+              </p>
+            </details>
             <p>
               末两日指数变化 {fmt(matched.pilot.velocity_24h)} · 末段变化加速度{" "}
               {fmt(matched.pilot.acceleration)} · 原规则爬升计数{" "}

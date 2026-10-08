@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +30,16 @@ const control =
 
 export function HistoricalRadar({ dailyHref }: { dailyHref: string }) {
   const [filters, setFilters] = useState(initial);
+  const [searchDraft, setSearchDraft] = useState("");
+  useEffect(() => {
+    if (searchDraft.trim() === filters.search) return;
+    const timer = setTimeout(() => {
+      setFilters((old) => ({ ...old, search: searchDraft.trim() }));
+      setOffset(0);
+      setSelected(null);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchDraft, filters.search]);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<RadarRow | null>(null);
   const stats = useRadarRead("stats", statsSchema);
@@ -144,9 +154,9 @@ export function HistoricalRadar({ dailyHref }: { dailyHref: string }) {
           搜索剧名
           <input
             type="search"
-            value={filters.search}
+            value={searchDraft}
             maxLength={200}
-            onChange={(e) => change("search", e.target.value)}
+            onChange={(e) => setSearchDraft(e.target.value)}
             placeholder="输入片名或关键词"
             className={control}
           />
