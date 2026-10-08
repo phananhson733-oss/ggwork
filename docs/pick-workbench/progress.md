@@ -891,3 +891,10 @@ PR #47 产品提交 `638f3ae18a44f2d9496234a689c380d9a95fc0b2` 已部署到gatew
 - `pick-deploy-guard target=gateway commit=7f462e86f1ff4f4ace6f7cc8be05dcf96f55c7ef prod_head=0008 chain_head=0008 at=2026-10-08T09:51:21Z`
 
 首个真实scheduled任务于09:55:10 UTC启动、09:59:12 UTC成功，16表完整发布。生产反馈分析工具受控调用返回该版本的非空题材分析及来源证据，地区查询正确拒绝；授权owner状态接口200、其他账户403、未登录401，健康检查正常。来源质量partial和待确认映射继续如实保留。后续小时执行尚未观察，没有调用真实LLM或创建候选。详见[生产启用记录](releases/2026-10-08-feedback-production-activation.md)。
+
+
+## 2026-10-08 Native selection source cutover
+
+- `pick-deploy-guard target=gateway commit=4befd4c9ff64f8030e30888ceaa48b1b7a3f44ba prod_head=0008 chain_head=0008 at=2026-10-08T13:00:48Z`
+
+Gateway deployment `d3add884-b667-4dc3-bfb5-c8e297d294f5` passed readiness with the native loopback source enabled. Its first scheduled Feishu catalog collection completed at 13:10 UTC; MoboReels remained the explicitly retained source and Queyu authentication remained pending. Two CPS list reads hit provider `service overloaded` responses, so incomplete CPS data was not published to the mirror. The follow-up bounded-read retry handles this observed transient failure. Production data acceptance and frontend promotion are recorded separately after they pass.
