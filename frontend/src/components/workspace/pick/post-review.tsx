@@ -1,4 +1,5 @@
 "use client";
+
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -25,6 +26,8 @@ import { warningText } from "./feedback-evidence";
 import { grains, lanes, money } from "./feedback-evidence";
 import { SourceResult } from "./my-selections";
 import { PostFollowUpQuery } from "./review-query";
+
+import controls from "./control-scope.module.css";
 const control =
   "min-h-11 w-full rounded-md border border-line bg-surface p-2 text-base";
 function Evidence({ refs }: { refs: string[] }) {
@@ -85,7 +88,9 @@ export function OwnedPostReview({ ownerId }: { ownerId: string }) {
   });
   const data = posts.data;
   return (
-    <section className="mx-auto w-full max-w-6xl min-w-0 space-y-5 p-4 text-base leading-6 sm:p-6 [&_button]:text-base [&_input]:!text-base [&_textarea]:!text-base">
+    <section
+      className={`${controls.controls} mx-auto w-full max-w-6xl min-w-0 space-y-5 p-4 text-base leading-6 sm:p-6 [&_button]:text-base [&_input]:!text-base [&_textarea]:!text-base`}
+    >
       <header>
         <h1 className="text-2xl font-bold">发布复盘</h1>
         <p>读取真实发布记录及观察窗口。计划导出不代表发布。</p>

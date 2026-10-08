@@ -1,4 +1,5 @@
 "use client";
+
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -10,6 +11,8 @@ import { useAuth } from "@/core/auth/AuthProvider";
 import { listSavedPicks, PickApiError } from "@/core/pick/api";
 import { createPlan, getPlan, listPlans } from "@/core/pick/completion-api";
 import { type Plan, type PlanCreate } from "@/core/pick/completion-types";
+
+import controls from "../control-scope.module.css";
 
 import { PlanEditor } from "./plan-editor";
 
@@ -94,7 +97,9 @@ function OwnedPlans({
       </div>
     );
   return (
-    <section className="mx-auto w-full max-w-5xl min-w-0 space-y-5 p-4 text-base leading-6 sm:p-6 [&_button]:text-base [&_input]:!text-base [&_textarea]:!text-base">
+    <section
+      className={`${controls.controls} mx-auto w-full max-w-5xl min-w-0 space-y-5 p-4 text-base leading-6 sm:p-6 [&_button]:text-base [&_input]:!text-base [&_textarea]:!text-base`}
+    >
       <header>
         <h1 className="text-2xl font-bold">排期草稿</h1>
         <p>个人草稿与执行导出记录；导出不代表发布。</p>
