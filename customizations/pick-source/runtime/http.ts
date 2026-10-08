@@ -47,7 +47,7 @@ export async function routeRequest(
     });
   }
   const v1 = path === "/api/pick-feed";
-  const match = /^\/api\/pick-feed\/v2\/([a-z_]+)$/.exec(path);
+  const match = /^\/api\/pick-feed\/v2\/([a-z0-9_]+)$/.exec(path);
   if (!v1 && !match) return new Response(null, { status: 404 });
   if (request.method !== "GET")
     return new Response(null, { status: 405, headers: { allow: "GET" } });

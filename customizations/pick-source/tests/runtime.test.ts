@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { routeRequest } from "../runtime/http";
 import { jobDue, runLocked } from "../runtime/jobs";
+import { EXPORT_RESOURCES } from "../src/lib/pick/export-v2-map";
 
 const deps = {
   feedToken: "read-v1",
@@ -13,6 +14,37 @@ const deps = {
     throw new Error("database password must never escape");
   },
 };
+test("every declared export resource reaches its authenticated loader, including clicks14", async () => {
+  const stamp = new Date(Date.now() - 180_000);
+  stamp.setUTCSeconds(0, 0);
+  const asOf = stamp.toISOString();
+  for (const resource of EXPORT_RESOURCES) {
+    const url = new URL(`http://localhost/api/pick-feed/v2/${resource}`);
+    url.searchParams.set("as_of", asOf);
+    if (resource !== "manifest") url.searchParams.set("fp", "a".repeat(64));
+    if (resource === "rs_series_day")
+      url.searchParams.set("day", asOf.slice(0, 10));
+    let loaded = false;
+    const response = await routeRequest(
+      new Request(url, { headers: { authorization: "Bearer read-v2" } }),
+      {
+        ...deps,
+        export: async (query) => {
+          loaded = true;
+          assert.equal(query.resource, resource);
+          return { status: 503, error: "source_busy", retryAfter: 60 };
+        },
+      },
+    );
+    assert.equal(loaded, true, resource);
+    assert.equal(response.status, 503, resource);
+    assert.equal(
+      (await routeRequest(new Request(url), deps)).status,
+      401,
+      resource,
+    );
+  }
+});
 test("the migrated source refuses anonymous and wrong-token requests before loading data", async () => {
   for (const path of ["/api/pick-feed", "/api/pick-feed/v2/manifest"]) {
     const r = await routeRequest(new Request("http://localhost" + path), deps);
