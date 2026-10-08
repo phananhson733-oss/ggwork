@@ -1,6 +1,8 @@
 """Offline public harness-config boundary checks; never opens a database/socket."""
 
 import importlib.util
+import os
+from unittest.mock import patch
 from pathlib import Path
 import unittest
 
@@ -25,6 +27,22 @@ class ClusterConfiguration(unittest.TestCase):
                 module.validate_cluster_settings(
                     {"purpose": "throwaway tests only", "test_pg_url": target}
                 )
+
+    def test_ambient_libpq_overrides_are_removed_and_restored_even_after_failure(self):
+        overrides = {
+            "PGHOSTADDR": "203.0.113.1",
+            "PGSERVICE": "production",
+            "PGPORT": "9999",
+        }
+        with patch.dict(os.environ, overrides):
+            with self.assertRaisesRegex(RuntimeError, "fixture failed"):
+                with module.isolated_pg_environment():
+                    self.assertFalse(any(key.startswith("PG") for key in os.environ))
+                    os.environ["PGAPPNAME"] = "temporary-test-setting"
+                    raise RuntimeError("fixture failed")
+            for key, value in overrides.items():
+                self.assertEqual(os.environ[key], value)
+            self.assertNotEqual(os.environ.get("PGAPPNAME"), "temporary-test-setting")
 
     def test_only_explicit_local_throwaway_configuration_is_accepted(self):
         target = "postgresql://synthetic@127.0.0.1:5432/postgres"

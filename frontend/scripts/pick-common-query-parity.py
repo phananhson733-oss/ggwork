@@ -8,6 +8,7 @@ only synthetic database/role names, statuses and report paths are printed.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -44,7 +45,22 @@ def validate_cluster_settings(settings: dict) -> str:
     return admin
 
 
-def run(
+@contextmanager
+def isolated_pg_environment():
+    """libpq environment defaults cannot override the explicitly validated test URL."""
+    previous = {key: value for key, value in os.environ.items() if key.startswith("PG")}
+    for key in previous:
+        os.environ.pop(key)
+    try:
+        yield
+    finally:
+        for key in list(os.environ):
+            if key.startswith("PG"):
+                os.environ.pop(key)
+        os.environ.update(previous)
+
+
+def _run(
     cluster_file: Path, output: Path, gateway_root: Path, candidate_adapters: bool
 ) -> int:
     import httpx
@@ -363,6 +379,13 @@ from app.gateway.pick_asgi import app
                 process.kill()
                 process.wait(timeout=5)
         board_fixture.down(cluster, database=fixture["database"], role=fixture["role"])
+
+
+def run(
+    cluster_file: Path, output: Path, gateway_root: Path, candidate_adapters: bool
+) -> int:
+    with isolated_pg_environment():
+        return _run(cluster_file, output, gateway_root, candidate_adapters)
 
 
 if __name__ == "__main__":
