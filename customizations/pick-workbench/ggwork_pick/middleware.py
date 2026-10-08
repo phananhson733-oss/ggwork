@@ -368,5 +368,14 @@ class PickToolGate(AgentMiddleware):
                     if loop.time() >= deadline:
                         raise TimeoutError
                     return result
+        except (TimeoutError, asyncio.CancelledError):
+            # Lock-wait and synchronous encoding failures can bypass the tool's
+            # own failure capture. They must not leave an older read "current".
+            call_id = request.tool_call.get("id")
+            if name in {"pick_query_candidates", "pick_count_candidates", "pick_query_data"} and isinstance(call_id, str):
+                last = task.answer_evidence.reads[-1] if task.answer_evidence.reads else None
+                if last is None or (last.tool, last.call_id, last.status) != (name, call_id, "unavailable"):
+                    task.answer_evidence.capture(name, call_id, {"status": "unavailable"})
+            raise
         finally:
             query_call_deadline.reset(token)

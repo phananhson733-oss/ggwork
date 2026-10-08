@@ -139,3 +139,57 @@ async def test_short_query_budget_expires_waiting_for_tool_execution_lock():
         if not waiting.done():
             waiting.cancel()
             await asyncio.gather(waiting, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["lock", "cancel", "late_encode"])
+async def test_gate_query_failure_invalidates_current_claims_but_keeps_historical_receipts(monkeypatch, failure):
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.context import PickTask
+    from ggwork_pick.middleware import PickToolGate
+
+    task = PickTask(None, TaskInfo("t", "r", "c", "lead"))
+    payload = {"counts": {"matched": 4}, "request": {"domain": "catalog"}, "pin": {"catalog_batch_id": "b", "mirror_version": 1}, "rows": []}
+    if failure != "late_encode":
+        task.answer_evidence.capture("pick_query_data", "old", payload)
+    store = ExtensionData("t")
+    store.set(task)
+    request = SimpleNamespace(
+        runtime=SimpleNamespace(context={EXTENSION_TASK_STORE_KEY: store}),
+        tool_call={"id": "new", "name": "pick_query_data", "args": {"query": {"domain": "catalog", "budget_ms": 30}}},
+    )
+    loop = asyncio.get_running_loop()
+    real_time = loop.time
+    offset = [0]
+    monkeypatch.setattr(loop, "time", lambda: real_time() + offset[0])
+    entered = asyncio.Event()
+
+    async def work(_):
+        entered.set()
+        if failure == "cancel":
+            await asyncio.Event().wait()
+        task.answer_evidence.capture("pick_query_data", "new", {**payload, "counts": {"matched": 5}})
+        offset[0] = 1
+        return "late encoded success"
+
+    if failure == "lock":
+        await task.execution_lock.acquire()
+    pending = asyncio.create_task(PickToolGate().awrap_tool_call(request, work))
+    try:
+        if failure == "cancel":
+            await entered.wait()
+            pending.cancel()
+        with pytest.raises(asyncio.CancelledError if failure == "cancel" else TimeoutError):
+            await pending
+    finally:
+        offset[0] = 0
+        if failure == "lock":
+            task.execution_lock.release()
+
+    def check(text):
+        return build_checked_publication(text, evidence=task.answer_evidence, thread_id="c", run_id="r", message_id="m")
+
+    assert check(f"本次查询符合条件总数为{5 if failure == 'late_encode' else 4}部。").status == "incomplete"
+    assert check("本次镜像版本为1。").status == "incomplete"
+    if failure != "late_encode":
+        assert check("本次查询符合条件总数为4部 [tool:old]。").status == "confirmed"
