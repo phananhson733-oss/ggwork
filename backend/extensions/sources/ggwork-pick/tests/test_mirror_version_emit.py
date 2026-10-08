@@ -12,7 +12,7 @@ import json
 
 import pytest
 import pytest_asyncio
-from mirror_pairs import open_service
+from mirror_pairs import open_query_service
 from test_mirror_frozen import ALICE, _client, _turn
 from test_mirror_pin import _old_card_then_new_pair
 
@@ -62,7 +62,7 @@ def _switch(service, *, on: bool) -> None:
 
 @pytest_asyncio.fixture
 async def world(pg_db_url, tmp_path):
-    engine, service, shared, importer = await open_service(pg_db_url, tmp_path)
+    engine, service, shared, importer = await open_query_service(pg_db_url, tmp_path)
     async with _client(service) as client:
         yield engine, service, shared, importer, client
     await engine.dispose()

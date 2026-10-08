@@ -15,6 +15,10 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# The Gateway app is intentionally not installed as a package. Resolve this checkout
+# explicitly so the documented root pytest command also collects host-bound tests.
+_REPOSITORY = next(parent for parent in Path(__file__).resolve().parents if (parent / "backend/pyproject.toml").is_file())
+sys.path.insert(0, str(_REPOSITORY / "backend"))
 # Exercise the pinned host API source; production installs the workspace package.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "backend/packages/extension-api"))
 

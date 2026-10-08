@@ -102,13 +102,17 @@ class FeedbackExport:
     manifest: str = ""
 
 
-def resolve_binary() -> str:
+def resolve_binary(*, deadline: float | None = None) -> str:
     """The Gateway's lark-cli; with a pinned image, only the pinned release."""
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("本轮普通执行时间已结束")
     with _CACHE_LOCK:
         cached = _BINARY_CACHE.get("path")
     if cached:
         return cached
-    probe = lark_cli.probe_lark_cli()
+    probe = lark_cli.probe_lark_cli() if deadline is None else lark_cli.probe_lark_cli(process_runner=functools.partial(_probe_process, deadline=deadline))
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("本轮普通执行时间已结束")
     if not probe.available or not probe.path:
         raise LarkUnavailable(f"网关没有可用的 lark-cli：{probe.error or '未安装'}")
     pinned = lark_cli.pinned_lark_cli_version()
@@ -118,6 +122,19 @@ def resolve_binary() -> str:
     with _CACHE_LOCK:
         _BINARY_CACHE["path"] = probe.path
     return probe.path
+
+
+def _probe_process(args, *, deadline, timeout, env, check, capture_output, text):
+    """Adapt the host's version probe to this worker's bounded process runner."""
+    deadline = min(deadline, time.monotonic() + timeout)
+    return _run_process(
+        args,
+        timeout=max(0.0, deadline - time.monotonic()),
+        deadline=deadline,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 def run_as() -> RunAs | None:
@@ -172,18 +189,21 @@ async def in_lark_thread[T](func: Callable[..., T], /, *args) -> T:
     return await loop.run_in_executor(_EXECUTOR, functools.partial(contextvars.copy_context().run, func, *args))
 
 
-def run_guide(args: tuple[str, ...], *, timeout: float = HELP_TIMEOUT_SECONDS) -> Completed:
+def run_guide(args: tuple[str, ...], *, timeout: float = HELP_TIMEOUT_SECONDS, deadline: float | None = None) -> Completed:
     """lark-cli's own help, schema and skill text, with empty credential directories."""
-    binary, owner = resolve_binary(), run_as()
-    deadline = time.monotonic() + timeout
+    if deadline is not None:
+        deadline = min(deadline, time.monotonic() + timeout)
+    binary, owner = resolve_binary(deadline=deadline), run_as()
+    if deadline is None:
+        deadline = time.monotonic() + timeout
     with _failures_as_unavailable("lark-cli 无法运行"), _slot(deadline), _scratch() as scratch:
         _hand_over(scratch, owner)
         return _execute(binary, args, scratch, owner, deadline)
 
 
-def run_for_user(user_id: str, args: tuple[str, ...], *, timeout: float = TIMEOUT_SECONDS) -> Completed:
+def run_for_user(user_id: str, args: tuple[str, ...], *, timeout: float = TIMEOUT_SECONDS, deadline: float | None = None) -> Completed:
     """One command with a private copy of ``user_id``'s credentials; keeps what lark-cli refreshed in it."""
-    return _run_user(user_id, args, timeout=timeout)
+    return _run_user(user_id, args, timeout=timeout, deadline=deadline)
 
 
 def run_feedback_export(user_id: str, table_id: str, field_ids: tuple[str, ...], offset: int, *, timeout: float = TIMEOUT_SECONDS) -> FeedbackExport:
@@ -237,9 +257,12 @@ def _read_feedback_file(work: Path, name: str) -> str:
         return data.decode("utf-8")
 
 
-def _run_user(user_id: str, args: tuple[str, ...], *, timeout: float, export: bool = False):
-    binary, owner = resolve_binary(), run_as()
-    deadline = time.monotonic() + timeout
+def _run_user(user_id: str, args: tuple[str, ...], *, timeout: float, export: bool = False, deadline: float | None = None):
+    if deadline is not None:
+        deadline = min(deadline, time.monotonic() + timeout)
+    binary, owner = resolve_binary(deadline=deadline), run_as()
+    if deadline is None:
+        deadline = time.monotonic() + timeout
     with _failures_as_unavailable("飞书凭据或 lark-cli 无法使用"), _user_lock(user_id, deadline), _slot(deadline):
         lark_cli.ensure_lark_cli_credential_tree(user_id)
         real = {"config": lark_cli.lark_cli_config_dir(user_id), "data": lark_cli.lark_cli_data_dir(user_id)}
@@ -264,13 +287,13 @@ def _run_user(user_id: str, args: tuple[str, ...], *, timeout: float, export: bo
     return completed
 
 
-def command_risk(path: tuple[str, ...], *, timeout: float = HELP_TIMEOUT_SECONDS) -> str:
+def command_risk(path: tuple[str, ...], *, timeout: float = HELP_TIMEOUT_SECONDS, deadline: float | None = None) -> str:
     """The Risk label lark-cli's help gives ``path``, looked up once per process (the binary is fixed)."""
     with _CACHE_LOCK:
         cached = _RISK_CACHE.get(path)
     if cached:
         return cached
-    completed = run_guide((*path, "--help"), timeout=timeout)
+    completed = run_guide((*path, "--help"), timeout=timeout, deadline=deadline)
     if completed.exit_code != 0:
         detail = (completed.stderr or completed.stdout).strip()[:200]
         raise LarkRefused(f"无法确认 `lark-cli {' '.join(path)}` 是只读命令：{detail or f'退出码 {completed.exit_code}'}")
@@ -360,6 +383,7 @@ def _execute(binary: str, args: tuple[str, ...], scratch: Path, owner: RunAs | N
         "env": child_env(scratch),
         "stdin": subprocess.DEVNULL,
         "timeout": timeout,
+        "deadline": deadline,
         "start_new_session": True,
     }
     if owner is not None:
@@ -375,26 +399,45 @@ def _execute(binary: str, args: tuple[str, ...], scratch: Path, owner: RunAs | N
     return Completed(result.returncode, stdout, stderr, cut_out or cut_err)
 
 
-def _run_process(args: list[str], *, timeout: float, **options) -> subprocess.CompletedProcess[str]:
+def _run_process(args: list[str], *, timeout: float, deadline: float | None = None, **options) -> subprocess.CompletedProcess[str]:
     """``subprocess.run(capture_output=True)`` that keeps at most MAX_OUTPUT_BYTES of each stream.
 
     The rest is read and dropped, so lark-cli neither fills the Gateway's memory nor stalls on a full pipe, and its
     exit code stays its own. Output is decoded as UTF-8, invalid bytes replaced. On timeout the process group is
     killed and TimeoutExpired raised, as ``subprocess.run`` would.
     """
+    if deadline is not None:
+        timeout = min(timeout, deadline - time.monotonic())
+    if timeout <= 0:
+        raise subprocess.TimeoutExpired(args, timeout)
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **options)  # noqa: S603 - argv list, no shell, checked by lark_policy
     out, err = _Capped(process.stdout), _Capped(process.stderr)
+    completed = False
     try:
-        returncode = process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _kill(process, group=bool(options.get("start_new_session")))
-        process.wait()
-        raise
-    finally:
-        # The reader threads close the pipes once they end; closing them here would wait on a blocked read.
+        remaining = timeout if deadline is None else max(0.0, min(timeout, deadline - time.monotonic()))
+        returncode = process.wait(timeout=remaining)
         drained = time.monotonic() + _DRAIN_SECONDS
+        if deadline is not None:
+            drained = min(drained, deadline)
         stdout, stderr = out.text(until=drained), err.text(until=drained)
-    return subprocess.CompletedProcess(args, returncode, stdout, stderr)
+        if deadline is not None and (not out.finished or not err.finished):
+            # A successful parent can leave children holding its output pipes.
+            # Partial output after the deadline is not a successful probe/read.
+            raise subprocess.TimeoutExpired(args, timeout)
+        completed = True
+        return subprocess.CompletedProcess(args, returncode, stdout, stderr)
+    finally:
+        if deadline is not None or not completed:
+            # Deadline-bound commands own their entire process group, including
+            # children whose parent exited successfully or closed its pipes.
+            _kill(process, group=bool(options.get("start_new_session")))
+            cleanup_until = time.monotonic() + _DRAIN_SECONDS
+            try:
+                process.wait(timeout=max(0.0, cleanup_until - time.monotonic()))
+            finally:
+                # One shared bounded cleanup budget for reap and both drains.
+                out.text(until=cleanup_until)
+                err.text(until=cleanup_until)
 
 
 class _Capped:
@@ -412,6 +455,10 @@ class _Capped:
                 room = MAX_OUTPUT_BYTES - len(self._kept)
                 if room > 0:
                     self._kept += chunk[:room]
+
+    @property
+    def finished(self) -> bool:
+        return not self._thread.is_alive()
 
     def text(self, *, until: float) -> str:
         self._thread.join(max(0.0, until - time.monotonic()))
