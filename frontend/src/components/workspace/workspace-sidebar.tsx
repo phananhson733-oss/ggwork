@@ -1,6 +1,12 @@
 "use client";
 
-import { DatabaseIcon, ListChecksIcon } from "lucide-react";
+import {
+  DatabaseIcon,
+  ListChecksIcon,
+  CalendarDaysIcon,
+  ChartNoAxesCombinedIcon,
+  MessageSquareIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useId } from "react";
@@ -43,6 +49,24 @@ export function PickNav() {
   const labelId = useId();
   const links = [
     {
+      href: "/workspace/chats/new",
+      label: "选剧对话",
+      icon: MessageSquareIcon,
+      current: isUnder(pathname, "/workspace/chats"),
+    },
+    {
+      href: "/workspace/pick-plans",
+      label: "排期草稿",
+      icon: CalendarDaysIcon,
+      current: isUnder(pathname, "/workspace/pick-plans"),
+    },
+    {
+      href: "/workspace/pick-review",
+      label: "发布复盘",
+      icon: ChartNoAxesCombinedIcon,
+      current: isUnder(pathname, "/workspace/pick-review"),
+    },
+    {
       href: PICKS_PATH,
       label: "我的选剧",
       icon: ListChecksIcon,
@@ -62,7 +86,11 @@ export function PickNav() {
         <SidebarMenu>
           {links.map(({ href, label, icon: Icon, current }) => (
             <SidebarMenuItem key={href}>
-              <SidebarMenuButton isActive={current} asChild>
+              <SidebarMenuButton
+                className="min-h-11 text-base"
+                isActive={current}
+                asChild
+              >
                 <Link href={href} aria-current={current ? "page" : undefined}>
                   <Icon />
                   <span>{label}</span>
