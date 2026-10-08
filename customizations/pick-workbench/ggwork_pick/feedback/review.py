@@ -110,7 +110,7 @@ class ReviewService:
                 continue
             if query.language is not None and (drama.language if drama else None) != query.language:
                 continue
-            day = post.published_at.date().isoformat() if post.published_at and len(post.publication_times) <= 1 else None
+            day = date.isoformat(post.published_at.date()) if post.published_at and len(post.publication_times) <= 1 else None
             if (query.published_from and (day is None or day < query.published_from)) or (query.published_to and (day is None or day > query.published_to)):
                 continue
             items.append(post)
