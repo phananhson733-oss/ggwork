@@ -7,6 +7,8 @@ import { MessageGroup } from "@/components/workspace/messages/message-group";
 import { I18nContext } from "@/core/i18n/context";
 import { enUS } from "@/core/i18n/locales/en-US";
 
+import commonFixture from "../../../core/pick/fixtures/query-model-v1.json";
+
 const artifactsMockState = rs.hoisted(() => ({
   autoOpen: false,
   autoSelect: false,
@@ -800,3 +802,32 @@ function renderGroup(
     ),
   );
 }
+
+it("keeps the validated common-query scope and actual period visible before later generic tools", () => {
+  const messages = pickTurn();
+  messages[0] = {
+    id: "query-ai",
+    type: "ai",
+    content: "",
+    tool_calls: [
+      {
+        id: "query-call",
+        name: "pick_query_data",
+        args: { query: commonFixture.drama.request },
+      },
+    ],
+  } as Message;
+  messages[1] = {
+    id: "query-tool",
+    type: "tool",
+    name: "pick_query_data",
+    tool_call_id: "query-call",
+    content: JSON.stringify(commonFixture.drama),
+  } as Message;
+  const html = renderGroup(messages, { threadId: "thread-1" });
+  expect(html).toContain("共用资料查询结果");
+  expect(html).toContain("实际期次");
+  expect(html).toContain("Synthetic Dawn");
+  expect(html).toContain("打开此版本资料");
+  expect(html).not.toContain("contract_version");
+});

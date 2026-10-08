@@ -1,6 +1,8 @@
 import { describe, expect, it } from "@rstest/core";
-import examples from "./fixtures/query-model-v1.json";
+
 import { queryModelProjectionSchema } from "@/core/pick/completion-types";
+
+import examples from "./fixtures/query-model-v1.json";
 
 describe("bounded query model projection", () => {
   it("round trips all five typed read-only variants", () => {

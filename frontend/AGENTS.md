@@ -325,3 +325,14 @@ only `additional_kwargs.pick_completion`; raw internal checked facts never rende
 frontend-only mocked-HTTP browser suite with no model calls. It is not evidence of real
 Gateway persistence, owner authorization, runtime final publication, source freshness,
 or production delivery. Completion requires the separate assembled backend acceptance.
+
+
+The read-only `pick/common-query-card.tsx` consumes the closed bounded
+`queryModelProjectionSchema` for `pick_query_data`; the HTTP board adapters still
+consume full `QueryResponse`. Keep original requested limits, actual query limits,
+complete match counts and projection omissions distinct. Unknown-language raw records
+have no candidate identity/eligibility and no save controls. Selected RS comparator
+values retain their source units and rolling-window scope; platform metrics without
+verified evidence are unknown, while a verified decimal string0 remains measured0.
+Message-group renders this card outside collapsed generic steps without exposing raw
+query proof/audit payloads.
