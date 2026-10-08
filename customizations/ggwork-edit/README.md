@@ -86,7 +86,9 @@ bundled.
 
 Conversation tools are `clip_submit`, `clip_get`, `clip_prepare`, `clip_stop`,
 `clip_retry`, `clip_confirm_plan`, and `clip_change_version`. Single-task responses
-are `{task:Task}`; `clip_get` without a task ID returns `{items:Task[]}`. The stable
+are `{task:Task}`; `clip_get` without a task ID returns
+`{items:Task[],devices:Device[],capabilities:object}` so a waiting intent can bind
+a newly paired Mac without asking the user for an opaque device identifier. The stable
 UI link is `/workspace/editing/{task_id}`. Source thread identity comes from the
 host lifecycle rather than model arguments. Changed requirements create a linked
 new version and require fresh verification of selected source bytes.

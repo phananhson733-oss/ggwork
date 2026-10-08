@@ -145,3 +145,30 @@ async def test_change_version_keeps_original_and_requires_fresh_verification(api
     assert version["status"] == "waiting"
     assert version["source_manifest"]["files"][0]["sha256"] is None
     assert (await client.get(f"/api/editing/tasks/{parent['id']}", headers={"test-owner": "alice"})).json()["requirements"]["instructions"] == "A dialogue hook"
+
+
+@pytest.mark.asyncio
+async def test_waiting_tool_intent_discovers_paired_device_and_prepares_same_task(api, skill_config):
+    from ggwork_edit.context import EditingLifecycle
+    from ggwork_edit.tools import get_tool, prepare_tool, submit_tool
+
+    client, service, _ = api
+    store = ExtensionData("prepare")
+    await EditingLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("prepare", "r", "t", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store})
+    submitted = json.loads(
+        await submit_tool.coroutine(
+            {
+                "request_id": "waiting-1",
+                "title": "Drama",
+                "requirements": {"instructions": "Cut", "output_count": 1, "duration_seconds": 30, "aspect_ratio": "9:16"},
+            },
+            runtime,
+        )
+    )["task"]
+    paired = (await client.post("/api/editing/devices", headers={"test-owner": "alice"}, json={"name": "My Mac"})).json()["device"]
+    overview = json.loads(await get_tool.coroutine(runtime))
+    assert overview["devices"][0]["id"] == paired["id"]
+    continued = json.loads(await prepare_tool.coroutine(submitted["id"], {"device_id": paired["id"]}, runtime))["task"]
+    assert continued["id"] == submitted["id"]
+    assert continued["device_id"] == paired["id"]

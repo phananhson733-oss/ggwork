@@ -48,7 +48,7 @@ async def get_tool(runtime: Runtime, task_id: str | None = None) -> str:
     repo = task_from_runtime(runtime).repository(runtime)
     if task_id:
         return result(await repo.get_task(task_id))
-    return json.dumps({"items": await repo.list_tasks()}, ensure_ascii=False)
+    return json.dumps({"items": await repo.list_tasks(), "devices": await repo.devices(), "capabilities": await repo.capabilities()}, ensure_ascii=False)
 
 
 @tool("clip_stop")
