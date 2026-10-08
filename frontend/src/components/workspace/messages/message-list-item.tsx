@@ -617,7 +617,12 @@ function MessageContent_({
       <MarkdownContent
         content={contentToDisplay}
         isLoading={isLoading}
-        className="my-3"
+        className={cn(
+          "my-3",
+          message.type === "ai" &&
+            message.additional_kwargs?.pick_completion != null &&
+            "[overflow-wrap:anywhere] [&_p]:[overflow-wrap:anywhere]",
+        )}
         components={components}
       />
       <CitationSourcesPanel sources={citationSources} />
