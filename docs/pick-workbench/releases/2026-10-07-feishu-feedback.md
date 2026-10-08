@@ -23,11 +23,12 @@ The repository remains public. Full internal inventory and live-source reports, 
 
 Gateway live verification confirmed migration `0008`, all 164 business Python files matching the released source, and six private feedback tables with no SELECT grants to the checked public/reader roles. Package digest: `sha256:684ec6066951fa86ee1061ea50f0920c8c6dc0ba310780dde6cf1354e6b3df10`.
 
-The frontend was built with `NEXT_PUBLIC_APP_VERSION=20261007-3b55cef`. The canonical domain was read back to the new deployment after promotion. Browser verification reached the login page with zero console errors; HTTP login returned 200 with noindex/nofollow, while unauthenticated feedback and historical-notes reads returned 401. The browser was not authenticated, so the About screen, signed-in cards and live feedback interaction were not production-browser verified in this release.
+The frontend was built with `NEXT_PUBLIC_APP_VERSION=20261007-3b55cef`. The canonical domain was read back to the new deployment after promotion. Browser verification reached the login page with zero console errors; navigation returned 200 and loadEventEnd was 1.68 seconds; HTTP login returned 200 with noindex/nofollow, while unauthenticated feedback and historical-notes reads returned 401. The browser was not authenticated, so the About screen, signed-in cards and live feedback interaction were not production-browser verified in this release.
 
 ## Operational boundary
 
 - `PICK_FEEDBACK_ENABLED` and the feedback schedule remain off; no owner credentials were copied and no production Feishu scan was triggered.
+- Collector verification in this release is limited to guarded image publication and unchanged deployment settings, not an executed collector selfcheck/preflight or real collection.
 - Existing collector stop markers were present before this release. The compatibility image preserves configuration and stop state; this is not collector recovery, a new qualification night, or evidence of successful Google collection. No stop reset or collection-parameter change was made.
 - Identity-mapping design and daily-series scope remain deferred. Deployment does not imply those business capabilities are complete.
 - Preserve the private feedback migration and historical evidence on rollback; do not downgrade or delete production tables.
