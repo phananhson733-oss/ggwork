@@ -617,22 +617,31 @@ function MessageContent_({
       <MarkdownContent
         content={contentToDisplay}
         isLoading={isLoading}
-        className="my-3"
+        className={cn(
+          "my-3",
+          message.type === "ai" &&
+            message.additional_kwargs?.pick_completion != null &&
+            "[overflow-wrap:anywhere] [&_p]:[overflow-wrap:anywhere]",
+        )}
         components={components}
       />
       <CitationSourcesPanel sources={citationSources} />
       <KnowledgeSourcesPanel content={contentToDisplay} />
-      {message.type === "ai" && message.additional_kwargs?.pick_completion != null && (
-        <CompletionStatus metadata={message.additional_kwargs.pick_completion} />
-      )}
-      {message.type === "ai" && message.additional_kwargs?.pick_completion == null && (
-        <PickAnswerCheckNote
-          threadId={threadId}
-          messageId={message.id}
-          runId={runId}
-          isLoading={isLoading}
-        />
-      )}
+      {message.type === "ai" &&
+        message.additional_kwargs?.pick_completion != null && (
+          <CompletionStatus
+            metadata={message.additional_kwargs.pick_completion}
+          />
+        )}
+      {message.type === "ai" &&
+        message.additional_kwargs?.pick_completion == null && (
+          <PickAnswerCheckNote
+            threadId={threadId}
+            messageId={message.id}
+            runId={runId}
+            isLoading={isLoading}
+          />
+        )}
       {message.type === "ai" && showWorkspaceChanges && (
         <WorkspaceChangeBadge
           threadId={threadId}
