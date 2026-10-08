@@ -6,6 +6,9 @@ export type SavedRank = {
   lang: string;
   evidence_on: string | null;
   rank: number | null;
+  production_type?: string;
+  tags?: string;
+  listed_on?: string | null;
   payload: Record<string, unknown>;
 };
 const THEATERS: Record<string, string> = {
@@ -70,6 +73,9 @@ export function rankHistory(records: SavedRank[]) {
         title: r.title,
         theater: THEATERS[r.platform],
         language: r.lang,
+        productionType: r.production_type ?? "",
+        labels: r.tags ?? "",
+        publishTime: r.listed_on ?? "",
         rank,
       });
       days.set(day, entry);

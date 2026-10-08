@@ -108,6 +108,9 @@ test("restored ranking history retains source dates, never today's date", async 
       lang: "英语",
       evidence_on: "2026-10-06",
       rank: 2,
+      production_type: "真人",
+      tags: "爱情 · 都市",
+      listed_on: "2026-09-12",
       payload: {
         qy: 1,
         pid: "p1",
@@ -124,6 +127,9 @@ test("restored ranking history retains source dates, never today's date", async 
   );
   assert.equal(days[0]!.conv[0]!.rank, 5);
   assert.equal(days[1]!.conv[0]!.rank, 2);
+  assert.equal(days[1]!.conv[0]!.productionType, "真人");
+  assert.equal(days[1]!.conv[0]!.labels, "爱情 · 都市");
+  assert.equal(days[1]!.conv[0]!.publishTime, "2026-09-12");
 });
 
 test("collector status requires the read token and returns only receipts", async () => {

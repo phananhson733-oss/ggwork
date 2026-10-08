@@ -76,7 +76,7 @@ async function catalog(signal: AbortSignal) {
 export async function seedRankingHistory() {
   const rows = (
     await getPool().query<SavedRank>(
-      "SELECT s.kind,r.platform,r.title,r.lang,s.evidence_on,s.rank,s.payload FROM pick_source.catalog_signals s JOIN pick_source.catalog_rows r USING(row_key) WHERE s.kind IN ('qc','qr')",
+      "SELECT s.kind,r.platform,r.title,r.lang,r.kind AS production_type,r.tags,r.listed_on,s.evidence_on,s.rank,s.payload FROM pick_source.catalog_signals s JOIN pick_source.catalog_rows r USING(row_key) WHERE s.kind IN ('qc','qr') ORDER BY s.rank,r.row_key",
     )
   ).rows;
   const dir = join(HOME, "queyu");
