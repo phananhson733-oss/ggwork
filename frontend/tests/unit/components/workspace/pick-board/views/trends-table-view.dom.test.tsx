@@ -5,7 +5,13 @@
  * checked.
  */
 import { afterEach, describe, expect, it, rs } from "@rstest/core";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 
 import {
@@ -169,20 +175,16 @@ function rowOf(root: HTMLElement, order: number): HTMLElement {
 }
 
 describe("the table", () => {
-  it("has the scope's ten columns, each a column header", () => {
+  it("uses six evidence-first columns with native theme", () => {
     const root = show(table(ROWS));
     const heads = Array.from(root.querySelectorAll("thead th"));
     expect(heads.map((th) => th.textContent)).toEqual([
-      "剧",
-      "入选依据",
-      "走势（近 30 天）",
-      "近 7 日均值",
-      "前 7 日均值",
-      "变化",
-      "标签",
-      "采集结果",
-      "提示",
-      "链接",
+      "剧目 / 来源",
+      "关注依据",
+      "Google Trends · 近 30 天",
+      "变化 / 标签",
+      "采集状态",
+      "核对 / 操作",
     ]);
     for (const th of heads) expect(th.getAttribute("scope")).toBe("col");
   });
@@ -216,12 +218,10 @@ describe("the table", () => {
   it("writes the means, the change and the label of a row with data", () => {
     const root = show(table(ROWS));
     const cells = within(rowOf(root, 2)).getAllByRole("cell");
-    expect(cells.map((td) => td.textContent).slice(3, 7)).toEqual([
-      "20.0",
-      "10.0",
-      "+100.0%",
-      "上升",
-    ]);
+    expect(cells[3]?.textContent).toContain("+100.0%");
+    expect(cells[3]?.textContent).toContain("上升");
+    expect(cells[3]?.textContent).toContain("近 7 日均值：20.0");
+    expect(cells[3]?.textContent).toContain("前 7 日均值：10.0");
     expect(
       rowOf(root, 2).querySelector('[data-trends-spark="line"]'),
     ).toBeTruthy();
@@ -241,13 +241,10 @@ describe("the table", () => {
     ).toBe("这晚未查到被限流（429）");
     expect(lost.querySelector("svg")).toBeNull();
     const cells = within(lost).getAllByRole("cell");
-    expect(cells.map((td) => td.textContent).slice(2, 7)).toEqual([
-      "—",
-      "—",
-      "—",
-      "—",
-      "—",
-    ]);
+    expect(cells[2]?.textContent).toBe("—");
+    expect(lost.querySelector("[data-trends-change]")?.textContent).toBe("—");
+    expect(cells[3]?.textContent).toContain("近 7 日均值：—");
+    expect(cells[3]?.textContent).toContain("前 7 日均值：—");
   });
 
   it("keeps Google's empty answer apart from a failed one", () => {
@@ -315,7 +312,7 @@ describe("the header", () => {
     const root = show(table(ROWS));
     const header = root.querySelector('[data-trends-header="true"]');
     expect(header?.querySelector("h2")?.textContent).toBe(
-      `${BASE.batch?.target_date} 的趋势表（已采完）`,
+      `${BASE.batch?.target_date} 的趋势表（已结束，未采完整）`,
     );
     expect(root.querySelector('[data-trends-counts="true"]')?.textContent).toBe(
       "这晚计划查 5 部：有数据 4 部，Google 未返回数据 0 部，这晚未查到 1 部。",
@@ -395,4 +392,27 @@ describe("empty states", () => {
       "趋势表暂时读不了，稍后刷新再试。",
     );
   });
+});
+
+it("filters the same batch without fetching or replacing missing curves", () => {
+  const root = show(table(ROWS));
+  fireEvent.change(screen.getByRole("searchbox", { name: "搜索剧目" }), {
+    target: { value: "Lost Night" },
+  });
+  expect(titles(root)).toEqual(["Lost Night"]);
+  expect(root.querySelector("tbody svg")).toBeNull();
+  fireEvent.change(screen.getByRole("searchbox", { name: "搜索剧目" }), {
+    target: { value: "" },
+  });
+  fireEvent.change(screen.getByLabelText("采集状态"), {
+    target: { value: "no_data" },
+  });
+  expect(titles(root)).toEqual(["Quiet Queen Returns"]);
+});
+
+it("does not call a finished partial batch fully collected", () => {
+  const root = show(table(ROWS));
+  expect(root.querySelector("h2")?.textContent).toContain("已结束，未采完整");
+  expect(root.textContent).not.toContain("US 历史快照");
+  expect(screen.getByRole("button", { name: "导出当前筛选 CSV" })).toBeTruthy();
 });

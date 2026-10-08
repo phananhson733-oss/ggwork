@@ -11,8 +11,8 @@ export const MUTED = "text-helper";
 export const LINK = "text-link hover:underline";
 export const TABLE = "w-full border-collapse text-[13px]";
 export const TH =
-  "border-line text-helper border-b px-2 py-1.5 text-left font-normal";
-export const TD = "border-line border-b px-2 py-1.5 align-top";
+  "border-line text-helper border-b px-2 py-2 text-left font-normal";
+export const TD = "border-line border-b px-2 py-3 align-top leading-relaxed";
 
 export function at(value: string | null | undefined): string {
   const moment = parseSyncTime(value);

@@ -1,12 +1,10 @@
-// 工作台新建（简化版趋势雷达，2026-09-30 简化范围第 2、4 节）：资料页的「Google 趋势」tab。一张只读参考表：当晚任务
-// 清单上的每部剧一行（gateway 的 GET /api/pick/obs/trends-table），各自在 Google 上近 30 天的日级走势、两段均值、
-// 变化与标签。不进智能体，不改候选排序。横幅是 gateway 按批次判断的（采集漏跑、数据过期为红色）；表头写采集日期与
-// 计划、有数据、未返回数据、未查到的部数；没有批次、清单为空都写成一句话。排序按变化或按入选顺序，走链接（ts=）。
-// 同步、纯展示：均值与标签由 core/pick/trends-table.ts 算。
+// Production Trends tab: native theme, compact batch evidence and progressive details.
+// Server computes the existing statistics; a small client island filters/exports these same rows without fetching.
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { ObsBannerList } from "@/components/workspace/pick/obs-banner-list";
+import { orderObsBanners } from "@/components/workspace/pick/obs-banner-list";
+import { obsBannerText } from "@/core/pick/obs-status";
 import {
   TREND_LABEL_TEXT,
   TREND_RULES,
@@ -24,34 +22,14 @@ import { nightOutcomeText } from "@/core/pick/trends-table-wording";
 import type { PickRequest } from "@/core/pick-board/request";
 
 import { pickHref } from "../toolbar";
+import { TrendsTableExplorer } from "../trends-table-explorer";
 
-import {
-  at,
-  HEADING,
-  LINK,
-  MUTED,
-  SECTION,
-  TABLE,
-  TH,
-} from "./trends-table-parts";
-import { TrendsTableRowView, type TableLine } from "./trends-table-row";
+import { at, HEADING, LINK, MUTED, SECTION } from "./trends-table-parts";
+import type { TableLine } from "./trends-table-row";
 import { TableSources } from "./trends-table-sources";
 
 const INTRO =
   "只读参考：每晚取我们榜单上与 ReelShort 收入靠前的一批剧，查它们在 Google 上全球近 30 天的日级搜索走势。不进智能体，不改候选排序。指数是每部剧相对自己 30 天峰值的值，不能拿来比较两部剧谁搜得多。";
-
-const COLUMNS = [
-  "剧",
-  "入选依据",
-  "走势（近 30 天）",
-  "近 7 日均值",
-  "前 7 日均值",
-  "变化",
-  "标签",
-  "采集结果",
-  "提示",
-  "链接",
-] as const;
 
 const SORT_TEXT: Readonly<Record<TrendSort, string>> = {
   change: "按变化",
@@ -60,12 +38,36 @@ const SORT_TEXT: Readonly<Record<TrendSort, string>> = {
 
 function Banners({ table }: { table: TrendsTable }) {
   if (table.banners.length === 0) return null;
+  const ordered = orderObsBanners(
+    table.banners.map((b) => ({ ...b, channel: "trends" as const })),
+  );
+  const first = ordered[0]!;
+  const tone =
+    first.level === "red"
+      ? "border-danger-line bg-danger-surface text-danger-ink"
+      : first.level === "warn"
+        ? "border-warning-line bg-warning-surface text-warning-ink"
+        : "border-line bg-info-surface text-info-ink";
   return (
-    <div className="mb-3" data-trends-banners="true">
-      <ObsBannerList
-        banners={table.banners.map((b) => ({ ...b, channel: "trends" }))}
-      />
-    </div>
+    <aside
+      className={`mb-3 rounded-lg border px-3 py-2 text-[13px] ${tone}`}
+      role={first.level === "red" ? "alert" : "status"}
+      data-trends-banners="true"
+    >
+      <p>{obsBannerText(first.code)}</p>
+      {ordered.length > 1 ? (
+        <details className="mt-1">
+          <summary className="cursor-pointer text-xs">
+            查看其它状态提示（{ordered.length - 1}）
+          </summary>
+          {ordered.slice(1).map((b) => (
+            <p key={b.code} className="mt-1">
+              {obsBannerText(b.code)}
+            </p>
+          ))}
+        </details>
+      ) : null}
+    </aside>
   );
 }
 
@@ -92,29 +94,40 @@ function Header({ batch, last }: { batch: TrendsTableBatch; last: string }) {
     <section className={SECTION} data-trends-header="true">
       <h2 className={HEADING}>
         {batch.target_date} 的趋势表（
-        {nightOutcomeText(batch.outcome, batch.collecting)}）
+        {!batch.collecting &&
+        ["withheld", "published"].includes(batch.outcome) &&
+        (batch.counts.not_fetched > 0 || batch.counts.pending > 0)
+          ? "已结束，未采完整"
+          : nightOutcomeText(batch.outcome, batch.collecting)}
+        ）
       </h2>
       <Counts batch={batch} />
-      {recovery ? (
-        <p data-trends-recovery="true">
-          恢复验证：本晚目标 {recovery.target} 部，已通过 {qualified}/3
-          个有效夜晚。
-          {recovery.qualified === null
-            ? "本晚尚未完成资格核验。"
-            : recovery.qualified
-              ? "本晚通过资格核验。"
-              : "本晚未通过资格核验，不据此升级阶段。"}
-          {qualified === 3
-            ? "后续维持每天最多 100 部；停止提示仍然优先。"
-            : "只有完整且有真实请求与原始结果的夜晚才计入。"}
+      <details className="mt-2">
+        <summary className={`${LINK} cursor-pointer text-xs`}>
+          批次来源与恢复记录
+        </summary>
+        {recovery ? (
+          <p data-trends-recovery="true">
+            恢复验证：本晚目标 {recovery.target} 部，已通过 {qualified}/3
+            个有效夜晚。
+            {recovery.qualified === null
+              ? "本晚尚未完成资格核验。"
+              : recovery.qualified
+                ? "本晚通过资格核验。"
+                : "本晚未通过资格核验，不据此升级阶段。"}
+            {qualified === 3
+              ? "后续维持每天最多 100 部；停止提示仍然优先。"
+              : "只有完整且有真实请求与原始结果的夜晚才计入。"}
+          </p>
+        ) : null}
+        <p className={MUTED}>
+          {at(batch.started_at)} 开始采集
+          {batch.finished_at ? `，${at(batch.finished_at)} 结束` : ""}
+          ；曲线的最后一个完整日是 {last}
+          （UTC），之后的日子还不完整，不参与计算。
         </p>
-      ) : null}
-      <p className={MUTED}>
-        {at(batch.started_at)} 开始采集
-        {batch.finished_at ? `，${at(batch.finished_at)} 结束` : ""}
-        ；曲线的最后一个完整日是 {last}（UTC），之后的日子还不完整，不参与计算。
-      </p>
-      <TableSources batch={batch} />
+        <TableSources batch={batch} />
+      </details>
     </section>
   );
 }
@@ -159,28 +172,12 @@ function Rows({
       row.result === "data" && row.series ? trendStats(row.series, last) : null,
   }));
   return (
-    <div className="overflow-x-auto">
-      <table className={TABLE}>
-        <thead>
-          <tr>
-            {COLUMNS.map((name) => (
-              <th key={name} scope="col" className={TH}>
-                {name}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sortRows(lines, req.trendsSort).map((line) => (
-            <TrendsTableRowView
-              key={line.row.unit}
-              line={line}
-              lastComplete={last}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <TrendsTableExplorer
+      key={table.batch!.batch_id}
+      lines={sortRows(lines, req.trendsSort)}
+      last={last}
+      date={table.batch!.target_date}
+    />
   );
 }
 
@@ -244,7 +241,9 @@ export function TrendsTableView({
   return (
     <div data-trends-view="table">
       <Banners table={table} />
-      <p className={`${MUTED} mb-3 text-[13px]`}>{INTRO}</p>
+      <p className={`${MUTED} mb-3 text-[13px]`}>
+        先看入选依据，再核对走势。数据来自生产采集批次，缺失值不补零；不改变选剧排序。
+      </p>
       {table.batch === null && preview ? (
         preview
       ) : (
@@ -252,8 +251,17 @@ export function TrendsTableView({
       )}
       {table.batch !== null ? (
         <>
-          <Rules />
-          <p className={MUTED}>{DATA_SOURCE_TRENDS}</p>
+          <details className={`${SECTION} mt-3`}>
+            <summary className={`${LINK} cursor-pointer`}>
+              数据来源与计算口径
+            </summary>
+            <p className="mt-2">{INTRO}</p>
+            <Rules />
+            <p className={MUTED}>{DATA_SOURCE_TRENDS}</p>
+            <p className={MUTED}>
+              本视图未接入 GSC；不使用本地 US 历史样本填补生产缺失值。
+            </p>
+          </details>
         </>
       ) : null}
     </div>
