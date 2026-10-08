@@ -25,8 +25,34 @@ class ModelSignal(ProjectionOutput):
     reference: Annotated[str, Field(min_length=1, max_length=1024)]
 
 
+class ModelRankMetric(ProjectionOutput):
+    key: Literal["rr", "d1", "d7", "dp1", "dp7", "promoters", "publish", "bill", "eff", "gsc", "clicks"]
+    value: Annotated[str, Field(max_length=64)] | None
+    current: Annotated[str, Field(max_length=64)] | None
+    baseline: Annotated[str, Field(max_length=64)] | None
+    denominator: StrictInt | None
+    comparison_days: Literal[1, 7] | None
+    unit: Literal["source_cents", "people", "source_cents_per_promoter", "timestamp", "rank", "impressions", "clicks"]
+    scope: Literal[
+        "upstream_platform_rolling_30d",
+        "change_in_promoters",
+        "change_in_platform_rolling_30d",
+        "platform_metric_per_promoter",
+        "publication_date",
+        "upstream_promoters",
+        "source_bill_rank",
+        "site_search_impressions",
+        "site_outbound_7d",
+    ]
+    observed_at: Annotated[str, Field(max_length=40)] | None
+    baseline_at: Annotated[str, Field(max_length=40)] | None
+    verified: bool | None
+    reference: Annotated[str, Field(min_length=1, max_length=1024)]
+
+
 class ModelDramaRow(ProjectionOutput):
     kind: Literal["drama"] = "drama"
+    rank_metric: ModelRankMetric | None = None
     identity: Annotated[str, Field(min_length=1, max_length=512)]
     reference: Annotated[str, Field(min_length=1, max_length=1024)]
     source: Annotated[str, Field(max_length=100)]
@@ -84,6 +110,7 @@ class ModelRuleRow(ProjectionOutput):
 
 class ModelCatalogRecord(ProjectionOutput):
     kind: Literal["catalog_record"] = "catalog_record"
+    rank_metric: ModelRankMetric | None = None
     identity: None = None
     row_key: Annotated[str, Field(min_length=1, max_length=512)]
     reference: Annotated[str, Field(min_length=1, max_length=1024)]
@@ -115,6 +142,8 @@ class ModelQueryPage(ProjectionOutput):
 
 class QueryModelProjection(ProjectionOutput):
     projection_version: Literal["pick-query-model-v1"] = "pick-query-model-v1"
+    effective_sort: Annotated[str, Field(max_length=40)] | None = None
+    rank_limit: Annotated[StrictInt, Field(ge=0)] | None = None
     request: CommonQuery
     pin: QueryPin
     actual_period: QueryPeriod | None

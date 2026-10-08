@@ -154,3 +154,15 @@ using `row_key` and a fixed-version source reference, `identity=null`, and unkno
 eligibility. It never creates a candidate identity or a save authority. Display
 label truncation is explicit. Shared synthetic examples live in
 `frontend/tests/unit/core/pick/fixtures/query-model-v1.json`.
+
+For ReelShort, the projection also carries `effective_sort` and `rank_limit` from
+the executed query. The one selected `rank_metric` includes its explicit unit,
+source scope, comparison window, observed/baseline times and a citable reference.
+Growth is the decimal difference of `rr` and the raw `s1_rr`/`s7_rr` operands (or
+promotion counts), with comparability retained. `bill` means the exported
+`bill_rank`, not order count. Ratios retain exact operands instead of claiming a
+rounded value. Failed or unknown platform-metric acquisition remains null;
+a verified measured zero stays zero. Bills/search/clicks retain their separate
+source semantics. Bill records use the same hashed identity in projection and
+checker facts; unknown-language records suppress conflicting flattened candidate
+language/rule facts.

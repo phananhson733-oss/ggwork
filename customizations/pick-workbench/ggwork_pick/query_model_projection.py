@@ -1,15 +1,15 @@
 """Project captured common-query facts for model context and the read-only card."""
 
 import base64
-import hashlib
 import json
 import re
 from datetime import date
 
 from pydantic import ValidationError
 
-from ggwork_pick.query_evidence import _reference, source_key
+from ggwork_pick.query_evidence import _reference, bill_identity, source_key
 from ggwork_pick.query_model_contracts import MODEL_BYTE_LIMIT, MODEL_PAGE_LIMIT, MODEL_SIGNAL_LIMIT, QueryModelProjection
+from ggwork_pick.query_rank_metric import selected_metric
 from ggwork_pick.query_reader import QueryFailure
 
 
@@ -101,7 +101,7 @@ def _rows(payload, call_id):
     if request.get("rank") == "rs_ledger":
         result = []
         for row in board.get("bill_rows", []):
-            identity = "bill:" + hashlib.sha256(json.dumps([row["bill_date"], row["book_id"], row["promotion_type"]], ensure_ascii=False).encode()).hexdigest()
+            identity = bill_identity(row)
             result.append(
                 {
                     "kind": "bill",
@@ -143,6 +143,10 @@ def _rows(payload, call_id):
                         "eligibility": "unknown",
                     }
                 )
+        metrics = {row["row_key"]: row for row in board.get("rs_rows", [])}
+        for projected, key in zip(result, board["row_keys"], strict=True):
+            if key in metrics:
+                projected["rank_metric"] = selected_metric(metrics[key], board.get("effective_sort"), _reference(call_id, "rs:" + key))
         return result
     return [_drama(row, call_id, request) for row in payload["rows"]]
 
@@ -178,6 +182,8 @@ def _model_projection(payload, *, call_id, requested_limit):
         query_next_offset=payload["next_offset"],
         query_truncated=payload["truncated"],
         period_resolution=(payload.get("period_options") or {}).get("resolution"),
+        effective_sort=board.get("effective_sort"),
+        rank_limit=board.get("rank_limit"),
     )
     while True:
         shown = len(page)

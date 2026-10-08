@@ -397,3 +397,43 @@ async def test_unknown_language_common_tool_preserves_readonly_source_record(com
             await conn.execute(text(f"UPDATE {schema}.catalog_rows SET lang=:lang,title=:title WHERE row_key='c-2'"), old)
         await service.stop()
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rs_growth_projection_reports_actual_sort_value_and_citable_units(common_board, pg_cluster):
+    import json
+    from types import SimpleNamespace
+
+    from deerflow_extension_api import ExtensionData, TaskInfo
+    from deerflow_extension_api.runtime_bridge import EXTENSION_TASK_STORE_KEY
+
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.context import PickLifecycle, task_from_runtime
+    from ggwork_pick.query_reader import QueryReader
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import query_data_tool
+
+    engine = host_engine(pg_cluster.async_url(common_board["info"]["database"]))
+    service = PickService(common_board["data_dir"])
+    await service.initialize(async_sessionmaker(engine))
+    service.query_reader = QueryReader(common_board["reader"], ssl=False)
+    store = ExtensionData("growth-projection")
+    await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("growth-projection", "r", "t", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="growth")
+    try:
+        result = json.loads(await query_data_tool.coroutine(query={"domain": "rankings", "scope": "full_catalog", "rank": "rs_growth"}, runtime=runtime))
+        assert result["request"]["rs_sort"] == "rr" and result["effective_sort"] == "d7"
+        assert result["rank_limit"] == 50
+        metric = next(row["rank_metric"] for row in result["rows"] if row["rank_metric"] and row["rank_metric"]["value"] is not None)
+        assert metric["key"] == "d7" and metric["comparison_days"] == 7
+        assert metric["unit"] == "source_cents" and metric["scope"] == "change_in_platform_rolling_30d"
+        evidence = task_from_runtime(runtime).answer_evidence
+        fact = next(a for a in evidence.atoms if a.reference == metric["reference"] and a.field_name == "rs.d7")
+        assert fact.value == metric["value"]
+        checked = build_checked_publication(f"{fact.claim} [{fact.reference}]。", evidence=evidence, thread_id="t", run_id="r", message_id="m")
+        assert checked.status == "confirmed"
+        wrong = build_checked_publication("本次ReelShort实际排序字段为rr。", evidence=evidence, thread_id="t", run_id="r", message_id="m")
+        assert wrong.status == "incomplete"
+    finally:
+        await service.stop()
+        await engine.dispose()

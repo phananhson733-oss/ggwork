@@ -145,3 +145,78 @@ def test_malformed_source_projection_fails_with_bounded_safe_message():
         model_projection(payload, call_id="safe-failure", requested_limit=20)
     assert error.value.code == "source_unavailable"
     assert len(str(error.value)) < 200 and "PRIVATE-SOURCE" not in str(error.value)
+
+
+def test_bill_projection_references_have_exact_guarded_checker_facts():
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.answer_evidence import AnswerEvidence
+    from ggwork_pick.completion_contracts import CommonQuery
+    from ggwork_pick.query_model_projection import model_projection
+
+    payload = payload_for([])
+    payload["request"] = CommonQuery(domain="rankings", scope="full_catalog", rank="rs_ledger").model_dump(mode="json")
+    payload["board"] = {
+        "bill_rows": [
+            {
+                "book_id": "SYNTHETIC-A",
+                "canonical_id": None,
+                "bill_date": "2026-09-02",
+                "title": "Synthetic bill",
+                "promotion_type": "cps",
+                "order_cnt": 25,
+                "source_rows": 1,
+                "same_day_clicks": 0,
+            }
+        ]
+    }
+    payload["counts"]["returned"] = 1
+    evidence = AnswerEvidence()
+    evidence.capture("pick_query_data", "bill-proof", payload)
+    projected = model_projection(payload, call_id="bill-proof", requested_limit=20)
+    row = projected["rows"][0]
+    atoms = [a for a in evidence.atoms if a.reference == row["reference"] and a.value is not None]
+    assert any(a.field_name == "bill.order_cnt" for a in atoms)
+    fact = next(a for a in atoms if a.field_name == "bill.order_cnt")
+    checked = build_checked_publication(f"{fact.claim} [{fact.reference}]。", evidence=evidence, thread_id="t", run_id="r", message_id="m")
+    assert checked.status == "confirmed"
+
+
+def test_unknown_source_record_does_not_certify_imported_language_or_eligibility():
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.answer_evidence import AnswerEvidence
+    from ggwork_pick.query_model_projection import model_projection
+
+    payload = payload_for([{**drama(1), "source": "synthetic", "title": "Same", "source_id": "same", "channel_rules": {"youtube": "allowed"}}])
+    payload["board"] = {
+        "row_keys": ["same"],
+        "catalog_rows": [{"row_key": "same", "title": "Same", "lang": "", "platform": "Example", "listed_on": None, "off_on": None}],
+    }
+    evidence = AnswerEvidence()
+    evidence.capture("pick_query_data", "unknown", payload)
+    assert model_projection(payload, call_id="unknown", requested_limit=20)["rows"][0]["kind"] == "catalog_record"
+    for claim in ("《Same》的语种为en。", "《Same》的youtube规则为允许。"):
+        assert build_checked_publication(claim, evidence=evidence, thread_id="t", run_id="r", message_id="m").status == "incomplete"
+
+
+@pytest.mark.parametrize("key", ["rr", "promoters", "eff", "d7"])
+def test_unavailable_platform_metrics_never_project_fallback_zero(key):
+    from ggwork_pick.query_rank_metric import selected_metric
+
+    row = {"rr": 0, "promoters_cnt": 0, "s7_rr": 0, "rr7": 0, "metrics_valid": False}
+    metric = selected_metric(row, key, "tool:metric")
+    assert metric["value"] is None and metric["current"] is None
+    assert metric["baseline"] is None and metric["denominator"] is None
+
+
+def test_selected_growth_metric_preserves_decimal_operands_and_measured_zero():
+    from ggwork_pick.query_rank_metric import selected_metric
+
+    row = {"rr": 1000.3, "s7_rr": 0.1, "rr7": 0.1, "metrics_valid": True}
+    metric = selected_metric(row, "d7", "tool:metric")
+    assert metric["value"] == "1000.2"
+    assert metric["current"] == "1000.3" and metric["baseline"] == "0.1"
+    assert metric["comparison_days"] == 7 and metric["unit"] == "source_cents"
+    zero = selected_metric({"rr": 0, "metrics_valid": True}, "rr", "tool:zero")
+    assert zero["value"] == "0" and zero["verified"] is True
+    unknown = selected_metric({"rr": 0, "metrics_valid": None}, "rr", "tool:unknown")
+    assert unknown["value"] is None and unknown["verified"] is None

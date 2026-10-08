@@ -1315,9 +1315,56 @@ const modelSignalSchema = z
     reference: modelReference,
   })
   .strict();
+const modelRankMetricSchema = z
+  .object({
+    key: z.enum([
+      "rr",
+      "d1",
+      "d7",
+      "dp1",
+      "dp7",
+      "promoters",
+      "publish",
+      "bill",
+      "eff",
+      "gsc",
+      "clicks",
+    ]),
+    value: z.string().max(64).nullable(),
+    current: z.string().max(64).nullable(),
+    baseline: z.string().max(64).nullable(),
+    denominator: z.number().int().nullable(),
+    comparison_days: z.union([z.literal(1), z.literal(7), z.null()]),
+    unit: z.enum([
+      "source_cents",
+      "people",
+      "source_cents_per_promoter",
+      "timestamp",
+      "rank",
+      "impressions",
+      "clicks",
+    ]),
+    scope: z.enum([
+      "upstream_platform_rolling_30d",
+      "change_in_promoters",
+      "change_in_platform_rolling_30d",
+      "platform_metric_per_promoter",
+      "publication_date",
+      "upstream_promoters",
+      "source_bill_rank",
+      "site_search_impressions",
+      "site_outbound_7d",
+    ]),
+    observed_at: z.string().max(40).nullable(),
+    baseline_at: z.string().max(40).nullable(),
+    verified: z.boolean().nullable(),
+    reference: modelReference,
+  })
+  .strict();
 const modelDramaRowSchema = z
   .object({
     kind: z.literal("drama"),
+    rank_metric: modelRankMetricSchema.nullable().default(null),
     identity: z.string().min(1).max(512),
     reference: modelReference,
     source: z.string().max(100),
@@ -1382,6 +1429,7 @@ const modelRuleRowSchema = z
 const modelCatalogRecordSchema = z
   .object({
     kind: z.literal("catalog_record"),
+    rank_metric: modelRankMetricSchema.nullable().default(null),
     identity: z.null(),
     row_key: z.string().min(1).max(512),
     reference: modelReference,
@@ -1406,6 +1454,8 @@ export const modelQueryRowSchema = z.discriminatedUnion("kind", [
 export const queryModelProjectionSchema = z
   .object({
     projection_version: z.literal("pick-query-model-v1"),
+    effective_sort: z.string().max(40).nullable().default(null),
+    rank_limit: z.number().int().min(0).nullable().default(null),
     request: commonQuerySchema,
     pin: queryPinSchema,
     actual_period: queryPeriodSchema.nullable(),
