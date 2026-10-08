@@ -14,11 +14,9 @@ import {
   type Sort,
 } from "@/core/pick-board/metrics";
 import { reelshortRowKey, type PickRequest } from "@/core/pick-board/request";
-import { dramaPath } from "@/core/pick-board/site";
 import type { ObserveRow } from "@/server/pick-board";
 
 import { TD } from "./cells";
-import { ExternalLink } from "./links";
 import {
   Delta,
   Dim,
@@ -31,6 +29,7 @@ import {
   ThGroup,
   TitleCell,
 } from "./reelshort-cells";
+import { ResourceLink } from "./resource-link";
 import { TableWrap, TR } from "./rows-table";
 import { Empty, rowHref } from "./toolbar";
 
@@ -282,12 +281,7 @@ function SiteCells({ r, req }: { r: ObserveRow; req: PickRequest }) {
         >
           单剧 ›
         </Link>{" "}
-        <ExternalLink
-          href={dramaPath(r.locale, r.slug)}
-          className="text-helper hover:text-link"
-        >
-          公开页 ↗
-        </ExternalLink>
+        <ResourceLink rowKey={reelshortRowKey(r.id)} />
       </td>
     </>
   );

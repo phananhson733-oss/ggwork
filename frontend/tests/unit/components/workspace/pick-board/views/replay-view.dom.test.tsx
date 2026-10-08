@@ -241,7 +241,13 @@ describe("the list", () => {
       },
     });
     const root = show(data, req);
-    const internal = hrefs(root).filter((h) => h.startsWith("/"));
+    const internal = hrefs(root).filter((h) =>
+      h.startsWith("/workspace/pick-data"),
+    );
+    for (const href of hrefs(root).filter((h) =>
+      h.startsWith("/workspace/pick-resources"),
+    ))
+      expect(href).toMatch(/^\/workspace\/pick-resources\?row=/);
     expect(internal.length).toBeGreaterThan(5);
     for (const href of internal) {
       expect(href).toMatch(/^\/workspace\/pick-data\?(?:.*&)?v=7(?:&|$)/);

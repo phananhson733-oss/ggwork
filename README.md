@@ -2181,3 +2181,7 @@ The Google Trends tab uses an evidence-first table in the shared GGWork theme, w
 ### Historical Trends radar
 
 The Google Trends tab now opens the complete historical DramaRadar view: source/coverage cards, comprehensive and historical-signal lists, platform/experimental-grade/status/date/search/sort filters, pagination, evidence details and CSV of all matches. It uses an authenticated, sealed US snapshot with per-drama dates and unverified-source labels. Worldwide daily collection remains available through “日级采集记录与状态”; collector stop facts are preserved. See [integration and operation](docs/plans/2026-10-08-radar-integration.md).
+
+### Independent selection data
+
+GGWork can collect and publish its selection data independently of the retired RealShort public website. Operator-enabled native mode preserves existing versioned browsing and replay, reports each collector's actual state, and reads current resource links only for the configured source owner. It preserves historical traffic dates and explicitly labels retained sources. See the [native source operating guide](docs/pick-workbench/native-source.md) for verified restoration, configuration, source-access requirements and rollback.

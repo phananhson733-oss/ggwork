@@ -10,10 +10,10 @@ import {
   reelshortRowKey,
   type PickRequest,
 } from "@/core/pick-board/request";
-import { dramaPath } from "@/core/pick-board/site";
 import type { PostedLinks, PostedRecord } from "@/server/pick-board";
 
 import { ExternalLink, isSafeUrl } from "./links";
+import { ResourceLink } from "./resource-link";
 import { pickHref, rowHref } from "./toolbar";
 
 /**
@@ -111,12 +111,7 @@ function LinkedDramas({
           <span className="text-ink-2">
             ReelShort · {d.locale} · {d.title}
           </span>
-          <ExternalLink
-            href={dramaPath(d.locale, d.slug)}
-            className="text-link hover:underline"
-          >
-            公开页
-          </ExternalLink>
+          <ResourceLink rowKey={reelshortRowKey(d.id)} />
           <Link
             prefetch={false}
             href={rowHref(req, reelshortRowKey(d.id))}
