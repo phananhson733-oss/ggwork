@@ -1,3 +1,7 @@
+import { z } from "zod";
+
+import { resultReferenceSchema } from "./completion-types";
+
 export type PickReference = {
   result_id: string;
   item_ids: string[];
@@ -151,6 +155,112 @@ export function turnPickReference(
         message.additional_kwargs?.[PICK_REFERENCE_KEY],
         threadId,
       );
+  }
+  return undefined;
+}
+
+export type PickReferences = {
+  version: "pick-references-v1";
+  references: PickReference[];
+};
+
+export type PickTurnContext = {
+  pick_reference?: PickReference;
+  pick_references?: PickReferences;
+};
+
+const pluralSchema = z
+  .object({
+    version: z.literal("pick-references-v1"),
+    references: z.array(resultReferenceSchema).min(1).max(2),
+  })
+  .strict()
+  .refine(
+    ({ references }) =>
+      new Set(references.map((ref) => ref.result_id)).size ===
+        references.length &&
+      references.every(
+        (ref) => new Set(ref.item_ids).size === ref.item_ids.length,
+      ),
+    "候选引用不能重复",
+  );
+
+export function freezePickReferences(value: unknown): PickReferences {
+  return pluralSchema.parse(value);
+}
+
+export function bindPickReferences(
+  threadId: string,
+  groups: ReadonlyArray<{
+    result: ReferenceablePickResult;
+    item_ids: readonly string[];
+  }>,
+): PickReferences {
+  const parsed = freezePickReferences({
+    version: "pick-references-v1",
+    references: groups.map(({ result, item_ids }) => ({
+      result_id: result.id,
+      item_ids,
+    })),
+  });
+  return {
+    ...parsed,
+    references: groups.map(({ result, item_ids }) =>
+      bindPickReference(threadId, result, item_ids),
+    ),
+  };
+}
+
+export function storablePickContext(
+  threadId: string,
+  context?: PickTurnContext,
+): Record<string, unknown> {
+  if (
+    context?.pick_reference !== undefined &&
+    context.pick_references !== undefined
+  )
+    throw new Error("单份与多份候选引用不能同时使用");
+  if (context?.pick_references !== undefined)
+    return {
+      pick_references: {
+        ...freezePickReferences(context.pick_references),
+        thread_id: threadId,
+      },
+    };
+  return context?.pick_reference
+    ? {
+        pick_reference: storablePickReference(threadId, context.pick_reference),
+      }
+    : {};
+}
+
+export function turnPickContext(
+  messages: readonly TurnMessage[],
+  messageId: string,
+  threadId: string,
+): PickTurnContext | undefined {
+  const index = messages.findIndex((message) => message.id === messageId);
+  for (let at = index; at >= 0; at -= 1) {
+    const message = messages[at]!;
+    if (!isReplayedHuman(message)) continue;
+    const kwargs = message.additional_kwargs ?? {};
+    if (kwargs.pick_references !== undefined) {
+      if (
+        kwargs.pick_reference !== undefined ||
+        !kwargs.pick_references ||
+        typeof kwargs.pick_references !== "object"
+      )
+        return undefined;
+      const { thread_id, ...value } = kwargs.pick_references as Record<
+        string,
+        unknown
+      >;
+      if (thread_id !== threadId) return undefined;
+      const parsed = pluralSchema.safeParse(value);
+      return parsed.success ? { pick_references: parsed.data } : undefined;
+    }
+    const single = storedReference(kwargs[PICK_REFERENCE_KEY], threadId);
+    return single ? { pick_reference: single } : undefined;
   }
   return undefined;
 }

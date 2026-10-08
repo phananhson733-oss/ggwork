@@ -16,4 +16,6 @@ Ownership allocated when frontier opens: backend reference parsing/context/tool 
 
 Integration T10 additionally depends on T4a. No completion credit for visual-only comparison.
 
+Author implementation underway in codex/pick-completion-t4a from verified T4-UI7838e1ca. Strict plural input, per-snapshot readonly UI refs, frozen replay context, and authenticated HTTP/runtime/mirror/browser tests are implemented; independent reviews and root integration merge are required before closure.
+
 Implementation opened from verified integration 7838e1ca. completion_t5 owns a separate codex/pick-completion-t4a worktree. TDD, explicit frontend and trusted backend reference boundaries, deterministic runtime tests and independent code/Python review remain required. T7 owns plan persistence in parallel; preserve its files and the integrated deadline/projection behavior.

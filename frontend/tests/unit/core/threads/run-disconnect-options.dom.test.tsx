@@ -226,3 +226,51 @@ test("a replay carries only the pick reference its caller passes", async () => {
   );
   expect(calls[2]![1].context).not.toHaveProperty("pick_reference");
 });
+
+test("plural edit and regenerate keep original frozen turn refs while an unbound replay has none", async () => {
+  const refs = {
+    version: "pick-references-v1",
+    references: [
+      { result_id: "old", item_ids: ["a"] },
+      { result_id: "new", item_ids: ["b"] },
+    ],
+  };
+  const stored = { ...refs, thread_id: THREAD_ID };
+  const { result, unmount } = await renderThread();
+  await act(async () => {
+    await result.current.regenerateMessage(THREAD_ID, ANSWER.id, [ANSWER.id], {
+      pick_references: refs,
+    });
+  });
+  await act(async () => {
+    await result.current.editAndRegenerateMessage(
+      THREAD_ID,
+      HUMAN_ID,
+      "Compare original snapshots",
+      { pick_references: stored },
+      { pick_references: refs },
+    );
+  });
+  await act(async () => {
+    await result.current.regenerateMessage(THREAD_ID, ANSWER.id);
+  });
+  refs.references[0]!.item_ids.push("later-change");
+  unmount();
+  const calls = streamMockState.submit.mock.calls as unknown as Array<
+    [{ messages: Message[] }, { context: Record<string, unknown> }]
+  >;
+  expect(calls[0]![1].context.pick_references).toEqual({
+    version: "pick-references-v1",
+    references: [
+      { result_id: "old", item_ids: ["a"] },
+      { result_id: "new", item_ids: ["b"] },
+    ],
+  });
+  expect(calls[1]![1].context.pick_references).toEqual(
+    calls[0]![1].context.pick_references,
+  );
+  expect(
+    calls[1]![0].messages[0]!.additional_kwargs?.pick_references,
+  ).toMatchObject({ thread_id: THREAD_ID });
+  expect(calls[2]![1].context).not.toHaveProperty("pick_references");
+});

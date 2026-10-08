@@ -336,3 +336,5 @@ values retain their source units and rolling-window scope; platform metrics with
 verified evidence are unknown, while a verified decimal string0 remains measured0.
 Message-group renders this card outside collapsed generic steps without exposing raw
 query proof/audit payloads.
+
+- Plural pick context is an explicit versioned `pick_references` envelope, separate from the legacy single `pick_reference`. Per-snapshot chat-reference checkboxes may include the same stable identity in two historical versions; save-source selection still deduplicates identity. Keep dispatch copies, owner/thread-fenced restore failures, stored human-turn refs, edit/regenerate and cross-thread branch behavior in `core/pick/references.ts` / `core/threads/hooks.ts` / pick context. Viewing a comparison must never bind the composer automatically.

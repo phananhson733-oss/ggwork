@@ -682,8 +682,9 @@ def merge_run_context_overrides(config: dict[str, Any], context: Mapping[str, An
     # Pick references are untrusted UI identifiers, never authorization. The
     # business extension validates owner/thread/items before any use. Keep them
     # out of checkpoint configurable state so later runs cannot inherit a choice.
-    if "pick_reference" in context and isinstance(runtime_context, dict):
-        runtime_context["pick_reference"] = copy.deepcopy(context["pick_reference"])
+    for key in ("pick_reference", "pick_references"):
+        if key in context and isinstance(runtime_context, dict):
+            runtime_context[key] = copy.deepcopy(context[key])
     if "user_id" in context and isinstance(runtime_context, dict):
         runtime_context.setdefault("user_id", context["user_id"])
 

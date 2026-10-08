@@ -143,10 +143,18 @@ class PickModelGate(AgentMiddleware):
             reference += "\n" + FEEDBACK_INSTRUCTIONS
         if lark is not None:
             reference += "\n" + (LARK_READY if lark else LARK_NOT_CONNECTED)
-        reference += f"\n本轮用户绑定的候选result_id：{task.reference_id}" if task.reference_id else "\n本轮没有绑定候选结果。"
-        if task.reference_id:
-            reference += "\n用户勾选的item_ids：" + json.dumps(task.selected_item_ids)
-            reference += "\n绑定结果按序号1起排列的item_ids：" + json.dumps(task.reference_order)
+        if task.references:
+            reference += "\n本轮显式候选引用：" + json.dumps(task.reference_context, ensure_ascii=False, separators=(",", ":"))
+            reference += (
+                "\n各批保留自己的历史资料时点。用pick_get_drama_detail分别读取所需结果与条目；事实引用必须使用实际返回的result_id/item_id和citation_id，"
+                "不能把未勾选条目说成用户所选条目。同名或跨批次事实必须带精确的[result:结果ID:条目ID]或证据引用。"
+                "两批同时绑定时，保存必须明确result_id；换一批需用户先选择一份依据。普通查询仍按本轮单一查询版本执行。"
+            )
+        else:
+            reference += f"\n本轮用户绑定的候选result_id：{task.reference_id}" if task.reference_id else "\n本轮没有绑定候选结果。"
+            if task.reference_id:
+                reference += "\n用户勾选的item_ids：" + json.dumps(task.selected_item_ids)
+                reference += "\n绑定结果按序号1起排列的item_ids：" + json.dumps(task.reference_order)
         adjusted = request.override(tools=tools, system_message=SystemMessage(content=system + "\n\n" + PICK_INSTRUCTIONS + reference))
         task.ordinary_remaining()
         response = await handler(adjusted)
@@ -186,6 +194,7 @@ async def _checked_response(response, task, request, handler):
     from deerflow_extension_api.pick_publication import PickCompletionMetadata
 
     from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.completion_contracts import ResultReference
 
     gate = task.publication
     messages = getattr(response, "result", [])
@@ -210,6 +219,7 @@ async def _checked_response(response, task, request, handler):
             posted_checked=task.posted_checked,
             posted_seen=task.posted_seen,
             correction_count=corrections,
+            references=[ResultReference(result_id=result_id, item_ids=ids) for result_id, ids in task.references.items()],
         )
 
     try:

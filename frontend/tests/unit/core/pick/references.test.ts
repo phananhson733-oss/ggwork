@@ -194,3 +194,63 @@ describe("turnPickReference", () => {
     expect(turnPickReference(answered, "a4", "t1")).toBeUndefined();
   });
 });
+
+describe("explicit versioned plural references", () => {
+  it("freezes two explicit result selections and restores the original turn only in its thread", async () => {
+    const { bindPickReferences, storablePickContext, turnPickContext } =
+      await import("@/core/pick/references");
+    const second = { ...result, id: "result-new" };
+    const input = ["item-b"];
+    const refs = bindPickReferences("thread-a", [
+      { result, item_ids: input },
+      { result: second, item_ids: ["item-a"] },
+    ]);
+    input.push("item-c");
+    expect(refs).toEqual({
+      version: "pick-references-v1",
+      references: [
+        { result_id: "result-old", item_ids: ["item-b"] },
+        { result_id: "result-new", item_ids: ["item-a"] },
+      ],
+    });
+    const messages = [
+      {
+        id: "human",
+        type: "human",
+        additional_kwargs: storablePickContext("thread-a", {
+          pick_references: refs,
+        }),
+      },
+      { id: "answer", type: "ai" },
+    ];
+    expect(turnPickContext(messages, "answer", "thread-a")).toEqual({
+      pick_references: refs,
+    });
+    expect(turnPickContext(messages, "human", "thread-a")).toEqual({
+      pick_references: refs,
+    });
+    expect(turnPickContext(messages, "answer", "branch")).toBeUndefined();
+  });
+  it("rejects raw arrays, duplicate groups or items, empty groups and conflicting protocols", async () => {
+    const { freezePickReferences, storablePickContext } =
+      await import("@/core/pick/references");
+    const ref = { result_id: "r", item_ids: ["i"] };
+    for (const input of [
+      [ref],
+      { version: "old", references: [ref] },
+      { version: "pick-references-v1", references: [ref, ref] },
+      { version: "pick-references-v1", references: [{ ...ref, item_ids: [] }] },
+      {
+        version: "pick-references-v1",
+        references: [{ ...ref, item_ids: ["i", "i"] }],
+      },
+    ])
+      expect(() => freezePickReferences(input)).toThrow();
+    expect(() =>
+      storablePickContext("t", {
+        pick_reference: ref,
+        pick_references: { version: "pick-references-v1", references: [ref] },
+      }),
+    ).toThrow();
+  });
+});

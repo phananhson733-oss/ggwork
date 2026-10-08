@@ -13,7 +13,7 @@ from bisect import bisect_left, bisect_right
 from typing import NamedTuple
 
 from ggwork_pick.answer_evidence import AnswerEvidence
-from ggwork_pick.completion_contracts import CheckedFact, CheckedPublication
+from ggwork_pick.completion_contracts import CheckedFact, CheckedPublication, ResultReference
 from ggwork_pick.contracts import unstorable_path
 from ggwork_pick.repository import stamp
 
@@ -919,6 +919,7 @@ def build_checked_publication(
     posted_checked: bool = False,
     posted_seen: dict[str, Seen] | None = None,
     correction_count: int = 0,
+    references: list[ResultReference] | None = None,
 ) -> CheckedPublication:
     """Check *all* prose, returning a safe canonical payload for the host publication gate.
 
@@ -982,7 +983,7 @@ def build_checked_publication(
         status=status,
         content=content,
         facts=facts,
-        references=[],
+        references=references or [],
         checker_version=CHECKER_VERSION,
         correction_count=correction_count,
         checked_at=stamp(),

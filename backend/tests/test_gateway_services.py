@@ -4905,3 +4905,15 @@ def test_pick_reference_is_forwarded_only_to_runtime_and_copied():
     assert "pick_reference" not in config["configurable"]
     reference["item_ids"].clear()
     assert config["context"]["pick_reference"]["item_ids"] == ["item-1"]
+
+
+def test_plural_pick_references_are_runtime_only_and_deep_copied():
+    from app.gateway.services import merge_run_context_overrides
+
+    references = {"version": "pick-references-v1", "references": [{"result_id": "r1", "item_ids": ["i1"]}, {"result_id": "r2", "item_ids": ["i2"]}]}
+    config = {}
+    merge_run_context_overrides(config, {"pick_references": references})
+    assert config["context"]["pick_references"] == references
+    assert "pick_references" not in config["configurable"]
+    references["references"][0]["item_ids"].clear()
+    assert config["context"]["pick_references"]["references"][0]["item_ids"] == ["i1"]
