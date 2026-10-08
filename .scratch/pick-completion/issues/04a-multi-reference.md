@@ -2,7 +2,7 @@
 
 **Parent:** T4/T12, original P1 multi-result requirement and frozen D9-16
 **Blocked by:** T4, T12a
-**Status:** in-progress
+**Status:** done
 
 Deliver the second stage already required by the approved spec: after visual comparison, the user explicitly chooses two result/item groups for a chat turn; server validates same owner/current thread and each immutable identity/version. Do not feed a raw legacy refs array into the current single-reference protocol. Preserve legacy single-reference behavior and make regenerate/edit/branch handling explicit. Comparison reads each result's frozen evidence; never mix their source periods into a live query's one-pin semantics or use a newer batch silently. A normal query requiring an ambiguous base must require an explicit choice rather than infer one.
 
@@ -19,3 +19,5 @@ Integration T10 additionally depends on T4a. No completion credit for visual-onl
 Author implementation underway in codex/pick-completion-t4a from verified T4-UI7838e1ca. Strict plural input, per-snapshot readonly UI refs, frozen replay context, and authenticated HTTP/runtime/mirror/browser tests are implemented; independent reviews and root integration merge are required before closure.
 
 Implementation opened from verified integration 7838e1ca. completion_t5 owns a separate codex/pick-completion-t4a worktree. TDD, explicit frontend and trusted backend reference boundaries, deterministic runtime tests and independent code/Python review remain required. T7 owns plan persistence in parallel; preserve its files and the integrated deadline/projection behavior.
+
+Completed in integration d15973bd7d70a240b934b0671608a214785c1964 from reviewed b8ddb904. All 30 code and 12 Python review hashes remain unchanged from 4230693b except additive approved T7 documentation. Merger passed 250 actual HTTP/runtime/Gateway/publication tests, 119 SQLite/PostgreSQL reference/feedback/tool tests and 44 frontend reference/comparison/context tests, no skips. Same-identity two-version chat references are independently selectable from save-source deduplication. Each historical result/feedback sidecar retains its pin; replay/edit/regenerate/branch semantics are tested. Runtime proof uses trusted internal authentication and scripted models; browser proof uses mock HTTP. Ordinary-cookie full-product browser and live-model gates remain T11, and the separately recorded source-suite failures are not waived.
