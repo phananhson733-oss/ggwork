@@ -131,3 +131,152 @@ def test_browser_receipt_requires_explicit_receive_grant_and_preserves_completed
     with pytest.raises(WorkerError, match="transfer_target_exists"):
         receiver.receive(command, media)
     assert (incoming / "episode-1.mp4").read_bytes() == media
+
+
+@pytest.mark.asyncio
+async def test_remote_stop_heartbeat_stays_live_during_real_native_processing(tmp_path, monkeypatch):
+    import json
+
+    import httpx
+
+    from ggwork_edit.worker import runtime
+
+    store = configured(tmp_path)
+    native = NativeWorker(store)
+    manifest = await native.verify_manifest(await native.discover("drama", "."))
+    attempt = {"id": "controlled-attempt", "fence": 1, "output_ids": ["out-1"]}
+    store.save_journal({"task_id": "task-1", "attempt": attempt})
+    task = {
+        "id": "task-1",
+        "status": "running",
+        "attempt": attempt,
+        "source_manifest": manifest,
+        "requirements": {"profile": "hook", "aspect_ratio": "9:16", "language": "en", "duration_seconds": 5, "output_count": 1},
+        "plan": None,
+        "outputs": [{"id": "out-1", "status": "pending"}],
+    }
+    transcribing = False
+    heartbeats_during_asr = 0
+    stopped = False
+
+    async def gateway(request):
+        nonlocal transcribing, heartbeats_during_asr, stopped
+        payload = json.loads(request.content) if request.content else {}
+        if request.url.path.endswith("/report"):
+            if payload["kind"] == "stage" and payload["stage"] == "transcribing":
+                transcribing = True
+            if payload["kind"] == "heartbeat" and transcribing:
+                heartbeats_during_asr += 1
+                task["status"] = "stopping"
+            if payload["kind"] == "stopped":
+                stopped = True
+                task["status"] = "stopped"
+            return httpx.Response(200, json={"task": task, "stop_requested": task["status"] == "stopping", "fence": 2})
+        return httpx.Response(200, json=task)
+
+    monkeypatch.setattr(runtime, "HEARTBEAT_SECONDS", 0.01)
+    async with httpx.AsyncClient(base_url="https://example.test", transport=httpx.MockTransport(gateway)) as http:
+        session = runtime.WorkerSession(store, http)
+        control = asyncio.create_task(session.control({"ready": True}))
+        try:
+            await session.execute(task)
+        finally:
+            session.shutdown.set()
+            await control
+    assert heartbeats_during_asr > 0 and stopped
+    assert store.journal() == {}
+    assert not list((tmp_path / "output").rglob("*.mp4"))
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_pending_planner_request_without_waiting_for_provider(tmp_path, monkeypatch):
+    import json
+
+    import httpx
+
+    from ggwork_edit.worker import runtime
+
+    store = configured(tmp_path)
+    manifest = await NativeWorker(store).verify_manifest(await NativeWorker(store).discover("drama", "."))
+    attempt = {"id": "planning-attempt", "fence": 1, "output_ids": ["out-1"]}
+    store.save_journal({"task_id": "task-1", "attempt": attempt})
+    task = {
+        "id": "task-1",
+        "status": "running",
+        "attempt": attempt,
+        "source_manifest": manifest,
+        "requirements": {"profile": "hook", "aspect_ratio": "9:16", "language": "en", "duration_seconds": 5, "output_count": 1},
+        "plan": None,
+        "outputs": [{"id": "out-1", "status": "pending"}],
+    }
+    planning = asyncio.Event()
+    cancelled = False
+
+    async def gateway(request):
+        nonlocal cancelled
+        payload = json.loads(request.content) if request.content else {}
+        if request.url.path.endswith("/plan"):
+            planning.set()
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                cancelled = True
+                raise
+        if request.url.path.endswith("/report"):
+            if payload["kind"] == "heartbeat" and planning.is_set():
+                task["status"] = "stopping"
+            if payload["kind"] == "stopped":
+                task["status"] = "stopped"
+            return httpx.Response(200, json={"task": task, "stop_requested": task["status"] == "stopping", "fence": 2})
+        return httpx.Response(200, json=task)
+
+    monkeypatch.setattr(runtime, "HEARTBEAT_SECONDS", 0.01)
+    async with httpx.AsyncClient(base_url="https://example.test", transport=httpx.MockTransport(gateway)) as http:
+        session = runtime.WorkerSession(store, http)
+        control = asyncio.create_task(session.control({"ready": True}))
+        try:
+            await asyncio.wait_for(session.execute(task), timeout=10)
+        finally:
+            session.shutdown.set()
+            await control
+    assert cancelled and task["status"] == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_planner_rejection_reports_failure_instead_of_replanning_forever(tmp_path):
+    import json
+
+    import httpx
+
+    from ggwork_edit.worker.runtime import WorkerSession
+
+    store = configured(tmp_path)
+    manifest = await NativeWorker(store).verify_manifest(await NativeWorker(store).discover("drama", "."))
+    attempt = {"id": "rejected-attempt", "fence": 1, "output_ids": ["out-1"]}
+    store.save_journal({"task_id": "task-1", "attempt": attempt})
+    task = {
+        "id": "task-1",
+        "status": "running",
+        "attempt": attempt,
+        "source_manifest": manifest,
+        "requirements": {"profile": "hook", "aspect_ratio": "9:16", "language": "en", "duration_seconds": 5, "output_count": 1},
+        "plan": None,
+        "outputs": [{"id": "out-1", "status": "pending"}],
+    }
+    failures = []
+
+    async def gateway(request):
+        payload = json.loads(request.content) if request.content else {}
+        if request.url.path.endswith("/plan"):
+            return httpx.Response(422, json={"detail": "Invalid model plan"})
+        if request.url.path.endswith("/report"):
+            if payload["kind"] == "failure":
+                failures.append(payload["error"])
+                task["status"] = "failed"
+            return httpx.Response(200, json={"task": task, "stop_requested": False, "fence": 1})
+        return httpx.Response(200, json=task)
+
+    async with httpx.AsyncClient(base_url="https://example.test", transport=httpx.MockTransport(gateway)) as http:
+        await WorkerSession(store, http).execute(task)
+    assert failures == ["gateway_request_rejected"]
+    assert store.journal() == {}

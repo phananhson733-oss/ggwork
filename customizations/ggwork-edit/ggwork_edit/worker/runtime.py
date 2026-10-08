@@ -133,9 +133,33 @@ class WorkerSession:
                     verified = await self.native.verify_manifest(manifest)
                     await self.request("POST", "/tasks/" + task["id"] + "/manifest", json={"source_manifest": verified})
             except WorkerError as error:
+                if self.shutdown.is_set():
+                    return
                 await self.request("POST", "/tasks/" + task["id"] + "/preparation-error", json={"error": str(error)})
 
+    async def request_plan(self, task_id, attempt, transcripts):
+        pending = asyncio.create_task(
+            self.request(
+                "POST",
+                "/tasks/" + task_id + "/plan",
+                json={"attempt_id": attempt["id"], "fence": attempt["fence"], "transcripts": transcripts},
+                timeout=180,
+            )
+        )
+        stopped = asyncio.create_task(self.stop.wait())
+        try:
+            await asyncio.wait((pending, stopped), return_when=asyncio.FIRST_COMPLETED)
+            if self.stop.is_set():
+                raise WorkerStopped("stopped")
+            return await pending
+        finally:
+            pending.cancel()
+            stopped.cancel()
+            await asyncio.gather(pending, stopped, return_exceptions=True)
+
     async def execute(self, task):
+        if self.shutdown.is_set():
+            return
         if task["status"] in TERMINAL:
             self.state = {}
             self.save()
@@ -171,12 +195,7 @@ class WorkerSession:
                 await self.report("stage", stage="transcribing")
                 transcripts = await self.native.transcribe(manifest, requirements["language"], attempt["id"])
                 await self.report("stage", stage="planning")
-                task = await self.request(
-                    "POST",
-                    "/tasks/" + task_id + "/plan",
-                    json={"attempt_id": attempt["id"], "fence": attempt["fence"], "transcripts": transcripts},
-                    timeout=180,
-                )
+                task = await self.request_plan(task_id, attempt, transcripts)
             while not task["plan_confirmed"]:
                 if self.stop.is_set():
                     raise WorkerStopped("stopped")
@@ -218,6 +237,18 @@ class WorkerSession:
                     self.save()
                 # Local Ctrl-C preserves the active attempt for restart; it does not
                 # manufacture a server stop request or a completed result.
+        except httpx.HTTPStatusError:
+            if self.authorization_lost:
+                return
+            current = await self.request("GET", "/tasks/" + task_id)
+            self.state.pop("pending_report", None)
+            self.save()
+            if current["status"] == "stopping":
+                await self.report("stopped")
+            elif current["status"] not in TERMINAL:
+                await self.report("failure", error="gateway_request_rejected")
+            self.state = {}
+            self.save()
         except WorkerError as error:
             if not self.authorization_lost:
                 await self.report("failure", error=str(error))

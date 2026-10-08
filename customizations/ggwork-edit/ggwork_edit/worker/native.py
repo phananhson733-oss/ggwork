@@ -94,6 +94,18 @@ async def doctor(store):
         reasons.append("transcription_model_changed")
     if not config["grants"]:
         reasons.append("source_grant_missing")
+    for root in config["grants"].values():
+        try:
+            if not no_symlink(root).is_dir():
+                reasons.append("source_grant_unavailable")
+        except WorkerError:
+            reasons.append("source_grant_unavailable")
+    try:
+        output_root = no_symlink(config["output_root"])
+        with tempfile.TemporaryFile(dir=output_root):
+            pass
+    except (OSError, WorkerError):
+        reasons.append("output_directory_unavailable")
     if not reasons:
         try:
             with tempfile.TemporaryDirectory(dir=store.home) as directory:
@@ -340,6 +352,9 @@ class NativeWorker:
             sha = await asyncio.to_thread(digest, partial)
             artifact_id = identifier(attempt_id) + "_" + identifier(output_id)
             result = {"artifact_id": artifact_id, "sha256": sha, "size_bytes": partial.stat().st_size, **metadata, "verified": True}
+            # Persist complete encoded bytes before making their immutable reference visible.
+            with partial.open("rb") as stream:
+                os.fsync(stream.fileno())
             # Exclusive link publishes atomically without replacing any completed bytes.
             os.link(partial, final)
             os.chmod(final, 0o400)
