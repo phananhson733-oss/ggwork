@@ -311,3 +311,138 @@ async def test_real_english_model_cannot_claim_multilingual_readiness(tmp_path):
     manifest = await worker.verify_manifest(await worker.discover("drama", "."))
     with pytest.raises(WorkerError, match="model_language_mismatch"):
         await worker.transcribe(manifest, "fr", "wrong-model-attempt")
+
+
+@pytest.mark.asyncio
+async def test_disguised_concat_cannot_read_ungranted_media_through_directory_symlink(tmp_path):
+    store = configured(tmp_path)
+    root = tmp_path / "playlist-grant"
+    root.mkdir()
+    external = tmp_path / "ungranted"
+    external.mkdir()
+    shutil.copyfile(store.source("drama", "episode-01.mp4"), external / "secret.mp4")
+    (root / "link").symlink_to(external, target_is_directory=True)
+    (root / "episode-01.mp4").write_text("ffconcat version 1.0\nfile 'link/secret.mp4'\nduration 5.194014\n", encoding="utf-8")
+    store.grant("playlist", root)
+    worker = NativeWorker(store)
+    manifest = await worker.discover("playlist", ".")
+    with pytest.raises(WorkerError, match="native_process_failed"):
+        await worker.verify_manifest(manifest)
+
+
+@pytest.mark.asyncio
+async def test_legacy_verified_playlist_cannot_bypass_extraction_or_render_policy(tmp_path):
+    store = configured(tmp_path)
+    root = tmp_path / "legacy-grant"
+    root.mkdir()
+    (root / "link").symlink_to(tmp_path / "media", target_is_directory=True)
+    playlist = root / "episode-01.mp4"
+    playlist.write_text("ffconcat version 1.0\nfile 'link/episode-01.mp4'\nduration 5.194014\n", encoding="utf-8")
+    store.grant("legacy", root)
+    worker = NativeWorker(store)
+    manifest = await worker.discover("legacy", ".")
+    manifest["files"][0].update(state="verified", sha256=digest(playlist), duration_seconds=5.194014)
+    # Persisted v2 cache fixture from before the demux policy. Upgrades must never
+    # reuse text obtained through a formerly admitted indirect source.
+    import hashlib
+    import json
+
+    from ggwork_edit.worker.storage import private_json
+
+    cache = store.home / "transcripts"
+    cache.mkdir()
+    old_key = hashlib.sha256(
+        json.dumps([digest(playlist), store.config()["model_sha256"], digest(shutil.which("whisper-cli")), "en", "whisper-cpp-json-v2-16khz"]).encode()
+    ).hexdigest()
+    private_json(cache / (old_key + ".json"), [{"start": 0, "end": 5, "text": "Previously read outside grant"}])
+    with pytest.raises(WorkerError, match="native_process_failed"):
+        await worker.transcribe(manifest, "en", "legacy-asr")
+    requirements = {"profile": "hook", "aspect_ratio": "9:16", "language": "en", "duration_seconds": 5, "output_count": 1}
+    plan = {
+        "profile": "hook",
+        "aspect_ratio": "9:16",
+        "language": "en",
+        "outputs": [{"output_id": "out-1", "segments": [{"media_id": "media-1", "start": 0, "end": 5}]}],
+    }
+    with pytest.raises(WorkerError, match="native_process_failed"):
+        await worker.render(manifest, requirements, plan, "legacy-render", "out-1")
+    assert not list((tmp_path / "output").rglob("*.mp4"))
+
+
+def test_received_playlist_is_not_published_as_a_source(tmp_path):
+    from ggwork_edit.worker.transfer import Receiver
+
+    store = configured(tmp_path)
+    root = tmp_path / "receiving-playlist"
+    root.mkdir()
+    (root / "link").symlink_to(tmp_path / "media", target_is_directory=True)
+    store.grant("incoming", root, receive=True)
+    data = b"ffconcat version 1.0\nfile 'link/episode-01.mp4'\nduration 5.194014\n"
+    manifest = {
+        "version": 1,
+        "grant_id": "incoming",
+        "files": [{"media_id": "m1", "episode": 1, "name": "Episode 1", "relative_path": "episode-1.mp4", "size_bytes": len(data), "state": "selected"}],
+    }
+    command = {
+        "task_id": "task-1",
+        "transfer_id": "playlist-upload",
+        "media_id": "m1",
+        "source_manifest": manifest,
+        "offset": 0,
+        "length": len(data),
+        "final": True,
+    }
+    with pytest.raises(WorkerError, match="native_process_failed"):
+        Receiver(store).receive(command, data)
+    assert not (root / "episode-1.mp4").exists()
+
+
+@pytest.mark.asyncio
+async def test_disguised_network_playlist_makes_no_http_request(tmp_path):
+    store = configured(tmp_path)
+    hits = []
+
+    async def endpoint(reader, writer):
+        hits.append(True)
+        writer.close()
+        await writer.wait_closed()
+
+    server = await asyncio.start_server(endpoint, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    try:
+        root = tmp_path / "http-playlist"
+        root.mkdir()
+        (root / "episode-01.mp4").write_text(
+            f"#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:5.194014,\nhttp://127.0.0.1:{port}/secret.mp4\n#EXT-X-ENDLIST\n", encoding="utf-8"
+        )
+        store.grant("http-playlist", root)
+        worker = NativeWorker(store)
+        with pytest.raises(WorkerError, match="native_process_failed"):
+            await worker.verify_manifest(await worker.discover("http-playlist", "."))
+        assert hits == []
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extension", ["mov", "mkv", "webm"])
+async def test_self_contained_mov_matroska_webm_remain_supported(tmp_path, extension):
+    store = configured(tmp_path)
+    root = tmp_path / "container"
+    root.mkdir()
+    target = root / ("episode-01." + extension)
+    args = ["ffmpeg", "-v", "error", "-i", str(store.source("drama", "episode-01.mp4"))]
+    args += ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-c:a", "libopus"] if extension == "webm" else ["-c", "copy"]
+    await ProcessRunner().run([*args, str(target)])
+    store.grant("container", root)
+    worker = NativeWorker(store)
+    verified = await worker.verify_manifest(await worker.discover("container", "."))
+    requirements = {"profile": "hook", "aspect_ratio": "1:1", "language": "en", "duration_seconds": 5, "output_count": 1}
+    plan = {
+        "profile": "hook",
+        "aspect_ratio": "1:1",
+        "language": "en",
+        "outputs": [{"output_id": "out-1", "segments": [{"media_id": "media-1", "start": 0, "end": 5}]}],
+    }
+    assert (await worker.render(verified, requirements, plan, "container-render", "out-1"))["verified"]

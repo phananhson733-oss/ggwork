@@ -54,7 +54,12 @@ advertised as sources. There is no automatic deletion of user media.
 Directory selection uses grant ID plus a relative directory (`.` for the grant
 root). Automatic discovery scans that directory only; filenames must unambiguously
 identify episodes, such as `episode-01.mp4`, `ep2.mov`, or `3.mp4`. Duplicate numbers,
-unknown naming/order, and symlinks are refused. Explicit selected manifests retain
+unknown naming/order, and symlinks are refused. Each media input is constrained
+before demuxing to a self-contained MOV/MP4/M4V or Matroska/WebM container and the
+local file protocol. MOV external track references are disabled. Renamed concat,
+HLS and other playlists cannot cause indirect reads outside a grant or network
+requests, including previously admitted manifests and uploaded staging files.
+Explicit selected manifests retain
 all selected files; missing entries are not silently skipped.
 
 `doctor` verifies platform, executable availability, actual model loading and a

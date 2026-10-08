@@ -52,7 +52,7 @@ class Receiver:
         private_json(record, {"identity": identity, "offset": end})
         if command["final"]:
             # This callback is on a relay-owned thread, never the heartbeat loop.
-            asyncio.run(NativeWorker(self.store).probe(stage))
+            asyncio.run(NativeWorker(self.store).probe(stage, suffix=target.suffix))
             sha = digest(stage)
             if source.get("sha256") and source["sha256"] != sha:
                 raise WorkerError("source_changed")

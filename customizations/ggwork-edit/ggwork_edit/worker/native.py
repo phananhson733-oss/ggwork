@@ -132,7 +132,26 @@ async def doctor(store):
         try:
             runner = ProcessRunner(lock_fd=store.lock_fd)
             await inspect_model(store, runner)
-            await runner.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=size=64x64:duration=0.1", "-c:v", "libx264", "-f", "null", "-"])
+            await runner.run(
+                [
+                    "ffmpeg",
+                    "-v",
+                    "error",
+                    "-protocol_whitelist",
+                    "file",
+                    "-format_whitelist",
+                    "lavfi",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=size=64x64:duration=0.1",
+                    "-c:v",
+                    "libx264",
+                    "-f",
+                    "null",
+                    "-",
+                ]
+            )
         except WorkerError as error:
             reasons.append(str(error))
         except OSError:
@@ -146,6 +165,20 @@ async def doctor(store):
     }
 
 
+def media_input(path, *, suffix=None):
+    """Constrain the demuxer before it can open nested paths or protocols."""
+    suffix = (suffix or Path(path).suffix).lower()
+    if suffix in (".mp4", ".mov", ".m4v"):
+        demuxer = "mov"
+        options = ["-enable_drefs", "0", "-use_absolute_path", "0"]
+    elif suffix in (".mkv", ".webm"):
+        demuxer = "matroska"
+        options = []
+    else:
+        raise WorkerError("native_process_failed")
+    return ["-protocol_whitelist", "file", "-format_whitelist", "mov,matroska,webm", "-f", demuxer, *options, "-i", path]
+
+
 class NativeWorker:
     def __init__(self, store, stop=None):
         self.store = store
@@ -153,8 +186,8 @@ class NativeWorker:
         self._proofs = {}
         self._model_proof = None
 
-    async def probe(self, path):
-        raw = await self.runner.run(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", path])
+    async def probe(self, path, *, suffix=None):
+        raw = await self.runner.run(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", *media_input(path, suffix=suffix)])
         value = json.loads(raw)
         video = next((s for s in value["streams"] if s["codec_type"] == "video"), None)
         audio = next((s for s in value["streams"] if s["codec_type"] == "audio"), None)
@@ -245,7 +278,7 @@ class NativeWorker:
         transcripts = []
         for source in manifest["files"]:
             key = hashlib.sha256(
-                json.dumps([source["sha256"], config["model_sha256"], executable_hash, language, "whisper-cpp-json-v2-16khz"]).encode()
+                json.dumps([source["sha256"], config["model_sha256"], executable_hash, language, "whisper-cpp-json-v3-file-mov-matroska-16khz"]).encode()
             ).hexdigest()
             cached = no_symlink(cache / (key + ".json"))
             if cached.exists():
@@ -257,7 +290,7 @@ class NativeWorker:
                 with tempfile.TemporaryDirectory(prefix=".asr-", dir=work) as scratch:
                     wav = Path(scratch) / "audio.wav"
                     prefix = Path(scratch) / "transcript"
-                    await self.runner.run(["ffmpeg", "-v", "error", "-n", "-i", path, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav])
+                    await self.runner.run(["ffmpeg", "-v", "error", "-n", *media_input(path), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav])
                     await self.runner.run(["whisper-cli", "-m", config["model"], "-f", wav, "-l", language, "-ojf", "-of", prefix])
                     raw = json.loads(Path(str(prefix) + ".json").read_text(encoding="utf-8"))
                     segments = [
@@ -325,7 +358,7 @@ class NativeWorker:
         sources = {s["media_id"]: s for s in manifest["files"]}
         for index, segment in enumerate(output["segments"]):
             path = self.store.source(manifest["grant_id"], sources[segment["media_id"]]["relative_path"])
-            args.extend(["-i", path])
+            args.extend(media_input(path))
             start, end = segment["start"], segment["end"]
             filters.append(
                 f"[{index}:v:0]trim=start={start}:end={end},setpts=PTS-STARTPTS,scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v{index}]"
@@ -361,7 +394,7 @@ class NativeWorker:
         try:
             await self.runner.run(args)
             metadata = await self.probe(partial)
-            await self.runner.run(["ffmpeg", "-v", "error", "-xerror", "-i", partial, "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"])
+            await self.runner.run(["ffmpeg", "-v", "error", "-xerror", *media_input(partial), "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"])
             expected_duration = sum(s["end"] - s["start"] for s in output["segments"])
             if (
                 (metadata["width"], metadata["height"]) != (width, height)

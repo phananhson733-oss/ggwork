@@ -11,6 +11,11 @@
   before network IO. Renew lease before replaying immutable event IDs on restart.
 - Never overwrite originals, delivered MP4s or indexes. Gateway media IDs resolve
   only through frozen manifests and local explicit grants; reject symlinks/traversal.
+- Every ffprobe/ffmpeg media input uses media_input() restrictions before demux:
+  explicit MOV or Matroska family, format/protocol whitelists, MOV external
+  references disabled. Apply this to source probe, uploaded staging probe, ASR
+  extraction, every rendering input and output decode; post-probe checks are too
+  late to prevent indirect source reads. The doctor uses only fixed lavfi input.
 - Report only stable safe error codes. Local subprocess logs are never gateway
   error text. No token arguments, redirect following, or environment proxy trust.
 - Update this README with distribution/CLI behavior. No signed-app, automatic
