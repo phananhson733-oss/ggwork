@@ -130,6 +130,25 @@ class Claim(StrictInput):
     request_id: ID
 
 
+class PreparationError(StrictInput):
+    error: Literal[
+        "source_changed",
+        "file_missing",
+        "directory_missing",
+        "grant_denied",
+        "symlink_denied",
+        "episode_order_ambiguous",
+        "source_directory_empty",
+        "source_identity_ambiguous",
+        "source_manifest_empty",
+        "source_audio_video_required",
+        "model_language_unsupported",
+        "language_unsupported",
+        "native_process_failed",
+        "preparation_failed",
+    ]
+
+
 class VerifyManifest(StrictInput):
     source_manifest: Manifest
 
