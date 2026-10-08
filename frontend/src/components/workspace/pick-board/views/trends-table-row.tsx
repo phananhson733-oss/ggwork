@@ -44,6 +44,18 @@ function Drama({ row }: { row: TrendsTableRow }) {
       <div className="text-ink-1 font-semibold">{row.title}</div>
       {meta ? <div className={MUTED}>{meta}</div> : null}
       <div className="text-helper mt-1 text-xs">市场：{row.geo || "全球"}</div>
+      {row.query_group && row.comparison_terms ? (
+        <details className="mt-1 text-xs">
+          <summary className={`${LINK} cursor-pointer`}>
+            {row.comparison_terms.length} 词同组查询
+          </summary>
+          <p className={MUTED}>{row.comparison_terms.join(" / ")}</p>
+          <p className={MUTED}>
+            指数仅在同组、同市场及窗口内可比。Google
+            外链是单片名复查，数值可能不同。
+          </p>
+        </details>
+      ) : null}
       {row.term !== row.title ? (
         <div className={MUTED}>查询词：{row.term}</div>
       ) : null}

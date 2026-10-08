@@ -132,6 +132,8 @@ Railway 已经不读服务的 `railway.toml`：Config as Code 已弃用，2026-0
 | `PICK_OBS_TRENDS_GRANULARITY` | G2 定的粒度：`H`（默认）、`D` 或 `HD` | 代理 | 可选，金丝雀期间不改 |
 | `PICK_OBS_TRENDS_ROUTE` | 第 8 节的去向：`both`（默认）、`a_only`、`b_only` | 代理 | 可选，金丝雀期间不改；`neither` 会被拒，Trends 不上线 |
 | `PICK_OBS_TRENDS_PACE` | 不设（即 `user`：令牌桶 4、每分钟补 2） | — | 可选，金丝雀期间不改。`design`（桶 8、每分钟补 4）是设计 4.2 的原值，只在计划第 9 节按它重排之后才用；取值不认识，或模式在这个节奏下放不进窗口，以 2 拒跑 |
+| `PICK_OBS_TRENDS_BATCH_SIZE` | 默认 `1`；批准的五词恢复设 `5` | 代理 | `5` 必须配 `batched` 节奏和明确恢复起点，见五词恢复计划 |
+| `PICK_OBS_TRENDS_RECOVERY_APPROVAL` | 默认不设；明确授权后的一次结构化回执 | 代理 | 绑定旧起点、旧批次、新起点和批准时间；不清空停止历史，不放行新停止 |
 | `PICK_DB_SIZE_CAP_BYTES` | 与 gateway 相同 | 代理 | 计划 S5 列了它，给 TR-20 的发布前容量检查用；TR-20 之前没有代码读它，设了也不生效 |
 | `PICK_OBS_PUBLISH` | 不设 | — | D11：不设就是 shadow；金丝雀无论如何不发布。S12b 才设 `1` |
 | `PICK_OBS_EGRESS_ECHO_URL` | 不设 | — | U13 批准前不设。旧稿计划 S5 写的 `PICK_OBS_EGRESS_URL` 是错名，代码读的是这个；设成错名时入口会在 stderr 点名并提示正确名字，但出口测量不会开 |
@@ -286,3 +288,5 @@ Railway 已经不读服务的 `railway.toml`：Config as Code 已弃用，2026-0
 - **TR-34**：守卫的 cron 模式要求 `deploy/pick-obs/<服务>/railway.toml` 在 main 上；守卫脚本的触发路径与 lint 由本任务加（第 8 节）。第 5 节第 4 步的顺序按守卫的记录规则写（`--first-record` 只在没有记录时带、记录行推送之前 HEAD 不动），`test_cron_deploy_procedure.py` 用守卫本身重放它：守卫的规则变了，那个测试先红。`deploy-guard.md`「各模式通过之后」的 cron 一条原写「部署后以 `--selfcheck-only` 手动触发一次（S6）」，与本页的做法（第 3.2 节：临时换成自检配置）不一致，已由 G3 文档对齐改成指向本页第 5 节第 4 步与第 6 节。2026-09-28 Railway 不再读配置路径之后，那一条的「配置路径」措辞随本页一起改成「用 `pick-railway-settings.py apply` 写服务设置」。
 - **计划**：第 10 节 S5、S6、S6a 已由 G3 文档对齐按本页改写，S6 与 S6a 里预检随自检部署一起跑的写法由 G3 集成补齐（先部署自检配置、读自检与预检两行，再切回 cron 配置；第 3.2 节的理由），命令、运行方式与判据以本页与 `trends-session.md` 为准。
 - **TR-29**：目录页 `README.md` 里本页的状态由 TR-29 更新（D35，本任务不改目录页）。
+
+2026-10-08：五词受控恢复的 `batched` 节奏为组间120–180秒；配置、预算、跨轮次授权和验收见[五词恢复合同](../../plans/2026-10-08-trends-five-title-recovery.md)。自检/预检仍不得发送Google请求。

@@ -33,7 +33,7 @@ from datetime import date
 from typing import Any
 
 from ggwork_pick.observe.errors import Refused
-from ggwork_pick.observe.trends import budget, capacity, pacing
+from ggwork_pick.observe.trends import budget, capacity, pacing, recovery_approval
 from ggwork_pick.observe.trends import state_codec as codec
 
 MODE_VARIABLE = "PICK_OBS_TRENDS_MODE"
@@ -54,6 +54,8 @@ VARIABLES = frozenset(
         PUBLISH_VARIABLE,
         CANARY_SINCE_VARIABLE,
         RECOVERY_SINCE_VARIABLE,
+        "PICK_OBS_TRENDS_BATCH_SIZE",
+        "PICK_OBS_TRENDS_RECOVERY_APPROVAL",
     }
 )
 
@@ -62,6 +64,7 @@ GRANULARITIES = ("H", "D", "HD")  # contract GRANULARITIES
 DEFAULT_GRANULARITY = "H"
 ROUTES = ("both", "a_only", "b_only")  # TR-05's route keys; "neither" is refused
 DEFAULT_ROUTE = "both"
+
 SWITCH_ON = "1"
 
 
@@ -75,6 +78,8 @@ class Settings:
     canary_since: date | None = None
     pace: str = pacing.PRODUCTION_PRESET
     recovery_since: date | None = None
+    batch_size: int = 1
+    recovery_approval: Mapping | None = None
 
     @property
     def mode(self) -> str:
@@ -90,7 +95,7 @@ class Settings:
         """The pace as a batch keeps it (plan_json's notes) and preflight prints it: the preset, its bucket and its
         refill. A canary parameter (plan section 9), so TR-30 reads it night by night from the database."""
         if self.recovery_since is not None:
-            return pacing.recovery_note()
+            return pacing.recovery_note(self.batch_size)
         params = self.pace_params
         return {"preset": self.pace, "bucket_capacity": params.bucket_capacity, "refill_per_minute": params.refill_per_minute}
 
@@ -163,19 +168,26 @@ def settings_from(environ: Mapping[str, str]) -> Settings:
         canary_since=_since(environ),
         pace=pace,
         recovery_since=recovery_since,
+        batch_size=int(_choice(environ, "PICK_OBS_TRENDS_BATCH_SIZE", ("1", "5"), "1")),
     )
+    settings = replace(settings, recovery_approval=recovery_approval.parse(environ.get(recovery_approval.VARIABLE, ""), recovery_since, settings.batch_size))
     if recovery_since is not None:
-        if (mode, settings.granularity, settings.route, pace) != ("stable", "D", "a_only", "conservative") or (
-            settings.canary_since != recovery_since or settings.contract_check or settings.publish_live
+        if (
+            (mode, settings.granularity, settings.route) != ("stable", "D", "a_only")
+            or (pace, settings.batch_size) not in (("conservative", 1), ("batched", 5))
+            or (settings.canary_since != recovery_since or settings.contract_check or settings.publish_live)
         ):
             raise Refused("日级恢复须 stable、D、a_only、conservative、相同的 CANARY_SINCE，且关闭 contract check/publish")
         limits = replace(settings.limits, plan=220, cap=220)
         estimates = [
-            capacity.estimate([2] * 100, limits=limits, target_date=recovery_since, params=settings.pace_params, scenario=s) for s in capacity.SCENARIOS
+            capacity.estimate(
+                [2] * (20 if settings.batch_size == 5 else 100), limits=limits, target_date=recovery_since, params=settings.pace_params, scenario=s
+            )
+            for s in capacity.SCENARIOS
         ]
         if estimates[0].coverage < 1 or estimates[1].coverage < capacity.MIN_LIMITED_COVERAGE:
             raise Refused("日级恢复的 100 部实际任务放不进夜间窗口")
         return replace(settings, limits=limits)
-    if pace == "conservative":
+    if pace in ("conservative", "batched") or settings.batch_size != 1:
         raise Refused("conservative 仅用于有明确恢复起点的日级分阶段任务")
     return replace(settings, limits=_fitting(settings.limits, pace))

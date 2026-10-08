@@ -49,7 +49,7 @@ from ggwork_pick.observe.errors import ExitCode, Refused, StateUnavailable
 from ggwork_pick.observe.instants import instant, stamp
 from ggwork_pick.observe.lease import DbStateStore, LeasedStep, LeasedWriter, ReadStep, collector_session
 from ggwork_pick.observe.trends import admission as gate
-from ggwork_pick.observe.trends import breaker, budget, pacing, recovery
+from ggwork_pick.observe.trends import breaker, budget, pacing, recovery, recovery_approval
 from ggwork_pick.observe.trends import session_rows as rows
 from ggwork_pick.observe.trends import session_summary as summary
 from ggwork_pick.observe.trends.canary import SourceUnits
@@ -137,11 +137,17 @@ def _new_batch(day: Day, **values: Any) -> rows.NewBatch:
 # ---- refusals that must stay visible (status_rules: a lasting code is written by every run row) ----------------------
 
 
-async def refusal_codes(step: ReadStep, day: Day, broken: breaker.BreakerState) -> tuple[str, ...]:
+async def refusal_codes(step: ReadStep, day: Day, broken: breaker.BreakerState, *, now: datetime) -> tuple[str, ...]:
     codes = {"disabled_7d"} if broken.disabled_on is not None else set()
-    active = await recovery.active_since(step)
+    campaign = await recovery.active_campaign(step)
+    active = campaign[0] if campaign else None
+    if campaign and active == day.settings.recovery_since:
+        policy = recovery.BATCH_POLICY if day.settings.batch_size == 5 else recovery.POLICY
+        if campaign[1] != policy or campaign[2] != day.settings.pace_note:
+            codes.add("canary_terminated")
     if active is not None and active != day.settings.recovery_since:
-        codes.add("canary_terminated")  # Removing the profile or changing its epoch cannot bypass stored history.
+        if not await recovery_approval.transition_allowed(step, active, day.settings.recovery_since, day.settings.recovery_approval, now=now):
+            codes.add("canary_terminated")  # Only the pinned human-authorized transition may cross epochs.
     # Switching to the reference-table mode never clears a stopped canary.
     reasons = await rows.canary_extinguish_reasons(step, since=day.settings.canary_since)
     codes |= {"canary_terminated"} if summary.canary_terminated(reasons) else set()
@@ -170,7 +176,7 @@ async def mark_refused(step: LeasedStep, day: Day, codes: tuple[str, ...]) -> No
 
 async def refuse_if_stopped(writer: LeasedWriter, day: Day, machines: Machines) -> None:
     async with writer.step() as step:
-        codes = await refusal_codes(step, day, machines.breaker)
+        codes = await refusal_codes(step, day, machines.breaker, now=step.now)
         if codes:
             await mark_refused(step, day, codes)
     if codes:
@@ -188,7 +194,7 @@ async def open_batch(writer: LeasedWriter, day: Day, source: TaskSource, admissi
         batch = await rows.find_batch(step, day.target_date)
         if batch is not None and batch.plan is not None:
             if day.settings.recovery_since is not None:
-                recovery.require_same_campaign(plan_of(batch), day.settings.recovery_since)
+                recovery.require_same_campaign(plan_of(batch), day.settings.recovery_since, batch_size=day.settings.batch_size)
             return None if batch.finished or batch.outcome == "published" else batch
         plan = build_plan(day, source, await source.units(step, target_date=day.target_date))
         figures = payload_overview(day, plan, admission)
