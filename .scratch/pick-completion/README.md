@@ -11,3 +11,5 @@ T9 + T12 -> T10 -> T11
 T11 baseline phase starts after T1 locks20 prompts and before implementation changes; final phase follows T10. Both phases together have a hard40 Agent-run limit, all attempts retained. Deterministic/API/browser tests are separate from model runs.
 
 Shared file ownership follows the approved lanes. All implementation ticket branches merge the latest integration before reporting done; only the merger updates integration code. Root owns tracker state. No remote issues are created by this tracker.
+
+T4 + T12a -> T4a explicit multi-result chat refs -> T10. This closes the existing D9-16 requirement; T12a alone is visual comparison.

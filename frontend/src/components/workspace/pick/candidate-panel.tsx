@@ -15,6 +15,7 @@ import {
 } from "@/core/pick/api";
 import { saveReceiptLine } from "@/core/pick/format";
 
+import { CandidateComparisonLauncher } from "./candidate-comparison";
 import { CandidateView } from "./candidate-view";
 import { usePickContext } from "./pick-context";
 import { useResultNotes } from "./use-result-notes";
@@ -23,9 +24,17 @@ export function CandidatePanel() {
   const pick = usePickContext();
   if (!pick?.result) return null;
   return (
-    <OwnedCandidatePanel
-      key={`${pick.ownerId}:${pick.result.thread_id}:${pick.result.id}`}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 px-5 pt-4">
+        <CandidateComparisonLauncher
+          key={`${pick.ownerId}:${pick.result.thread_id}`}
+          threadId={pick.result.thread_id}
+        />
+      </div>
+      <OwnedCandidatePanel
+        key={`${pick.ownerId}:${pick.result.thread_id}:${pick.result.id}`}
+      />
+    </div>
   );
 }
 
@@ -126,7 +135,7 @@ function OwnedCandidatePanel() {
     }
   };
   return (
-    <div className="h-full overflow-y-auto p-5">
+    <div className="min-h-0 flex-1 overflow-y-auto p-5">
       <div className="mb-4 flex items-center justify-between">
         <span className="text-muted-foreground text-xs">
           查询于 {new Date(result.created_at).toLocaleString()}
