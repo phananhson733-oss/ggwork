@@ -29,21 +29,25 @@ class Runner:
         self.result = result
         self.calls = []
         self.timeouts = []
+        self.deadlines = []
 
     def install(self, monkeypatch):
-        def risk(path, *, timeout):
+        def risk(path, *, timeout, deadline=None):
             self.calls.append(("risk", path))
             self.timeouts.append(timeout)
+            self.deadlines.append(deadline)
             return self.risk
 
-        def guide(args, *, timeout):
+        def guide(args, *, timeout, deadline=None):
             self.calls.append(("guide", args))
             self.timeouts.append(timeout)
+            self.deadlines.append(deadline)
             return self.result
 
-        def user(user_id, args, *, timeout):
+        def user(user_id, args, *, timeout, deadline=None):
             self.calls.append(("user", user_id, args))
             self.timeouts.append(timeout)
+            self.deadlines.append(deadline)
             return self.result
 
         monkeypatch.setattr(lark_runner, "command_risk", risk)
@@ -193,7 +197,7 @@ async def test_truncated_output_says_so(monkeypatch, connected):
 async def test_an_unavailable_deployment_says_so_and_keeps_the_details_in_the_log(monkeypatch, connected, caplog, error):
     """09-29 review: the reason names Gateway paths, modes and users; the model gets a plain notice, the log the rest."""
 
-    def unavailable(_path, *, timeout):
+    def unavailable(_path, *, timeout, deadline=None):
         raise error
 
     monkeypatch.setattr(lark_runner, "command_risk", unavailable)
@@ -210,7 +214,7 @@ async def test_an_unavailable_deployment_says_so_and_keeps_the_details_in_the_lo
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reason", [lark_runner.QUEUE_TIMEOUT, lark_runner.CREDENTIALS_BUSY])
 async def test_a_busy_tool_says_why(monkeypatch, connected, reason):
-    def busy(_path, *, timeout):
+    def busy(_path, *, timeout, deadline=None):
         raise lark_runner.LarkBusy(reason)
 
     monkeypatch.setattr(lark_runner, "command_risk", busy)
@@ -263,16 +267,17 @@ def test_connected_is_false_when_the_setup_cannot_be_read(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_each_step_gets_at_most_what_is_left_of_the_turn(monkeypatch, connected):
+async def test_each_step_gets_only_ordinary_time_before_the_finalization_reserve(monkeypatch, connected):
     runner = Runner().install(monkeypatch)
     runtime = _runtime()
     task = runtime.context[EXTENSION_TASK_STORE_KEY].get(PickTask)
-    task.deadline = time.monotonic() + 5
+    task.deadline = time.monotonic() + 25
 
     await _call(["docs", "+fetch", "--doc", "AbC"], runtime=runtime)
     await _call(["skills", "list"], runtime=runtime)
 
     assert len(runner.timeouts) == 3 and all(0 < timeout <= 5 for timeout in runner.timeouts)
+    assert runner.deadlines == [task.ordinary_deadline] * 3
 
 
 @pytest.mark.asyncio
