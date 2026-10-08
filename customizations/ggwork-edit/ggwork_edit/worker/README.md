@@ -9,10 +9,13 @@ Install the development wheel with Python 3.12+ in a dedicated environment:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install /path/to/ggwork_edit-0.1.0-py3-none-any.whl
+.venv/bin/pip install \
+  /path/to/deerflow_extension_api-0.2.1-py3-none-any.whl \
+  /path/to/ggwork_edit-0.1.0-py3-none-any.whl
 ```
 
-Dependencies include the matching extension API wheel. For development source
+Distribute both wheels together: the matching extension API is not assumed to be
+available from the public package registry. For development source
 installs, install `backend/packages/extension-api` and `customizations/ggwork-edit`
 from the same repository revision. Native execution imports no Gateway, database,
 FastAPI, or harness modules. Install `ffmpeg`, `ffprobe`, and `whisper-cli` through
