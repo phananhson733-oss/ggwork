@@ -13,7 +13,9 @@ export type MirrorErrorCode =
   | "mirror_unavailable"
   | "mirror_misconfigured"
   | "mirror_version_gone"
-  | "mirror_busy";
+  | "mirror_busy"
+  | "mirror_period_missing"
+  | "mirror_session_required";
 
 /** Why the mirror cannot be read as configured. */
 export type MisconfiguredReason =
@@ -78,6 +80,20 @@ export class MirrorBusy extends MirrorError {
 
   constructor(sourceCode?: string) {
     super("mirror_busy", "选剧资料镜像暂时忙，请稍后重试", sourceCode);
+  }
+}
+
+export class MirrorSessionRequired extends MirrorError {
+  override readonly name = "MirrorSessionRequired";
+  constructor() {
+    super("mirror_session_required", "登录验证需要更新");
+  }
+}
+
+export class MirrorPeriodMissing extends MirrorError {
+  override readonly name = "MirrorPeriodMissing";
+  constructor() {
+    super("mirror_period_missing", "该榜单没有可读取的期次");
   }
 }
 

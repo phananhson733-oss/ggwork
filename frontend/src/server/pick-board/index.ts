@@ -31,11 +31,8 @@ export {
 } from "./queries-shared";
 export {
   freshnessOf,
-  loadCandidatePool,
-  loadFacets,
   loadFreshness,
   loadMissingKeys,
-  loadPickRows,
   loadRowDetail,
   loadRowsByKeys,
   type PickFacets,
@@ -43,7 +40,22 @@ export {
   type RowDetail,
   type SiteDrama,
 } from "./queries";
-export { resolveBoard } from "./cache";
+/** Declared five-domain reads use the authenticated, version-pinned Gateway query.
+ * Direct query modules remain the PostgreSQL differential oracle. Specialized
+ * row/detail, replay and Trends contracts below retain their dedicated paths. */
+export {
+  resolveCommonBoard as resolveBoard,
+  loadCommonCandidatePool as loadCandidatePool,
+  loadCommonFacets as loadFacets,
+  loadCommonPickRows as loadPickRows,
+  loadCommonGrowthDiagnosis as loadGrowthDiagnosis,
+  loadCommonRankMeta as loadRankMeta,
+  loadCommonRankRows as loadRankRows,
+  loadCommonRsRank as loadRsRank,
+  loadCommonAccounts as loadAccounts,
+  loadCommonPostedList as loadPostedList,
+  loadCommonPostedStats as loadPostedStats,
+} from "./common-loaders";
 export {
   type BillRow,
   type BillTotals,
@@ -56,10 +68,6 @@ export {
 export {
   type GrowthDiagnosis,
   type GrowthEmptyReason,
-  loadGrowthDiagnosis,
-  loadRankMeta,
-  loadRankRows,
-  loadRsRank,
   type RankMeta,
   type RankRow,
   type RsRankResult,
@@ -68,10 +76,7 @@ export {
   type CatalogAccount,
   type LinkedDrama,
   type LinkedRow,
-  loadAccounts,
-  loadPostedList,
   loadPostedRecord,
-  loadPostedStats,
   type PostedLinks,
   type PostedList,
   type PostedRecord,
@@ -112,6 +117,8 @@ export {
 } from "./replay";
 export {
   MirrorBusy,
+  MirrorPeriodMissing,
+  MirrorSessionRequired,
   MirrorError,
   type MirrorErrorCode,
   MirrorMisconfigured,

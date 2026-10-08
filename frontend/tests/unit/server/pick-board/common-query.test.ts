@@ -28,3 +28,36 @@ it("forwards visitor session plus matching CSRF token for common-query POST", as
   expect(init.method).toBe("POST");
   expect(init.cache).toBe("no-store");
 });
+it("retains only a validated completion error code for safe period-specific rendering", async () => {
+  rs.stubGlobal(
+    "fetch",
+    rs.fn(async () =>
+      Response.json(
+        {
+          detail: {
+            code: "period_missing",
+            message: "internal detail must not reach SSR",
+            retryable: false,
+            current_version: null,
+          },
+        },
+        { status: 422 },
+      ),
+    ),
+  );
+  const result = await queryPickBoard(fixture.query);
+  expect(result).toEqual({ ok: false, status: 422, code: "period_missing" });
+  expect(JSON.stringify(result)).not.toContain("internal detail");
+});
+it("shortens the downstream query budget to the existing earlier SSR deadline", async () => {
+  const fetcher = rs.fn(async (_url: string, _init: RequestInit) =>
+    Response.json(fixture.response),
+  );
+  rs.stubGlobal("fetch", fetcher);
+  await queryPickBoard({ ...fixture.query, budget_ms: 10000 });
+  const sent = JSON.parse(fetcher.mock.calls[0]![1].body as string) as {
+    budget_ms: number;
+  };
+  expect(sent.budget_ms).toBeLessThanOrEqual(5000);
+  expect(sent.budget_ms).toBeGreaterThan(0);
+});
