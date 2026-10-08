@@ -32,3 +32,5 @@ CPS collection runs every six hours; daily catalog and Queyu slots are 02:45 UTC
 A missing Queyu browser state is a visible `queyu_auth_required` receipt. Retained ranking histories retain their original dates; they are not reported as newly collected. The separate Queyu receipt also distinguishes a library failure after successful rank collection.
 
 CPS reads retry the same page up to three times after explicit service overload or HTTP 429/502/503/504, waiting 1, 2 and 4 seconds. Cancellation interrupts the wait. Parameter errors are not retried; persistent errors still prevent incomplete mirror publication.
+
+Run `pnpm migrate` before upgrading an existing source: migration `002-read-indexes` adds indexes for sibling lookup, verified observation dates and human clicks. It changes no source rows. The human-click predicate keeps every existing bot pattern and missing-user-agent rule, while avoiding repeated case folding during export. Source reads keep four connections; queued reads have a bounded 55-second checkout wait. Verify the complete manifest remains below the mirror's 60-second HTTP deadline after deployment.

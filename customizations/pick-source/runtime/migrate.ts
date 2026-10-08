@@ -65,6 +65,25 @@ export async function migrate(adoptRestored = false) {
         [digest],
       );
     }
+    const indexes = readFileSync(
+      new URL("../migrations/002-read-indexes.sql", import.meta.url),
+      "utf8",
+    );
+    const indexDigest = createHash("sha256").update(indexes).digest("hex");
+    const indexMigration = (
+      await c.query(
+        "SELECT hash FROM pick_source.ggwp_migrations WHERE id='002-read-indexes'",
+      )
+    ).rows[0];
+    if (indexMigration && indexMigration.hash !== indexDigest)
+      throw new Error("Source read-index migration checksum mismatch");
+    if (!indexMigration) {
+      await c.query(indexes);
+      await c.query(
+        "INSERT INTO pick_source.ggwp_migrations(id,hash) VALUES('002-read-indexes',$1)",
+        [indexDigest],
+      );
+    }
     await c.query(`CREATE TABLE IF NOT EXISTS pick_source.ggwp_source_jobs (
       name text primary key CHECK (name IN ('cps','catalog','queyu')),
       status text not null CHECK (status IN ('running','success','failed')),

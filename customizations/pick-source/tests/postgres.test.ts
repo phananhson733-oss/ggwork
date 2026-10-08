@@ -6,7 +6,32 @@ import { writeCatalogAtomic } from "../runtime/catalog-write";
 import { routeRequest } from "../runtime/http";
 import { loadFeedPage, feedContext } from "../src/lib/pick/feed";
 import { loadExportPage, exportContext } from "../src/lib/pick/export-v2";
+import { notBot } from "../src/lib/observe/queries";
+import { BOT_UA_PATTERNS } from "../src/lib/observe/bot-ua";
 const enabled = Boolean(process.env.PICK_SOURCE_TEST_DATABASE_URL);
+test(
+  "click classification preserves every bot pattern, nulls and real Cubot browsers",
+  { skip: !enabled },
+  async () => {
+    const humans = [
+      null,
+      "",
+      "Mozilla/5.0 Cubot Android Chrome/130",
+      "Mozilla/5.0 Safari/605",
+    ];
+    const bots = BOT_UA_PATTERNS.map(
+      (p) => `Mozilla ${p.replaceAll("%", "").toUpperCase()} end`,
+    );
+    const samples = [...humans, ...bots];
+    const values = samples.map((ua, i) => sql`(${i}::int, ${ua}::text)`);
+    const r = await getDb().execute<{ n: number; human: boolean }>(sql`
+    SELECT n, (${notBot()}) AS human FROM (VALUES ${sql.join(values, sql`, `)}) AS outbound_clicks(n,user_agent) ORDER BY n`);
+    assert.deepEqual(
+      r.rows.map((row) => row.human),
+      samples.map((_, i) => i < humans.length),
+    );
+  },
+);
 if (enabled) {
   const u = new URL(process.env.PICK_SOURCE_TEST_DATABASE_URL!);
   if (!["localhost", "127.0.0.1"].includes(u.hostname))
@@ -24,6 +49,19 @@ test.before(async () => {
     sql`INSERT INTO catalog_signals(row_key,kind,ord,evidence_on,rank) VALUES('fixture-synthetic','kd',0,'2026-10-07',1) ON CONFLICT DO NOTHING`,
   );
 });
+test(
+  "read indexes are valid and their migration is idempotent",
+  { skip: !enabled },
+  async () => {
+    const { migrate } = await import("../runtime/migrate");
+    await migrate();
+    const indexes = await getPool().query(
+      "SELECT indexrelid::regclass::text AS name,indisvalid FROM pg_index WHERE indexrelid IN ('pick_source.dramas_group_locale_cover_idx'::regclass,'pick_source.observations_verified_day_idx'::regclass,'pick_source.clicks_human_created_drama_idx'::regclass)",
+    );
+    assert.equal(indexes.rows.length, 3);
+    assert.ok(indexes.rows.every((r) => r.indisvalid));
+  },
+);
 test(
   "PG adapter rolls back all source tables and preserves the failed receipt",
   { skip: !enabled },

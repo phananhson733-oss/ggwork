@@ -898,3 +898,8 @@ PR #47 产品提交 `638f3ae18a44f2d9496234a689c380d9a95fc0b2` 已部署到gatew
 - `pick-deploy-guard target=gateway commit=4befd4c9ff64f8030e30888ceaa48b1b7a3f44ba prod_head=0008 chain_head=0008 at=2026-10-08T13:00:48Z`
 
 Gateway deployment `d3add884-b667-4dc3-bfb5-c8e297d294f5` passed readiness with the native loopback source enabled. Its first scheduled Feishu catalog collection completed at 13:10 UTC; MoboReels remained the explicitly retained source and Queyu authentication remained pending. Two CPS list reads hit provider `service overloaded` responses, so incomplete CPS data was not published to the mirror. The follow-up bounded-read retry handles this observed transient failure. Production data acceptance and frontend promotion are recorded separately after they pass.
+
+
+- `pick-deploy-guard target=gateway commit=6b6c65efd5663b19a56a9823bb3506d46a63929e prod_head=0008 chain_head=0008 at=2026-10-08T13:22:31Z`
+
+CPS retry deployment `91875ef9-d215-4147-a843-f9030d2905e9` passed readiness; the complete cloud CPS collection succeeded at 13:34 UTC. Mirror publication then exposed source-query contention. The additive `002-read-indexes` migration was applied under both source advisory locks; a separate temporary read probe using the reviewed query changes reduced complete-manifest execution from 95.78 seconds to 31.177 seconds with identical exported counts. That probe does not itself establish production mirror publication.
