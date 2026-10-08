@@ -60,4 +60,11 @@ it("shortens the downstream query budget to the existing earlier SSR deadline", 
   };
   expect(sent.budget_ms).toBeLessThanOrEqual(5000);
   expect(sent.budget_ms).toBeGreaterThan(0);
+  const header = Number(
+    new Headers(fetcher.mock.calls[0]![1].headers).get(
+      "X-Pick-Query-Budget-Ms",
+    ),
+  );
+  expect(header).toBeGreaterThan(0);
+  expect(header).toBeLessThanOrEqual(sent.budget_ms);
 });

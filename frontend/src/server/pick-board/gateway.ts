@@ -99,8 +99,18 @@ async function gatewayRead<T>(
     typeof body.budget_ms === "number"
       ? { ...body, budget_ms: Math.max(1, Math.min(body.budget_ms, remaining)) }
       : body;
+  const encodedBody =
+    outgoing === undefined ? undefined : JSON.stringify(outgoing);
+  const wireRemaining = Math.floor(
+    Math.min(
+      remaining,
+      Math.min(AUTH_REQUEST_TIMEOUT_MS, budgetMs) -
+        (performance.now() - started),
+    ),
+  );
+  if (wireRemaining <= 0 || signal?.aborted) return UNAVAILABLE;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), remaining);
+  const timeout = setTimeout(() => controller.abort(), wireRemaining);
   try {
     const response = await fetch(`${base}${target}`, {
       method: body === undefined ? "GET" : "POST",
@@ -109,9 +119,12 @@ async function gatewayRead<T>(
             Cookie: `access_token=${session.value}; csrf_token=${csrf.value}`,
             "X-CSRF-Token": csrf.value,
             "Content-Type": "application/json",
+            ...(pathname === "/api/pick/query"
+              ? { "X-Pick-Query-Budget-Ms": String(wireRemaining) }
+              : {}),
           }
         : { Cookie: `access_token=${session.value}` },
-      body: outgoing === undefined ? undefined : JSON.stringify(outgoing),
+      body: encodedBody,
       cache: "no-store",
       signal: signal
         ? AbortSignal.any([signal, controller.signal])
