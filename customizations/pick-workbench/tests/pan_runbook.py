@@ -93,6 +93,15 @@ KEPT_JSON_COLUMNS = [
     ("ggwp_feedback_records", "version_id, table_id, record_id", "values_json"),
     ("ggwp_feedback_result_evidence", "result_id", "evidence_json"),
     ("ggwp_feedback_identity_links", "owner_id, source_record_id", "evidence_json"),
+    ("ggwp_content_plan_rows", "plan_id, row_id", "source_json"),
+    ("ggwp_content_plan_rows", "plan_id, row_id", "editable_json"),
+    ("ggwp_content_plan_commands", "owner_id, request_id", "receipt_json"),
+    ("ggwp_content_plan_previews", "id", "receipt_json"),
+    ("ggwp_content_plan_exports", "id", "receipt_json"),
+    ("ggwp_feedback_plan_links", "owner_id, post_key", "receipt_json"),
+    ("ggwp_feedback_plan_links", "owner_id, post_key", "basis_json"),
+    ("ggwp_feedback_plan_link_commands", "owner_id, request_id", "receipt_json"),
+    ("ggwp_feedback_plan_link_commands", "owner_id, request_id", "basis_json"),
 ]
 # JSON keys whose string values pan-redact.sql never replaces: changing an identity or a request id would break what refers to it.
 REDACT_KEEPS_KEYS = ("identity", "source_id", "item_id", "citation_id", "request_id", "old_identity", "new_identity", "root_identity", "matched_identity")
@@ -102,7 +111,14 @@ CLEARED = [
     *(f"{table}.{column}" for table, column in REWRITTEN_TEXT),
     *(f"{table}.{column}" for table, column in DELETED_TEXT),
 ]
-KEPT = [*(f"{table}.{column}" for table, column in KEPT_TEXT), *(f"{table}.{column}" for table, _, column in KEPT_JSON_COLUMNS)]
+# Draft titles and immutable binary execution files are also detect-only. Their source/receipt
+# revision and byte hash must not be silently changed by a generic redaction.
+KEPT_COMPLETION = [("ggwp_content_plans", "title"), ("ggwp_content_plan_exports", "csv_bytes")]
+KEPT = [
+    *(f"{table}.{column}" for table, column in KEPT_TEXT),
+    *(f"{table}.{column}" for table, _, column in KEPT_JSON_COLUMNS),
+    *(f"{table}.{column}" for table, column in KEPT_COMPLETION),
+]
 # pan-check.sql's first table: the cleared locations, then the ones the runbook stops at.
 LOCATIONS = [*CLEARED, *KEPT]
 REDACTED_NONE = [0] * len(CLEARED)

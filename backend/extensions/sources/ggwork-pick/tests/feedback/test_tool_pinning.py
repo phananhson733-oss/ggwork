@@ -65,7 +65,9 @@ async def feedback_history(pick_db_url, tmp_path):
     async def runtime_for(record):
         store = ExtensionData("task")
         await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task", "new", "thread", "lead"))
-        runtime = SimpleNamespace(context={"user_id": "alice", "pick_reference": {"result_id": record["id"]}, EXTENSION_TASK_STORE_KEY: store})
+        runtime = SimpleNamespace(
+            context={"user_id": "alice", "pick_reference": {"result_id": record["id"]}, EXTENSION_TASK_STORE_KEY: store}, tool_call_id="history-read"
+        )
         return runtime, task_from_runtime(runtime)
 
     try:
@@ -300,4 +302,28 @@ async def test_tools_without_feedback_do_not_mark_an_external_read(feedback_hist
         assert reply["items"]
         assert "feedback" not in reply
     assert task.plugin_read is False
+    history.service.feedback.refresh.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["feedback", "detail"])
+async def test_plural_readonly_history_keeps_each_feedback_version_without_repinning_live_analysis(feedback_history, tool_name):
+    from test_plural_references import envelope, runtime_for
+
+    from ggwork_pick.context import PickTask
+
+    history = feedback_history
+    old = await history.repo.result_evidence(history.result["id"])
+    await history.repo.freeze_result(history.empty["id"], old.model_copy(update={"feedback_version_id": history.versions[1]}))
+    records = [history.result, history.empty]
+    runtime, store = await runtime_for(history.service, envelope(records))
+    for index, record in enumerate(records):
+        reply = await read_history(tool_name, record, runtime)
+        evidence = reply if tool_name == "feedback" else reply["feedback"]
+        assert evidence["status"] == "ok"
+        assert evidence["feedback_version_id"] == history.versions[index]
+        assert evidence["freshness"] == "historical"
+    task = store.get(PickTask)
+    assert task.feedback_pin is None and task.feedback_checked is False
+    assert task.plugin_read is True
     history.service.feedback.refresh.assert_not_called()

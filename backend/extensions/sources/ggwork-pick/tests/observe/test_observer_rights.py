@@ -13,8 +13,9 @@ import pg
 import pytest
 import pytest_asyncio
 from engines import host_engine
-from mirror_pairs import NO_ACCEPT_EMPTY, building_version, now, open_service, stage_pair, version
+from mirror_pairs import NO_ACCEPT_EMPTY, now, stage_pair, version
 from obs_schema import OBS_TABLES, filler, migration_module
+from observer_pairs import building_version, open_service
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from supabase_stand_in import (
@@ -44,6 +45,22 @@ async def observed(pg_cluster, tmp_path, monkeypatch):
         await migrate_as_app(stand_in, tmp_path / "data")
         host_tables(stand_in)
         yield stand_in
+
+
+@pytest.mark.asyncio
+async def test_observer_fixture_keeps_minimal_schema_and_application_role(observed, tmp_path):
+    engine, _, _, _ = await open_service(observed.url_as(observed.app), tmp_path)
+    try:
+        async with engine.connect() as conn:
+            role = (await conn.execute(text("SELECT rolsuper, rolcreaterole FROM pg_roles WHERE rolname = current_user"))).one()
+            assert tuple(role) == (False, False)
+        _, schema = await building_version(engine)
+        async with engine.connect() as conn:
+            tables = (await conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = :schema"), {"schema": schema})).scalars().all()
+            assert tables == ["meta"]
+            assert (await conn.execute(text(f"SELECT count(*) FROM {schema}.meta"))).scalar_one() == 0
+    finally:
+        await engine.dispose()
 
 
 async def _refused(engine, sql: str, match: str = DENIED) -> None:
