@@ -1,13 +1,25 @@
 """Authenticated plan-draft HTTP boundary; no model mutation registration."""
 
+from fastapi.responses import Response
+
 from fastapi import HTTPException, Query, Request
 
-from ggwork_pick.completion_contracts import CompletionError, Plan, PlanCreate, PlanList, PlanUpdate
+from ggwork_pick.completion_contracts import (
+    CompletionError,
+    Plan,
+    PlanCreate,
+    PlanList,
+    PlanUpdate,
+    PlanVersionCommand,
+    PlanPreview,
+    PlanExportCommand,
+    PlanExport,
+)
 from ggwork_pick.planning import PlanningService
 from ggwork_pick.query_reader import QueryFailure
 
 
-def register_planning_routes(router, repository):
+def register_planning_routes(router, repository, common_query):
     async def answer(work):
         try:
             return await work
@@ -15,8 +27,8 @@ def register_planning_routes(router, repository):
             raise HTTPException(404, CompletionError(code="not_found", message="排期或来源不存在", retryable=False).model_dump()) from None
         except QueryFailure as exc:
             raise HTTPException(
-                409 if exc.code == "version_conflict" else 422,
-                CompletionError(code=exc.code, message=str(exc), retryable=False, current_version=getattr(exc, "current_version", None)).model_dump(),
+                {"version_conflict": 409, "export_blocked": 409, "query_timeout": 504, "source_unavailable": 503, "version_gone": 410}.get(exc.code, 422),
+                CompletionError(code=exc.code, message=str(exc), retryable=exc.retryable, current_version=getattr(exc, "current_version", None)).model_dump(),
             ) from None
 
     @router.post("/plans", response_model=Plan)
@@ -34,3 +46,29 @@ def register_planning_routes(router, repository):
     @router.patch("/plans/{plan_id}", response_model=Plan)
     async def update_plan(plan_id: str, body: PlanUpdate, request: Request):
         return await answer(PlanningService(repository(request)).update(plan_id, body))
+
+    from ggwork_pick.planning_export import PlanningExportService
+
+    @router.post("/plans/{plan_id}/preview", response_model=PlanPreview)
+    async def preview_plan(plan_id: str, body: PlanVersionCommand, request: Request):
+        repo = repository(request)
+        return await answer(PlanningExportService(repo, common_query(repo)).preview(plan_id, body))
+
+    @router.post("/plans/{plan_id}/exports", response_model=PlanExport)
+    async def export_plan(plan_id: str, body: PlanExportCommand, request: Request):
+        repo = repository(request)
+        return await answer(PlanningExportService(repo, common_query(repo)).export(plan_id, body))
+
+    @router.get("/exports/{export_id}")
+    async def download_export(export_id: str, request: Request):
+        repo = repository(request)
+        receipt, data = await answer(PlanningExportService(repo, common_query(repo)).download(export_id))
+        return Response(
+            data,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{receipt["filename"]}"',
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )

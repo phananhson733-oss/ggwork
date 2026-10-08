@@ -1,6 +1,6 @@
 """Extension-private SQLAlchemy tables. Never register with the host metadata."""
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, Column, Float, Index, Integer, MetaData, String, Table, Text, UniqueConstraint, false, text
+from sqlalchemy import JSON, Boolean, CheckConstraint, Column, Float, Index, Integer, LargeBinary, MetaData, String, Table, Text, UniqueConstraint, false, text
 
 metadata = MetaData()
 
@@ -645,4 +645,31 @@ content_plan_commands = Table(
     Column("payload_hash", String(64), nullable=False),
     Column("receipt_json", JSON, nullable=False),
     Column("created_at", String(40), nullable=False),
+)
+
+# Execution preview receipts remain private and immutable, independently of draft edits.
+content_plan_previews = Table(
+    "ggwp_content_plan_previews",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("owner_id", String(128), nullable=False),
+    Column("plan_id", String(64), nullable=False),
+    Column("plan_version", Integer, nullable=False),
+    Column("receipt_json", JSON, nullable=False),
+    Column("created_at", String(40), nullable=False),
+    CheckConstraint("plan_version >= 1", name="ggwp_content_preview_version"),
+)
+
+content_plan_exports = Table(
+    "ggwp_content_plan_exports",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("owner_id", String(128), nullable=False),
+    Column("plan_id", String(64), nullable=False),
+    Column("plan_version", Integer, nullable=False),
+    Column("preview_id", String(64), nullable=False),
+    Column("receipt_json", JSON, nullable=False),
+    Column("csv_bytes", LargeBinary, nullable=False),
+    Column("created_at", String(40), nullable=False),
+    CheckConstraint("plan_version >= 1", name="ggwp_content_export_version"),
 )
