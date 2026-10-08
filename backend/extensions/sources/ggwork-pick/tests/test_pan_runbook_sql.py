@@ -480,7 +480,9 @@ def test_feedback_json_is_detected_without_rewriting_immutable_provenance(workbe
         " VALUES ('alice','rec-test','synthetic','confirmed',%s::json,'2026-10-07') RETURNING source_record_id",
         payload,
     )
-    locations = [f"{table}.{column}" for table, _, column in KEPT_JSON_COLUMNS if table.startswith("ggwp_feedback_")]
+    locations = [
+        f"{table}.{column}" for table, _, column in KEPT_JSON_COLUMNS if table.startswith("ggwp_feedback_") and not table.startswith("ggwp_feedback_plan_")
+    ]
     assert len(locations) == 4
     assert all(workbench.check()[0][location] == 1 for location in locations)
     assert workbench.redact() == CLEARED_NONE
@@ -794,3 +796,80 @@ async def test_tool_outputs_kept_on_disk_bring_their_threads_into_the_check_and_
     shell(home, removal.replace("<线程>", "thread-legacy"))
     assert clean_scan(home) and workbench.check() == (NOTHING, [])
     assert not legacy.exists()
+
+
+@pytest.mark.parametrize(
+    "csv_bytes,csv_hits",
+    [
+        (b"\xef\xbb\xbf" + "copy,note\r\n密码\u2003：synthetic,保留\r\n".encode(), 1),
+        (b"\xff\x00copy,note\r\nhttps://pan.quark.cn/s/synthetic,keep\r\n", 1),
+        (b"\xff\x00copy,note\r\n" + "财富密码,clean\r\n".encode(), 0),
+    ],
+)
+def test_completion_provenance_and_binary_csv_are_detected_but_never_rewritten(workbench, csv_bytes, csv_hits):
+    import hashlib
+
+    payload = json.dumps({"note": "https://pan.quark.cn/s/synthetic-completion", "quote": '保留 "原样"'}, ensure_ascii=False, indent=2)
+    receipt = json.dumps({"filename": "pan.quark.cn-synthetic.csv", "sha256": hashlib.sha256(csv_bytes).hexdigest()}, indent=2)
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_content_plans (id,owner_id,version,title,timezone,created_at,updated_at) "
+        "VALUES ('plan','alice',1,'pan.quark.cn/s/synthetic-title','UTC','2026-10-08','2026-10-08') RETURNING id"
+    )
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_content_plan_rows (plan_id,row_id,owner_id,position,source_json,editable_json) "
+        "VALUES ('plan','row','alice',0,%s::json,%s::json) RETURNING row_id",
+        payload,
+        payload,
+    )
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_content_plan_commands (owner_id,request_id,payload_hash,receipt_json,created_at) "
+        "VALUES ('alice','create','request-hash',%s::json,'2026-10-08') RETURNING request_id",
+        payload,
+    )
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_content_plan_previews (id,owner_id,plan_id,plan_version,receipt_json,created_at) "
+        "VALUES ('preview','alice','plan',1,%s::json,'2026-10-08') RETURNING id",
+        payload,
+    )
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_content_plan_exports (id,owner_id,plan_id,plan_version,preview_id,receipt_json,csv_bytes,created_at) "
+        "VALUES ('export','alice','plan',1,'preview',%s::json,%s,'2026-10-08') RETURNING id",
+        receipt,
+        csv_bytes,
+    )
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_feedback_plan_links (owner_id,post_key,plan_id,row_id,receipt_json,basis_json) "
+        "VALUES ('alice','post','plan','row',%s::json,%s::json) RETURNING post_key",
+        payload,
+        payload,
+    )
+    workbench.fetch(
+        "INSERT INTO deerflow.ggwp_feedback_plan_link_commands (owner_id,request_id,payload_hash,receipt_json,basis_json,created_at) "
+        "VALUES ('alice','link','request-hash',%s::json,%s::json,'2026-10-08') RETURNING request_id",
+        payload,
+        payload,
+    )
+    protected = [
+        ("ggwp_content_plan_rows", "source_json"),
+        ("ggwp_content_plan_rows", "editable_json"),
+        ("ggwp_content_plan_commands", "receipt_json"),
+        ("ggwp_content_plan_previews", "receipt_json"),
+        ("ggwp_content_plan_exports", "receipt_json"),
+        ("ggwp_feedback_plan_links", "receipt_json"),
+        ("ggwp_feedback_plan_links", "basis_json"),
+        ("ggwp_feedback_plan_link_commands", "receipt_json"),
+        ("ggwp_feedback_plan_link_commands", "basis_json"),
+    ]
+    expected = {f"{table}.{column}": 1 for table, column in protected}
+    expected |= {"ggwp_content_plans.title": 1, "ggwp_content_plan_exports.csv_bytes": csv_hits}
+    before = {f"{table}.{column}": workbench.fetch(f"SELECT {column}::text FROM deerflow.{table}") for table, column in protected}
+    counts, threads = workbench.check()
+    assert threads == []
+    assert {key: counts.get(key) for key in expected} == expected
+    output = workbench.run(CHECK, "-v", "disk_threads=")
+    assert "synthetic-completion" not in output and "synthetic-title" not in output and "synthetic.csv" not in output
+    assert workbench.redact() == CLEARED_NONE
+    assert {f"{table}.{column}": workbench.fetch(f"SELECT {column}::text FROM deerflow.{table}") for table, column in protected} == before
+    assert workbench.fetch("SELECT receipt_json::text,csv_bytes FROM deerflow.ggwp_content_plan_exports") == [(receipt, csv_bytes)]
+    assert workbench.fetch("SELECT title FROM deerflow.ggwp_content_plans") == [("pan.quark.cn/s/synthetic-title",)]
+    assert {key: workbench.check()[0].get(key) for key in expected} == expected

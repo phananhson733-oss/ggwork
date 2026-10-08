@@ -689,3 +689,69 @@ def test_one_run_at_a_time_across_processes(monkeypatch):
     assert fake.calls == []
     lark_runner.run_guide(("docs", "--help"))
     assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("bounded", [True, False])
+@pytest.mark.parametrize("kind", ["guide", "user"])
+def test_cold_setup_consumes_absolute_budget_without_changing_default_callers(monkeypatch, bounded, kind):
+    clock = [90.0]
+    monkeypatch.setattr(lark_runner, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    lark_runner._BINARY_CACHE.clear()
+
+    def probe(**kwargs):
+        if bounded:
+            assert callable(kwargs["process_runner"])
+        clock[0] = 98.0
+        return lark_cli.LarkCliProbe(available=True, path="/synthetic/lark", version="0.0.0")
+
+    monkeypatch.setattr(lark_cli, "probe_lark_cli", probe)
+    fake = FakeCli()
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
+    options = {"timeout": 15, **({"deadline": 100.0} if bounded else {})}
+    if kind == "guide":
+        lark_runner.run_guide(("skills", "list"), **options)
+    else:
+        _user_tree("alice")
+        lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"), **options)
+    assert fake.calls[0].kwargs["timeout"] == (2 if bounded else 15)
+
+
+@pytest.mark.parametrize("kind", ["guide", "user"])
+def test_probe_that_finishes_late_cannot_start_command_setup(monkeypatch, kind):
+    clock = [90.0]
+    monkeypatch.setattr(lark_runner, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    lark_runner._BINARY_CACHE.clear()
+
+    def probe(**kwargs):
+        clock[0] = 101.0
+        return lark_cli.LarkCliProbe(available=True, path="/synthetic/lark", version="0.0.0")
+
+    monkeypatch.setattr(lark_cli, "probe_lark_cli", probe)
+    fake = FakeCli()
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
+    with pytest.raises(TimeoutError):
+        if kind == "guide":
+            lark_runner.run_guide(("skills", "list"), deadline=100.0)
+        else:
+            lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"), deadline=100.0)
+    assert not fake.calls
+
+
+@pytest.mark.parametrize("deadline,expected", [(102.0, 2), (200.0, 5), (99.0, None)])
+def test_cold_probe_shortens_five_second_cap_and_never_starts_when_expired(monkeypatch, deadline, expected):
+    lark_runner._BINARY_CACHE.clear()
+    monkeypatch.setattr(lark_runner, "time", SimpleNamespace(monotonic=lambda: 100.0))
+    monkeypatch.setattr(lark_cli, "_resolve_lark_cli_path", lambda: "/synthetic/lark")
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append((kwargs["timeout"], kwargs["deadline"]))
+        return subprocess.CompletedProcess(args, 0, "0.0.0", "")
+
+    monkeypatch.setattr(lark_runner, "_run_process", run)
+    if expected is None:
+        with pytest.raises(TimeoutError):
+            lark_runner.resolve_binary(deadline=deadline)
+    else:
+        assert lark_runner.resolve_binary(deadline=deadline) == "/synthetic/lark"
+    assert calls == ([] if expected is None else [(expected, min(deadline, 105.0))])

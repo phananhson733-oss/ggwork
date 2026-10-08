@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.tools import BaseTool
 
 from ggwork_pick.answer_check import check_answer, titles_in
-from ggwork_pick.context import task_from_runtime
+from ggwork_pick.context import query_call_loop_deadline, task_from_runtime
 from ggwork_pick.host_prompt import pick_system
 from ggwork_pick.lark_policy import LarkRefused, check_args
 from ggwork_pick.lark_tool import CONNECT_LINK, lark_connected
@@ -25,6 +25,7 @@ ALLOWED_TOOLS = frozenset(
         "ask_clarification",
         "pick_search_knowledge",
         "pick_query_candidates",
+        "pick_query_data",
         "pick_count_candidates",
         "pick_get_drama_detail",
         "pick_prepare_selection",
@@ -65,6 +66,7 @@ PICK_INSTRUCTIONS = """你是个人短剧选剧助手，使用中文。用选剧
 “没选过”对应个人清单（exclude_selected）；“没发过”对应团队发布记录（exclude_posted=true，某账号用posted_account）。两者不同，不能互相代替。
 发布记录来自运营选剧池，对不上的剧只能说“发布记录里没有”，不能说“从未发布”。工具返回posted_unavailable时如实转述。
 只要求“有某类依据”时只传signal_kind。用户要“按名次/榜单前几”时才加sort=rank，结果只含该榜最新一期；有名次的只有kd、qc、qr，其他种类没有名次。不同榜单、不同日期、不同剧场的名次不能互相比较。信号种类代码见知识资料。
+完整剧库、指定日期或周起始日的榜单、发布台账、规则用pick_query_data，与资料页固定同一数据版本；只按actual_period描述实际期次。
 问“有多少部”用pick_count_candidates，不用查询后数卡片。要求渠道确认可发却0结果时同样按zero_diagnosis说明：只有去掉confirmed_eligible_only后有结果，才说是来源没有确认可发（渠道规则或上下架待核实）；经用户同意可改为只排除明确禁用的（confirmed_eligible_only=false）。回答里说明data_as_of给出的数据时点；工具返回data_notices时如实转述这些数据时效提示，过期的榜期只能作历史参考，不能说成当前热门或最新一期。
 保存当前绑定候选的第1、3部时调用pick_prepare_selection(positions=[1,3],note="用户备注")，省略result_id和item_ids，由服务器映射精确标识。不要复述或重新输入长ID。
 每次查询的filters是本次完整条件，用本轮最新数据；在上一份候选基础上细化时，把要保留的条件一起写上。只有“换一批”（exclude_previous=true）沿用绑定候选的条件和数据版本。
@@ -76,26 +78,49 @@ PICK_INSTRUCTIONS = """你是个人短剧选剧助手，使用中文。用选剧
 
 
 class PickModelGate(AgentMiddleware):
+    requires_pick_publication = True
+
     async def awrap_model_call(self, request, handler):
-        task = task_from_runtime(request.runtime)
+        task = task_from_runtime(request.runtime, ordinary=False)
+        try:
+            async with asyncio.timeout(task.ordinary_remaining()):
+                response, adjusted = await self._ordinary_call(request, handler, task)
+        except TimeoutError:
+            if task.publication is None:
+                raise
+            return ModelResponse(result=[AIMessage(**task.publication.incomplete())])
+        if adjusted is None:
+            return response
+        if task.publication is not None:
+            return await _checked_response(response, task, adjusted, handler)
+        try:
+            await _record_checks(response, task, request)
+        except Exception:  # noqa: BLE001 - a missing note must not fail an answer the user already saw
+            logger.exception("[pick] answer check not recorded")
+        return response
+
+    async def _ordinary_call(self, request, handler, task):
         await task.repository(request.runtime)
         last = request.messages[-1] if request.messages else None
-        if isinstance(last, ToolMessage) and last.name == "pick_prepare_selection" and last.status != "error":
+        trusted_tool = task.publication is None or (
+            isinstance(last, ToolMessage) and task.publication.has_tool_result(last.name, last.tool_call_id, last.content)
+        )
+        if trusted_tool and isinstance(last, ToolMessage) and last.name == "pick_prepare_selection" and last.status != "error":
             try:
                 prepared = json.loads(last.content) if isinstance(last.content, str) else None
             except (ValueError, TypeError):
                 prepared = None
             if isinstance(prepared, dict) and prepared.get("requires_confirmation") is True:
-                return ModelResponse(result=[AIMessage(content="已准备好保存确认卡。请核对剧目和备注，点击「确认保存」后才会写入个人清单。")])
-        if isinstance(last, ToolMessage) and last.name == "pick_query_candidates" and last.status != "error":
+                return _operational_response("已准备好保存确认卡。请核对剧目和备注，点击「确认保存」后才会写入个人清单。", task, last), None
+        if trusted_tool and isinstance(last, ToolMessage) and last.name == "pick_query_candidates" and last.status != "error":
             try:
                 result = json.loads(last.content) if isinstance(last.content, str) else None
             except (ValueError, TypeError):
                 result = None
             if isinstance(result, dict) and result.get("status") == "catalog_unavailable":
-                return ModelResponse(
-                    result=[AIMessage(content="当前工作空间尚未接入剧库，暂时无法生成真实候选。请先在「选剧资料」确认数据接入状态，再重新提问。")]
-                )
+                return _operational_response(
+                    "当前工作空间尚未接入剧库，暂时无法生成真实候选。请先在「选剧资料」确认数据接入状态，再重新提问。", task, last, status="incomplete"
+                ), None
         if task.model_calls >= 12:
             raise ValueError("本轮模型调用次数已达上限")
         task.model_calls += 1
@@ -118,18 +143,112 @@ class PickModelGate(AgentMiddleware):
             reference += "\n" + FEEDBACK_INSTRUCTIONS
         if lark is not None:
             reference += "\n" + (LARK_READY if lark else LARK_NOT_CONNECTED)
-        reference += f"\n本轮用户绑定的候选result_id：{task.reference_id}" if task.reference_id else "\n本轮没有绑定候选结果。"
-        if task.reference_id:
-            reference += "\n用户勾选的item_ids：" + json.dumps(task.selected_item_ids)
-            reference += "\n绑定结果按序号1起排列的item_ids：" + json.dumps(task.reference_order)
+        if task.references:
+            reference += "\n本轮显式候选引用：" + json.dumps(task.reference_context, ensure_ascii=False, separators=(",", ":"))
+            reference += (
+                "\n各批保留自己的历史资料时点。用pick_get_drama_detail分别读取所需结果与条目；事实引用必须使用实际返回的result_id/item_id和citation_id，"
+                "不能把未勾选条目说成用户所选条目。同名或跨批次事实必须带精确的[result:结果ID:条目ID]或证据引用。"
+                "两批同时绑定时，保存必须明确result_id；换一批需用户先选择一份依据。普通查询仍按本轮单一查询版本执行。"
+            )
+        else:
+            reference += f"\n本轮用户绑定的候选result_id：{task.reference_id}" if task.reference_id else "\n本轮没有绑定候选结果。"
+            if task.reference_id:
+                reference += "\n用户勾选的item_ids：" + json.dumps(task.selected_item_ids)
+                reference += "\n绑定结果按序号1起排列的item_ids：" + json.dumps(task.reference_order)
         adjusted = request.override(tools=tools, system_message=SystemMessage(content=system + "\n\n" + PICK_INSTRUCTIONS + reference))
-        async with asyncio.timeout(task.remaining()):
-            response = await handler(adjusted)
-        try:
-            await _record_checks(response, task, request)
-        except Exception:  # noqa: BLE001 - a missing note must not fail an answer the user already saw
-            logger.exception("[pick] answer check not recorded")
-        return response
+        task.ordinary_remaining()
+        response = await handler(adjusted)
+        task.ordinary_remaining()
+        return response, adjusted
+
+
+def _operational_response(content, task, tool_message, *, status="confirmed"):
+    """Fixed host text grounded in the successful tool outcome, never model prose."""
+    if task.publication is None:
+        return ModelResponse(result=[AIMessage(content=content)])
+    from deerflow_extension_api.pick_publication import PickCompletionMetadata
+
+    from ggwork_pick.answer_check import incomplete_publication
+    from ggwork_pick.completion_contracts import CheckedFact, CheckedPublication
+
+    gate = task.publication
+    base = incomplete_publication(thread_id=gate.thread_id, run_id=gate.run_id, message_id=gate.message_id)
+    checked = CheckedPublication(
+        **{
+            **base.model_dump(),
+            "content": content,
+            "status": status,
+            "facts": [
+                CheckedFact(
+                    claim=content, status="confirmed", evidence_refs=[f"tool:{tool_message.tool_call_id}"], reason="服务器固定提示已匹配本轮工具的明确状态"
+                )
+            ],
+        }
+    )
+    metadata = PickCompletionMetadata(checked.status, checked.checker_version, checked.checked_at, checked.correction_count)
+    return ModelResponse(result=[AIMessage(**gate.approve(checked.content, metadata))])
+
+
+async def _checked_response(response, task, request, handler):
+    """Replace drafts before LangGraph can checkpoint or expose the node result."""
+    from deerflow_extension_api.pick_publication import PickCompletionMetadata
+
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.completion_contracts import ResultReference
+
+    gate = task.publication
+    messages = getattr(response, "result", [])
+    if any(isinstance(message, AIMessage) and message.tool_calls for message in messages):
+        safe = [
+            AIMessage(**gate.tool_message(message.model_dump(), publish=False)) for message in messages if isinstance(message, AIMessage) and message.tool_calls
+        ]
+        return ModelResponse(result=safe)
+
+    def check(result, corrections):
+        for message in getattr(result, "result", []):
+            if isinstance(message, AIMessage):
+                gate.record_final_usage(message.usage_metadata)
+        text = "\n".join(_text_of(message.content) or "" for message in getattr(result, "result", []) if isinstance(message, AIMessage))
+        return build_checked_publication(
+            text,
+            evidence=task.answer_evidence,
+            thread_id=gate.thread_id,
+            run_id=gate.run_id,
+            message_id=gate.message_id,
+            known_titles=task.known_titles,
+            posted_checked=task.posted_checked,
+            posted_seen=task.posted_seen,
+            correction_count=corrections,
+            references=[ResultReference(result_id=result_id, item_ids=ids) for result_id, ids in task.references.items()],
+        )
+
+    try:
+        task.remaining()
+        checked = check(response, 0)
+        # Feed only constrained server-supported assertions to the one correction.
+        # Raw rejected claims/facts are audit data and never become model context.
+        suggestions = [f"{atom.display_claim} [{atom.reference}]" for atom in task.answer_evidence.atoms if atom.display_claim]
+        if checked.status != "confirmed" and suggestions and task.model_calls < 12:
+            task.remaining()
+            task.model_calls += 1
+            gate.correction_started()
+            correction = request.override(
+                tools=[],
+                messages=[
+                    *request.messages,
+                    HumanMessage(content="请仅从以下已核对事实中回答本次问题，保留引用，不补充其他断言：\n" + "\n".join(suggestions[:100])[:16000]),
+                ],
+            )
+            async with asyncio.timeout(task.remaining()):
+                response = await handler(correction)
+            checked = check(response, 1)
+        task.remaining()
+        metadata = PickCompletionMetadata(checked.status, checked.checker_version, checked.checked_at, checked.correction_count)
+        message = gate.approve(checked.content, metadata)
+    except Exception:
+        logger.exception("[pick] final publication failed closed")
+        message = gate.incomplete()
+    return ModelResponse(result=[AIMessage(**message)])
 
 
 def is_plugin_tool(tool) -> bool:
@@ -209,28 +328,66 @@ class PickToolGate(AgentMiddleware):
         plugin = not lark and name not in ALLOWED_TOOLS and is_plugin_tool(tool)
         if name not in ALLOWED_TOOLS and not plugin and not lark:
             raise ValueError("本工作台不允许该工具")
-        async with asyncio.timeout(task.remaining()):
-            async with task.execution_lock:
-                # Recheck mutable read state after preceding tools finish, immediately before execution.
-                # Only the configured pick tools spend the pick budget; an MCP tool named pick_* is a plugin like any other.
-                if not plugin and name.startswith("pick_"):
-                    if task.tool_calls >= 8:
-                        raise ValueError("本轮业务工具调用次数已达上限")
-                    task.tool_calls += 1
-                elif lark:
-                    if task.lark_calls >= LARK_CALL_LIMIT:
-                        raise ValueError("本轮飞书命令调用次数已达上限")
-                    task.lark_calls += 1
-                    # Feishu content may carry instructions too: an external-effect plugin then waits for the user.
-                    task.plugin_read = task.plugin_read or not lark_guide(request.tool_call.get("args"))
-                elif plugin:
-                    if task.plugin_calls >= PLUGIN_CALL_LIMIT:
-                        raise ValueError("本轮插件工具调用次数已达上限")
-                    reads = plugin_reads_only(request.tool)
-                    # Content a plugin read this turn may carry instructions; an action with external effects (a group
-                    # message, a CRM write) then waits for the user to approve it in their next message.
-                    if not reads and task.plugin_read:
-                        raise ValueError("本轮已读取外部内容，有外部效果的插件操作不能直接调用：先把要执行的内容给用户确认，等用户在下一条消息里同意后再调用")
-                    task.plugin_calls += 1
-                    task.plugin_read = task.plugin_read or reads
-                return await handler(request)
+        loop = asyncio.get_running_loop()
+        token = None
+        try:
+            deadline = task.ordinary_loop_deadline
+            if name in {"pick_query_candidates", "pick_count_candidates", "pick_query_data"}:
+                budget_ms = 10000
+                if name == "pick_query_data":
+                    args = request.tool_call.get("args")
+                    query = args.get("query") if isinstance(args, dict) else None
+                    requested = query.get("budget_ms") if isinstance(query, dict) else None
+                    if type(requested) is int and requested > 0:
+                        budget_ms = min(budget_ms, requested)
+                deadline = min(deadline, loop.time() + budget_ms / 1000)
+            token = query_call_loop_deadline.set(deadline)
+            async with asyncio.timeout_at(deadline):
+                async with task.execution_lock:
+                    task.ordinary_remaining()
+                    if loop.time() >= deadline:
+                        raise TimeoutError
+                    # Recheck mutable read state after preceding tools finish, immediately before execution.
+                    # Only the configured pick tools spend the pick budget; an MCP tool named pick_* is a plugin like any other.
+                    if not plugin and name.startswith("pick_"):
+                        if task.tool_calls >= 8:
+                            raise ValueError("本轮业务工具调用次数已达上限")
+                        task.tool_calls += 1
+                    elif lark:
+                        if task.lark_calls >= LARK_CALL_LIMIT:
+                            raise ValueError("本轮飞书命令调用次数已达上限")
+                        task.lark_calls += 1
+                        # Feishu content may carry instructions too: an external-effect plugin then waits for the user.
+                        task.plugin_read = task.plugin_read or not lark_guide(request.tool_call.get("args"))
+                    elif plugin:
+                        if task.plugin_calls >= PLUGIN_CALL_LIMIT:
+                            raise ValueError("本轮插件工具调用次数已达上限")
+                        reads = plugin_reads_only(request.tool)
+                        # Content a plugin read this turn may carry instructions; an action with external effects (a group
+                        # message, a CRM write) then waits for the user to approve it in their next message.
+                        if not reads and task.plugin_read:
+                            raise ValueError(
+                                "本轮已读取外部内容，有外部效果的插件操作不能直接调用：先把要执行的内容给用户确认，等用户在下一条消息里同意后再调用"
+                            )
+                        task.plugin_calls += 1
+                        task.plugin_read = task.plugin_read or reads
+                    task.ordinary_remaining()
+                    if loop.time() >= deadline:
+                        raise TimeoutError
+                    result = await handler(request)
+                    task.ordinary_remaining()
+                    if loop.time() >= deadline:
+                        raise TimeoutError
+                    return result
+        except (TimeoutError, asyncio.CancelledError):
+            # Lock-wait and synchronous encoding failures can bypass the tool's
+            # own failure capture. They must not leave an older read "current".
+            call_id = request.tool_call.get("id")
+            if name in {"pick_query_candidates", "pick_count_candidates", "pick_query_data"} and isinstance(call_id, str):
+                last = task.answer_evidence.reads[-1] if task.answer_evidence.reads else None
+                if last is None or (last.tool, last.call_id, last.status) != (name, call_id, "unavailable"):
+                    task.answer_evidence.capture(name, call_id, {"status": "unavailable"})
+            raise
+        finally:
+            if token is not None:
+                query_call_loop_deadline.reset(token)

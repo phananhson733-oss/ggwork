@@ -8,6 +8,8 @@ from decimal import Decimal, InvalidOperation
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+from pydantic import Field
+
 from ggwork_pick.feedback.contracts import TABLE_BY_KEY, EvidenceRef, FeedbackSnapshot, PlaybackObservation, RevenueObservation
 from ggwork_pick.feedback.mapping import ExternalRegistry, RevenueResolution, canonical_identity, exact_text
 from ggwork_pick.repository import stamp
@@ -116,6 +118,7 @@ class DramaFact:
 
 
 class PostFact(PlaybackObservation):
+    publication_times: list[datetime] = Field(default_factory=list, exclude=True)
     channel: str = "unknown"
     metric_dates: dict[str, datetime | None] = {}
 
@@ -253,6 +256,9 @@ def normalize(snapshot: FeedbackSnapshot) -> FeedbackDataset:
         if not public:
             warnings.add("publication_not_confirmed_public")
             published = []
+        publication_times = sorted(set(published))
+        if len(publication_times) > 1:
+            warnings.add("conflicting_publication_times")
         latest_at = max((at for at, _row in dated), default=None)
         metrics, metric_dates, used_rows = {}, {}, {}
         for metric, field in METRICS.items():
@@ -280,6 +286,7 @@ def normalize(snapshot: FeedbackSnapshot) -> FeedbackDataset:
             account_id=next(iter(account_ids)) if len(account_ids) == 1 else None,
             channel=key.split(":", 1)[0],
             published_at=min(published) if published else None,
+            publication_times=publication_times,
             observed_at=latest_at,
             metric_dates=metric_dates,
             quality=quality,

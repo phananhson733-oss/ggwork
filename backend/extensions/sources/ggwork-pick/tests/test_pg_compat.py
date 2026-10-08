@@ -337,15 +337,44 @@ async def test_stored_timestamps_sort_in_time_order_under_each_collation(pick_db
         await engine.dispose()
 
 
+# Exact reviewed date-only contexts, not module exemptions. Changing the date
+# constructor or the datetime-first return makes the clock guard fail closed.
+DATE_ONLY_SERIALIZATIONS = (
+    "return value if date.fromisoformat(value).isoformat() == value else None",
+    'parsed = date.fromisoformat(post.get("d", ""))\n                    if parsed.isoformat() != post.get("d"):',
+    'if isinstance(value, datetime):\n        return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")\n'
+    "    if isinstance(value, date):\n        return value.isoformat()",
+)
+
+
+def _clock_offenders(source):
+    # Keep original line numbers when removing these date-only expressions.
+    for date_only in DATE_ONLY_SERIALIZATIONS:
+        source = source.replace(date_only, "\n" * date_only.count("\n"))
+    clock = re.compile(r"datetime\.now\((?!UTC\))|\butcnow\(|\bdate\.today\(|\.isoformat\(\)")
+    return [number for number, line in enumerate(source.splitlines(), 1) if clock.search(line)]
+
+
+@pytest.mark.parametrize("source", ["datetime.now()", "datetime.utcnow()", "date.today()", "value.isoformat()", "datetime.now(UTC).isoformat()"])
+def test_timestamp_guard_rejects_unsafe_clock_or_variable_precision(source):
+    assert _clock_offenders(source) == [1]
+
+
+@pytest.mark.parametrize("date_only", DATE_ONLY_SERIALIZATIONS)
+def test_timestamp_guard_allows_only_the_reviewed_date_context(date_only):
+    assert _clock_offenders(date_only) == []
+    assert _clock_offenders(date_only.replace("date", "datetime"))
+    assert _clock_offenders(date_only + "\nvalue.isoformat()") == [date_only.count("\n") + 2]
+
+
+def test_timestamp_guard_requires_datetime_dispatch_before_date():
+    assert _clock_offenders("if isinstance(value, date):\n        return value.isoformat()") == [2]
+    assert _clock_offenders(DATE_ONLY_SERIALIZATIONS[2].replace('timespec="milliseconds"', 'timespec="auto"'))
+
+
 def test_stored_timestamps_come_from_one_utc_clock():
     # repository.stamp() is the one writer: UTC, six fractional digits.
-    clock = re.compile(r"datetime\.now\((?!UTC\))|\butcnow\(|\bdate\.today\(|\.isoformat\(\)")
-    offenders = [
-        f"{path.relative_to(EXTENSION)}:{number}"
-        for path in sorted(EXTENSION.rglob("*.py"))
-        for number, line in enumerate(path.read_text().splitlines(), 1)
-        if clock.search(line)
-    ]
+    offenders = [f"{path.relative_to(EXTENSION)}:{number}" for path in sorted(EXTENSION.rglob("*.py")) for number in _clock_offenders(path.read_text())]
     assert offenders == []
 
 
