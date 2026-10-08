@@ -6,6 +6,9 @@ rs.mock("@/core/config", () => ({ getBackendBaseURL: () => "" }));
 import { fetch as fetcher } from "@/core/api/fetcher";
 import {
   getPickResult,
+  getSaveReceipt,
+  PickApiError,
+  updateSavedPick,
   getPickResultNotes,
   getPickSyncStatus,
   listPickResults,
@@ -196,5 +199,63 @@ describe("rollback matrix: the new frontend reads every card it can meet", () =>
       oldPayload.items[0]?.evidence.map((e) => e.kind),
       ["kd", "qc", "obs_trends", "obs_gsc", "obs_discovery"],
     ]);
+  });
+});
+
+describe("selection recovery contract", () => {
+  it("retains safe structured conflict data", async () => {
+    mockedFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: {
+            code: "version_conflict",
+            message: "记录已更新",
+            retryable: false,
+            current_version: 4,
+          },
+        }),
+        { status: 409 },
+      ),
+    );
+    try {
+      await updateSavedPick("s1", {
+        request_id: "cmd",
+        expected_version: 1,
+        note: "local",
+      });
+      throw new Error("expected conflict");
+    } catch (error) {
+      expect(error).toBeInstanceOf(PickApiError);
+      expect(error).toMatchObject({
+        status: 409,
+        code: "version_conflict",
+        currentVersion: 4,
+        message: "记录已更新",
+      });
+    }
+  });
+  it("reads a committed save receipt and distinguishes an unknown command", async () => {
+    answer({
+      request_id: "cmd",
+      saved: [{ id: "s1", identity: "x", status: "created", version: 1 }],
+    });
+    const signal = new AbortController().signal;
+    expect((await getSaveReceipt("cmd", signal))?.saved).toHaveLength(1);
+    expect(mockedFetch.mock.calls[0]?.[0]).toBe("/api/pick/commands/cmd");
+    expect(mockedFetch.mock.calls[0]?.[1]?.signal).toBe(signal);
+    mockedFetch.mockResolvedValueOnce(new Response("{}", { status: 404 }));
+    expect(await getSaveReceipt("unknown")).toBeNull();
+    mockedFetch.mockResolvedValueOnce(new Response("{}", { status: 503 }));
+    await expect(getSaveReceipt("cmd")).rejects.toThrow();
+  });
+  it("rejects malformed update success without exposing response content", async () => {
+    answer({ secret: "private diagnostic" });
+    await expect(
+      updateSavedPick("s1", {
+        request_id: "cmd",
+        expected_version: 1,
+        note: "local",
+      }),
+    ).rejects.toThrow("保存回执无效");
   });
 });

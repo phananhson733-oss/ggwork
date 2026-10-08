@@ -4,6 +4,10 @@ import { fetch as fetchWithAuth } from "@/core/api/fetcher";
 import { getBackendBaseURL } from "@/core/config";
 
 import { pickAnswerCheckSchema } from "./answer-checks";
+import {
+  completionErrorSchema,
+  type CompletionError,
+} from "./completion-types";
 import { type PickNotesState, pickResultNotesSchema } from "./notes";
 import { syncStatusSchema } from "./sync-schema";
 import { pickItemSchema, pickResultSchema } from "./types";
@@ -57,6 +61,19 @@ export type PickBatch = z.infer<typeof batchSchema>;
 // server-side pick data board (critique B14).
 export type { PickSyncStatus } from "./sync-schema";
 
+export class PickApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: CompletionError["code"],
+    readonly currentVersion?: number | null,
+    readonly retryable?: boolean,
+  ) {
+    super(message);
+    this.name = "PickApiError";
+  }
+}
+
 async function responseFor(path: string, init?: RequestInit) {
   const response = await fetchWithAuth(
     `${getBackendBaseURL()}/api/pick${path}`,
@@ -66,13 +83,43 @@ async function responseFor(path: string, init?: RequestInit) {
     const body = (await response.json().catch(() => null)) as {
       detail?: unknown;
     } | null;
-    throw new Error(
-      typeof body?.detail === "string"
-        ? body.detail
-        : `操作未完成（${response.status}），请检查资料或重试`,
+    const detail = completionErrorSchema.safeParse(body?.detail);
+    throw new PickApiError(
+      detail.success
+        ? detail.data.message
+        : typeof body?.detail === "string" && body.detail.length <= 1000
+          ? body.detail
+          : `操作未完成（${response.status}），请检查资料或重试`,
+      response.status,
+      detail.success ? detail.data.code : undefined,
+      detail.success ? detail.data.current_version : undefined,
+      detail.success ? detail.data.retryable : undefined,
     );
   }
   return response;
+}
+
+function saveReceipt(body: unknown) {
+  const receipt = receiptSchema.safeParse(body);
+  if (!receipt.success)
+    throw new Error("保存回执无效，请查询回执或使用同一操作重试");
+  return receipt.data;
+}
+
+/** A missing receipt is an unknown outcome, never proof that the write failed. */
+export async function getSaveReceipt(requestId: string, signal?: AbortSignal) {
+  try {
+    return saveReceipt(
+      await (
+        await responseFor(`/commands/${encodeURIComponent(requestId)}`, {
+          signal,
+        })
+      ).json(),
+    );
+  } catch (error) {
+    if (error instanceof PickApiError && error.status === 404) return null;
+    throw error;
+  }
 }
 
 export async function listPickResults(threadId: string, signal?: AbortSignal) {
@@ -126,10 +173,14 @@ export async function getPickResultNotes(
   };
 }
 
-export async function savePickSelection(command: SaveCommand) {
-  return receiptSchema.parse(
+export async function savePickSelection(
+  command: SaveCommand,
+  signal?: AbortSignal,
+) {
+  return saveReceipt(
     await (
       await responseFor("/selections", {
+        signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(command),
@@ -154,13 +205,23 @@ export async function updateSavedPick(
     state?: "removed";
   },
 ) {
-  return (
+  const body: unknown = await (
     await responseFor(`/selections/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(command),
     })
   ).json();
+  const receipt = z
+    .object({
+      request_id: z.string(),
+      id: z.string(),
+      version: z.number().int().positive(),
+      state: z.enum(["selected", "removed"]),
+    })
+    .safeParse(body);
+  if (!receipt.success) throw new Error("保存回执无效，请使用同一操作重试");
+  return receipt.data;
 }
 
 export async function listPickBatches(signal?: AbortSignal) {
@@ -210,8 +271,11 @@ export async function importPickData(
   );
 }
 
-export async function exportSavedPicks() {
-  const blob = await (await responseFor("/selections/export.csv")).blob();
+export async function exportSavedPicks(signal?: AbortSignal) {
+  const blob = await (
+    await responseFor("/selections/export.csv", { signal })
+  ).blob();
+  signal?.throwIfAborted();
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

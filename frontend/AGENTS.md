@@ -289,3 +289,19 @@ This checkout adds `/workspace/picks` and `/workspace/pick-data`, `core/pick/`, 
 Pick-board pagination must round-trip every generated page without a fixed catalog-size cap. `__unknown__` is the URL-only empty-language filter; bind it as `''` in SQL. Explicit tab changes clear replay identity, but candidate → evidence → return preserves `result`, page and version through the server page. Catalog and posted freshness are separate: the latter comes from the chosen version's `meta.control.postedStats.importedAt`. Assess archived versions at their capture time, and never use a fresh mirror timestamp to claim fresh upstream data.
 
 The Trends tab keeps its authenticated server fetch and statistics in the existing route/view. `pick-board/trends-table-explorer.tsx` is a small client island for same-batch text/platform/result filters and CSV export; it must not fetch replacement observations or import server modules. Rows use the shared GGWork theme and existing completeness/zero-value rules. Production data must never be filled from the standalone DramaRadar US snapshot.
+
+### Personal selections
+
+`pick/selection-drafts.tsx` mounts once in `WorkspaceContent`, keyed by authenticated
+owner. It keeps unsaved personal notes and their original row versions in workspace
+memory across Back/Forward navigation; changing owner destroys those drafts. No
+browser storage holds note drafts. My selections confirms explicit link departure,
+warns on document unload, and compares the server note before rebasing a conflict.
+Candidate saves reconcile dropped responses through the authenticated command-receipt
+endpoint and retry unchanged payloads with the same request ID. The existing CSV is
+labelled a reference list and keeps its original fields.
+
+`pnpm exec playwright test --config playwright.pick-selections.config.ts` uses
+`PICK_SELECTION_FIXTURE` for a private dedicated synthetic prior result/account and
+`PICK_E2E_URL` for a loopback frontend connected to an isolated real Gateway. It
+makes no model runs. Keep it separate from `personal-selection.spec.ts`, which does.

@@ -191,11 +191,11 @@ describe("row check links on the confirmation card (P4-1)", () => {
     expect(screen.getByText("剧三")).toBeTruthy();
     expect(screen.queryByText("剧一")).toBeNull();
     expect(screen.getByText("剧三").parentElement?.textContent).toBe(
-      "剧二 在选剧资料核对、剧三",
+      "剧二 在选剧资料核对（新标签页）、剧三",
     );
     const links = screen.getAllByRole("link", { name: /在选剧资料核对/ });
     expect(links.map((link) => link.getAttribute("aria-label"))).toEqual([
-      "在选剧资料核对：剧二",
+      "在选剧资料核对：剧二（新标签页）",
     ]);
     const href = new URL(
       links[0]?.getAttribute("href") ?? "",

@@ -35,10 +35,10 @@ export function RowCheckLink({ href, title }: { href: string; title: string }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={`在选剧资料核对：${title}`}
+      aria-label={`在选剧资料核对：${title}（新标签页）`}
       className="text-link inline-flex min-h-11 items-center text-xs hover:underline"
     >
-      在选剧资料核对
+      在选剧资料核对（新标签页）
     </a>
   );
 }
@@ -56,7 +56,7 @@ export function ReplayLink({ href }: { href: string }) {
         rel="noopener noreferrer"
         className="text-link inline-flex min-h-11 items-center text-xs hover:underline"
       >
-        回放这份候选
+        回放这份候选（新标签页）
       </a>
     </p>
   );
@@ -271,6 +271,7 @@ export function CandidateView({
   /** GET /results/{id}/notes; absent while loading or where nothing reads it. */
   notes?: PickNotesState;
 }) {
+  const complete = result.run_status === "success";
   const replayHref = replayLink(result);
   const read = notes?.kind === "notes" ? notes.notes : undefined;
   return (
@@ -282,8 +283,11 @@ export function CandidateView({
         <div>
           <h2 className="font-semibold">本次候选</h2>
           <p className="text-muted-foreground text-sm">
-            找到 {result.items.length} 部 / 请求 {result.conditions.limit} 部
-            {typeof result.matched_total === "number" &&
+            {complete
+              ? `找到 ${result.items.length} 部 / 请求 ${result.conditions.limit} 部`
+              : `本次查询未完成，尚不能确认符合条件的数量（已收到 ${result.items.length} 部候选）`}
+            {complete &&
+              typeof result.matched_total === "number" &&
               ` · 符合条件共 ${result.matched_total} 部`}
           </p>
         </div>
@@ -312,7 +316,7 @@ export function CandidateView({
       <ResultNotices notes={notes} />
       {read?.feedback && <FeedbackSummary feedback={read.feedback} />}
       {replayHref && <ReplayLink href={replayHref} />}
-      {result.items.length === 0 && <EmptyResult notes={read} />}
+      {complete && result.items.length === 0 && <EmptyResult notes={read} />}
       {result.items.map((item, index) => (
         <CandidateCard
           key={item.item_id}
