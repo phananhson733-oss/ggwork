@@ -1,6 +1,20 @@
 > 项目统一命名为 **ggwork-deerflow**，业务仓库为 `phananhson733-oss/ggwork-deerflow`。本地目录、旧版项目和部署方式见[项目对应关系](../project-identity.md)。以下发布记录中的旧 GitHub 地址、remote 短名和提交标识保留为历史证据。
 
-# 当前发布状态（PR #44 运营反馈代码发布）
+# 当前前端发布状态（2026-10-08，PR #48 Trends 原生界面）
+
+[PR #48](https://github.com/phananhson733-oss/ggwork-deerflow/pull/48) 已合并并部署到正式域名。产品提交 `7f462e86f1ff4f4ace6f7cc8be05dcf96f55c7ef`，前端版本 `20261008-7f462e8`，Vercel 部署 `dpl_GWY4VLcrSBrWZhbrjvMQBcw1GKSW` 为 READY；正式域名独立回读指向此部署，About 版本一致。
+
+- Google 趋势页已采用工作台原生六列表格、统一浅色/深色主题、折叠来源与计算口径、同批搜索/平台/状态筛选及当前筛选 CSV 导出。数据来自现有生产批次，没有导入本地历史样本或试点评分。
+- 合并提交上的 lint/typecheck、生产 build 通过；前端 3,002 passed / 45 PG-dependent skipped。PR CI `37755011100` SUCCESS，数据库 reader integration job 通过；回滚兼容矩阵 5 项通过。独立代码审查无待修问题。
+- 正式页面普通 QA 验证版本、组合筛选、下载、浅色/深色和 390px 窄屏。表格局部横向滚动，页面无横向溢出；浏览器未记录 warning/error。上线前后的完整 API 行、计数、告警及个人清单内容对账一致；CSV 未知指标仍为空。原始数据和截图仅保存在本对话私有验收目录。
+- 预发布唯一域名受 Vercel SSO 保护，以官方 CLI 完成普通 QA 的认证 API/SSR 核验；真实浏览器交互在切换后的正式域名完成。保留本地跨源认证拒绝及候选域名 SSO 限制，不把 SSR 检查写成候选浏览器验收。
+- 本次只发布前端，Gateway、数据库和采集器未变。现有未采完整批次与停止告警保留，没有主动 Google 采集、模型运行、个人清单写入或飞书写入。三个真实合格夜晚及首周观察仍未完成。
+
+- `pick-deploy-guard target=frontend commit=7f462e86f1ff4f4ace6f7cc8be05dcf96f55c7ef at=2026-10-08T09:46:24Z`
+
+---
+
+# 历史发布状态（PR #44 运营反馈代码发布）
 
 [PR #44](https://github.com/phananhson733-oss/ggwork/pull/44) 已合并并部署，产品提交 `3b55cefed66cf8436a69e74d09f6600c45ad26d7`；前端构建版本 `20261007-3b55cef`。最终 PR CI 成功，合并代码树与通过检查的 PR HEAD 相同。
 
