@@ -86,12 +86,39 @@ export const previewPlan = async (
   planId: string,
   input: unknown,
   signal?: AbortSignal,
-) =>
-  read(
+) => {
+  const init = command(planVersionCommandSchema, input, signal);
+  const requested = planVersionCommandSchema.parse(input);
+  const preview = await read(
     `/plans/${id(planId)}/preview`,
     planPreviewSchema,
-    command(planVersionCommandSchema, input, signal),
+    init,
   );
+  if (
+    preview.plan.id !== planId ||
+    preview.plan.version !== requested.expected_version
+  )
+    throw new PickApiError("核对版本不一致，请重新读取计划并核对。", 502);
+  const ids = new Set(preview.checks.map((check) => check.row_id));
+  if (
+    ids.size !== preview.checks.length ||
+    ids.size !== preview.plan.rows.length ||
+    preview.plan.rows.some((row) => !ids.has(row.row_id)) ||
+    (preview.exportable &&
+      (!preview.plan.rows.length ||
+        preview.checks.some(
+          (check) =>
+            check.status !== "ready" ||
+            check.blockers.length > 0 ||
+            check.current_pin === null,
+        )))
+  )
+    throw new PickApiError(
+      "核对结果不完整，请重新核对；尚不能生成执行表。",
+      502,
+    );
+  return preview;
+};
 export const exportPlan = async (
   planId: string,
   input: unknown,

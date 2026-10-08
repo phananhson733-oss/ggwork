@@ -1,6 +1,12 @@
 import { afterEach, expect, it, rs } from "@rstest/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 
 rs.mock("@/core/api/fetcher", () => ({ fetch: rs.fn() }));
 rs.mock("@/core/config", () => ({ getBackendBaseURL: () => "" }));
@@ -79,5 +85,42 @@ it("starts a distinct current query from the post while preserving historical fe
     exclude_selected: true,
   });
   expect(screen.getByText(/原反馈版本.*保留/)).toBeTruthy();
+  client.clear();
+});
+it("retains the selected post's original feedback version when the surrounding list refreshes", async () => {
+  rs.mocked(fetcher).mockImplementation(async (url) =>
+    Response.json(
+      typeof url === "string" && url.endsWith("/query")
+        ? fixture.response
+        : fixture.review,
+    ),
+  );
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <OwnedPostReview ownerId="owner-a" />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "继续选剧（发起新查询）" }),
+  );
+  await screen.findByText(/完整匹配/);
+  await act(async () => {
+    client.setQueryData(["pick-review", "owner-a", {}], {
+      ...fixture.review,
+      feedback_version_id: "fv2",
+    });
+  });
+  expect(screen.getByText(/原反馈版本 fv1 保留/)).toBeTruthy();
+  expect(screen.queryByText(/原反馈版本 fv2 保留/)).toBeNull();
+  expect(
+    rs
+      .mocked(fetcher)
+      .mock.calls.filter(
+        ([url]) => typeof url === "string" && url.endsWith("/query"),
+      ),
+  ).toHaveLength(1);
   client.clear();
 });

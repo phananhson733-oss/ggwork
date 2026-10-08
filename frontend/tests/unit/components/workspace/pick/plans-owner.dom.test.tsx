@@ -38,7 +38,14 @@ it("preserves unsaved plan and base version through workspace back/forward but c
       </PlanDraftProvider>
     );
   }
-  const mounted = render(<Harness />);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const mounted = render(
+    <QueryClientProvider client={client}>
+      <Harness />
+    </QueryClientProvider>,
+  );
   fireEvent.change(screen.getByLabelText("计划名称"), {
     target: { value: "private draft" },
   });
@@ -48,7 +55,11 @@ it("preserves unsaved plan and base version through workspace back/forward but c
     "private draft",
   );
   owner = "bob";
-  mounted.rerender(<Harness />);
+  mounted.rerender(
+    <QueryClientProvider client={client}>
+      <Harness />
+    </QueryClientProvider>,
+  );
   expect(screen.getByLabelText<HTMLInputElement>("计划名称").value).toBe(
     plan.title,
   );

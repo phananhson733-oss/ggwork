@@ -41,6 +41,8 @@ import {
 } from "@/core/pick/plan-draft";
 import { useIsMobile } from "@/hooks/use-mobile";
 
+import { SourceResult } from "../my-selections";
+
 import { usePlanDrafts } from "./plan-drafts";
 
 const field =
@@ -55,6 +57,8 @@ export function PlanEditor({ initial }: { initial: Plan }) {
   const [conflict, setConflict] = useState<Plan | null>(
     recovered && initial.version > recovered.base.version ? initial : null,
   );
+  const [conflictTimeMode, setConflictTimeMode] =
+    useState<PlanUpdate["timezone_change"]>(null);
   const [preview, setPreview] = useState<PlanPreview | null>(null);
   const [receipt, setReceipt] = useState<PlanExport | null>(null);
   const [departure, setDeparture] = useState<string | null>(null);
@@ -75,6 +79,18 @@ export function PlanEditor({ initial }: { initial: Plan }) {
     recovered?.pending ?? null,
   );
   const dirty = JSON.stringify(draft) !== JSON.stringify(editablePlan(base));
+  if (initial.version > base.version && conflict?.version !== initial.version) {
+    setZonePreview(null);
+    setConflictTimeMode(null);
+    if (dirty) setConflict(initial);
+    else {
+      setBase(initial);
+      setDraft(editablePlan(initial));
+      setZone(initial.timezone);
+      setPreview(null);
+      setZonePreview(null);
+    }
+  }
   const remember = recovery?.setDraft;
   useEffect(() => {
     remember?.(
@@ -125,6 +141,7 @@ export function PlanEditor({ initial }: { initial: Plan }) {
     };
   }, [dirty, remember, base.id]);
   const edit = (next: typeof draft) => {
+    setZonePreview(null);
     setDraft(next);
     setPreview(null);
     setStatus("");
@@ -164,7 +181,11 @@ export function PlanEditor({ initial }: { initial: Plan }) {
         setPreview(null);
         try {
           const current = await getPlan(base.id, controller.current.signal);
-          if (active.current) setConflict(current);
+          if (active.current) {
+            setConflict(current);
+            setConflictTimeMode(null);
+            setZonePreview(null);
+          }
         } catch {
           if (active.current)
             setError("版本已变化，当前版本读取失败。请保留修改并重新读取。");
@@ -208,22 +229,44 @@ export function PlanEditor({ initial }: { initial: Plan }) {
     });
   const rebase = (keep: boolean) => {
     if (!conflict) return;
+    const changedZone = draft.timezone !== conflict.timezone;
+    if (keep && changedZone && !conflictTimeMode) return;
     setBase(conflict);
     if (!keep) {
       setDraft(editablePlan(conflict));
       setZone(conflict.timezone);
       setZoneChange(null);
-    }
+    } else if (changedZone) {
+      if (conflictTimeMode === "keep_instant") {
+        const converted = timezonePreview(
+          conflict,
+          draft.timezone,
+          "keep_instant",
+        );
+        setDraft({
+          ...draft,
+          rows: draft.rows.map((row) => {
+            const time = converted.find((item) => item.row_id === row.row_id);
+            return time
+              ? { ...row, local_time: time.local_time, fold: time.fold }
+              : row;
+          }),
+        });
+      }
+      setZoneChange(conflictTimeMode);
+    } else setZoneChange(null);
     setConflict(null);
+    setConflictTimeMode(null);
     pending.current = null;
     setError("");
     setPreview(null);
+    setZonePreview(null);
   };
   const depart = (discard = true) => {
     if (!departure) return;
     const href = departure;
     remember?.(base.id, null);
-    if(discard)setDraft(editablePlan(base));
+    if (discard) setDraft(editablePlan(base));
     setDeparture(null);
     window.setTimeout(() => window.location.assign(href), 0);
   };
@@ -254,7 +297,7 @@ export function PlanEditor({ initial }: { initial: Plan }) {
               className="min-h-11"
               variant="outline"
               disabled={busy}
-              onClick={()=>depart()}
+              onClick={() => depart()}
             >
               丢弃修改并离开
             </Button>
@@ -305,7 +348,31 @@ export function PlanEditor({ initial }: { initial: Plan }) {
             ))}
           </ul>
           <p>本地输入仍保留。比较后决定采用哪一份。</p>
-          <Button className="min-h-11" onClick={() => rebase(true)}>
+          {draft.timezone !== conflict.timezone && (
+            <label className="block">
+              时区冲突处理
+              <select
+                className={field}
+                value={conflictTimeMode ?? ""}
+                onChange={(event) =>
+                  setConflictTimeMode(
+                    event.target.value as PlanUpdate["timezone_change"],
+                  )
+                }
+              >
+                <option value="">请明确选择</option>
+                <option value="keep_local_time">保留本地时区与当地时间</option>
+                <option value="keep_instant">
+                  保留服务器时刻，采用本地其他字段
+                </option>
+              </select>
+            </label>
+          )}
+          <Button
+            className="min-h-11"
+            disabled={draft.timezone !== conflict.timezone && !conflictTimeMode}
+            onClick={() => rebase(true)}
+          >
             保留本地修改，以新版本继续
           </Button>
           <Button
@@ -447,6 +514,12 @@ export function PlanEditor({ initial }: { initial: Plan }) {
                         >
                           查看来源（新标签页）
                         </Link>
+                        {source?.source_pin.mirror_version == null && (
+                          <p>
+                            原始镜像版本未保留；资料页不能完整重现当时来源。请以历史候选快照为准。
+                          </p>
+                        )}
+                        <SourceResult id={row.source_result_id} />
                       </details>
                     </td>
                     <td className="block p-2 sm:table-cell">
@@ -474,7 +547,7 @@ export function PlanEditor({ initial }: { initial: Plan }) {
                       </Button>
                       <Button
                         variant="ghost"
-                        className="min-h-11"
+                        className="text-ink-1 min-h-11"
                         onClick={() => {
                           if (window.confirm("从本草稿移除此行？保存后生效。"))
                             edit({
@@ -543,6 +616,7 @@ export function PlanEditor({ initial }: { initial: Plan }) {
                 <label className="block">
                   当地发布时间（{draft.timezone}）
                   <input
+                    disabled={zoneChange === "keep_instant"}
                     type="datetime-local"
                     className={field}
                     value={row.local_time ?? ""}
@@ -558,6 +632,9 @@ export function PlanEditor({ initial }: { initial: Plan }) {
                     }
                   />
                 </label>
+                {zoneChange === "keep_instant" && (
+                  <p>请先保存保留同一时刻的时区变更，再编辑当地时间。</p>
+                )}
                 {timeError(row) && (
                   <p id="local-time-error" role="alert">
                     {timeError(row)}
@@ -568,6 +645,7 @@ export function PlanEditor({ initial }: { initial: Plan }) {
                     重复时间的 UTC 偏移
                     <select
                       className={field}
+                      disabled={zoneChange === "keep_instant"}
                       value={row.fold ?? ""}
                       onChange={(event) =>
                         rowEdit(editing, {

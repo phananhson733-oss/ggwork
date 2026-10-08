@@ -3,7 +3,7 @@ import { beforeEach, expect, it, rs } from "@rstest/core";
 rs.mock("@/core/api/fetcher", () => ({ fetch: rs.fn() }));
 rs.mock("@/core/config", () => ({ getBackendBaseURL: () => "" }));
 import { fetch as fetcher } from "@/core/api/fetcher";
-import { createPlan, queryPick } from "@/core/pick/completion-api";
+import { createPlan, queryPick, previewPlan } from "@/core/pick/completion-api";
 
 import fixture from "./fixtures/completion-v1.json";
 const http = rs.mocked(fetcher);
@@ -64,4 +64,27 @@ it("rejects owner injection before writing and malformed success without calling
   await expect(createPlan(fixture.draft)).rejects.toThrow(
     "服务返回的资料格式无法识别",
   );
+});
+it("rejects an exportable preview that omits a plan row or checks another revision", async () => {
+  http.mockResolvedValueOnce(
+    Response.json({ ...fixture.preview, exportable: true, checks: [] }),
+  );
+  await expect(
+    previewPlan(fixture.plan.id, {
+      request_id: "check",
+      expected_version: fixture.plan.version,
+    }),
+  ).rejects.toThrow("核对结果不完整");
+  http.mockResolvedValueOnce(
+    Response.json({
+      ...fixture.preview,
+      plan: { ...fixture.plan, version: fixture.plan.version + 1 },
+    }),
+  );
+  await expect(
+    previewPlan(fixture.plan.id, {
+      request_id: "check",
+      expected_version: fixture.plan.version,
+    }),
+  ).rejects.toThrow("核对版本不一致");
 });

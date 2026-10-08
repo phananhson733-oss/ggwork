@@ -20,7 +20,7 @@ import { CandidateView } from "./candidate-view";
 import { useSelectionDrafts } from "./selection-drafts";
 import { useResultNotes } from "./use-result-notes";
 
-function SourceResult({ id }: { id: string }) {
+export function SourceResult({ id }: { id: string }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const query = useQuery({

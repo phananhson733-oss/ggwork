@@ -22,6 +22,7 @@ import {
 import { replayHref } from "@/core/pick/links";
 
 import { grains, lanes, money } from "./feedback-evidence";
+import { SourceResult } from "./my-selections";
 import { PostFollowUpQuery } from "./review-query";
 const control =
   "min-h-11 w-full rounded-md border border-line bg-surface p-2 text-base";
@@ -72,7 +73,11 @@ export function OwnedPostReview({ ownerId }: { ownerId: string }) {
   });
   const [query, setQuery] = useState<Partial<ReviewQuery>>({});
   const [selected, setSelected] = useState<ReviewPost | null>(null);
-  const [queryPost, setQueryPost] = useState<ReviewPost | null>(null);
+  const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
+  const [queryPost, setQueryPost] = useState<{
+    post: ReviewPost;
+    feedbackVersion: string;
+  } | null>(null);
   const posts = useQuery({
     queryKey: ["pick-review", ownerId, query],
     queryFn: ({ signal }) => listReviewPosts(query, signal),
@@ -277,7 +282,10 @@ export function OwnedPostReview({ ownerId }: { ownerId: string }) {
                       className="min-h-11"
                       variant="outline"
                       disabled={!data.feedback_version_id}
-                      onClick={() => setSelected(post)}
+                      onClick={() => {
+                        setSelected(post);
+                        setSelectedVersion(data.feedback_version_id);
+                      }}
                     >
                       人工关联计划行
                     </Button>
@@ -285,7 +293,12 @@ export function OwnedPostReview({ ownerId }: { ownerId: string }) {
                       className="ml-3 min-h-11"
                       variant="outline"
                       disabled={!data.feedback_version_id}
-                      onClick={() => setQueryPost(post)}
+                      onClick={() =>
+                        setQueryPost({
+                          post,
+                          feedbackVersion: data.feedback_version_id!,
+                        })
+                      }
                     >
                       继续选剧（发起新查询）
                     </Button>
@@ -326,24 +339,31 @@ export function OwnedPostReview({ ownerId }: { ownerId: string }) {
               </div>
             </>
           )}
-          {queryPost && data.feedback_version_id && (
+          {queryPost && (
             <PostFollowUpQuery
-              key={`${queryPost.post_key}:${data.feedback_version_id}`}
+              key={`${queryPost.post.post_key}:${queryPost.feedbackVersion}`}
               ownerId={ownerId}
-              post={queryPost}
-              feedbackVersion={data.feedback_version_id}
+              post={queryPost.post}
+              feedbackVersion={queryPost.feedbackVersion}
             />
           )}
-          {selected && data.feedback_version_id && (
-            <ManualLink
-              key={`${selected.post_key}:${data.feedback_version_id}`}
-              ownerId={ownerId}
-              post={selected}
-              feedbackVersion={data.feedback_version_id}
-              close={() => setSelected(null)}
-              onLinked={() => void posts.refetch()}
-            />
+          {selected && selectedVersion !== data.feedback_version_id && (
+            <p role="alert">
+              反馈版本已变化，请重新选择并核对帖子。原选择尚未关联。
+            </p>
           )}
+          {selected &&
+            data.feedback_version_id &&
+            selectedVersion === data.feedback_version_id && (
+              <ManualLink
+                key={`${selected.post_key}:${data.feedback_version_id}`}
+                ownerId={ownerId}
+                post={selected}
+                feedbackVersion={data.feedback_version_id}
+                close={() => setSelected(null)}
+                onLinked={() => void posts.refetch()}
+              />
+            )}
         </>
       )}
     </section>
@@ -365,7 +385,7 @@ function ManualLink({
   const [offset, setOffset] = useState(0);
   const [planId, setPlanId] = useState("");
   const [rowId, setRowId] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
+  const [confirmedFor, setConfirmedFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<PlanLink | null>(null);
@@ -389,6 +409,16 @@ function ManualLink({
     enabled: !!planId,
   });
   const row = plan.data?.rows.find((item) => item.row_id === rowId);
+  const confirmationKey = JSON.stringify([
+    plan.data?.id,
+    plan.data?.version,
+    rowId,
+    feedbackVersion,
+    post.post_key,
+  ]);
+  const confirmed = confirmedFor === confirmationKey;
+  const setConfirmed = (value: boolean) =>
+    setConfirmedFor(value ? confirmationKey : null);
   return (
     <section className="space-y-3 border p-4" aria-label="人工关联核对">
       <h2 className="text-lg">核对双方证据</h2>
@@ -479,6 +509,10 @@ function ManualLink({
           >
             查看原候选依据（新标签页）
           </Link>
+          {row.source_pin.mirror_version === null && (
+            <p>原始镜像版本未保留；资料页不能完整重现当时来源。</p>
+          )}
+          <SourceResult id={row.source_result_id} />
         </div>
       )}
       <label className="flex min-h-11 items-center gap-3">

@@ -58,7 +58,7 @@ test("mock HTTP: plan edits, blockers, immutable receipt and review across respo
             status: blocked ? "blocked" : "ready",
             blockers: blocked ? ["必要渠道来源暂不可用"] : [],
             warnings: [],
-            current_pin: null,
+            current_pin: blocked ? null : row.source_pin,
           })),
           exportable: !blocked,
         },
