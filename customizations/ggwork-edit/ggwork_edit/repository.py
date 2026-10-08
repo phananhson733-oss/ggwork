@@ -126,7 +126,11 @@ class EditingRepository:
         result["device_status"] = "unassigned" if device is None else "revoked" if device["revoked"] else "online" if device["online"] else "offline"
         result["access_status"] = "device_revoked" if device and device["revoked"] else "unchecked" if device and device["online"] else "device_offline"
         result["available_actions"] = ["stop"] if task["status"] in ("waiting", "queued", "running", "awaiting_plan") else []
-        if task["status"] in ("failed", "partial", "stopped"):
+        if (
+            task["status"] in ("failed", "partial", "stopped")
+            and task["manifest_frozen"]
+            and any(o["status"] in ("failed", "stopped") for o in task["outputs"])
+        ):
             result["available_actions"].append("retry")
         if task["status"] == "awaiting_plan":
             result["available_actions"].append("confirm_plan")
@@ -278,16 +282,26 @@ class EditingRepository:
             task.update(status="queued", stage="queued", manifest_frozen=True, updated_at=stamp())
 
     async def prepare(self, task_id, payload):
-        manifest = payload.source_manifest.model_dump(mode="json")
+        manifest = payload.source_manifest.model_dump(mode="json") if payload.source_manifest else None
         self.browser_manifest(manifest)
         async with self.transaction() as session:
             task = await self.read(session, "task", task_id)
             if task["manifest_frozen"] or task["status"] != "waiting":
                 raise ConflictError("Source manifest is frozen")
             await self.live_device(session, payload.device_id)
-            if task["source_manifest"] and manifest["version"] <= task["source_manifest"]["version"]:
+            if manifest and task["source_manifest"] and manifest["version"] <= task["source_manifest"]["version"]:
                 raise ConflictError("Selection revision must increase")
-            task.update(device_id=payload.device_id, source_manifest=manifest, updated_at=stamp())
+            if task["device_id"] and task["device_id"] != payload.device_id and task["source_manifest"]:
+                # Verification is bound to the original Mac; a new Mac must verify again.
+                for source in task["source_manifest"]["files"]:
+                    source.update(state="selected", sha256=None, duration_seconds=None)
+            if manifest:
+                task.update(source_manifest=manifest, source_directory=None)
+            elif payload.source_directory:
+                directory = payload.source_directory.model_dump(mode="json")
+                if directory != task.get("source_directory"):
+                    task.update(source_directory=directory, source_manifest=None)
+            task.update(device_id=payload.device_id, updated_at=stamp())
             await self.save(session, "task", task_id, task)
             return await self.view(session, task)
 

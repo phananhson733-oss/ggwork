@@ -317,3 +317,29 @@ async def test_history_pagination_and_revision_preserve_original(api):
     assert older["items"][0]["requirements"]["instructions"] == "A dialogue hook"
     assert second["parent_task_id"] == first["id"]
     assert (await client.post("/api/editing/tasks", headers={"test-owner": "bob"}, json={**REQUEST, "parent_task_id": first["id"]})).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_waiting_directory_intent_binds_newly_paired_device_without_resubmission(api):
+    client, service, app = api
+    task = (
+        await client.post("/api/editing/tasks", headers=OWNER, json={**REQUEST, "source_directory": {"grant_id": "grant-1", "relative_path": "drama"}})
+    ).json()
+    assert task["device_id"] is None
+    device = (await client.post("/api/editing/devices", headers=OWNER, json={"name": "New Mac"})).json()["device"]["id"]
+    prepared = await client.post(f"/api/editing/tasks/{task['id']}/prepare", headers=OWNER, json={"device_id": device})
+    assert prepared.status_code == 200
+    assert prepared.json()["id"] == task["id"]
+    assert prepared.json()["source_directory"] == {"grant_id": "grant-1", "relative_path": "drama"}
+    worker = worker_identity(app, device)
+    waiting = await client.get(f"/api/editing/worker/devices/{device}/preparations", headers=worker)
+    assert waiting.json()["items"][0]["id"] == task["id"]
+
+
+@pytest.mark.asyncio
+async def test_stopped_unprepared_intent_does_not_advertise_impossible_retry(api):
+    client, _, _ = api
+    task = (await client.post("/api/editing/tasks", headers=OWNER, json=REQUEST)).json()
+    stopped = (await client.post(f"/api/editing/tasks/{task['id']}/stop", headers=OWNER)).json()
+    assert stopped["status"] == "stopped"
+    assert "retry" not in stopped["available_actions"]

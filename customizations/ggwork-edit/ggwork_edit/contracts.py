@@ -104,7 +104,14 @@ class CreateTask(StrictInput):
 
 class PrepareTask(StrictInput):
     device_id: ID
-    source_manifest: Manifest
+    source_manifest: Manifest | None = None
+    source_directory: SourceDirectory | None = None
+
+    @model_validator(mode="after")
+    def one_source_input(self):
+        if self.source_directory and self.source_manifest:
+            raise ValueError("Select a directory or a manifest")
+        return self
 
 
 class RegisterDevice(StrictInput):
