@@ -1,6 +1,6 @@
 """Extension-private SQLAlchemy tables. Never register with the host metadata."""
 
-from sqlalchemy import JSON, Boolean, Column, Float, Integer, MetaData, String, Table, Text, UniqueConstraint, false, text
+from sqlalchemy import JSON, Boolean, CheckConstraint, Column, Float, Index, Integer, MetaData, String, Table, Text, UniqueConstraint, false, text
 
 metadata = MetaData()
 
@@ -609,4 +609,40 @@ gsc_totals = Table(
     Column("watermark", String(40)),
     _at("fetched_at", nullable=False),
     sqlite_autoincrement=True,
+)
+
+# Content plans are user-confirmed private drafts, independent of host scheduled Agent jobs.
+content_plans = Table(
+    "ggwp_content_plans",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("owner_id", String(128), nullable=False),
+    Column("version", Integer, nullable=False),
+    Column("title", String(200), nullable=False),
+    Column("timezone", String(100), nullable=False),
+    Column("created_at", String(40), nullable=False),
+    Column("updated_at", String(40), nullable=False),
+    CheckConstraint("version >= 1", name="ggwp_content_plan_version"),
+    Index("ggwp_content_plans_owner_updated", "owner_id", "updated_at", "id"),
+)
+content_plan_rows = Table(
+    "ggwp_content_plan_rows",
+    metadata,
+    Column("plan_id", String(64), primary_key=True),
+    Column("row_id", String(64), primary_key=True),
+    Column("owner_id", String(128), nullable=False),
+    Column("position", Integer),
+    Column("source_json", JSON, nullable=False),
+    Column("editable_json", JSON, nullable=False),
+    Column("scheduled_at", String(40)),
+    CheckConstraint("position IS NULL OR position >= 0", name="ggwp_content_plan_row_position"),
+)
+content_plan_commands = Table(
+    "ggwp_content_plan_commands",
+    metadata,
+    Column("owner_id", String(128), primary_key=True),
+    Column("request_id", String(128), primary_key=True),
+    Column("payload_hash", String(64), nullable=False),
+    Column("receipt_json", JSON, nullable=False),
+    Column("created_at", String(40), nullable=False),
 )
