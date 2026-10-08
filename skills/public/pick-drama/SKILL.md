@@ -7,6 +7,8 @@ allowed-tools:
   - pick_count_candidates
   - pick_get_drama_detail
   - pick_prepare_selection
+  - pick_get_feedback
+  - pick_analyze_feedback
   - ask_clarification
 ---
 
@@ -31,10 +33,17 @@ allowed-tools:
 - 剧场声明、榜单、指标和自己的浏览排序分别说明；日期或上下架未知就保留未知，不承诺可以发布。
 - 题材、上架日期、某渠道能不能发，按条目里的 `tags`、`listed_at`、`channel_rules` 回答；为空或 unknown 就说资料里没有，不推测。
 
+## 运营反馈
+
+- 仅在运行时为当前用户提供反馈工具时，使用 `pick_analyze_feedback` 分析完整范围的题材、语言或剧场表现；不能只数候选卡推断总体。`pick_get_feedback` 读取绑定候选的历史证据。
+- 新判断使用成功刷新后固定的反馈版本，历史候选保持旧版本；`refresh_pending` 时结束本轮说明，稍后用返回的 `feedback_refresh_id` 继续，不反复创建新扫描。失败不能称为已参考最新反馈。
+- 播放、出单和分成分别解释，说明样本量、覆盖、指标日期及混合场景；缺失或未归因不等于零，币种、收入通道和多标签组不能直接相加。
+- 国家／地区付费缺少直接证据时明确不可判断，不使用上述剧库语种近似规则来推断付费地区，也不编造固定D7或转化率。
+
 ## 保存
 
 用户勾选或要求保存后，用真实的 `result_id` 和 `item_id` 准备确认卡。`pick_prepare_selection` 只准备目标，不保存。
 
 用户在界面确认后由业务 API 写入并返回回执。没有实际回执时不能回答“已保存”。重复工具调用和恢复历史会话不构成再次保存的授权。
 
-本 Skill 不执行排期、飞书同步、对外发布，也不把个人选择变成团队共享记录。
+本 Skill 不执行排期、回写飞书或对外发布，也不把个人选择变成团队共享记录。
