@@ -15,6 +15,8 @@ from deerflow_extension_api.assembly import (
 )
 from deerflow_extension_api.auth import (
     EXTENSION_PRINCIPAL_RESOLVER_KEY,
+    ExtensionBearerAuthenticator,
+    ExtensionCredential,
     ExtensionPrincipal,
     require_admin,
     resolve_principal,
@@ -94,6 +96,8 @@ __all__ = [
     "CompactionEvent",
     "ContentKind",
     "ContextCompactionObserver",
+    "ExtensionBearerAuthenticator",
+    "ExtensionCredential",
     "ExtensionData",
     "ExtensionInstall",
     "ExtensionPrincipal",

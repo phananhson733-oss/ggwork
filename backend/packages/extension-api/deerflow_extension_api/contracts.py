@@ -18,6 +18,7 @@ from deerflow_extension_api.state import ExtensionData
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from deerflow_extension_api.assembly import AgentAssemblyObserver
+    from deerflow_extension_api.auth import ExtensionBearerAuthenticator
     from deerflow_extension_api.compaction import ContextCompactionObserver
     from deerflow_extension_api.placement import AgentBuildContext, MiddlewarePlacement
     from deerflow_extension_api.run_evidence import RunEvidenceReader
@@ -213,6 +214,16 @@ class ExtensionRegistry(Protocol):
         Router types stay ``Any`` so this contract package has no FastAPI
         dependency. The host validates supported route shapes before mounting;
         runtime resources belong in a separately registered service.
+        """
+        return None
+
+    def bearer_routers(self, routers: Sequence[Any], authenticator: ExtensionBearerAuthenticator) -> None:
+        """Register bearer-only HTTP routers; session credentials cannot substitute.
+
+        The authenticator resolves an opaque token to an owner and subject. The
+        host validates owner existence and grants no host permissions or roles.
+        Only accepted concrete route/method dispatches use this authenticator.
+        Pairing and credential management belong on ordinary session routers.
         """
         return None
 

@@ -1292,14 +1292,22 @@ least-accidental-privilege boundary, not a sandbox for untrusted Python packages
 routers are mounted after every host route; definite shadows and routes entering the
 host's authentication- or CSRF-exempt paths are rejected with attributed diagnostics,
 while unrelated routers continue to load. Because the host's public paths are a reserved
-prefix list that extensions cannot enter, **every contributed endpoint requires an
-authenticated session** — there is currently no way for an extension to expose an
-unauthenticated route, so inbound provider webhooks and public status endpoints are out of
-scope for this release. Within that, an extension distinguishes an ordinary user from an
+prefix list that extensions cannot enter, **every contributed endpoint requires
+authentication**. Ordinary `registry.routers(...)` routes use host authentication.
+Trusted extensions can register dedicated worker operations with
+`registry.bearer_routers((router,), authenticator)`: async `authenticate(token)` returns
+an immutable `ExtensionCredential(user_id, subject_id)` or `None`. These operations require
+their own bearer credential and an existing host owner, carry no host permissions or admin
+privileges, and never fall back to browser sessions or internal credentials. The binding
+covers only the accepted route and HTTP methods. Keep pairing and credential management
+on ordinary CSRF-protected browser routes; extensions own credential expiry, revocation,
+and subject/task ownership checks. Unauthenticated extension routes, inbound provider
+webhooks, and public status endpoints remain out of scope.
+Within ordinary host authentication, an extension distinguishes an ordinary user from an
 administrator through `deerflow_extension_api.auth`: `resolve_principal(request)` returns
 the caller, `require_admin(request)` raises `PermissionError` for anyone else and fails
 closed when identity cannot be determined. Extensions receive a projection — user id, admin
-flag, internal flag, roles — never the host's auth context. Router startup/shutdown hooks,
+flag, internal flag, roles, and optional credential subject id — never the host's auth context. Router startup/shutdown hooks,
 custom lifespans, Mounts, and WebSocket routes are not accepted; lifetime resources belong in
 `ExtensionService`, and WebSocket contributions require a future host-owned
 authentication/Origin wrapper. Lifecycle and system-model callbacks use the Gateway's

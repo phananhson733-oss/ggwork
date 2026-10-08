@@ -15,6 +15,7 @@ from typing import Any
 from deerflow_extension_api import (
     AgentAssemblyObserver,
     ContextCompactionObserver,
+    ExtensionBearerAuthenticator,
     ExtensionData,
     ExtensionService,
     MiddlewareContributor,
@@ -24,6 +25,14 @@ from deerflow_extension_api import (
 from deerflow_extension_api import ExtensionRegistry as ExtensionRegistryContract
 
 _Entry = tuple[str, Any]
+
+
+@dataclass(frozen=True)
+class BearerRouter:
+    """One ordered router registration carrying its restricted authenticator."""
+
+    router: Any
+    authenticator: ExtensionBearerAuthenticator
 
 
 @dataclass(frozen=True)
@@ -115,6 +124,10 @@ class ExtensionRegistry(ExtensionRegistryContract):
     def routers(self, routers: Sequence[Any]) -> None:
         source = self._source()
         self._routers.extend((source, router) for router in routers)
+
+    def bearer_routers(self, routers: Sequence[Any], authenticator: ExtensionBearerAuthenticator) -> None:
+        source = self._source()
+        self._routers.extend((source, BearerRouter(router, authenticator)) for router in routers)
 
     def discard(self, source: str) -> None:
         """Remove every entry registered by ``source``.
