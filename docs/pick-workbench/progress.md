@@ -903,3 +903,8 @@ Gateway deployment `d3add884-b667-4dc3-bfb5-c8e297d294f5` passed readiness with 
 - `pick-deploy-guard target=gateway commit=6b6c65efd5663b19a56a9823bb3506d46a63929e prod_head=0008 chain_head=0008 at=2026-10-08T13:22:31Z`
 
 CPS retry deployment `91875ef9-d215-4147-a843-f9030d2905e9` passed readiness; the complete cloud CPS collection succeeded at 13:34 UTC. Mirror publication then exposed source-query contention. The additive `002-read-indexes` migration was applied under both source advisory locks; a separate temporary read probe using the reviewed query changes reduced complete-manifest execution from 95.78 seconds to 31.177 seconds with identical exported counts. That probe does not itself establish production mirror publication.
+
+
+- `pick-deploy-guard target=gateway commit=cfde99206f208b4911728063da4aee6ced7aa535 prod_head=0008 chain_head=0008 at=2026-10-08T14:13:42Z`
+
+Indexed source deployment `2f5b8b09-4c9c-4122-a2da-8449d12f1cb3` passed readiness. Its live mirror attempt read the manifest in 28.685 seconds and passed v1 text checks. It then exposed a route matcher that rejected the digit in `rs_clicks14`; version 26 was therefore not published. The route correction is covered across every declared export resource, retaining authentication and the exact resource allowlist.
