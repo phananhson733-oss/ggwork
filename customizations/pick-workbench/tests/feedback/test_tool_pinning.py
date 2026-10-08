@@ -65,7 +65,9 @@ async def feedback_history(pick_db_url, tmp_path):
     async def runtime_for(record):
         store = ExtensionData("task")
         await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task", "new", "thread", "lead"))
-        runtime = SimpleNamespace(context={"user_id": "alice", "pick_reference": {"result_id": record["id"]}, EXTENSION_TASK_STORE_KEY: store})
+        runtime = SimpleNamespace(
+            context={"user_id": "alice", "pick_reference": {"result_id": record["id"]}, EXTENSION_TASK_STORE_KEY: store}, tool_call_id="history-read"
+        )
         return runtime, task_from_runtime(runtime)
 
     try:
