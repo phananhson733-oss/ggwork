@@ -168,7 +168,7 @@ def build_router(service):
     register_feedback_routes(router, service, repository)
     from ggwork_pick.planning_routes import register_planning_routes
 
-    register_planning_routes(router, repository)
+    register_planning_routes(router, repository, service.common_query)
 
     @router.post("/query", response_model=QueryResponse)
     async def common_query(body: CommonQuery, request: Request):

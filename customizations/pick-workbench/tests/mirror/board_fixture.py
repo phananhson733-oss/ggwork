@@ -429,7 +429,7 @@ def _grant_connect(cluster, database: str, role: str) -> None:
 
 
 async def _open_gateway(url: str, data_dir: Path):
-    """PickService rooted at data_dir itself, as the gateway roots it (ggwork_pick/__init__.py); mirror_pairs.open_service
+    """PickService rooted at data_dir itself, as the gateway roots it (ggwork_pick/__init__.py); mirror_pairs.open_query_service
     roots it at data_dir / "files" instead. Its initialize is the gateway's startup migration (tests/pg.py migrate)."""
     from engines import host_engine
     from sqlalchemy.ext.asyncio import async_sessionmaker

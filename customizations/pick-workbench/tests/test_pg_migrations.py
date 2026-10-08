@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 TABLES = {
     "ggwp_alembic_version",
     "ggwp_content_plans",
+    "ggwp_content_plan_previews",
+    "ggwp_content_plan_exports",
     "ggwp_content_plan_rows",
     "ggwp_content_plan_commands",
     "ggwp_import_batches",

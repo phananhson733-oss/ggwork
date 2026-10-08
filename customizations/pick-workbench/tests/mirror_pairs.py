@@ -53,7 +53,7 @@ def batch_meta(tag: str) -> dict:
     return {"source": "realshort", "scope": f"scope-{tag}", "freshness": {"catalogImportedAt": f"at-{tag}"}, "source_revision": f"rev-{tag}"}
 
 
-async def open_service(url: str, tmp_path):
+async def open_query_service(url: str, tmp_path):
     from ggwork_pick.imports import Importer
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.service import PickService
@@ -84,7 +84,7 @@ async def stage_pair(importer, tag: str, *, rules: str | None = None, as_of_text
     return [catalog, knowledge]
 
 
-async def building_version(engine, *, as_of: datetime = AS_OF, freshness: dict | None = None) -> tuple[int, str]:
+async def building_query_version(engine, *, as_of: datetime = AS_OF, freshness: dict | None = None) -> tuple[int, str]:
     async with engine.begin() as conn:
         version_id = (await conn.execute(text("SELECT nextval(pg_get_serial_sequence('pick_mirror.versions', 'id'))"))).scalar_one()
         schema = f"pickm_v{version_id:06d}"
@@ -113,7 +113,7 @@ async def building_version(engine, *, as_of: datetime = AS_OF, freshness: dict |
 async def publish_pair(engine, shared, importer, tag: str, *, as_of: datetime = AS_OF, rules: str | None = None) -> tuple[int, list[dict]]:
     """One whole paired run: stage both batches, build a version, publish the pair."""
     staged = await stage_pair(importer, tag, rules=rules, as_of_text=_as_of_text(as_of))
-    version_id, schema = await building_version(engine, as_of=as_of)
+    version_id, schema = await building_query_version(engine, as_of=as_of)
     from ggwork_pick.mirror.contracts import RESOURCE_COLUMNS
 
     raw_catalog = json.loads(catalog_payload(tag))

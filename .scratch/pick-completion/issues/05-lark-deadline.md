@@ -8,3 +8,5 @@ Propagate PickTask.ordinary_deadline to the existing Lark worker instead of reco
 Other full-extension failures remain tracked externally in extension-suite-triage.md: observer role/schema test setup, T4 timestamp guard and managed package drift. None are waived by this child; managed package synchronization remains T10.
 
 Implemented in codex/pick-completion-t5-lark: original ordinary deadline flows into cold version probe, help/risk/credential setup and command process; default probe behavior stays unchanged. Synthetic actual-worker/process-group tests and independent code/Python review are required before root merge closes this follow-up.
+
+completion_t5 owns separate codex/pick-completion-t5-lark worktree based on integrated d15973bd. T4a approved reference code remains separate; this slice owns only the Lark deadline adapter, focused tests and relevant documentation.
