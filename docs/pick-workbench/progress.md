@@ -930,3 +930,11 @@ CPS retry deployment `91875ef9-d215-4147-a843-f9030d2905e9` passed readiness; th
 - `pick-deploy-guard target=gateway commit=cfde99206f208b4911728063da4aee6ced7aa535 prod_head=0008 chain_head=0008 at=2026-10-08T14:13:42Z`
 
 Indexed source deployment `2f5b8b09-4c9c-4122-a2da-8449d12f1cb3` passed readiness. Its live mirror attempt read the manifest in 28.685 seconds and passed v1 text checks. It then exposed a route matcher that rejected the digit in `rs_clicks14`; version 26 was therefore not published. The route correction is covered across every declared export resource, retaining authentication and the exact resource allowlist.
+
+
+## 2026-10-08 Native selection source accepted
+
+- `pick-deploy-guard target=gateway commit=3a82b95e9d3dac7c9d42560d617ae4d3f473447b prod_head=0008 chain_head=0008 at=2026-10-08T14:40:26Z`
+- `pick-deploy-guard target=frontend commit=3a82b95e9d3dac7c9d42560d617ae4d3f473447b at=2026-10-08T14:53:14Z`
+
+Native mirror v27 published paired at 14:48 UTC with all eight gates passing, zero drift, zero scrub hits and cleared mirror-failure status. Production frontend promotion and authenticated browser checks passed. Queyu authentication remains explicitly pending; the owner-approved MoboReels retained-source exception stays visible. See [release acceptance](releases/2026-10-08-native-source-acceptance.md) for identities, validation boundaries and scheduled-run evidence.
