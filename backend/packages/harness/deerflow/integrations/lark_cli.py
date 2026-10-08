@@ -1624,16 +1624,17 @@ def embedded_lark_skill_names(path: str, tag: str) -> tuple[str, ...]:
     return names
 
 
-def probe_lark_cli() -> LarkCliProbe:
+def probe_lark_cli(*, process_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None) -> LarkCliProbe:
+    """Probe with the legacy runner, or an internal caller's stricter bounded runner."""
     path = _resolve_lark_cli_path()
     if path is None:
         return LarkCliProbe(available=False, error="lark-cli is not installed on the Gateway")
-    return _probe_lark_cli_at_path(path)
+    return _probe_lark_cli_at_path(path) if process_runner is None else _probe_lark_cli_at_path(path, process_runner=process_runner)
 
 
-def _probe_lark_cli_at_path(path: str) -> LarkCliProbe:
+def _probe_lark_cli_at_path(path: str, *, process_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None) -> LarkCliProbe:
     try:
-        result = subprocess.run(
+        result = (process_runner or subprocess.run)(
             [path, "--version"],
             check=False,
             capture_output=True,
