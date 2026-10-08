@@ -74,7 +74,7 @@ export class PickApiError extends Error {
   }
 }
 
-async function responseFor(path: string, init?: RequestInit) {
+export async function responseFor(path: string, init?: RequestInit) {
   const response = await fetchWithAuth(
     `${getBackendBaseURL()}/api/pick${path}`,
     init,
