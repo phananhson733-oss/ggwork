@@ -39,4 +39,3 @@ async def building_version(engine, *, as_of: datetime = AS_OF, freshness: dict |
             {"id": version_id, "schema": schema, "as_of": as_of, "fp": FINGERPRINT, "freshness": json.dumps(freshness or V2_FRESHNESS), "created": now()},
         )
     return version_id, schema
-

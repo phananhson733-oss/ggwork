@@ -340,10 +340,10 @@ async def test_stored_timestamps_sort_in_time_order_under_each_collation(pick_db
 # Exact reviewed date-only contexts, not module exemptions. Changing the date
 # constructor or the datetime-first return makes the clock guard fail closed.
 DATE_ONLY_SERIALIZATIONS = (
-    'return value if date.fromisoformat(value).isoformat() == value else None',
+    "return value if date.fromisoformat(value).isoformat() == value else None",
     'parsed = date.fromisoformat(post.get("d", ""))\n                    if parsed.isoformat() != post.get("d"):',
     'if isinstance(value, datetime):\n        return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")\n'
-    '    if isinstance(value, date):\n        return value.isoformat()',
+    "    if isinstance(value, date):\n        return value.isoformat()",
 )
 
 
@@ -368,17 +368,13 @@ def test_timestamp_guard_allows_only_the_reviewed_date_context(date_only):
 
 
 def test_timestamp_guard_requires_datetime_dispatch_before_date():
-    assert _clock_offenders('if isinstance(value, date):\n        return value.isoformat()') == [2]
+    assert _clock_offenders("if isinstance(value, date):\n        return value.isoformat()") == [2]
     assert _clock_offenders(DATE_ONLY_SERIALIZATIONS[2].replace('timespec="milliseconds"', 'timespec="auto"'))
 
 
 def test_stored_timestamps_come_from_one_utc_clock():
     # repository.stamp() is the one writer: UTC, six fractional digits.
-    offenders = [
-        f"{path.relative_to(EXTENSION)}:{number}"
-        for path in sorted(EXTENSION.rglob("*.py"))
-        for number in _clock_offenders(path.read_text())
-    ]
+    offenders = [f"{path.relative_to(EXTENSION)}:{number}" for path in sorted(EXTENSION.rglob("*.py")) for number in _clock_offenders(path.read_text())]
     assert offenders == []
 
 
