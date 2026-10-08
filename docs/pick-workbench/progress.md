@@ -1,6 +1,25 @@
 > 项目统一命名为 **ggwork-deerflow**，业务仓库为 `phananhson733-oss/ggwork-deerflow`。本地目录、旧版项目和部署方式见[项目对应关系](../project-identity.md)。以下发布记录中的旧 GitHub 地址、remote 短名和提交标识保留为历史证据。
 
-# 当前前端发布状态（2026-10-08，PR #48 Trends 原生界面）
+# 当前发布状态（2026-10-08，PR #52 完整历史雷达集成）
+
+[PR #52](https://github.com/phananhson733-oss/ggwork-deerflow/pull/52) 已合并并发布，纠正 PR #48 只迁移单晚表格、遗漏本地完整浏览体验的问题。产品提交 `98b8427d588cadad06748ba9311aeaef69ac1589` 与最终通过检查的 PR HEAD 文件树完全一致；前端版本 `20261008-98b8427`。
+
+- 默认 Google 趋势页现在展示 US 历史快照的四张覆盖卡、综合/历史信号双视图、六项筛选、分页、完整证据详情和全匹配 CSV，统一使用 GGWork 主题。全球日级采集表在 `?tab=trends&rv=daily`，排序及返回链接保持来源边界。
+- Gateway `f1081d47-ab08-4fa4-8eab-c649448a18fb` SUCCESS；实际 installed 172 个业务 Python 文件与发布源码匹配。Vercel `dpl_38qMnXXZ9aGYmFgo8x1wE2mNS9ay` READY，正式域名与 About 版本独立核对一致。生产迁移仍为 `0008`。
+- 原始快照单独放入 Gateway 私有持久目录，固定校验哈希匹配、文件只读；不进入 Git/前端公开资源。完整源行、评分、日期、曲线与本地试用版逐项相同，原始响应仍未核验，实验评分不是正式选剧等级或预测概率。
+- 最终前端 3,004 passed /45 PG-dependent skipped，check/build 通过；PR CI `37765463036` SUCCESS：完整业务双库 5,011 passed /29 skipped，宿主入口等 108 passed，reader integration 45 passed /0 skipped。规范审查无待修问题；Spec 审查发现搜索防抖与详情评分解释漏迁，两项修复后复核关闭。
+- 生产普通 QA 验证统计、第一页剧名及顺序、分页、组合筛选、历史信号、完整详情和 CSV；匿名接口均拒绝。390px 下页面无横向溢出，表格局部滚动；浅深主题及真实版本通过，浏览器未记录 warning/error。上线前后的个人清单完整内容、日级批次、数据行和告警一致。
+- 没有主动采集 Google、应用模型运行、个人保存或飞书写入；未重部署采集器或修改其参数/停止状态。既有反馈功能配置保持。日级验收 heartbeat 只更新仓库名称和 `rv=daily` 页面入口，保留原调度及只读边界，不能把历史曲线计入恢复资格。
+- 保留验证限制：本地浏览器使用仅 loopback 的合成身份测试 harness，生产鉴权证据来自正式普通 QA 与匿名检查。本地全套首次时间格式合同失败，修正后定向复验及最终 CI 通过；初次窄屏截图裁切经页面级截图与尺寸检查解决。失败日志、原始数据和截图留在私有验收目录。
+
+**本次完成的是历史雷达完整迁入与上线；全球日级三个真实合格夜晚及首周观察仍未完成。** 执行合同见[完整集成 Spec](../plans/2026-10-08-radar-integration.md)。
+
+- `pick-deploy-guard target=gateway commit=98b8427d588cadad06748ba9311aeaef69ac1589 prod_head=0008 chain_head=0008 at=2026-10-08T11:15:26Z`
+- `pick-deploy-guard target=frontend commit=98b8427d588cadad06748ba9311aeaef69ac1589 at=2026-10-08T11:21:06Z`
+
+---
+
+# 历史前端发布状态（2026-10-08，PR #48 Trends 原生界面）
 
 [PR #48](https://github.com/phananhson733-oss/ggwork-deerflow/pull/48) 已合并并部署到正式域名。产品提交 `7f462e86f1ff4f4ace6f7cc8be05dcf96f55c7ef`，前端版本 `20261008-7f462e8`，Vercel 部署 `dpl_GWY4VLcrSBrWZhbrjvMQBcw1GKSW` 为 READY；正式域名独立回读指向此部署，About 版本一致。
 
