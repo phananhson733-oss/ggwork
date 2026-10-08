@@ -352,7 +352,8 @@ async def query_data_tool(query: CommonQuery, runtime: Runtime) -> str:
     """与选剧资料页使用相同固定版本，查询 candidates/catalog/rankings/posted/rules。
     完整剧库用 scope=full_catalog；历史榜单明确 rank 与 period 日期，周榜日期为周起始日。
     只用返回的 actual_period 描述实际期次；posted_status=unknown 不可说从未发布。
-    此工具只读，不创建候选卡；保存候选请用 pick_query_candidates。不要自行设置 pin。
+    返回pick-query-model-v1有界投影，每页最多20行；projection显示省略数量和下一页offset，signals_truncated表示部分信号省略。
+    行与信号reference是可引用的工具证据编号。此工具只读，不创建候选卡；保存候选请用 pick_query_candidates。不要自行设置 pin。
     """
     task = task_from_runtime(runtime)
     repo = await task.repository(runtime)
@@ -362,6 +363,8 @@ async def query_data_tool(query: CommonQuery, runtime: Runtime) -> str:
         from ggwork_pick.selection import RULE_VERSION
 
         request = CommonQuery.model_validate(query)
+        requested_limit = request.limit
+        request = request.model_copy(update={"limit": min(request.limit, 20)})
         if task.catalog_id is None:
             return json.dumps(_capture(task, runtime, "pick_query_data", json.loads(_catalog_unavailable())), ensure_ascii=False)
         pin = QueryPin(
@@ -375,6 +378,10 @@ async def query_data_tool(query: CommonQuery, runtime: Runtime) -> str:
         request = request.model_copy(update={"pin": pin})
         response = await task.service.common_query(repo).query(request, deadline=task.query_deadline)
         payload = response.model_dump(mode="json")
-        return json.dumps(_capture(task, runtime, "pick_query_data", payload), ensure_ascii=False, separators=(",", ":"))
+        _capture(task, runtime, "pick_query_data", payload)
+        from ggwork_pick.query_model_projection import model_projection
+
+        projected = model_projection(payload, call_id=runtime.tool_call_id, requested_limit=requested_limit)
+        return json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
 
     return await _answer(work, task=task, runtime=runtime, tool_name="pick_query_data")
