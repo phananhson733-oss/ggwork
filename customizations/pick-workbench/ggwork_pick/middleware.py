@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.tools import BaseTool
 
 from ggwork_pick.answer_check import check_answer, titles_in
-from ggwork_pick.context import task_from_runtime
+from ggwork_pick.context import query_call_deadline, task_from_runtime
 from ggwork_pick.host_prompt import pick_system
 from ggwork_pick.lark_policy import LarkRefused, check_args
 from ggwork_pick.lark_tool import CONNECT_LINK, lark_connected
@@ -318,32 +318,48 @@ class PickToolGate(AgentMiddleware):
         plugin = not lark and name not in ALLOWED_TOOLS and is_plugin_tool(tool)
         if name not in ALLOWED_TOOLS and not plugin and not lark:
             raise ValueError("本工作台不允许该工具")
-        async with asyncio.timeout(task.ordinary_remaining()):
-            async with task.execution_lock:
-                task.ordinary_remaining()
-                # Recheck mutable read state after preceding tools finish, immediately before execution.
-                # Only the configured pick tools spend the pick budget; an MCP tool named pick_* is a plugin like any other.
-                if not plugin and name.startswith("pick_"):
-                    if task.tool_calls >= 8:
-                        raise ValueError("本轮业务工具调用次数已达上限")
-                    task.tool_calls += 1
-                elif lark:
-                    if task.lark_calls >= LARK_CALL_LIMIT:
-                        raise ValueError("本轮飞书命令调用次数已达上限")
-                    task.lark_calls += 1
-                    # Feishu content may carry instructions too: an external-effect plugin then waits for the user.
-                    task.plugin_read = task.plugin_read or not lark_guide(request.tool_call.get("args"))
-                elif plugin:
-                    if task.plugin_calls >= PLUGIN_CALL_LIMIT:
-                        raise ValueError("本轮插件工具调用次数已达上限")
-                    reads = plugin_reads_only(request.tool)
-                    # Content a plugin read this turn may carry instructions; an action with external effects (a group
-                    # message, a CRM write) then waits for the user to approve it in their next message.
-                    if not reads and task.plugin_read:
-                        raise ValueError("本轮已读取外部内容，有外部效果的插件操作不能直接调用：先把要执行的内容给用户确认，等用户在下一条消息里同意后再调用")
-                    task.plugin_calls += 1
-                    task.plugin_read = task.plugin_read or reads
-                task.ordinary_remaining()
-                result = await handler(request)
-                task.ordinary_remaining()
-                return result
+        loop = asyncio.get_running_loop()
+        deadline = task.ordinary_deadline
+        if name in {"pick_query_candidates", "pick_count_candidates", "pick_query_data"}:
+            deadline = min(deadline, loop.time() + 10)
+        token = query_call_deadline.set(deadline)
+        try:
+            async with asyncio.timeout_at(deadline):
+                async with task.execution_lock:
+                    task.ordinary_remaining()
+                    if loop.time() >= deadline:
+                        raise TimeoutError
+                    # Recheck mutable read state after preceding tools finish, immediately before execution.
+                    # Only the configured pick tools spend the pick budget; an MCP tool named pick_* is a plugin like any other.
+                    if not plugin and name.startswith("pick_"):
+                        if task.tool_calls >= 8:
+                            raise ValueError("本轮业务工具调用次数已达上限")
+                        task.tool_calls += 1
+                    elif lark:
+                        if task.lark_calls >= LARK_CALL_LIMIT:
+                            raise ValueError("本轮飞书命令调用次数已达上限")
+                        task.lark_calls += 1
+                        # Feishu content may carry instructions too: an external-effect plugin then waits for the user.
+                        task.plugin_read = task.plugin_read or not lark_guide(request.tool_call.get("args"))
+                    elif plugin:
+                        if task.plugin_calls >= PLUGIN_CALL_LIMIT:
+                            raise ValueError("本轮插件工具调用次数已达上限")
+                        reads = plugin_reads_only(request.tool)
+                        # Content a plugin read this turn may carry instructions; an action with external effects (a group
+                        # message, a CRM write) then waits for the user to approve it in their next message.
+                        if not reads and task.plugin_read:
+                            raise ValueError(
+                                "本轮已读取外部内容，有外部效果的插件操作不能直接调用：先把要执行的内容给用户确认，等用户在下一条消息里同意后再调用"
+                            )
+                        task.plugin_calls += 1
+                        task.plugin_read = task.plugin_read or reads
+                    task.ordinary_remaining()
+                    if loop.time() >= deadline:
+                        raise TimeoutError
+                    result = await handler(request)
+                    task.ordinary_remaining()
+                    if loop.time() >= deadline:
+                        raise TimeoutError
+                    return result
+        finally:
+            query_call_deadline.reset(token)

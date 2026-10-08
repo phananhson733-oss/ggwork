@@ -74,3 +74,32 @@ async def test_inflight_ordinary_tool_is_cancelled_at_reserve():
         await asyncio.wait_for(PickToolGate().awrap_tool_call(request, work), 1)
     assert stopped.is_set()
     assert 19.7 < task.remaining() <= 20
+
+
+@pytest.mark.asyncio
+async def test_agent_query_budget_includes_setup_and_rejects_late_success(monkeypatch):
+    from ggwork_pick.context import PickTask
+    from ggwork_pick.middleware import PickToolGate
+
+    task = PickTask(None, TaskInfo("t", "r", "c", "lead"), budget=120)
+    store = ExtensionData("t")
+    store.set(task)
+    request = SimpleNamespace(runtime=SimpleNamespace(context={EXTENSION_TASK_STORE_KEY: store}), tool_call={"name": "pick_query_data"})
+    loop = asyncio.get_running_loop()
+    real_time = loop.time
+    offset = [0]
+    monkeypatch.setattr(loop, "time", lambda: real_time() + offset[0])
+    started = loop.time()
+
+    async def setup_and_encode(_):
+        assert task.query_deadline <= started + 10.01
+        offset[0] = 11
+        return "late success"
+
+    try:
+        with pytest.raises(TimeoutError):
+            await PickToolGate().awrap_tool_call(request, setup_and_encode)
+    finally:
+        offset[0] = 0
+    # A subsequent call receives a fresh per-call budget, never a stale ContextVar.
+    assert task.query_deadline == task.ordinary_deadline

@@ -4,6 +4,7 @@ import asyncio
 import math
 import os
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from deerflow.runtime.user_context import resolve_runtime_user_id
@@ -17,6 +18,7 @@ from ggwork_pick.repository import PickRepository
 
 # A gateway started without PICK_RUN_TIMEOUT_SECONDS has no host watchdog; the turn still ends here.
 DEFAULT_RUN_SECONDS = 120.0
+query_call_deadline: ContextVar[float | None] = ContextVar("pick_query_call_deadline", default=None)
 
 
 def run_seconds() -> float:
@@ -83,6 +85,11 @@ class PickTask:
     def ordinary_deadline(self) -> float:
         """Finalization owns the last twenty seconds inside the effective total."""
         return self.deadline - 20.0
+
+    @property
+    def query_deadline(self) -> float:
+        deadline = query_call_deadline.get()
+        return min(self.ordinary_deadline, deadline if deadline is not None else float("inf"))
 
     def ordinary_remaining(self):
         remaining = self.ordinary_deadline - time.monotonic()
