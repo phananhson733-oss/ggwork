@@ -435,3 +435,17 @@ async def test_conflicting_publication_times_do_not_certify_observation_window(a
     assert post["observation_days"] is None and post["window_complete"] is False
     assert post["published_at"] is None and post["views"] == 150 and post["comments"] == 0
     assert "conflicting_publication_times" in reply["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_observation_only_publication_time_conflict_revalidates_saved_link(app_client):
+    client, service = app_client
+    source, _, body = await plan_and_version(client, service)
+    headers = {"test-owner": "alice"}
+    receipt = (await client.post("/api/pick/feedback/plan-links", headers=headers, json=body)).json()
+    source["observations"][1]["发布时间"] = "2026-10-02T12:00:00+08:00"
+    await published(service, source)
+    row = (await client.get("/api/pick/feedback/posts", headers=headers)).json()["items"][0]
+    assert row["published_at"] is None and row["observation_days"] is None
+    assert row["link"] == {**receipt, "status": "needs_review"}
+    assert (await client.post("/api/pick/feedback/plan-links", headers=headers, json=body)).json() == receipt
