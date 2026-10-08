@@ -9,7 +9,8 @@
     "start": "node --conditions=react-server --import tsx runtime/server.ts",
     "refresh:cps": "node --conditions=react-server --import tsx runtime/refresh.ts cps",
     "refresh:catalog": "node --conditions=react-server --import tsx runtime/refresh.ts catalog",
-    "migrate": "node --conditions=react-server --import tsx runtime/migrate.ts"
+    "migrate": "node --conditions=react-server --import tsx runtime/migrate.ts",
+    "refresh:queyu": "node --conditions=react-server --import tsx runtime/refresh.ts queyu"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

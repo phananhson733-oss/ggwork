@@ -18,6 +18,7 @@ pnpm migrate --adopt-restored
 pnpm start
 pnpm refresh:cps
 pnpm refresh:catalog
+pnpm refresh:queyu
 ```
 
 `PICK_SOURCE_DATABASE_URL` and `PICK_SOURCE_CA_PEM` are required for remote PostgreSQL. Never put them in arguments or Git. Native collection settings, data restoration, scheduled execution and rollback are documented in [the operating guide](../../docs/pick-workbench/native-source.md).

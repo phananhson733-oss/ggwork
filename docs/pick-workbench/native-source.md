@@ -13,7 +13,8 @@ The raw source retains private resource and billing fields. `/api/pick/resources
 | Variable | Meaning |
 | --- | --- |
 | `PICK_SOURCE_ENABLED=1` | Start native source and select its loopback feed; absent disables it |
-| `PICK_SOURCE_DATABASE_URL` | Source PostgreSQL connection, without a schema override |
+| `PICK_SOURCE_DATABASE_URL` | Session-stable source PostgreSQL connection (Supabase port 5432), without a schema override |
+| `PICK_SOURCE_REVISION` | Exact deployed Git commit; included in feed fingerprints |
 | `PICK_SOURCE_CA_PEM` | Trusted database CA; certificate and hostname verification remain enabled |
 | `PICK_SOURCE_OWNER_ID` | Existing authenticated user's ID; default/shared identities are rejected |
 | `PICK_SOURCE_DATA_DIR` | Private persistent working data, default `/data/pick-source` |
