@@ -7,7 +7,8 @@ import { usePickContext } from "./pick-context";
 
 export function PickReferenceNotice({ threadId }: { threadId: string }) {
   const pick = usePickContext();
-  const bound = pick?.plural;
+  if (!pick) return null;
+  const bound = pick.plural;
   if (pick?.referenceLoadingThread === threadId)
     return (
       <section
