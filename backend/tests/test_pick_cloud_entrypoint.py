@@ -352,7 +352,8 @@ def serve(target, **kwargs):
     from app.gateway.app import app as gateway
     from app.gateway.json_body_sanitizer import JsonBodySanitizer
 
-    assert isinstance(served, JsonBodySanitizer) and served.app is gateway, target
+    from app.gateway.pick_query_budget import PickQueryBudget
+    assert isinstance(served, PickQueryBudget) and isinstance(served.app, JsonBodySanitizer) and served.app.app is gateway, target
 
 
 pick_entrypoint.uvicorn.run = serve

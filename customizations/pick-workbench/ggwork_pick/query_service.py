@@ -128,10 +128,15 @@ class CommonQueryService:
 
     async def query(self, request: CommonQuery, *, deadline=None):
         loop = asyncio.get_running_loop()
-        deadline = min(deadline if deadline is not None else float("inf"), loop.time() + request.budget_ms / 1000)
+        deadline = min(deadline if deadline is not None else float("inf"), loop.time() + min(10000, request.budget_ms) / 1000)
         try:
+            if loop.time() >= deadline:
+                raise TimeoutError
             async with asyncio.timeout_at(deadline):
-                return await self._query(request, deadline=deadline)
+                result = await self._query(request, deadline=deadline)
+                if loop.time() >= deadline:
+                    raise TimeoutError
+                return result
         except QueryFailure:
             raise
         except TimeoutError:
@@ -367,6 +372,20 @@ class CommonQueryService:
 
     async def candidate_matches(self, rows, conditions, excluded, pin, *, deadline=None):
         """Legacy cards keep storage/notes; their read goes through the common domain engine."""
+        loop = asyncio.get_running_loop()
+        deadline = min(deadline if deadline is not None else float("inf"), loop.time() + 10)
+        try:
+            if loop.time() >= deadline:
+                raise TimeoutError
+            async with asyncio.timeout_at(deadline):
+                result = await self._candidate_matches(rows, conditions, excluded, pin, deadline=deadline)
+                if loop.time() >= deadline:
+                    raise TimeoutError
+                return result
+        except TimeoutError:
+            raise QueryFailure("query_timeout", "查询超过时限，请缩小范围后重试", retryable=True) from None
+
+    async def _candidate_matches(self, rows, conditions, excluded, pin, *, deadline):
         from ggwork_pick.query_private import private_matches
         from ggwork_pick.selection import _check_references
 
@@ -400,7 +419,6 @@ class CommonQueryService:
                 )
             }
         )
-        deadline = min(deadline if deadline is not None else float("inf"), asyncio.get_running_loop().time() + 10)
         if conditions.sort == "rank":
             signals = [s for row in rows for s in row["signals"] if s["kind"] == conditions.signal_kind]
             if conditions.signal_kind not in {"kd", "qc", "qr"} and all(s.get("rank") is None for s in signals):

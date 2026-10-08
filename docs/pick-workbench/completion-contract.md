@@ -42,7 +42,7 @@ Input filters are explicit: query (title/Chinese title fuzzy and stable source I
 
 Current board derived projections (ReelShort observations/growth/ledger joins, freshness and links) retain their existing public TS contracts in `server/pick-board/`; source records here make lossless adaptation possible but do not claim those calculations are implemented. T4/T5 must retain old read paths until each derived view proves pagination, ordering, facets, rule, error and fixed-version parity. Extend this versioned DTO explicitly if a derived field cannot be losslessly reconstructed; never introduce an untyped arbitrary payload.
 
-The caller owns a single 10,000ms query budget. `budget_ms` may only shorten it; connection wait, SQL, enrichment and serialization consume the remainder. Internal calls honor the earlier ordinary-phase deadline. Cancellation releases resources. Source observation and mirror synchronization times are separate fields; historical evidence never becomes current because the mirror synced today.
+The caller owns a single 10,000ms query budget. The pick ASGI entrypoint starts it before body parsing and global authentication. `X-Pick-Query-Budget-Ms` carries only a shorter remaining duration; values above 10,000 cannot extend the cap. The body `budget_ms` is measured from that same request start. HTTP disconnect cancels the active request and awaits cleanup, including rollback/release of the independent reader connection. The route encodes the typed response inside the budget and checks elapsed time after synchronous encoding. The reader preserves any shorter database statement timeout, its existing 8s command cap, 5s connect cap, and three-connection maximum. `budget_ms` may only shorten it; connection wait, SQL, enrichment and serialization consume the remainder. Agent query invocations start that cap before their execution lock and repository setup; a task-local context carries the same deadline into common service/SQL work and is reset on all exits. Internal calls honor the earlier ordinary-phase deadline. Cancellation releases resources. Source observation and mirror synchronization times are separate fields; historical evidence never becomes current because the mirror synced today.
 
 ## Checked final publication
 
@@ -127,6 +127,10 @@ constrained, display labels remain quoted, duplicate titles remain ambiguous,
 and exact scoped publication assertions require complete matching for a negative
 claim. Failed reads invalidate all uncited “current query” count/period/pin/scope
 claims; an explicit reference to a prior receipt remains historical evidence.
+
+## Agent finalization budget
+
+`PickTask.deadline` remains the earlier local/host trusted total deadline. Ordinary models, data tools, plugins and their setup/lock waits stop at `ordinary_deadline`, twenty seconds before that total deadline. A total budget of twenty seconds or less starts no ordinary work. Expiry returns the host's checked incomplete final message; it does not turn a failed query into an empty result. Final checking and the existing at-most-one correction use only actual remaining total time and still share the twelve-model-call cap. A synchronous late response is checked against the deadline before approval. These are execution budgets, not a measured successful-response latency guarantee; cancellation cleanup and durable publication still preserve host resource/persistence invariants.
 
 ## Bounded model/operator query projection
 

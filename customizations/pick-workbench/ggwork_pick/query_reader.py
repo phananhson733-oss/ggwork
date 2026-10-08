@@ -68,11 +68,18 @@ class QueryReader:
     @asynccontextmanager
     async def connection(self, *, deadline: float):
         """Absolute loop deadline includes pool wait. Cancellation rolls back and releases."""
+        loop = asyncio.get_running_loop()
+        if loop.time() >= deadline:
+            raise TimeoutError
         async with asyncio.timeout_at(deadline):
             pool = await self._pool()
             async with pool.acquire(timeout=max(0.001, deadline - asyncio.get_running_loop().time())) as conn:
                 async with conn.transaction(readonly=True):
-                    ms = max(1, min(8000, int((deadline - asyncio.get_running_loop().time()) * 1000)))
+                    server_ms = int(await conn.fetchval("SELECT setting FROM pg_settings WHERE name = 'statement_timeout'"))
+                    remaining_ms = int((deadline - loop.time()) * 1000)
+                    if remaining_ms <= 0:
+                        raise TimeoutError
+                    ms = max(1, min(8000, server_ms or 8000, remaining_ms))
                     await conn.execute(f"SET LOCAL statement_timeout = {ms}")
                     await conn.execute("SET LOCAL search_path = pick_mirror")
                     yield conn

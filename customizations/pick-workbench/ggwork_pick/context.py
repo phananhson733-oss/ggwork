@@ -4,6 +4,7 @@ import asyncio
 import math
 import os
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from deerflow.runtime.user_context import resolve_runtime_user_id
@@ -17,6 +18,7 @@ from ggwork_pick.repository import PickRepository
 
 # A gateway started without PICK_RUN_TIMEOUT_SECONDS has no host watchdog; the turn still ends here.
 DEFAULT_RUN_SECONDS = 120.0
+query_call_deadline: ContextVar[float | None] = ContextVar("pick_query_call_deadline", default=None)
 
 
 def run_seconds() -> float:
@@ -79,6 +81,22 @@ class PickTask:
     def repin(self, pin: Pin) -> None:
         self.catalog_id, self.knowledge_id, self.mirror_version, self.data_as_of = pin
 
+    @property
+    def ordinary_deadline(self) -> float:
+        """Finalization owns the last twenty seconds inside the effective total."""
+        return self.deadline - 20.0
+
+    @property
+    def query_deadline(self) -> float:
+        deadline = query_call_deadline.get()
+        return min(self.ordinary_deadline, deadline if deadline is not None else float("inf"))
+
+    def ordinary_remaining(self):
+        remaining = self.ordinary_deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("本轮选剧已进入收尾阶段")
+        return remaining
+
     def remaining(self):
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
@@ -118,12 +136,12 @@ class PickTask:
             return repo
 
 
-def task_from_runtime(runtime):
+def task_from_runtime(runtime, *, ordinary=True):
     store = task_store_from_runtime(runtime)
     task = store.get(PickTask) if store is not None else None
     if task is None or task.info.kind != "lead":
         raise ValueError("选剧工具只能在受控的个人对话运行中调用")
-    task.remaining()
+    task.ordinary_remaining() if ordinary else task.remaining()
     return task
 
 

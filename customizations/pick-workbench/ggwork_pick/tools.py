@@ -137,7 +137,7 @@ async def query_candidates_tool(
         async def feedback_builder(record):
             return await candidate_feedback(task, repo, record, feedback_pin)
 
-        result, record = await SelectionService(repo, query_service=task.service.common_query(repo), deadline=task.deadline).query_with_record(
+        result, record = await SelectionService(repo, query_service=task.service.common_query(repo), deadline=task.query_deadline).query_with_record(
             requested,
             thread_id=task.info.thread_id,
             run_id=task.info.run_id,
@@ -193,7 +193,7 @@ async def count_candidates_tool(filters: PickConditions, runtime: Runtime) -> st
         parent = await _bound_parent(task, repo, requested)
         # data_as_of comes with the count: the parent's frozen value for 换一批, the run's pin otherwise; so does the
         # mirror version while the P4-1 switch is on.
-        counted = await SelectionService(repo, query_service=task.service.common_query(repo), deadline=task.deadline).count(
+        counted = await SelectionService(repo, query_service=task.service.common_query(repo), deadline=task.query_deadline).count(
             requested, parent=parent, pinned_versions=task.pin(), emit_mirror_version=_emits_mirror_version(task)
         )
         if PickConditions.model_validate(counted["conditions"]).filters_posted:
@@ -376,7 +376,7 @@ async def query_data_tool(query: CommonQuery, runtime: Runtime) -> str:
         if request.pin is not None and request.pin != pin:
             raise ValueError("查询版本与本轮已固定的数据版本不一致")
         request = request.model_copy(update={"pin": pin})
-        response = await task.service.common_query(repo).query(request, deadline=task.deadline)
+        response = await task.service.common_query(repo).query(request, deadline=task.query_deadline)
         payload = response.model_dump(mode="json")
         _capture(task, runtime, "pick_query_data", payload)
         from ggwork_pick.query_model_projection import model_projection

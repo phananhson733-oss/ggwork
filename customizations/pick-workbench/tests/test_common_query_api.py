@@ -333,3 +333,54 @@ def test_unknown_account_mapping_never_proves_scoped_absence(account):
         "unknown",
         False,
     )
+
+
+@pytest.mark.asyncio
+async def test_query_body_budget_counts_time_already_spent_before_route(app_client):
+    import asyncio
+
+    client, _ = app_client
+    original = client._transport.app
+
+    async def already_spent(scope, receive, send):
+        scope.setdefault("state", {})["pick_query_started"] = asyncio.get_running_loop().time() - 0.05
+        scope["state"]["pick_query_deadline"] = asyncio.get_running_loop().time() + 10
+        await original(scope, receive, send)
+
+    client._transport.app = already_spent
+    response = await client.post("/api/pick/query", headers={"test-owner": "alice"}, json={"domain": "catalog", "scope": "full_catalog", "budget_ms": 10})
+    assert response.status_code == 504, response.text
+    assert response.json()["detail"]["code"] == "query_timeout"
+    assert response.json()["detail"]["retryable"] is True
+
+
+@pytest.mark.asyncio
+async def test_query_never_returns_success_if_encoding_exhausts_deadline(app_client, monkeypatch):
+    import asyncio
+
+    from ggwork_pick.completion_contracts import QueryResponse
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+
+    client, service = app_client
+    await Importer(PickRepository(service.session_factory, "alice"), service.data_dir).catalog(
+        b'[{"source":"synthetic","source_id":"1","language":"en","title":"Example"}]', "json"
+    )
+    loop = asyncio.get_running_loop()
+    original_clock = loop.time
+    original_encode = QueryResponse.model_dump_json
+    offset = [0]
+    monkeypatch.setattr(loop, "time", lambda: original_clock() + offset[0])
+
+    def encoding_with_elapsed_time(self, *args, **kwargs):
+        result = original_encode(self, *args, **kwargs)
+        offset[0] = 11
+        return result
+
+    monkeypatch.setattr(QueryResponse, "model_dump_json", encoding_with_elapsed_time)
+    try:
+        response = await client.post("/api/pick/query", headers={"test-owner": "alice"}, json={"domain": "catalog", "scope": "full_catalog"})
+        assert response.status_code == 504, response.text
+        assert response.json()["detail"]["code"] == "query_timeout"
+    finally:
+        offset[0] = 0
