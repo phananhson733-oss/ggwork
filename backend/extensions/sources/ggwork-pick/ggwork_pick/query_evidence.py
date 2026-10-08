@@ -108,6 +108,20 @@ def capture_common(evidence, call_id, payload):
         if not _label(drama["title"]):
             continue
         title, row_ref = f"《{drama['title']}》", _reference(call_id, subject)
+        from ggwork_pick.query_facts import episode_fact
+
+        episodes = episode_fact(payload, row)
+        if episodes is not None:
+            atom(
+                f"{title}共",
+                str(episodes.episodes) if episodes.episodes is not None else None,
+                "episodes",
+                suffix="集",
+                unit="集",
+                subject=subject,
+                reference=row_ref,
+                source_ref=episodes.source_ref,
+            )
         for key, label in (("source", "来源"), ("source_id", "来源编号")):
             value = drama.get(key)
             safe = value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", value) else None

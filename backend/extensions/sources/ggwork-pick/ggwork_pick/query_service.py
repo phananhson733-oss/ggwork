@@ -242,7 +242,14 @@ class CommonQueryService:
                 if req.language and not await conn.fetchval(
                     "SELECT EXISTS(SELECT 1 FROM catalog_rows WHERE lang=$1 UNION ALL SELECT 1 FROM rs_rows WHERE lang=$1)", req.language
                 ):
-                    updates["language"] = next((key for key, value in rules["langLoc"].items() if value == req.language), req.language)
+                    updates["language"] = next(
+                        (
+                            key
+                            for key, value in rules["langLoc"].items()
+                            if req.language.casefold() == key.casefold() or isinstance(value, str) and req.language.casefold() == value.casefold()
+                        ),
+                        req.language.casefold(),
+                    )
                 effective_request = req.model_copy(update=updates)
             imported = await self.repository.catalog_rows(catalog_id)
             by_key = canonical_rows(imported)
@@ -480,7 +487,7 @@ class CommonQueryService:
                 checked = (
                     conditions.model_copy(update={"query": None})
                     if conditions.sort == "rank"
-                    else conditions.model_copy(update={"query": None, "posted_account": None, "exclude_posted": False})
+                    else conditions.model_copy(update={"query": None, "language": None, "posted_account": None, "exclude_posted": False})
                 )
                 if conditions.filters_posted and response.board is not None:
                     from ggwork_pick.query_posted import publication_truth

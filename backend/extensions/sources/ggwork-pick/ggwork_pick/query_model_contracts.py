@@ -51,6 +51,8 @@ class ModelRankMetric(ProjectionOutput):
 
 
 class ModelDramaRow(ProjectionOutput):
+    episodes: Annotated[StrictInt, Field(ge=0)] | None = None
+    episodes_source_ref: Annotated[str, Field(max_length=1024)] | None = None
     kind: Literal["drama"] = "drama"
     rank_metric: ModelRankMetric | None = None
     identity: Annotated[str, Field(min_length=1, max_length=512)]

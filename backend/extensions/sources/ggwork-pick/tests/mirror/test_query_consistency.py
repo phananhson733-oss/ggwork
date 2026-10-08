@@ -248,3 +248,201 @@ async def test_unknown_raw_language_never_becomes_confirmed_candidate(canonical_
     assert projection["rows"][0]["kind"] == "catalog_record"
     assert projection["rows"][0]["identity"] is None
     assert projection["rows"][0]["eligibility"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_paired_candidate_supported_absent_language_and_case_preserve_scope(canonical_world):
+    from ggwork_pick.selection import SelectionService
+
+    service, repo, *_ = canonical_world
+    selection = SelectionService(repo, query_service=service)
+    for language in ("ko", "KO"):
+        result = await selection.query({"language": language, "exclude_selected": False}, thread_id="lang", run_id="lang", call_id=language)
+        assert result["matched_total"] == 0 and result["items"] == []
+    counts = []
+    for language in ("en", "EN"):
+        result = await selection.query({"language": language, "exclude_selected": False}, thread_id="lang", run_id="lang", call_id=language)
+        counts.append(result["matched_total"])
+    assert counts[0] == counts[1] > 0
+    for language in ("USA", "english", "zz"):
+        with pytest.raises(ValueError):
+            await selection.query({"language": language}, thread_id="lang", run_id="lang", call_id=language)
+
+
+@pytest.mark.asyncio
+async def test_historical_detail_episode_sidecar_uses_exact_pin_without_changing_snapshot(canonical_world):
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.answer_evidence import AnswerEvidence
+    from ggwork_pick.query_model_projection import model_projection
+    from ggwork_pick.selection import SelectionService
+
+    service, repo, world, conn, shared, importer, as_of = canonical_world
+    old = gw.with_table(world, "catalog_rows", [{**r, "episodes": 80} if r["row_key"] == "c-2" else r for r in world.tables["catalog_rows"]])
+    await bf._publish(conn, shared, importer, old, as_of + timedelta(days=1))
+    selection = SelectionService(repo, query_service=service)
+    result = await selection.query({"limit": 20, "exclude_selected": False}, thread_id="historical", run_id="historical", call_id="query")
+    item = next(i for i in result["items"] if json.loads(i["identity"])[1] == "c-2")
+    stored = await repo.result(result["id"])
+    later = gw.with_table(old, "catalog_rows", [{**r, "episodes": 999} if r["row_key"] == "c-2" else r for r in old.tables["catalog_rows"]])
+    await bf._publish(conn, shared, importer, later, as_of + timedelta(days=2))
+    detail = await selection.detail(result["id"], item["item_id"])
+    supplement = detail["source_facts"]
+    assert supplement["episodes"] == 80
+    assert supplement["pin"]["mirror_version"] == stored["mirror_version"]
+    assert supplement["source_ref"] == f"mirror:{stored['mirror_version']}:catalog_rows:c-2"
+    assert "episodes" not in detail["item"]
+    assert (await repo.result(result["id"]))["ordered_items_json"] == stored["ordered_items_json"]
+    evidence = AnswerEvidence()
+    evidence.capture("pick_get_drama_detail", "detail", detail)
+
+    def checked(text):
+        return build_checked_publication(text, evidence=evidence, thread_id="historical", run_id="check", message_id="check")
+
+    assert checked(f"《{item['title']}》共80集 [{supplement['reference']}]").status == "confirmed"
+    assert checked(f"《{item['title']}》共999集 [{supplement['reference']}]").status != "confirmed"
+    summary = detail["historical_summary"]
+    assert summary["matched_total"] == result["matched_total"]
+    assert checked(f"该历史候选结果当时符合条件总数为{result['matched_total']}部 [result:wrong-result]").status != "confirmed"
+    assert checked(f"《错误剧名》共80集 [{supplement['reference']}]").status != "confirmed"
+    assert checked(f"该历史候选结果当时符合条件总数为{result['matched_total']}部 [{summary['reference']}]").status == "confirmed"
+    assert checked(f"本次查询符合条件总数为{result['matched_total']}部 [{summary['reference']}]").status != "confirmed"
+    response = await service.query(
+        CommonQuery(
+            domain="catalog", scope="full_catalog", source="synthetic", source_id="c-2", pin=supplement["pin"], with_off=True, confirmed_eligible_only=False
+        )
+    )
+    projected = model_projection(response.model_dump(mode="json"), call_id="pinned", requested_limit=20)
+    assert projected["rows"][0]["episodes"] == 80
+    evidence.capture("pick_query_data", "pinned", response.model_dump(mode="json"))
+    assert checked(f"《{item['title']}》共80集 [{projected['rows'][0]['reference']}]").status == "confirmed"
+    with pytest.raises(LookupError):
+        await SelectionService(PickRepository(repo.session_factory, "bob"), query_service=service).detail(result["id"], item["item_id"])
+    with pytest.raises(LookupError):
+        await selection.detail(result["id"], "wrong-item")
+    from test_plural_references import envelope, runtime_for
+
+    from ggwork_pick.context import PickTask, query_call_loop_deadline
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import get_drama_detail_tool
+
+    host = PickService(importer.data_dir)
+    await host.initialize(repo.session_factory)
+    host.query_reader = service.reader
+    runtime, store = await runtime_for(host, envelope([result]), thread="historical")
+    tool_detail = json.loads(await get_drama_detail_tool.coroutine(result_id=result["id"], item_id=item["item_id"], runtime=runtime))
+    assert tool_detail["source_facts"]["episodes"] == 80
+    assert tool_detail["historical_summary"]["matched_total"] == result["matched_total"]
+    assert len(json.dumps(tool_detail, ensure_ascii=False).encode()) < 48000
+    proof = store.get(PickTask).answer_evidence
+    assert (
+        build_checked_publication(
+            f"《{item['title']}》共80集 [{supplement['reference']}]", evidence=proof, thread_id="historical", run_id="r", message_id="m"
+        ).status
+        == "confirmed"
+    )
+    wrong_item = json.loads(await get_drama_detail_tool.coroutine(result_id=result["id"], item_id="wrong", runtime=runtime))
+    assert wrong_item["status"] == "rejected" and "source_facts" not in wrong_item
+    for owner, thread in (("bob", "historical"), ("alice", "other-thread")):
+        wrong, _ = await runtime_for(host, envelope([result]), owner=owner, thread=thread)
+        with pytest.raises((ValueError, LookupError)):
+            await get_drama_detail_tool.coroutine(result_id=result["id"], item_id=item["item_id"], runtime=wrong)
+    import asyncio
+
+    token = query_call_loop_deadline.set(asyncio.get_running_loop().time() - 1)
+    try:
+        expired = json.loads(await get_drama_detail_tool.coroutine(result_id=result["id"], item_id=item["item_id"], runtime=runtime))
+        assert expired["code"] == "query_timeout" and expired["retryable"] is True
+        assert "source_facts" not in expired
+    finally:
+        query_call_loop_deadline.reset(token)
+    await conn.execute("UPDATE pick_mirror.versions SET status='dropped' WHERE id=$1", stored["mirror_version"])
+    unavailable = json.loads(await get_drama_detail_tool.coroutine(result_id=result["id"], item_id=item["item_id"], runtime=runtime))
+    assert unavailable["code"] == "version_gone" and "source_facts" not in unavailable
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("episodes", [None, 0])
+async def test_historical_episode_sidecar_retains_null_and_zero(canonical_world, episodes):
+    from ggwork_pick.selection import SelectionService
+
+    service, repo, world, conn, shared, importer, as_of = canonical_world
+    changed = gw.with_table(world, "catalog_rows", [{**r, "episodes": episodes} if r["row_key"] == "c-2" else r for r in world.tables["catalog_rows"]])
+    await bf._publish(conn, shared, importer, changed, as_of + timedelta(days=1))
+    selection = SelectionService(repo, query_service=service)
+    result = await selection.query({"limit": 20, "exclude_selected": False}, thread_id="episodes", run_id="r", call_id="c")
+    item = next(i for i in result["items"] if json.loads(i["identity"])[1] == "c-2")
+    detail = await selection.detail(result["id"], item["item_id"])
+    assert detail["source_facts"]["episodes"] == episodes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("label", [None, True, 123])
+async def test_optional_scalar_language_labels_do_not_break_supported_code_queries(canonical_world, label):
+    service, repo, world, conn, shared, importer, as_of = canonical_world
+    changed = gw.with_manifest(world, ("meta", "rules", "langLoc"), {"en": label})
+    for table in ("catalog_rows", "rs_rows"):
+        changed = gw.with_table(changed, table, [{**row, "lang": "en"} if row["lang"] == "英语" else row for row in changed.tables[table]])
+    await bf._publish(conn, shared, importer, changed, as_of + timedelta(days=1))
+    empty = await service.query(CommonQuery(domain="catalog", scope="full_catalog", language="ko"))
+    assert empty.counts.matched == 0 and not empty.rows
+    upper = await service.query(CommonQuery(domain="catalog", scope="full_catalog", language="EN"))
+    lower = await service.query(CommonQuery(domain="catalog", scope="full_catalog", language="en"))
+    assert upper.counts.matched == lower.counts.matched > 0
+    assert upper.board.rules.langLoc == {"en": label}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("malformation", ["episode", "projection"])
+async def test_failed_common_tool_does_not_retain_partial_successful_facts(canonical_world, malformation):
+    from types import SimpleNamespace
+
+    from deerflow_extension_api import ExtensionData, TaskInfo
+    from deerflow_extension_api.runtime_bridge import EXTENSION_TASK_STORE_KEY
+
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.context import PickLifecycle, PickTask
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import query_data_tool
+
+    service, repo, world, conn, shared, importer, as_of = canonical_world
+    changed = gw.with_table(
+        world, "catalog_rows", [{**r, "episodes": -1 if malformation == "episode" and r["row_key"] == "c-6" else 80} for r in world.tables["catalog_rows"]]
+    )
+    await bf._publish(conn, shared, importer, changed, as_of + timedelta(days=1))
+    if malformation == "projection":
+        rules = world.manifest["meta"]["rules"]["platformRules"]
+        changed = gw.with_manifest(changed, ("meta", "rules", "platformRules"), {**rules, "x" * 200: next(iter(rules.values()))})
+        await bf._publish(conn, shared, importer, changed, as_of + timedelta(days=2))
+    host = PickService(importer.data_dir)
+    await host.initialize(repo.session_factory)
+    host.query_reader = service.reader
+    store = ExtensionData("atomic-evidence")
+    await PickLifecycle(host).on_task_start(ExtensionData("app"), store, TaskInfo("atomic-evidence", "r", "thread", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="good")
+    good = json.loads(await query_data_tool.coroutine(query={"domain": "catalog", "scope": "full_catalog", "source_id": "c-2"}, runtime=runtime))
+    assert good["rows"][0]["episodes"] == 80
+    evidence = store.get(PickTask).answer_evidence
+    old_atoms = list(evidence.atoms)
+    runtime.tool_call_id = "bad"
+    failed = json.loads(
+        await query_data_tool.coroutine(
+            query={
+                "domain": "catalog" if malformation == "episode" else "rules",
+                "scope": "full_catalog",
+                **({"order": "title"} if malformation == "episode" else {}),
+            },
+            runtime=runtime,
+        )
+    )
+    assert failed["code"] == "source_unavailable" and failed["status"] == "rejected"
+    assert [read.status for read in evidence.reads if read.call_id == "bad"] == ["unavailable"]
+    assert all(atom.value is None for atom in evidence.atoms if atom.reference.startswith("tool:bad"))
+    assert evidence.atoms[: len(old_atoms)] == old_atoms
+    old = next(atom for atom in old_atoms if atom.field_name == "episodes" and atom.value == "80")
+
+    def checked(text):
+        return build_checked_publication(text, evidence=evidence, thread_id="thread", run_id="r", message_id="m")
+
+    assert checked(f"{old.claim} [{old.reference}]").status == "confirmed"
+    assert checked(f"{old.claim} [{old.reference.replace('tool:good', 'tool:bad')}]").status != "confirmed"
+    assert checked("本次查询符合条件总数为0部 [tool:bad]").status != "confirmed"

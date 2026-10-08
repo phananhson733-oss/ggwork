@@ -203,3 +203,25 @@ async def test_timezone_change_requires_choice_and_keep_wall_time_changes_only_u
     assert saved.status_code == 200
     assert saved.json()["rows"][0]["local_time"] == "2026-01-15T09:00"
     assert saved.json()["rows"][0]["scheduled_at"] == "2026-01-15T15:00:00.000000+00:00"
+
+
+@pytest.mark.asyncio
+async def test_conflict_retained_server_added_row_requires_converted_instant(app_client):
+    client, service = app_client
+    body, _ = await draft_input(service, count=1)
+    headers = {"test-owner": "alice"}
+    first = (await client.post("/api/pick/plans", headers=headers, json={**body, "rows": []})).json()
+    added = {**body["rows"][0], "local_time": "2026-11-01T01:30", "fold": 1}
+    url = "/api/pick/plans/" + first["id"]
+    second = await client.patch(
+        url, headers=headers, json={**editable(first), "rows": [added], "request_id": "remote-add", "expected_version": 1, "timezone_change": None}
+    )
+    assert second.status_code == 200, second.text
+    current = second.json()
+    patch = {**editable(current), "timezone": "Asia/Shanghai", "timezone_change": "keep_instant", "expected_version": 2, "request_id": "retained-time"}
+    rejected = await client.patch(url, headers=headers, json=patch)
+    assert rejected.status_code == 422
+    patch["rows"][0].update(local_time="2026-11-01T15:30", fold=None)
+    accepted = await client.patch(url, headers=headers, json={**patch, "request_id": "converted-time"})
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["rows"][0]["scheduled_at"] == current["rows"][0]["scheduled_at"] == "2026-11-01T07:30:00.000000+00:00"

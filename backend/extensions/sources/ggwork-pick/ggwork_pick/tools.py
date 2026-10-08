@@ -1,5 +1,6 @@
 """Model tools can read and prepare choices, but cannot commit user choices."""
 
+import asyncio
 import json
 from typing import Annotated
 
@@ -232,7 +233,9 @@ async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) 
     async def work():
         task, repo, record = await _owned_result(runtime, result_id)
         data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
-        detail = await SelectionService(repo).detail(result_id, item_id, data_as_of=data_as_of)
+        detail = await SelectionService(repo, query_service=task.service.common_query(repo), deadline=task.query_deadline).detail(
+            result_id, item_id, data_as_of=data_as_of
+        )
         task.known_titles.add(detail["item"]["title"])
         account = PickConditions.model_validate(record["conditions_json"]).posted_account
         task.posted_seen = with_posted(task.posted_seen, [detail["item"]], account=account)
@@ -382,12 +385,21 @@ async def query_data_tool(query: CommonQuery, runtime: Runtime) -> str:
         if request.pin is not None and request.pin != pin:
             raise ValueError("查询版本与本轮已固定的数据版本不一致")
         request = request.model_copy(update={"pin": pin})
-        response = await task.service.common_query(repo).query(request, deadline=task.query_deadline)
+        loop = asyncio.get_running_loop()
+        deadline = min(task.query_deadline, loop.time() + min(10000, request.budget_ms) / 1000)
+        response = await task.service.common_query(repo).query(request, deadline=deadline)
         payload = response.model_dump(mode="json")
-        _capture(task, runtime, "pick_query_data", payload)
+        from ggwork_pick.answer_evidence import AnswerEvidence
         from ggwork_pick.query_model_projection import model_projection
+        from ggwork_pick.query_reader import QueryFailure
 
+        staged = AnswerEvidence()
+        staged.capture("pick_query_data", runtime.tool_call_id, payload)
         projected = model_projection(payload, call_id=runtime.tool_call_id, requested_limit=requested_limit)
-        return json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
+        encoded = json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
+        if loop.time() >= deadline:
+            raise QueryFailure("query_timeout", "查询超过时限，请缩小范围后重试", retryable=True)
+        task.answer_evidence.commit(staged)
+        return encoded
 
     return await _answer(work, task=task, runtime=runtime, tool_name="pick_query_data")

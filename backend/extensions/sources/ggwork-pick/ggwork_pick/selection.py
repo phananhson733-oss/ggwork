@@ -655,8 +655,58 @@ class SelectionService:
                     rows = []
                 (shown,) = with_facts([item], rows)
                 notices = data_notices(data_as_of, rows, PickConditions.model_validate(record["conditions_json"]))
-                return {"result_id": result_id, "catalog_batch_id": record["catalog_batch_id"], "item": shown, **({"data_notices": notices} if notices else {})}
+                from ggwork_pick.query_facts import HistoricalResultSummary
+
+                summary = HistoricalResultSummary(
+                    result_id=result_id, matched_total=_matched_total(record), conditions=record["conditions_json"], reference=f"result:{result_id}"
+                )
+                supplement = await self._historical_source_facts(record, item)
+                return {
+                    "result_id": result_id,
+                    "catalog_batch_id": record["catalog_batch_id"],
+                    "item": shown,
+                    "historical_summary": summary.model_dump(mode="json"),
+                    **({"source_facts": supplement} if supplement is not None else {}),
+                    **({"data_notices": notices} if notices else {}),
+                }
         raise LookupError("候选条目不存在")
+
+    async def _historical_source_facts(self, record: dict, item: dict) -> dict | None:
+        from ggwork_pick.completion_contracts import CommonQuery, QueryPin
+        from ggwork_pick.query_facts import HistoricalItemFacts, episode_fact
+        from ggwork_pick.query_service import rule_id
+
+        version = record.get("mirror_version")
+        if version is None or self.query_service is None:
+            return None
+        source, source_id, language = json.loads(item["identity"])
+        pin = QueryPin(
+            catalog_batch_id=record["catalog_batch_id"], knowledge_batch_id=record["knowledge_batch_id"], mirror_version=version, rule_version=rule_id(version)
+        )
+        response = await self.query_service.query(
+            CommonQuery(
+                domain="catalog",
+                scope="full_catalog",
+                source=source,
+                source_id=source_id,
+                language=language,
+                pin=pin,
+                with_off=True,
+                confirmed_eligible_only=False,
+                limit=2,
+            ),
+            deadline=self.deadline,
+        )
+        payload = response.model_dump(mode="json")
+        matches = [row for row in payload["rows"] if row["identity"] == item["identity"]]
+        if len(matches) != 1 or response.counts.matched != 1:
+            return None
+        fact = episode_fact(payload, matches[0])
+        if fact is None:
+            return None
+        return HistoricalItemFacts(
+            **fact.model_dump(), pin=response.pin, identity=item["identity"], reference=f"result:{record['id']}:{item['item_id']}"
+        ).model_dump(mode="json")
 
     async def prepare(self, result_id: str, item_ids: list[str], note: str = ""):
         if len(note) > 2000:
