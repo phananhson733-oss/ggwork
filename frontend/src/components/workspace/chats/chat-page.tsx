@@ -26,6 +26,7 @@ import {
 } from "@/components/workspace/messages";
 import { ThreadContext } from "@/components/workspace/messages/context";
 import { usePickContext } from "@/components/workspace/pick/pick-context";
+import { PickReferenceNotice } from "@/components/workspace/pick/pick-reference-notice";
 import { PickWelcome } from "@/components/workspace/pick/pick-welcome";
 import {
   SidecarProvider,
@@ -62,11 +63,7 @@ import {
 import { isHiddenFromUIMessage } from "@/core/messages/utils";
 import { useModels } from "@/core/models/hooks";
 import { useNotification } from "@/core/notification/hooks";
-import {
-  PICK_REFERENCE_KEY,
-  storablePickReference,
-  turnPickReference,
-} from "@/core/pick/references";
+import { storablePickContext, turnPickContext } from "@/core/pick/references";
 import { useProject } from "@/core/projects";
 import { useLocalSettings, useThreadSettings } from "@/core/settings";
 import { resolveThreadContext } from "@/core/settings/store";
@@ -313,7 +310,7 @@ export default function ChatPage() {
   const handleSubmit = useCallback(
     async (message: PromptInputMessage, options?: InputBoxSubmitOptions) => {
       const submissionEpoch = submissionEpochRef.current;
-      const pickReference = pick?.referenceFor(threadId);
+      const pickReference = pick?.contextFor(threadId);
       await ensureProjectThread();
       // Conversation switched (or the page unmounted) while the project
       // pre-create was pending: drop the submission. Reject silently — the
@@ -328,14 +325,7 @@ export default function ChatPage() {
         ...(currentKnowledgeScopeSnapshot
           ? { [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot }
           : {}),
-        ...(pickReference
-          ? {
-              [PICK_REFERENCE_KEY]: storablePickReference(
-                threadId,
-                pickReference,
-              ),
-            }
-          : {}),
+        ...storablePickContext(threadId, pickReference),
       };
       const scopedOptions =
         Object.keys(turnKwargs).length > 0
@@ -347,7 +337,7 @@ export default function ChatPage() {
       const sendPromise = sendMessage(
         threadId,
         message,
-        pickReference ? { pick_reference: pickReference } : undefined,
+        pickReference,
         scopedOptions,
       );
       if (message.files.length > 0) {
@@ -395,7 +385,7 @@ export default function ChatPage() {
   }, [thread]);
   const handleRegenerate = useCallback(
     (messageId: string, supersededMessageIds: string[]) => {
-      const pickReference = turnPickReference(
+      const pickReference = turnPickContext(
         thread.messages,
         messageId,
         threadId,
@@ -404,14 +394,14 @@ export default function ChatPage() {
         threadId,
         messageId,
         supersededMessageIds,
-        pickReference ? { [PICK_REFERENCE_KEY]: pickReference } : undefined,
+        pickReference,
       );
     },
     [regenerateMessage, thread.messages, threadId],
   );
   const handleEditAndRegenerate = useCallback(
     (messageId: string, replacementText: string) => {
-      const pickReference = turnPickReference(
+      const pickReference = turnPickContext(
         thread.messages,
         messageId,
         threadId,
@@ -420,21 +410,14 @@ export default function ChatPage() {
         ...(currentKnowledgeScopeSnapshot
           ? { [KNOWLEDGE_SCOPE_KEY]: currentKnowledgeScopeSnapshot }
           : {}),
-        ...(pickReference
-          ? {
-              [PICK_REFERENCE_KEY]: storablePickReference(
-                threadId,
-                pickReference,
-              ),
-            }
-          : {}),
+        ...storablePickContext(threadId, pickReference),
       };
       return editAndRegenerateMessage(
         threadId,
         messageId,
         replacementText,
         Object.keys(turnKwargs).length > 0 ? turnKwargs : undefined,
-        pickReference ? { [PICK_REFERENCE_KEY]: pickReference } : undefined,
+        pickReference,
       );
     },
     [
@@ -678,6 +661,7 @@ export default function ChatPage() {
                         )}
                       </div>
                     )}
+                  <PickReferenceNotice threadId={threadId} />
                   {mountedRef.current ? (
                     <InputBox
                       className={cn(

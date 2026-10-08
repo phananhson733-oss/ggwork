@@ -14,6 +14,7 @@ from deerflow_extension_api.pick_publication import PickPublication
 from ggwork_pick.answer_check import Seen
 from ggwork_pick.answer_evidence import AnswerEvidence
 from ggwork_pick.pin import Pin
+from ggwork_pick.reference_contracts import PickReferences
 from ggwork_pick.repository import PickRepository
 
 # A gateway started without PICK_RUN_TIMEOUT_SECONDS has no host watchdog; the turn still ends here.
@@ -47,6 +48,8 @@ class PickTask:
     mirror_version: int | None = None
     data_as_of: dict | None = None
     reference_id: str | None = None
+    references: dict[str, list[str]] = field(default_factory=dict)
+    reference_context: list[dict] = field(default_factory=list)
     selected_item_ids: list[str] = field(default_factory=list)
     reference_order: list[str] = field(default_factory=list)
     produced_result_ids: set[str] = field(default_factory=set)
@@ -115,8 +118,43 @@ class PickTask:
             self.owner_id = owner
             repo = PickRepository(self.service.session_factory, owner)
             if not self.initialized:
+                current_pin = await repo.current_pin()
                 reference = runtime.context.get("pick_reference")
-                if reference is not None:
+                if "pick_references" in runtime.context:
+                    try:
+                        if "pick_reference" in runtime.context:
+                            raise ValueError("conflicting references")
+                        plural = PickReferences.model_validate(runtime.context["pick_references"])
+                        validated = []
+                        for group in plural.references:
+                            parent = await repo.result(group.result_id)
+                            order = [item["item_id"] for item in parent["ordered_items_json"]]
+                            if parent["thread_id"] != self.info.thread_id or any(item_id not in order for item_id in group.item_ids):
+                                raise ValueError("invalid reference")
+                            selected = [item_id for item_id in order if item_id in group.item_ids]
+                            validated.append((parent, selected, order, await repo.result_data_as_of(parent, emit_mirror_version=True)))
+                    except (ValueError, LookupError):
+                        raise ValueError("候选引用无效或已不可用，请重新选择当前对话中的候选和条目") from None
+                    for parent, selected, order, data_as_of in validated:
+                        self.references[parent["id"]] = selected
+                        self.reference_context.append(
+                            {
+                                "result_id": parent["id"],
+                                "item_ids": selected,
+                                "original_item_order": order,
+                                "catalog_batch_id": parent["catalog_batch_id"],
+                                "knowledge_batch_id": parent["knowledge_batch_id"],
+                                "mirror_version": parent.get("mirror_version"),
+                                "rule_version": parent["rule_version"],
+                                "ranking_version": parent["ranking_version"],
+                                "data_as_of": data_as_of,
+                            }
+                        )
+                        self.known_titles.update(item["title"] for item in parent["ordered_items_json"] if item["item_id"] in selected)
+                    if len(validated) == 1:
+                        parent, selected, order, _ = validated[0]
+                        self.reference_id, self.selected_item_ids, self.reference_order = parent["id"], selected, order
+                elif reference is not None:
                     if not isinstance(reference, dict) or not isinstance(reference.get("result_id"), str):
                         raise ValueError("候选引用无效")
                     parent = await repo.result(reference["result_id"])
@@ -131,7 +169,7 @@ class PickTask:
                     self.selected_item_ids = [item_id for item_id in order if item_id in ids]
                     self.reference_id = parent["id"]
                 # Every run reads the current data in one read; only 换一批 goes back to the bound card's version.
-                self.repin(await repo.current_pin())
+                self.repin(current_pin)
                 self.initialized = True
             return repo
 

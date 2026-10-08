@@ -92,6 +92,8 @@ async def _pin_latest(task, repo):
 
 async def _bound_parent(task, repo, filters: dict) -> dict | None:
     """The bound card matters only for 换一批; every other question stands on its own conditions."""
+    if filters.get("exclude_previous") is True and len(task.references) > 1:
+        raise ValueError("本轮引用了两份候选，请先明确选择一份作为换一批的依据")
     if filters.get("exclude_previous") is not True or not task.reference_id:
         return None
     return await repo.result(task.reference_id)
@@ -213,7 +215,7 @@ async def _owned_result(runtime, result_id):
     record = await repo.result(result_id)
     if record["thread_id"] != task.info.thread_id:
         raise ValueError("候选不属于当前对话")
-    if result_id != task.reference_id and result_id not in task.produced_result_ids:
+    if result_id != task.reference_id and result_id not in task.references and result_id not in task.produced_result_ids:
         raise ValueError("请使用用户当前绑定的候选结果；没有绑定时请用户点开要追问的那份候选，或重新查询")
     return task, repo, record
 
@@ -276,7 +278,7 @@ async def prepare_selection_tool(
                 raise ValueError("候选序号超出范围")
             chosen = [ordered[index - 1]["item_id"] for index in positions]
         elif chosen is None:
-            chosen = task.selected_item_ids if target == task.reference_id else []
+            chosen = task.references.get(target, task.selected_item_ids if target == task.reference_id else [])
         return json.dumps(await SelectionService(repo).prepare(target, chosen, note), ensure_ascii=False)
 
     return await _answer(work)

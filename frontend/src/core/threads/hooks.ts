@@ -26,6 +26,7 @@ import {
   isHiddenFromUIMessage,
 } from "../messages/utils";
 import type { FileInMessage } from "../messages/utils";
+import { freezePickReferences } from "../pick/references";
 import { PROJECTS_QUERY_KEY } from "../projects/api";
 import type { LocalSettings } from "../settings";
 import { isSidecarThread, SIDECAR_METADATA_KEY } from "../sidecar/thread";
@@ -237,10 +238,18 @@ export function buildRunContext({
 }): Record<string, unknown> {
   const ownedSettings = Object.fromEntries(
     Object.entries(settings).filter(
-      ([key]) => key !== "conversation_references" && key !== "pick_reference",
+      ([key]) =>
+        key !== "conversation_references" &&
+        key !== "pick_reference" &&
+        key !== "pick_references",
     ),
   );
   const pickReference = extraContext?.pick_reference;
+  const plural = extraContext?.pick_references;
+  if (pickReference !== undefined && plural !== undefined)
+    throw new Error("单份与多份候选引用不能同时使用");
+  const frozenPlural =
+    plural === undefined ? undefined : freezePickReferences(plural);
   let frozenPickReference:
     | { result_id: string; item_ids: string[] }
     | undefined;
@@ -265,6 +274,7 @@ export function buildRunContext({
     ...extraContext,
     ...ownedSettings,
     ...(frozenPickReference ? { pick_reference: frozenPickReference } : {}),
+    ...(frozenPlural ? { pick_references: frozenPlural } : {}),
     ...(conversationReferences?.length
       ? { conversation_references: [...conversationReferences] }
       : {}),

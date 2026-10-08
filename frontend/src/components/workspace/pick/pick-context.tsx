@@ -13,11 +13,37 @@ import {
 
 import { useAuth } from "@/core/auth/AuthProvider";
 import { getPickResult, listPickResults } from "@/core/pick/api";
-import { bindPickReference, chooseReference } from "@/core/pick/references";
+import {
+  bindPickReference,
+  bindPickReferences,
+  chooseReference,
+  freezePickReferences,
+  type PickReferences,
+  type PickTurnContext,
+} from "@/core/pick/references";
 import type { PickResult } from "@/core/pick/types";
 
 type PickContextValue = {
   ownerId: string;
+  plural: {
+    threadId: string;
+    value: PickReferences;
+    results: PickResult[];
+  } | null;
+  bindReferences: (
+    threadId: string,
+    results: PickResult[],
+    refs: PickReferences,
+  ) => void;
+  clearReferences: () => void;
+  referenceErrorThread: string | null;
+  referenceLoadingThread: string | null;
+  startReferenceRestore: (
+    threadId: string,
+    controller: AbortController,
+  ) => void;
+  failReferences: (threadId: string) => void;
+  contextFor: (threadId: string) => PickTurnContext | undefined;
   result: PickResult | null;
   selected: string[];
   open: boolean;
@@ -60,6 +86,27 @@ function OwnedPickProvider({
   children: React.ReactNode;
   ownerId: string;
 }) {
+  const [referenceErrorThread, setReferenceErrorThread] = useState<
+    string | null
+  >(null);
+  const [referenceLoadingThread, setReferenceLoadingThread] = useState<
+    string | null
+  >(null);
+  const restoreRequest = useRef<AbortController | null>(null);
+  const startReferenceRestore = useCallback(
+    (threadId: string, controller: AbortController) => {
+      restoreRequest.current?.abort();
+      restoreRequest.current = controller;
+      setReferenceErrorThread(null);
+      setReferenceLoadingThread(threadId);
+    },
+    [],
+  );
+  const failReferences = useCallback((threadId: string) => {
+    setReferenceLoadingThread(null);
+    setReferenceErrorThread(threadId);
+  }, []);
+  const [plural, setPlural] = useState<PickContextValue["plural"]>(null);
   const [result, setResult] = useState<PickResult | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
@@ -69,6 +116,10 @@ function OwnedPickProvider({
   const show = useCallback(
     (next: PickResult, ids: string[] = []) => {
       const selectedIds = bindPickReference(next.thread_id, next, ids).item_ids;
+      setPlural(null);
+      setReferenceErrorThread(null);
+      setReferenceLoadingThread(null);
+      restoreRequest.current?.abort();
       currentRef.current = next;
       setResult(next);
       setSelected(selectedIds);
@@ -86,12 +137,12 @@ function OwnedPickProvider({
   );
   const close = useCallback(() => {
     setOpen(false);
-    if (currentRef.current)
+    if (currentRef.current && !plural)
       persist(ownerId, currentRef.current, selected, false);
-  }, [ownerId, selected]);
+  }, [ownerId, selected, plural]);
   useEffect(() => {
-    if (result) persist(ownerId, result, selected, open);
-  }, [ownerId, result, selected, open]);
+    if (result && !plural) persist(ownerId, result, selected, open);
+  }, [ownerId, result, selected, open, plural]);
   const observe = useCallback((next: PickResult) => {
     if (next.run_status !== "success") return;
     const known = latestRef.current.get(next.thread_id);
@@ -107,9 +158,85 @@ function OwnedPickProvider({
       ),
     [result, open, selected],
   );
+  const bindReferences = useCallback(
+    (threadId: string, results: PickResult[], refs: PickReferences) => {
+      const parsed = freezePickReferences(refs);
+      const groups = parsed.references.map((ref) => {
+        const result = results.find((row) => row.id === ref.result_id);
+        if (
+          result?.thread_id !== threadId ||
+          result.run_status !== "success"
+        )
+          throw new Error("候选引用不可用，请重新选择");
+        return { result, item_ids: ref.item_ids };
+      });
+      const frozen = bindPickReferences(threadId, groups);
+      restoreRequest.current?.abort();
+      setReferenceLoadingThread(null);
+      setReferenceErrorThread(null);
+      setPlural({
+        threadId,
+        value: frozen,
+        results: groups.map((group) => group.result),
+      });
+      currentRef.current = groups[0]!.result;
+      setResult(groups[0]!.result);
+      setSelected([...groups[0]!.item_ids]);
+      setOpen(false);
+      try {
+        sessionStorage.setItem(
+          storageKey(ownerId, threadId),
+          JSON.stringify({ pick_references: frozen }),
+        );
+      } catch {
+        /* Keep the explicit choice in memory. */
+      }
+    },
+    [ownerId],
+  );
+  const clearReferences = useCallback(() => {
+    const storedThread =
+      referenceErrorThread ?? referenceLoadingThread ?? plural?.threadId;
+    if (storedThread) {
+      try {
+        sessionStorage.removeItem(storageKey(ownerId, storedThread));
+      } catch {
+        /* Clearing in-memory references still works. */
+      }
+    }
+    setPlural(null);
+    setReferenceErrorThread(null);
+    setReferenceLoadingThread(null);
+    restoreRequest.current?.abort();
+    currentRef.current = null;
+    setResult(null);
+    setSelected([]);
+    setOpen(false);
+  }, [ownerId, plural, referenceErrorThread, referenceLoadingThread]);
+  const contextFor = useCallback(
+    (threadId: string): PickTurnContext | undefined => {
+      if (referenceLoadingThread === threadId)
+        throw new Error("正在恢复并核对候选引用，请稍候");
+      if (referenceErrorThread === threadId)
+        throw new Error("候选引用无法恢复，请重新选择或取消引用");
+      if (plural?.threadId === threadId)
+        return { pick_references: freezePickReferences(plural.value) };
+      const single = referenceFor(threadId);
+      return single ? { pick_reference: single } : undefined;
+    },
+    [plural, referenceFor, referenceErrorThread, referenceLoadingThread],
+  );
   const value = useMemo(
     () => ({
       ownerId,
+      plural,
+      bindReferences,
+      clearReferences,
+      referenceErrorThread,
+      referenceLoadingThread,
+      startReferenceRestore,
+      failReferences,
+      contextFor,
       result,
       selected,
       open,
@@ -122,6 +249,14 @@ function OwnedPickProvider({
     }),
     [
       ownerId,
+      plural,
+      bindReferences,
+      clearReferences,
+      referenceErrorThread,
+      referenceLoadingThread,
+      startReferenceRestore,
+      failReferences,
+      contextFor,
       result,
       selected,
       open,
@@ -157,6 +292,9 @@ export function useRestorePick(threadId: string) {
   const ownerId = pick?.ownerId;
   const show = pick?.show;
   const current = pick?.current;
+  const bindReferences = pick?.bindReferences;
+  const failReferences = pick?.failReferences;
+  const startReferenceRestore = pick?.startReferenceRestore;
   // close changes with checkbox state; restore reads the desired open state once.
   const closeRef = useRef(pick?.close);
   closeRef.current = pick?.close;
@@ -171,6 +309,7 @@ export function useRestorePick(threadId: string) {
       return;
     const initial = current();
     const abort = new AbortController();
+    let restoringPlural = false;
     try {
       const raw = sessionStorage.getItem(storageKey(ownerId, threadId));
       if (!raw) return;
@@ -178,7 +317,29 @@ export function useRestorePick(threadId: string) {
         result_id?: unknown;
         item_ids?: unknown;
         open?: unknown;
+        pick_references?: unknown;
       };
+      if (saved.pick_references !== undefined && bindReferences) {
+        restoringPlural = true;
+        const refs = freezePickReferences(saved.pick_references);
+        startReferenceRestore?.(threadId, abort);
+        void Promise.all(
+          refs.references.map((ref) =>
+            getPickResult(ref.result_id, abort.signal),
+          ),
+        )
+          .then((results) => {
+            if (abort.signal.aborted || current() !== initial) return;
+            bindReferences(threadId, results, refs);
+          })
+          .catch(() => {
+            if (!abort.signal.aborted && current() === initial) {
+              abort.abort();
+              failReferences?.(threadId);
+            }
+          });
+        return () => abort.abort();
+      }
       if (
         typeof saved.result_id !== "string" ||
         !Array.isArray(saved.item_ids) ||
@@ -201,10 +362,19 @@ export function useRestorePick(threadId: string) {
           /* Do not guess another result after a failed restore. */
         });
     } catch {
+      if (restoringPlural) failReferences?.(threadId);
       /* Corrupt local reference does not affect server data. */
     }
     return () => abort.abort();
-  }, [threadId, ownerId, show, current]);
+  }, [
+    threadId,
+    ownerId,
+    show,
+    current,
+    bindReferences,
+    failReferences,
+    startReferenceRestore,
+  ]);
 }
 
 /**

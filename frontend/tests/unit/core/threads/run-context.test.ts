@@ -87,3 +87,50 @@ describe("buildRunContext", () => {
     expect(context.conversation_references).toEqual(["source-a"]);
   });
 });
+
+it("freezes explicit plural references, rejects conflicts and never inherits them from settings", () => {
+  const refs = {
+    version: "pick-references-v1",
+    references: [
+      { result_id: "r1", item_ids: ["i1"] },
+      { result_id: "r2", item_ids: ["i2"] },
+    ],
+  };
+  const stale = {
+    ...settings,
+    pick_references: refs,
+  } as unknown as LocalSettings["context"];
+  expect(
+    buildRunContext({ settings: stale, threadId: "t" }),
+  ).not.toHaveProperty("pick_references");
+  const context = buildRunContext({
+    settings,
+    threadId: "t",
+    extraContext: { pick_references: refs },
+  });
+  refs.references[0]!.item_ids.push("changed");
+  expect(context.pick_references).toEqual({
+    version: "pick-references-v1",
+    references: [
+      { result_id: "r1", item_ids: ["i1"] },
+      { result_id: "r2", item_ids: ["i2"] },
+    ],
+  });
+  expect(() =>
+    buildRunContext({
+      settings,
+      threadId: "t",
+      extraContext: { pick_references: refs.references },
+    }),
+  ).toThrow();
+  expect(() =>
+    buildRunContext({
+      settings,
+      threadId: "t",
+      extraContext: {
+        pick_references: refs,
+        pick_reference: refs.references[0],
+      },
+    }),
+  ).toThrow();
+});
