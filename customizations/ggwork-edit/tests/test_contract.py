@@ -343,3 +343,58 @@ async def test_stopped_unprepared_intent_does_not_advertise_impossible_retry(api
     stopped = (await client.post(f"/api/editing/tasks/{task['id']}/stop", headers=OWNER)).json()
     assert stopped["status"] == "stopped"
     assert "retry" not in stopped["available_actions"]
+
+
+@pytest.mark.asyncio
+async def test_native_preparation_error_is_private_scoped_and_clearable(api):
+    client, _, app = api
+    device = (await client.post("/api/editing/devices", headers=OWNER, json={"name": "Mac"})).json()["device"]["id"]
+    manifest = {"version": 1, "grant_id": "grant-1", "files": [{"media_id": "m-1", "name": "Ep1", "episode": 1, "relative_path": "1.mp4", "size_bytes": 100}]}
+    task = (await client.post("/api/editing/tasks", headers=OWNER, json={**REQUEST, "device_id": device, "source_manifest": manifest})).json()
+    worker = worker_identity(app, device)
+    path = f"/api/editing/worker/devices/{device}/tasks/{task['id']}/preparation-error"
+    body = {"error": "source_changed"}
+    assert (await client.post(path, headers=OWNER, json=body)).status_code == 403
+    assert (await client.post(path, headers={**worker, "test-owner": "bob"}, json=body)).status_code == 404
+    assert (await client.post(path.replace(device, "other-device"), headers=worker, json=body)).status_code == 403
+    assert (await client.post(path, headers=worker, json={"error": "/Users/private/media.mp4 failed"})).status_code == 422
+    failed = await client.post(path, headers=worker, json=body)
+    assert failed.status_code == 200
+    assert failed.json()["native_preparation_error"] == "source_changed"
+    assert "source_changed" in failed.json()["preparation_reasons"]
+    assert failed.json()["id"] == task["id"] and failed.json()["status"] == "waiting"
+    cleared = await client.post(f"/api/editing/tasks/{task['id']}/prepare", headers=OWNER, json={"device_id": device})
+    assert cleared.json()["native_preparation_error"] is None
+    await client.post(path, headers=worker, json=body)
+    manifest["files"][0].update(state="verified", sha256="a" * 64, duration_seconds=90)
+    verified = await client.post(path.replace("/preparation-error", "/manifest"), headers=worker, json={"source_manifest": manifest})
+    assert verified.json()["native_preparation_error"] is None
+    await client.post(f"/api/editing/worker/devices/{device}/heartbeat", headers=worker, json=HEARTBEAT)
+    assert (await client.post(path, headers=worker, json=body)).status_code == 409
+    assert (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_successful_discovery_clears_preparation_error_without_new_intent(api):
+    client, _, app = api
+    device = (await client.post("/api/editing/devices", headers=OWNER, json={"name": "Mac"})).json()["device"]["id"]
+    task = (
+        await client.post(
+            "/api/editing/tasks", headers=OWNER, json={**REQUEST, "device_id": device, "source_directory": {"grant_id": "grant-1", "relative_path": "drama"}}
+        )
+    ).json()
+    worker = worker_identity(app, device)
+    base = f"/api/editing/worker/devices/{device}/tasks/{task['id']}"
+    failed = await client.post(base + "/preparation-error", headers=worker, json={"error": "source_directory_empty"})
+    assert failed.json()["native_preparation_error"] == "source_directory_empty"
+    manifest = {
+        "version": 1,
+        "grant_id": "grant-1",
+        "files": [{"media_id": "m-1", "name": "Ep1", "episode": 1, "relative_path": "drama/1.mp4", "size_bytes": 100}],
+    }
+    for _ in range(2):
+        discovered = await client.post(base + "/discovery", headers=worker, json={"source_manifest": manifest})
+        assert discovered.json()["native_preparation_error"] is None
+        assert discovered.json()["id"] == task["id"]
+        assert "source_directory_empty" not in discovered.json()["preparation_reasons"]
+        await client.post(base + "/preparation-error", headers=worker, json={"error": "source_directory_empty"})

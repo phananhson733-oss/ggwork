@@ -99,6 +99,7 @@ class EditingRepository:
                 "stage": "preparing",
                 "result": "pending",
                 "source_manifest": data["source_manifest"],
+                "native_preparation_error": None,
                 "manifest_frozen": False,
                 "attempt": None,
                 "fence": 0,
@@ -119,6 +120,7 @@ class EditingRepository:
     async def view(self, session, task):
         result = copy.deepcopy(task)
         result.pop("fence", None)
+        result.setdefault("native_preparation_error", None)
         result["requested_count"] = task["requirements"]["output_count"]
         result["completed_count"] = sum(o["status"] == "completed" for o in task["outputs"])
         result["preparation_reasons"] = await self.preparation_reasons(session, task) if task["status"] == "waiting" else []
@@ -253,7 +255,7 @@ class EditingRepository:
         return await self.capabilities()
 
     async def preparation_reasons(self, session, task):
-        reasons = []
+        reasons = [task["native_preparation_error"]] if task.get("native_preparation_error") else []
         if not self.service.hook_available:
             reasons.append("planner_unavailable")
         if not await self.enabled(session):
@@ -301,7 +303,7 @@ class EditingRepository:
                 directory = payload.source_directory.model_dump(mode="json")
                 if directory != task.get("source_directory"):
                     task.update(source_directory=directory, source_manifest=None)
-            task.update(device_id=payload.device_id, updated_at=stamp())
+            task.update(device_id=payload.device_id, native_preparation_error=None, updated_at=stamp())
             await self.save(session, "task", task_id, task)
             return await self.view(session, task)
 
@@ -330,7 +332,7 @@ class EditingRepository:
             for before, after in zip(old["files"], incoming["files"], strict=True):
                 if before["state"] == "verified" and before != after:
                     raise ConflictError("Verified source changed; explicitly revise selection")
-            task.update(source_manifest=incoming, updated_at=stamp())
+            task.update(source_manifest=incoming, native_preparation_error=None, updated_at=stamp())
             await self.admit(session, task)
             await self.save(session, "task", task_id, task)
             return await self.view(session, task)
@@ -538,8 +540,18 @@ class EditingRepository:
                 if task["source_manifest"] != incoming:
                     raise ConflictError("Discovered selection already fixed; explicitly revise selection")
             else:
-                task.update(source_manifest=incoming, updated_at=stamp())
-                await self.save(session, "task", task_id, task)
+                task["source_manifest"] = incoming
+            task.update(native_preparation_error=None, updated_at=stamp())
+            await self.save(session, "task", task_id, task)
+            return await self.view(session, task)
+
+    async def preparation_error(self, device_id, task_id, payload):
+        async with self.transaction() as session:
+            task = await self.worker_task(session, device_id, task_id)
+            if task["status"] != "waiting" or task["manifest_frozen"]:
+                raise ConflictError("Preparation is already admitted or terminal")
+            task.update(native_preparation_error=payload.error, updated_at=stamp())
+            await self.save(session, "task", task_id, task)
             return await self.view(session, task)
 
     async def get_worker_task(self, device_id, task_id):
