@@ -27,6 +27,23 @@ def private(path: Path, value: str) -> None:
         stream.write(value)
 
 
+def validate_cluster_settings(settings: dict) -> str:
+    """Reject libpq URL overrides before any connection or CREATE/DROP operation."""
+    admin = settings.get("test_pg_url", "")
+    parsed = urlsplit(admin)
+    if (
+        settings.get("purpose") != "throwaway tests only"
+        or parsed.scheme not in {"postgresql", "postgres"}
+        or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "Parity requires a local throwaway PostgreSQL URL without query/fragment overrides"
+        )
+    return admin
+
+
 def run(
     cluster_file: Path, output: Path, gateway_root: Path, candidate_adapters: bool
 ) -> int:
@@ -34,11 +51,7 @@ def run(
     import yaml
 
     settings = json.loads(cluster_file.read_text(encoding="utf-8"))
-    admin = settings["test_pg_url"]
-    if settings.get("purpose") != "throwaway tests only" or urlsplit(
-        admin
-    ).hostname not in {"127.0.0.1", "localhost", "::1"}:
-        raise ValueError("Parity requires an explicitly marked local throwaway cluster")
+    admin = validate_cluster_settings(settings)
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
     paths = [
         gateway_root / part
@@ -228,7 +241,6 @@ from app.gateway.pick_asgi import app
                 "owner": initialized.json()["id"],
                 "candidate_adapters": candidate_adapters,
             }
-            private(output / "session.private.json", json.dumps(state))
             # Auth/CSRF errors are real HTTP responses, not synthetic fixture answers.
             query = {"domain": "catalog", "scope": "full_catalog"}
             with httpx.Client(base_url=origin, timeout=15) as anonymous:
@@ -295,6 +307,19 @@ from app.gateway.pick_asgi import app
                     json={**query, "pin": owned.json()["pin"]},
                 )
                 assert inaccessible.status_code == 404
+                ordinary = other.post(
+                    "/api/pick/query",
+                    headers={"X-CSRF-Token": other.cookies.get("csrf_token")},
+                    json=query,
+                )
+                assert ordinary.status_code == 200
+                assert registered.json()["system_role"] == "user"
+                state.update(
+                    cookies=dict(other.cookies),
+                    owner=registered.json()["id"],
+                    system_role="user",
+                )
+            private(output / "session.private.json", json.dumps(state))
         test_env = {
             **os.environ,
             "PICK_COMMON_PARITY_FIXTURE": str(output / "session.private.json"),
@@ -322,6 +347,7 @@ from app.gateway.pick_asgi import app
                 {
                     "status": "passed" if result.returncode == 0 else "failed",
                     "model_runs": 0,
+                    "frontend_role": "user",
                     "report": str(output / "parity-results.log"),
                     "versions": fixture["versions"],
                 }
