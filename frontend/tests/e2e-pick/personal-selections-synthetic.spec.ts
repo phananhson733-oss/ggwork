@@ -187,7 +187,11 @@ test("synthetic prior candidates save, recover receipt, reload, conflict, export
     ).toBe(true);
   }
   await page.evaluate(() => document.documentElement.classList.add("dark"));
-  await page.screenshot({ path: info.outputPath("selections-dark-1440.png") });
+  await expect(note).toHaveCSS("color", "rgb(231, 237, 241)");
+  await page.screenshot({
+    path: info.outputPath("selections-dark-1440.png"),
+    animations: "disabled",
+  });
   await page.reload();
   for (let remaining = 3; remaining > 0; remaining--) {
     await page
