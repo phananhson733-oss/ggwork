@@ -29,7 +29,9 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
     scope: string;
     measurement: Awaited<ReturnType<typeof visualMeasurements>>;
   }[] = [];
+  const detailMeasurements: Record<string, unknown>[] = [];
   const captureScreen = async (screen: string) => {
+    const dataScreen = screen.startsWith("data");
     for (const theme of ["light", "dark"]) {
       await page.evaluate((value) => {
         localStorage.setItem("theme", value);
@@ -37,18 +39,171 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
       }, theme);
       for (const width of [320, 768, 1280, 1440]) {
         await page.setViewportSize({ width, height: 900 });
-        if (screen === "data" || screen === "chat-checked") {
-          const action =
-            screen === "data"
-              ? page
-                  .getByRole("navigation", { name: "选剧资料分页" })
-                  .getByRole("link")
-                  .first()
-              : page
-                  .getByRole("button", {
-                    name: /(?:Copy|Copied) to clipboard|复制到剪贴板|已复制/,
-                  })
-                  .last();
+        if (dataScreen) {
+          const targets = [
+            ["KalosTV", page.getByRole("link", { name: /^KalosTV\s*0$/ })],
+            ["StarShort", page.getByRole("link", { name: /^StarShort\s*2$/ })],
+            [
+              "collapse",
+              page.getByRole("link", { name: "收起其他剧场", exact: true }),
+            ],
+            [
+              "YouTube toggle",
+              page.getByRole("link", { name: /^YouTube\s*可发$/ }),
+            ],
+            [
+              "search input",
+              page.getByLabel("搜索剧名、中文名、行键或 book_id", {
+                exact: true,
+              }),
+            ],
+            [
+              "search button",
+              page.getByRole("button", { name: "搜索", exact: true }),
+            ],
+          ] as const;
+          for (const [label, target] of targets) {
+            await target.scrollIntoViewIfNeeded();
+            await expect(target).toBeVisible();
+            await expect(target).toBeEnabled();
+            await expect(target).not.toHaveAttribute("aria-disabled", "true");
+            await target.focus();
+            await page.keyboard.press("Tab");
+            await page.keyboard.press("Shift+Tab");
+            await expect(target).toBeFocused();
+            const bounds = await target.boundingBox();
+            expect(bounds!.width).toBeGreaterThanOrEqual(44);
+            expect(bounds!.height).toBeGreaterThanOrEqual(44);
+            const facts = await target.evaluate((element) => ({
+              tag: element.tagName,
+              text: element.textContent,
+              opacity: getComputedStyle(element).opacity,
+              decorative: !!element.closest('[aria-hidden="true"]'),
+              countOpacity: element.querySelector("small")
+                ? getComputedStyle(element.querySelector("small")!).opacity
+                : null,
+            }));
+            expect(facts.decorative).toBe(false);
+            expect(facts.opacity).toBe("1");
+            if (facts.countOpacity !== null)
+              expect(facts.countOpacity).toBe("1");
+            if (label === "KalosTV")
+              await page.screenshot({
+                path: info.outputPath(`data-chips-${theme}-${width}.png`),
+                animations: "disabled",
+              });
+            const colors = await visualMeasurements(page, "main");
+            expect(colors.focus!.outlineStyle).toBe("solid");
+            expect(colors.focus!.outlineWidth).toBe("2px");
+            expect(colors.focus!.outlineContrast).toBeGreaterThanOrEqual(3);
+            detailMeasurements.push({
+              screen,
+              theme,
+              width,
+              label,
+              bounds,
+              facts,
+              focus: colors.focus,
+            });
+          }
+          const provenance = page
+            .locator("td > div")
+            .filter({ hasText: "source_table-6-文本" })
+            .last();
+          await provenance.scrollIntoViewIfNeeded();
+          await expect(provenance).toBeVisible();
+          const facts = await provenance.evaluate((element) => ({
+            text: element.textContent,
+            opacity: getComputedStyle(element).opacity,
+            decorative: !!element.closest('[aria-hidden="true"]'),
+          }));
+          expect(facts.decorative).toBe(false);
+          expect(facts.opacity).toBe("1");
+          await page.screenshot({
+            path: info.outputPath(`data-provenance-${theme}-${width}.png`),
+            animations: "disabled",
+          });
+          const provenanceColors = (
+            await visualMeasurements(page, "main")
+          ).text.filter((sample) =>
+            sample.sample.includes("source_table-6-文本"),
+          );
+          expect(provenanceColors.length).toBeGreaterThan(0);
+          for (const sample of provenanceColors)
+            expect(sample.ratio).toBeGreaterThanOrEqual(4.5);
+          detailMeasurements.push({
+            screen,
+            theme,
+            width,
+            label: "provenance",
+            facts,
+            colors: provenanceColors,
+          });
+        }
+        if (screen === "chat-checked") {
+          const reply = page
+            .locator(".is-assistant")
+            .filter({ has: page.getByLabel("最终回答核对状态") })
+            .last();
+          const ranges = await reply.evaluate((element) => {
+            const replyBox = element.getBoundingClientRect();
+            const mainBox = element.closest("main")!.getBoundingClientRect();
+            const left = Math.max(0, replyBox.left, mainBox.left);
+            const right = Math.min(innerWidth, replyBox.right, mainBox.right);
+            const walker = document.createTreeWalker(
+              element,
+              NodeFilter.SHOW_TEXT,
+            );
+            const tokens: {
+              token: string;
+              rects: { left: number; right: number }[];
+            }[] = [];
+            let node: Node | null;
+            while ((node = walker.nextNode())) {
+              for (const match of (node.textContent ?? "").matchAll(
+                /\[result:[^\]]+\]/g,
+              )) {
+                const range = document.createRange();
+                range.setStart(node, match.index!);
+                range.setEnd(node, match.index! + match[0].length);
+                tokens.push({
+                  token: match[0],
+                  rects: [...range.getClientRects()].map((rect) => ({
+                    left: rect.left,
+                    right: rect.right,
+                  })),
+                });
+              }
+            }
+            return { left, right, tokens };
+          });
+          expect(ranges.tokens.length).toBeGreaterThan(0);
+          for (const token of ranges.tokens) {
+            expect(token.rects.length).toBeGreaterThan(0);
+            for (const rect of token.rects) {
+              expect(rect.left).toBeGreaterThanOrEqual(ranges.left - 1);
+              expect(rect.right).toBeLessThanOrEqual(ranges.right + 1);
+            }
+          }
+          detailMeasurements.push({
+            screen,
+            theme,
+            width,
+            label: "literal citation ranges",
+            ranges,
+          });
+        }
+        if (dataScreen || screen === "chat-checked") {
+          const action = dataScreen
+            ? page
+                .getByRole("navigation", { name: "选剧资料分页" })
+                .getByRole("link")
+                .first()
+            : page
+                .getByRole("button", {
+                  name: /(?:Copy|Copied) to clipboard|复制到剪贴板|已复制/,
+                })
+                .last();
           await action.focus();
           await page.keyboard.press("Tab");
           await page.keyboard.press("Shift+Tab");
@@ -85,7 +240,62 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
           animations: "disabled",
         });
         const measured = await visualMeasurements(page, "main");
-        if (screen === "data" || screen === "chat-checked") {
+        if (dataScreen) {
+          await expect(page.locator("main tbody").first()).toBeVisible();
+          const cells = (
+            await visualMeasurements(page, "main tbody")
+          ).text.filter(
+            (sample) => !["·", "/", "›", "↗"].includes(sample.sample),
+          );
+          expect(cells.length).toBeGreaterThan(0);
+          expect(cells.filter((sample) => sample.ratio < 4.5)).toEqual([]);
+          const pageSize = page.getByText("每页", { exact: true });
+          await pageSize.scrollIntoViewIfNeeded();
+          await expect(pageSize).toBeVisible();
+          const pagerSummary = page.getByText(
+            /^第\s*\d[\s\S]*页\s*·\s*本页[\s\S]*行[\s\S]*共[\s\S]*条$/,
+          );
+          await expect(pagerSummary).toHaveCount(1);
+          await expect(pagerSummary).toBeVisible();
+          const summaryText = (await pagerSummary.textContent())!
+            .replace(/\s+/g, " ")
+            .trim();
+          const allPagerText = (await visualMeasurements(page, "main")).text;
+          const summarySample = allPagerText.find(
+            (sample) =>
+              sample.sample.replace(/\s+/g, " ").trim() === summaryText,
+          );
+          const sizeSample = allPagerText.find(
+            (sample) => sample.sample === "每页",
+          );
+          expect(summarySample).toBeDefined();
+          expect(sizeSample).toBeDefined();
+          const pagerText = [summarySample!, sizeSample!];
+          for (const sample of pagerText)
+            expect(sample.ratio).toBeGreaterThanOrEqual(4.5);
+          if (screen === "data-with-off") {
+            const delisted = page
+              .locator("main tbody tr")
+              .filter({ has: page.getByText(/^下架\s*\d{4}/) })
+              .first();
+            await delisted.scrollIntoViewIfNeeded();
+            await expect(delisted).toBeVisible();
+            await expect(delisted).toHaveCSS("opacity", "1");
+            await page.screenshot({
+              path: info.outputPath(`delisted-${theme}-${width}.png`),
+              animations: "disabled",
+            });
+          }
+          detailMeasurements.push({
+            screen,
+            theme,
+            width,
+            label: "meaningful cells and pagination",
+            cells,
+            pagerText,
+          });
+        }
+        if (dataScreen || screen === "chat-checked") {
           expect(measured.focus?.outlineStyle).toBe("solid");
           expect(measured.focus!.outlineContrast).toBeGreaterThanOrEqual(3);
         }
@@ -128,6 +338,9 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
     ).toBeVisible();
     await expect(page.getByTestId("board-header")).toContainText("镜像 v");
     await captureScreen("data");
+    await page.goto("/workspace/pick-data?tab=all&off=1");
+    await expect(page.getByText(/^下架\s*\d{4}/).first()).toBeVisible();
+    await captureScreen("data-with-off");
   }
   const csrf = (await context.cookies()).find(
     (cookie) => cookie.name === "csrf_token",
@@ -563,6 +776,10 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
   writeFileSync(
     info.outputPath("screen-measurements.json"),
     JSON.stringify(screenMeasurements, null, 2),
+  );
+  writeFileSync(
+    info.outputPath("business-detail-measurements.json"),
+    JSON.stringify(detailMeasurements, null, 2),
   );
   expect(outside).toEqual([]);
   writeFileSync(

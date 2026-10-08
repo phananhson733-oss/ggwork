@@ -89,11 +89,13 @@ export async function visualMeasurements(
         .trim();
       const disabled =
         element.matches(":disabled") || !!element.closest("fieldset:disabled");
+      const foreground = rgba(style.color);
+      foreground[3] = foreground[3]! * Number(style.opacity);
       if (sample && !disabled && style.backgroundImage === "none")
         text.push({
           sample: sample.slice(0, 100),
           ratio: +ratio(
-            over(rgba(style.color), background(element)),
+            over(foreground, background(element)),
             background(element),
           ).toFixed(2),
           fontSize: style.fontSize,
@@ -166,7 +168,7 @@ export async function visualMeasurements(
       controls,
       focus,
       limitations: [
-        "Gradient/image backgrounds and opacity are not fully composited",
+        "Gradient/image backgrounds and ancestor group opacity are not fully composited",
         "Border contrast does not establish complete control or focus contrast",
         "Accessibility tree is not a screen reader",
       ],
