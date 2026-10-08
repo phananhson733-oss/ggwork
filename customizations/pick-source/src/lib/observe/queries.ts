@@ -141,10 +141,9 @@ function clickedBy(asOf?: Date): SQL {
  * 恰恰更可能是真人（隐私浏览器会抹掉它）。
  */
 export function notBot(): SQL {
-  const clauses = BOT_UA_PATTERNS.map(
-    (p) => sql`lower(outbound_clicks.user_agent) NOT LIKE ${p}`,
-  );
-  return sql`outbound_clicks.user_agent IS NULL OR (${sql.join(clauses, sql` AND `)})`;
+  // Evaluate lower once per click, rather than once per pattern in each export query.
+  const patterns = BOT_UA_PATTERNS.map((p) => sql`${p}`);
+  return sql`outbound_clicks.user_agent IS NULL OR (lower(outbound_clicks.user_agent) NOT LIKE ALL (ARRAY[${sql.join(patterns, sql`, `)}]::text[]))`;
 }
 
 /**
@@ -585,8 +584,8 @@ export async function loadGrowthBaseline(windowDays: number, asOf?: Date): Promi
   const day = utcDayOffset(windowDays, asOf);
   const r = await db.execute<{ any_on_day: unknown; verified_on_day: unknown; earliest: unknown }>(sql`
     SELECT EXISTS (SELECT 1 FROM drama_observations WHERE observed_on = ${day}) AS any_on_day,
-           EXISTS (SELECT 1 FROM drama_observations WHERE observed_on = ${day} AND to_jsonb(drama_observations)->>'metrics_valid' = 'true') AS verified_on_day,
-           (SELECT observed_on FROM drama_observations WHERE to_jsonb(drama_observations)->>'metrics_valid' = 'true' ORDER BY observed_on LIMIT 1) AS earliest
+           EXISTS (SELECT 1 FROM drama_observations WHERE observed_on = ${day} AND metrics_valid IS TRUE) AS verified_on_day,
+           (SELECT observed_on FROM drama_observations WHERE metrics_valid IS TRUE ORDER BY observed_on LIMIT 1) AS earliest
   `);
   const row = r.rows[0];
   const yes = (v: unknown) => v === true || v === "t" || v === "true";

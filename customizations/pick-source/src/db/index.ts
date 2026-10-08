@@ -34,7 +34,7 @@ export function sourcePool(
   return new Pool({
     connectionString: url.toString(),
     max: 4,
-    connectionTimeoutMillis: 15_000,
+    connectionTimeoutMillis: 55_000,
     ssl: local ? false : { rejectUnauthorized: true, ca },
   });
 }

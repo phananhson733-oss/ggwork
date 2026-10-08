@@ -66,6 +66,7 @@
     "scripts/juyuantai/build.py",
     "scripts/juyuantai/posted.py",
     "scripts/juyuantai/queyu.ts",
-    "tests/pick-import.test.ts"
+    "tests/pick-import.test.ts",
+    "src/lib/observe/queries.ts"
   ]
 }
