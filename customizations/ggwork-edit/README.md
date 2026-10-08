@@ -62,3 +62,9 @@ an authenticated same-origin streaming URL supporting a single HTTP byte Range,
 plus an access preflight to distinguish missing files from an offline Mac. Both
 sides must remain online. Deploy one Gateway process/replica; restart requires a
 fresh transfer. Media bytes are never written to Gateway storage.
+
+Native preparation failures are reported through the worker `preparation-error`
+endpoint using fixed safe codes, not paths or raw exception text. They persist on
+the waiting intent as `native_preparation_error` and a preparation reason. A
+successful discovery/verification or explicit owner preparation clears the error
+without creating another request. Admitted and terminal tasks reject these reports.
