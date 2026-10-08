@@ -184,4 +184,28 @@ describe("candidate save through mock HTTP", () => {
       }),
     ).toBeTruthy();
   });
+  it("opens comparison from the candidate panel with explicit empty batch selectors", async () => {
+    rs.mocked(fetcher).mockImplementation(async (url) => {
+      const path =
+        typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      if (path.includes("?thread_id="))
+        return response({
+          results: [result, { ...result, id: "other-batch" }],
+        });
+      if (path.endsWith("/notes")) return response({}, 404);
+      return response(result);
+    });
+    mount();
+    fireEvent.click(screen.getByText("open fixture"));
+    fireEvent.click(screen.getByRole("button", { name: "比较两批候选" }));
+    await screen.findByRole("dialog", { name: "比较两批候选" });
+    expect(screen.getByLabelText<HTMLSelectElement>("第一批候选").value).toBe(
+      "",
+    );
+    expect(screen.getByLabelText<HTMLSelectElement>("第二批候选").value).toBe(
+      "",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关闭比较" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
 });
