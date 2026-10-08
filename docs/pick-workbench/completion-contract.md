@@ -127,3 +127,30 @@ constrained, display labels remain quoted, duplicate titles remain ambiguous,
 and exact scoped publication assertions require complete matching for a negative
 claim. Failed reads invalidate all uncited “current query” count/period/pin/scope
 claims; an explicit reference to a prior receipt remains historical evidence.
+
+## Bounded model/operator query projection
+
+`pick_query_data` returns `QueryModelProjection` (`projection_version=pick-query-model-v1`),
+not the HTTP `QueryResponse`. Its source is `query_model_contracts.py`; the matching
+closed TypeScript parser is `queryModelProjectionSchema`. The full typed response
+is captured as checker evidence first. The model and read-only operator card then
+receive the same bounded projection: at most 20 rows, five selected signals per
+drama, and 48,000 UTF-8 bytes. Raw board records, history arrays, source prose,
+private audit facts and unbounded links are not copied into model context.
+
+The projection retains the effective request (with a maximum limit of 20), pin,
+actual period/resolution, source/mirror clocks, source query counts, and stable
+hashed tool-row/signal references. `projection.requested_limit` records the caller's
+original limit. `counts` and `query_next_offset` describe the source query page;
+`projection.shown`, `available_count`, `omitted_rows`, `signals_omitted` and
+`next_offset` describe the visible projection. Byte trimming advances only past
+the source rows shown. Rule metadata has explicit projection pagination. The
+host tool-output exemption is safe only together with this bounded serializer.
+Malformed source fields fail with a bounded unavailable message.
+
+Rows are discriminated `drama`, `posted`, `bill`, `rule`, or `catalog_record`.
+The last variant preserves actual mirror rows with an empty source language,
+using `row_key` and a fixed-version source reference, `identity=null`, and unknown
+eligibility. It never creates a candidate identity or a save authority. Display
+label truncation is explicit. Shared synthetic examples live in
+`frontend/tests/unit/core/pick/fixtures/query-model-v1.json`.

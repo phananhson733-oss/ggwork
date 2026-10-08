@@ -1,5 +1,6 @@
 """Conservative facts from common-query receipts, never arbitrary mirror prose."""
 
+import base64
 import hashlib
 import json
 import re
@@ -10,6 +11,17 @@ from ggwork_pick.answer_evidence import _RANK_LABELS, EvidenceAtom, EvidenceRead
 def _reference(call_id, subject):
     digest = hashlib.sha256(subject.encode()).hexdigest()[:20]
     return f"tool:{call_id}:row:{digest}"
+
+
+def source_key(row):
+    drama = row["drama"]
+    key = drama.get("source_id")
+    if drama.get("source") == "realshort-pick" and key is not None:
+        try:
+            return base64.urlsafe_b64decode(key + "=" * (-len(key) % 4)).decode()
+        except (ValueError, UnicodeError):
+            return None
+    return key
 
 
 def _posted_scope(request):
@@ -143,6 +155,27 @@ def capture_common(evidence, call_id, payload):
             if _url(signal.get("source_ref")):
                 atom(f"来源[{signal_ref}]为", signal["source_ref"], "source_ref", subject=subject, reference=signal_ref)
     board = payload.get("board") or {}
+    covered = {source_key(row) for row in payload.get("rows", [])}
+    for table in ("catalog_rows", "rs_rows"):
+        for row in board.get(table, []):
+            if row["row_key"] in covered and row["lang"]:
+                continue
+            title = row["title"]
+            evidence.titles.add(title)
+            if not _label(title):
+                continue
+            subject = f"catalog:{table}:{row['row_key']}"
+            row_ref = _reference(call_id, subject)
+            atom(f"《{title}》的语种状态为", "未知" if not row["lang"] else None, "catalog.language_status", subject=subject, reference=row_ref)
+            atom(f"《{title}》的上架日期为", _date(row.get("listed_on")), "catalog.listed_on", subject=subject, reference=row_ref)
+            atom(
+                f"《{title}》的剧场标识为“",
+                row["platform"] if _label(row["platform"]) else None,
+                "catalog.platform",
+                subject=subject,
+                reference=row_ref,
+                suffix="”",
+            )
     for platform, rule in (board.get("rules") or {}).get("platformRules", {}).items():
         name = rule.get("name")
         if not _label(name):

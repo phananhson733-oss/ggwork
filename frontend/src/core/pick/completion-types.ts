@@ -1302,3 +1302,137 @@ export type CheckedMessageMetadata = z.infer<
   typeof checkedMessageMetadataSchema
 >;
 export type PickProcessingEvent = z.infer<typeof pickProcessingEventSchema>;
+
+// Bounded model/operator result. HTTP queryResponseSchema above remains complete.
+const modelReference = z.string().min(1).max(1024);
+const modelSignalSchema = z
+  .object({
+    kind: z.string().max(100),
+    observed_at: z.string().max(40).nullable(),
+    value: z.union([z.number(), z.string().max(64), z.null()]),
+    rank: z.number().int().nullable(),
+    grade: z.string().max(100),
+    reference: modelReference,
+  })
+  .strict();
+const modelDramaRowSchema = z
+  .object({
+    kind: z.literal("drama"),
+    identity: z.string().min(1).max(512),
+    reference: modelReference,
+    source: z.string().max(100),
+    source_id: z.string().max(256),
+    title: z.string().max(500),
+    language: z.string().max(40),
+    theater: z.string().max(100),
+    availability: z.enum(["active", "delisted", "unknown"]),
+    channel_rules: z.record(
+      z.enum(["youtube", "tiktok", "facebook"]),
+      z.enum(["allowed", "denied", "unknown"]),
+    ),
+    posted_status: z.enum(["posted", "not_posted", "unknown"]),
+    posted_scope_complete: z.boolean(),
+    signals: z.array(modelSignalSchema).max(5),
+    signal_count: z.number().int().min(0),
+    signals_truncated: z.boolean(),
+  })
+  .strict();
+const modelPostedRowSchema = z
+  .object({
+    kind: z.literal("posted"),
+    identity: z.string().min(1).max(512),
+    reference: modelReference,
+    sd: z.string().min(1).max(512),
+    title: z.string().max(500),
+    title_truncated: z.boolean(),
+    archived: z.boolean(),
+    post_count: z.number().int(),
+    sched_count: z.number().int(),
+    last_post_on: z.string().max(40).nullable(),
+    accounts: z.array(z.string().max(200)).max(5),
+    account_count: z.number().int().min(0),
+    accounts_truncated: z.boolean(),
+  })
+  .strict();
+const modelBillRowSchema = z
+  .object({
+    kind: z.literal("bill"),
+    identity: z.string().min(1).max(512),
+    reference: modelReference,
+    book_id: z.string().max(256),
+    canonical_id: z.string().max(256).nullable(),
+    bill_date: z.string().max(40),
+    title: z.string().max(500),
+    title_truncated: z.boolean(),
+    promotion_type: z.string().max(100),
+    order_cnt: z.number().int(),
+  })
+  .strict();
+const modelRuleRowSchema = z
+  .object({
+    kind: z.literal("rule"),
+    identity: z.string().min(1).max(512),
+    reference: modelReference,
+    platform: z.string().max(100),
+    name: z.string().max(500),
+    name_truncated: z.boolean(),
+    youtube_rule: z.enum(["ok", "only", "warn", "no"]).nullable(),
+  })
+  .strict();
+const modelCatalogRecordSchema = z
+  .object({
+    kind: z.literal("catalog_record"),
+    identity: z.null(),
+    row_key: z.string().min(1).max(512),
+    reference: modelReference,
+    source_table: z.enum(["catalog_rows", "rs_rows"]),
+    source_ref: z.string().min(1).max(1024),
+    title: z.string().max(500),
+    title_truncated: z.boolean(),
+    language: z.string().max(40),
+    theater: z.string().max(100),
+    listed_on: z.string().max(40).nullable(),
+    availability: z.enum(["unknown", "delisted"]),
+    eligibility: z.literal("unknown"),
+  })
+  .strict();
+export const modelQueryRowSchema = z.discriminatedUnion("kind", [
+  modelDramaRowSchema,
+  modelPostedRowSchema,
+  modelBillRowSchema,
+  modelRuleRowSchema,
+  modelCatalogRecordSchema,
+]);
+export const queryModelProjectionSchema = z
+  .object({
+    projection_version: z.literal("pick-query-model-v1"),
+    request: commonQuerySchema,
+    pin: queryPinSchema,
+    actual_period: queryPeriodSchema.nullable(),
+    period_resolution: z
+      .enum(["latest", "exact", "label", "ambiguous", "missing"])
+      .nullable(),
+    source_as_of: z.string().max(40).nullable(),
+    mirror_synced_at: z.string().max(40).nullable(),
+    order_version: z.string().min(1).max(128),
+    counts: queryCountsSchema,
+    query_next_offset: z.number().int().min(0).nullable(),
+    query_truncated: z.boolean(),
+    projection: z
+      .object({
+        page_limit: z.literal(20),
+        byte_limit: z.literal(48000),
+        requested_limit: z.number().int().min(1).max(200),
+        shown: z.number().int().min(0).max(20),
+        available_count: z.number().int().min(0),
+        omitted_rows: z.number().int().min(0),
+        signals_omitted: z.number().int().min(0),
+        next_offset: z.number().int().min(0).nullable(),
+        truncated: z.boolean(),
+      })
+      .strict(),
+    rows: z.array(modelQueryRowSchema).max(20),
+  })
+  .strict();
+export type QueryModelProjection = z.infer<typeof queryModelProjectionSchema>;
+export type ModelQueryRow = z.infer<typeof modelQueryRowSchema>;
