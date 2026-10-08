@@ -146,4 +146,5 @@ it("detail navigation rejects an earlier response after another drama was select
   expect(
     screen.getByRole("heading", { name: "Second synthetic" }),
   ).toBeTruthy();
+  expect(screen.getByText(/总分由热度 35%/)).toBeTruthy();
 });

@@ -15,6 +15,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from ggwork_pick.repository import stamp
+
 from .constants import DB_SHA256, RULES_VERSION, ZIP_SHA256
 from .scorer import score_row
 from .storage import get_db_connection
@@ -132,7 +134,7 @@ def normalize_record(raw, original):
                 break
             try:
                 day = date.fromisoformat(point["date"])
-                if day.isoformat() != point["date"]:
+                if str(day) != point["date"]:
                     raise ValueError("not an ISO day")
             except ValueError:
                 error("timeline_data", "invalid_date")
@@ -216,7 +218,7 @@ def normalize_record(raw, original):
         pilot["prediction_label"] = LABELS[scored["prediction_label"]]
     fetched = raw.get("fetched_at")
     try:
-        fetched_iso = datetime.fromtimestamp(fetched, UTC).isoformat() if finite(fetched) else None
+        fetched_iso = datetime.fromtimestamp(fetched, UTC).isoformat(timespec="auto") if finite(fetched) else None
     except (ValueError, OverflowError, OSError):
         fetched_iso = None
     if fetched is not None and fetched_iso is None:
@@ -360,7 +362,7 @@ def load_snapshot(path: Path, *, expected_hash=DB_SHA256):
         snapshot_id=digest,
         db_sha256=digest,
         source_zip_sha256=ZIP_SHA256,
-        loaded_at=datetime.now(UTC).isoformat(),
+        loaded_at=stamp(),
         latest_cache_written_at=max(writes, default=None),
         catalog_total=len(rows),
         integrity_check="ok",

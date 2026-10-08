@@ -40,7 +40,7 @@ def filters(
 ):
     if series_end:
         try:
-            if date.fromisoformat(series_end).isoformat() != series_end:
+            if str(date.fromisoformat(series_end)) != series_end:
                 raise ValueError("noncanonical date")
         except ValueError:
             raise HTTPException(422, "series_end must be an ISO date") from None
