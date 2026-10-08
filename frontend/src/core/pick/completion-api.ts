@@ -1,6 +1,6 @@
 import { type z } from "zod";
 
-import { responseFor } from "./api";
+import { PickApiError, responseFor } from "./api";
 import {
   commonQuerySchema,
   queryResponseSchema,
@@ -40,7 +40,14 @@ function command(
   method = "POST",
 ): RequestInit {
   const parsed = schema.safeParse(input);
-  if (!parsed.success) throw new Error("请检查必填字段及输入格式。");
+  if (!parsed.success)
+    throw new PickApiError(
+      "请检查必填字段及输入格式。",
+      422,
+      "invalid_query",
+      null,
+      false,
+    );
   return {
     method,
     signal,
@@ -110,7 +117,14 @@ export async function listReviewPosts(
   signal?: AbortSignal,
 ) {
   const parsed = reviewQuerySchema.safeParse(input);
-  if (!parsed.success) throw new Error("请检查复盘筛选条件。");
+  if (!parsed.success)
+    throw new PickApiError(
+      "请检查复盘筛选条件。",
+      422,
+      "invalid_query",
+      null,
+      false,
+    );
   const params = new URLSearchParams();
   Object.entries(parsed.data).forEach(([key, value]) => {
     if (value !== null) params.set(key, String(value));

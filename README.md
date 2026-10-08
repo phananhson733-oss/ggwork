@@ -1979,7 +1979,9 @@ Deleting a project moves its entire shelf to trash in the same step.
 
 ## Scheduled Tasks
 
-In this GGWork customization, the Scheduled tasks and 我的选剧 sidebar entries are temporarily unavailable. Both remain visible and show “暂未开放” (or “Not available yet” in English) when clicked, keeping the current page open. 选剧资料 remains accessible.
+In this GGWork customization, the pick workspace has direct entries for conversation, personal selections, plan drafts, publication review, and source data. Personal selections can create a private draft; plan edits are explicitly saved, execution export requires a version-bound source check, and download retries use the same immutable receipt. Publication review reads actual posts and requires explicit two-sided confirmation for manual plan links. Two explicitly chosen batches can be compared without silently changing chat references. Scheduled tasks remains temporarily unavailable.
+
+The completion frontend has deterministic mocked-HTTP component/browser coverage; actual plan/export/feedback persistence and host final-publication acceptance require the assembled backend. The existing data-board readers remain active until common-query parity passes. See [the frozen completion contract](docs/pick-workbench/completion-contract.md).
 
 DeerFlow now includes a first-class scheduled-task MVP in the workspace.
 
