@@ -243,7 +243,11 @@ class CommonQueryService:
                     "SELECT EXISTS(SELECT 1 FROM catalog_rows WHERE lang=$1 UNION ALL SELECT 1 FROM rs_rows WHERE lang=$1)", req.language
                 ):
                     updates["language"] = next(
-                        (key for key, value in rules["langLoc"].items() if req.language.casefold() in {key.casefold(), value.casefold()}),
+                        (
+                            key
+                            for key, value in rules["langLoc"].items()
+                            if req.language.casefold() == key.casefold() or isinstance(value, str) and req.language.casefold() == value.casefold()
+                        ),
                         req.language.casefold(),
                     )
                 effective_request = req.model_copy(update=updates)

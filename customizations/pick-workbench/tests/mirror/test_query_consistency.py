@@ -373,3 +373,76 @@ async def test_historical_episode_sidecar_retains_null_and_zero(canonical_world,
     item = next(i for i in result["items"] if json.loads(i["identity"])[1] == "c-2")
     detail = await selection.detail(result["id"], item["item_id"])
     assert detail["source_facts"]["episodes"] == episodes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("label", [None, True, 123])
+async def test_optional_scalar_language_labels_do_not_break_supported_code_queries(canonical_world, label):
+    service, repo, world, conn, shared, importer, as_of = canonical_world
+    changed = gw.with_manifest(world, ("meta", "rules", "langLoc"), {"en": label})
+    for table in ("catalog_rows", "rs_rows"):
+        changed = gw.with_table(changed, table, [{**row, "lang": "en"} if row["lang"] == "英语" else row for row in changed.tables[table]])
+    await bf._publish(conn, shared, importer, changed, as_of + timedelta(days=1))
+    empty = await service.query(CommonQuery(domain="catalog", scope="full_catalog", language="ko"))
+    assert empty.counts.matched == 0 and not empty.rows
+    upper = await service.query(CommonQuery(domain="catalog", scope="full_catalog", language="EN"))
+    lower = await service.query(CommonQuery(domain="catalog", scope="full_catalog", language="en"))
+    assert upper.counts.matched == lower.counts.matched > 0
+    assert upper.board.rules.langLoc == {"en": label}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("malformation", ["episode", "projection"])
+async def test_failed_common_tool_does_not_retain_partial_successful_facts(canonical_world, malformation):
+    from types import SimpleNamespace
+
+    from deerflow_extension_api import ExtensionData, TaskInfo
+    from deerflow_extension_api.runtime_bridge import EXTENSION_TASK_STORE_KEY
+
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.context import PickLifecycle, PickTask
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import query_data_tool
+
+    service, repo, world, conn, shared, importer, as_of = canonical_world
+    changed = gw.with_table(
+        world, "catalog_rows", [{**r, "episodes": -1 if malformation == "episode" and r["row_key"] == "c-6" else 80} for r in world.tables["catalog_rows"]]
+    )
+    await bf._publish(conn, shared, importer, changed, as_of + timedelta(days=1))
+    if malformation == "projection":
+        rules = world.manifest["meta"]["rules"]["platformRules"]
+        changed = gw.with_manifest(changed, ("meta", "rules", "platformRules"), {**rules, "x" * 200: next(iter(rules.values()))})
+        await bf._publish(conn, shared, importer, changed, as_of + timedelta(days=2))
+    host = PickService(importer.data_dir)
+    await host.initialize(repo.session_factory)
+    host.query_reader = service.reader
+    store = ExtensionData("atomic-evidence")
+    await PickLifecycle(host).on_task_start(ExtensionData("app"), store, TaskInfo("atomic-evidence", "r", "thread", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="good")
+    good = json.loads(await query_data_tool.coroutine(query={"domain": "catalog", "scope": "full_catalog", "source_id": "c-2"}, runtime=runtime))
+    assert good["rows"][0]["episodes"] == 80
+    evidence = store.get(PickTask).answer_evidence
+    old_atoms = list(evidence.atoms)
+    runtime.tool_call_id = "bad"
+    failed = json.loads(
+        await query_data_tool.coroutine(
+            query={
+                "domain": "catalog" if malformation == "episode" else "rules",
+                "scope": "full_catalog",
+                **({"order": "title"} if malformation == "episode" else {}),
+            },
+            runtime=runtime,
+        )
+    )
+    assert failed["code"] == "source_unavailable" and failed["status"] == "rejected"
+    assert [read.status for read in evidence.reads if read.call_id == "bad"] == ["unavailable"]
+    assert all(atom.value is None for atom in evidence.atoms if atom.reference.startswith("tool:bad"))
+    assert evidence.atoms[: len(old_atoms)] == old_atoms
+    old = next(atom for atom in old_atoms if atom.field_name == "episodes" and atom.value == "80")
+
+    def checked(text):
+        return build_checked_publication(text, evidence=evidence, thread_id="thread", run_id="r", message_id="m")
+
+    assert checked(f"{old.claim} [{old.reference}]").status == "confirmed"
+    assert checked(f"{old.claim} [{old.reference.replace('tool:good', 'tool:bad')}]").status != "confirmed"
+    assert checked("本次查询符合条件总数为0部 [tool:bad]").status != "confirmed"

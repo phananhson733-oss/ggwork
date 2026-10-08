@@ -93,6 +93,18 @@ class AnswerEvidence:
     reads: list[EvidenceRead] = field(default_factory=list)
 
     def capture(self, tool: str, call_id: str, payload: dict) -> None:
+        """Validate an entire receipt before adding any of its facts to this ledger."""
+        staged = AnswerEvidence()
+        staged._capture(tool, call_id, payload)
+        self.commit(staged)
+
+    def commit(self, staged: "AnswerEvidence") -> None:
+        """Commit a validated invocation after its caller's projection/encoding succeeds."""
+        self.atoms.extend(staged.atoms)
+        self.titles.update(staged.titles)
+        self.reads.extend(staged.reads)
+
+    def _capture(self, tool: str, call_id: str, payload: dict) -> None:
         if tool == "pick_query_data":
             from ggwork_pick.query_evidence import capture_common
 

@@ -1,5 +1,6 @@
 """Model tools can read and prepare choices, but cannot commit user choices."""
 
+import asyncio
 import json
 from typing import Annotated
 
@@ -384,12 +385,21 @@ async def query_data_tool(query: CommonQuery, runtime: Runtime) -> str:
         if request.pin is not None and request.pin != pin:
             raise ValueError("查询版本与本轮已固定的数据版本不一致")
         request = request.model_copy(update={"pin": pin})
-        response = await task.service.common_query(repo).query(request, deadline=task.query_deadline)
+        loop = asyncio.get_running_loop()
+        deadline = min(task.query_deadline, loop.time() + min(10000, request.budget_ms) / 1000)
+        response = await task.service.common_query(repo).query(request, deadline=deadline)
         payload = response.model_dump(mode="json")
-        _capture(task, runtime, "pick_query_data", payload)
+        from ggwork_pick.answer_evidence import AnswerEvidence
         from ggwork_pick.query_model_projection import model_projection
+        from ggwork_pick.query_reader import QueryFailure
 
+        staged = AnswerEvidence()
+        staged.capture("pick_query_data", runtime.tool_call_id, payload)
         projected = model_projection(payload, call_id=runtime.tool_call_id, requested_limit=requested_limit)
-        return json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
+        encoded = json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
+        if loop.time() >= deadline:
+            raise QueryFailure("query_timeout", "查询超过时限，请缩小范围后重试", retryable=True)
+        task.answer_evidence.commit(staged)
+        return encoded
 
     return await _answer(work, task=task, runtime=runtime, tool_name="pick_query_data")
