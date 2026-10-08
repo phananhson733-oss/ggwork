@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 
 import { expect, test, type Dialog } from "@playwright/test";
@@ -6,6 +5,7 @@ import Papa from "papaparse";
 
 import type { PlanRow } from "@/core/pick/completion-types";
 
+import { planConflictAndHistory } from "./support/completion-plan-behavior";
 import {
   actualBrowserZoom,
   visualMeasurements,
@@ -145,38 +145,49 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
             .locator(".is-assistant")
             .filter({ has: page.getByLabel("最终回答核对状态") })
             .last();
-          const ranges = await reply.evaluate((element) => {
-            const replyBox = element.getBoundingClientRect();
-            const mainBox = element.closest("main")!.getBoundingClientRect();
-            const left = Math.max(0, replyBox.left, mainBox.left);
-            const right = Math.min(innerWidth, replyBox.right, mainBox.right);
-            const walker = document.createTreeWalker(
-              element,
-              NodeFilter.SHOW_TEXT,
-            );
-            const tokens: {
-              token: string;
-              rects: { left: number; right: number }[];
-            }[] = [];
-            let node: Node | null;
-            while ((node = walker.nextNode())) {
-              for (const match of (node.textContent ?? "").matchAll(
-                /\[result:[^\]]+\]/g,
-              )) {
-                const range = document.createRange();
-                range.setStart(node, match.index);
-                range.setEnd(node, match.index + match[0].length);
-                tokens.push({
-                  token: match[0],
-                  rects: [...range.getClientRects()].map((rect) => ({
-                    left: rect.left,
-                    right: rect.right,
-                  })),
-                });
+          const readRanges = () =>
+            reply.evaluate((element) => {
+              const replyBox = element.getBoundingClientRect();
+              const mainBox = element.closest("main")!.getBoundingClientRect();
+              const left = Math.max(0, replyBox.left, mainBox.left);
+              const right = Math.min(innerWidth, replyBox.right, mainBox.right);
+              const walker = document.createTreeWalker(
+                element,
+                NodeFilter.SHOW_TEXT,
+              );
+              const tokens: {
+                token: string;
+                rects: { left: number; right: number }[];
+              }[] = [];
+              let node: Node | null;
+              while ((node = walker.nextNode())) {
+                for (const match of (node.textContent ?? "").matchAll(
+                  /\[result:[^\]]+\]/g,
+                )) {
+                  const range = document.createRange();
+                  range.setStart(node, match.index);
+                  range.setEnd(node, match.index + match[0].length);
+                  tokens.push({
+                    token: match[0],
+                    rects: [...range.getClientRects()].map((rect) => ({
+                      left: rect.left,
+                      right: rect.right,
+                    })),
+                  });
+                }
               }
-            }
-            return { left, right, tokens };
-          });
+              return { left, right, tokens };
+            });
+          await expect
+            .poll(async () => {
+              const measured = await readRanges();
+              return (
+                measured.tokens.length > 0 &&
+                measured.tokens.every((token) => token.rects.length > 0)
+              );
+            })
+            .toBe(true);
+          const ranges = await readRanges();
           expect(ranges.tokens.length).toBeGreaterThan(0);
           for (const token of ranges.tokens) {
             expect(token.rects.length).toBeGreaterThan(0);
@@ -475,43 +486,7 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
   expect(zoned.rows.map((r: PlanRow) => r.scheduled_at)).toEqual(
     original.rows.map((r: PlanRow) => r.scheduled_at),
   );
-  // The competing tab uses the same real owner/version contract.
-  await page
-    .getByLabel("计划名称", { exact: true })
-    .fill("保留本地修改的长计划名称 Synthetic conflict draft");
-  const changed = await context.request.patch(planPath, {
-    headers,
-    data: {
-      request_id: randomUUID(),
-      expected_version: zoned.version,
-      title: "Other tab",
-      timezone: zoned.timezone,
-      timezone_change: null,
-      rows: zoned.rows.map((r: PlanRow) => ({
-        row_id: r.row_id,
-        identity: r.identity,
-        source_result_id: r.source_result_id,
-        source_item_id: r.source_item_id,
-        selection_id: r.selection_id,
-        account: r.account,
-        channel: r.channel,
-        local_time: r.local_time,
-        fold: r.fold,
-        copy_text: r.copy_text,
-        note: r.note,
-      })),
-    },
-  });
-  expect(changed.ok()).toBe(true);
-  await page.getByRole("button", { name: "保存计划", exact: true }).click();
-  await expect(
-    page.getByText("本地输入仍保留。比较后决定采用哪一份。"),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "保留本地修改，以新版本继续" })
-    .click();
-  await page.getByRole("button", { name: "保存计划", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("已保存版本");
+  await planConflictAndHistory(page, context, planPath, zoned, headers, info);
   // A current source change makes exactly one of the three complete rows unknown.
   const unknown = structuredClone(source);
   unknown[2]!.channel_rules.youtube = "unknown";
