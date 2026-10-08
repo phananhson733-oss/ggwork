@@ -475,7 +475,7 @@ export function TitleCell({ row, req }: { row: PickRow; req: PickRequest }) {
           {note}
         </div>
       ) : null}
-      <div className="text-ink-dim mt-0.5 text-[11px]">
+      <div className="text-helper mt-0.5 text-[11px]">
         <span className="bg-raised text-ink-2 rounded-sm px-1 py-px font-semibold">
           {PLATFORM_LABELS[row.platform]}
         </span>{" "}
