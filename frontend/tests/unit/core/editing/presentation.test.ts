@@ -2,6 +2,7 @@ import { expect, it } from "@rstest/core";
 
 import {
   editingCreateHref,
+  editingLabel,
   editingTaskId,
   safeEditingReturn,
 } from "@/core/editing/presentation";
@@ -21,4 +22,12 @@ it("keeps the selected drama and exact filtered return context", () => {
 it("resolves a real task tool envelope without inventing a task from narration", () => {
   expect(editingTaskId(JSON.stringify({ task: { id: "t-1" } }))).toBe("t-1");
   expect(editingTaskId("已完成任务 t-2")).toBeNull();
+});
+
+it("labels the preparation and completed stages without exposing unknown diagnostics", () => {
+  expect(editingLabel("preparing")).toBe("准备素材");
+  expect(editingLabel("finished")).toBe("处理已结束");
+  expect(editingLabel("unknown /private/file")).toBe(
+    "状态暂不可识别，请重新检查；如仍未恢复，请联系管理员",
+  );
 });

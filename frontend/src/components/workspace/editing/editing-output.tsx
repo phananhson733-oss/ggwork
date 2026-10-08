@@ -22,26 +22,38 @@ export function EditingOutput({
   busy: boolean;
 }) {
   const { owner, expire } = useEditingOwner();
+  const [requested, setRequested] = useState(false);
+  const [check, setCheck] = useState(0);
   const [play, setPlay] = useState(false);
   const [interrupted, setInterrupted] = useState(false);
   const online = task.device_status === "online";
   const complete = output.status === "completed" && output.result?.verified;
   const access = useQuery({
-    queryKey: [...editingKeys.task(owner, task.id), "access", output.id],
+    queryKey: [...editingKeys.task(owner, task.id), "access", output.id, check],
     queryFn: ({ signal }) =>
       editingRequest<{ access_status: string }>(
         `/tasks/${encodeURIComponent(task.id)}/outputs/${encodeURIComponent(output.id)}/access`,
         { signal },
       ),
-    enabled: !!owner && online && !!complete,
+    enabled: !!owner && online && !!complete && requested,
+    gcTime: 0,
     retry: false,
-    refetchInterval: 15000,
+    refetchInterval: requested && online ? 15000 : false,
   });
   useEffect(() => {
     expire(access.error);
   }, [access.error]); // eslint-disable-line react-hooks/exhaustive-deps
-  const available =
-    online && access.data?.access_status === "available" && !access.isError;
+  useEffect(() => {
+    setRequested(false);
+    setPlay(false);
+    setInterrupted(false);
+  }, [online, owner, task.id, output.id]);
+  const authorized =
+    requested &&
+    online &&
+    access.data?.access_status === "available" &&
+    !access.isError;
+  const available = authorized && !access.isFetching;
   return (
     <li className="space-y-3 border-b py-4">
       <h3 className="text-lg font-medium">
@@ -51,11 +63,13 @@ export function EditingOutput({
         <>
           <p>
             {online
-              ? access.isPending
-                ? "正在检查生成设备上的文件…"
-                : access.isError
-                  ? "成片访问检查失败，原成片记录仍保留"
-                  : editingLabel(access.data?.access_status ?? "unchecked")
+              ? !requested
+                ? "检查成片访问后可预览或下载，完成记录不受影响"
+                : access.isPending
+                  ? "正在检查生成设备上的文件…"
+                  : access.isError
+                    ? "成片访问检查失败，原成片记录仍保留"
+                    : editingLabel(access.data?.access_status ?? "unchecked")
               : editingLabel(task.access_status)}
           </p>
           {available && (
@@ -81,16 +95,18 @@ export function EditingOutput({
             <Button
               type="button"
               variant="outline"
+              disabled={access.isFetching}
               onClick={() => {
+                setRequested(true);
+                setCheck((value) => value + 1);
                 setPlay(false);
                 setInterrupted(false);
-                void access.refetch();
               }}
             >
-              重新检查文件
+              {requested ? "重新检查文件" : "检查成片访问"}
             </Button>
           )}
-          {play && available && !interrupted && (
+          {play && authorized && !interrupted && (
             <video
               controls
               preload="metadata"
@@ -110,7 +126,8 @@ export function EditingOutput({
       {output.error && (
         <p className="text-danger-ink">{editingLabel(output.error)}</p>
       )}
-      {output.status === "failed" &&
+      {(output.status === "failed" ||
+        (output.status === "stopped" && task.plan && task.plan_confirmed)) &&
         task.available_actions.includes("retry") && (
           <Button
             type="button"

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { registerEditingDevice } from "@/core/editing/api";
+import { EditingError, registerEditingDevice } from "@/core/editing/api";
 import { useEditingOwner, useEditingSetup } from "@/core/editing/hooks";
 import { editingLabel } from "@/core/editing/presentation";
 
@@ -20,15 +20,24 @@ export function EditingDevices({
 }) {
   const { devices } = useEditingSetup();
   const { owner, current, expire } = useEditingOwner();
+  const [gateway, setGateway] = useState("https://你的站点");
+  useEffect(() => setGateway(window.location.origin), []);
   const [name, setName] = useState("我的 Mac");
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const active = useRef<AbortController | null>(null);
-  useEffect(() => () => active.current?.abort(), []);
+  useEffect(() => {
+    setToken("");
+    setCopied(false);
+    setError("");
+    setBusy(false);
+    return () => active.current?.abort();
+  }, [owner]);
   const chosen = devices.data?.items.find((device) => device.id === value);
   async function connect() {
+    if (busy || !owner) return;
     const controller = new AbortController();
     active.current = controller;
     setBusy(true);
@@ -36,15 +45,21 @@ export function EditingDevices({
     try {
       const result = await registerEditingDevice(name, controller.signal);
       if (current.current !== owner || controller.signal.aborted) return;
+      setCopied(false);
       setToken(result.token);
       onChange(result.device.id);
       await devices.refetch();
     } catch (error) {
       expire(error);
-      if (!controller.signal.aborted)
-        setError(error instanceof Error ? error.message : "设备连接失败");
+      if (!controller.signal.aborted && current.current === owner)
+        setError(
+          error instanceof EditingError
+            ? error.message
+            : "设备连接失败，请检查网络后重试",
+        );
     } finally {
-      if (!controller.signal.aborted) setBusy(false);
+      if (!controller.signal.aborted && current.current === owner)
+        setBusy(false);
     }
   }
   return (
@@ -75,7 +90,11 @@ export function EditingDevices({
       {devices.isError && (
         <EditingNotice>
           设备列表读取失败。
-          <Button variant="outline" onClick={() => void devices.refetch()}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void devices.refetch()}
+          >
             重新检查设备
           </Button>
         </EditingNotice>
@@ -159,7 +178,7 @@ export function EditingDevices({
             ffmpeg、ffprobe、whisper-cli，并准备已验证的本地 Whisper
             模型。下列命令中的目录和模型需替换为自己的位置；连接凭证只在安全提示中输入。
           </p>
-          <pre className="overflow-x-auto rounded border p-3 text-base break-all whitespace-pre-wrap">{`ggwork-edit-worker setup --gateway ${typeof window === "undefined" ? "https://你的站点" : window.location.origin} --device-id ${value || "设备标识"} --output-root /新的空成片目录 --model /本地Whisper模型 --model-sha256 模型的SHA256 --model-language multilingual
+          <pre className="overflow-x-auto rounded border p-3 text-base break-all whitespace-pre-wrap">{`ggwork-edit-worker setup --gateway ${gateway} --device-id ${value || "设备标识"} --output-root /新的空成片目录 --model /本地Whisper模型 --model-sha256 模型的SHA256 --model-language multilingual
  ggwork-edit-worker grant drama /素材目录
  ggwork-edit-worker grant incoming /接收目录 --receive
  ggwork-edit-worker doctor

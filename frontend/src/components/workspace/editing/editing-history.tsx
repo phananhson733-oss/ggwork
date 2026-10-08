@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useEditingHistory, useEditingSetup } from "@/core/editing/hooks";
 import { editingLabel } from "@/core/editing/presentation";
 
-import { EditingNotice, EditingShell } from "./editing-shell";
+import { EditingNotice, EditingShell, EditingStatus } from "./editing-shell";
 
 export function EditingHistory() {
   const [offset, setOffset] = useState(0);
@@ -42,8 +42,8 @@ export function EditingHistory() {
                 </Link>
                 <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
                   <span>
-                    {editingLabel(task.status)} · {task.completed_count}/
-                    {task.requested_count} 条
+                    <EditingStatus status={task.status} /> ·{" "}
+                    {task.completed_count}/{task.requested_count} 条
                   </span>
                   <span>{editingLabel(task.requirements.profile)}</span>
                   <span>

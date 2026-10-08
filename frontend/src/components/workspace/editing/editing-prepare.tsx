@@ -3,7 +3,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { prepareEditingTask, uploadSource } from "@/core/editing/api";
+import {
+  EditingError,
+  prepareEditingTask,
+  uploadSource,
+} from "@/core/editing/api";
 import { useEditingOwner, useEditingSetup } from "@/core/editing/hooks";
 import { editingLabel } from "@/core/editing/presentation";
 import type { EditingTask, Source } from "@/core/editing/types";
@@ -21,14 +25,16 @@ export function EditingPrepare({
   const { devices } = useEditingSetup();
   const { owner, current, expire } = useEditingOwner();
   const [deviceId, setDeviceId] = useState(task.device_id ?? "");
-  const [grant, setGrant] = useState(task.source_directory?.grant_id ?? "");
+  const [grant, setGrant] = useState(
+    task.source_directory?.grant_id ?? task.source_manifest?.grant_id ?? "",
+  );
   const [path, setPath] = useState(task.source_directory?.relative_path ?? ".");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
   const [files, setFiles] = useState<{ file: File; source: Source }[]>([]);
   const active = useRef<AbortController | null>(null);
-  useEffect(() => () => active.current?.abort(), []);
+  useEffect(() => () => active.current?.abort(), [owner]);
   const device = devices.data?.items.find((value) => value.id === deviceId);
   async function perform(operation: (signal: AbortSignal) => Promise<unknown>) {
     const controller = new AbortController();
@@ -41,7 +47,11 @@ export function EditingPrepare({
     } catch (error) {
       expire(error);
       if (current.current === owner && !controller.signal.aborted)
-        setError(error instanceof Error ? error.message : "操作未完成");
+        setError(
+          error instanceof EditingError
+            ? error.message
+            : "操作未完成，请检查连接后重试",
+        );
     } finally {
       if (current.current === owner && !controller.signal.aborted)
         setBusy(false);
@@ -228,6 +238,18 @@ export function EditingPrepare({
         </details>
       )}
       {task.source_manifest && (
+        <p role="status">
+          本次所选素材：
+          {
+            task.source_manifest.files.filter(
+              (source) => source.state === "verified",
+            ).length
+          }
+          /{task.source_manifest.files.length} 个已在 Mac
+          校验，未完成项仍保留在清单中。
+        </p>
+      )}
+      {task.source_manifest && (
         <ul className="space-y-3">
           {task.source_manifest.files.map((source) => (
             <li key={source.media_id}>
@@ -287,9 +309,14 @@ export function EditingPrepare({
         </ul>
       )}
       {progress && (
-        <p role="status">
-          {progress}。收到后还需本地校验，传输期间请保持浏览器和 Mac 在线。
-        </p>
+        <div>
+          <p role="status">
+            {busy
+              ? "正在提交素材，请保持浏览器和 Mac 在线。"
+              : "请查看清单中的本地校验状态，未完成项仍会保留。"}
+          </p>
+          <p aria-live="off">{progress}。收到后还需本地校验。</p>
+        </div>
       )}
       {error && <EditingNotice>{error}</EditingNotice>}
     </section>

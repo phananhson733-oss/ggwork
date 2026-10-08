@@ -46,11 +46,7 @@ export function EditingForm({
   );
   const [sourceMode, setSourceMode] = useState<
     "directory" | "files" | "existing"
-  >(
-    parent?.source_manifest && !parent.source_directory
-      ? "existing"
-      : "directory",
-  );
+  >(parent?.source_manifest ? "existing" : "directory");
   const [files, setFiles] = useState<{ file: File; source: Source }[]>([]);
   const [requirements, setRequirements] = useState<Requirements>(
     parent?.requirements ?? {
@@ -113,7 +109,7 @@ export function EditingForm({
     }
   }
 
-  useEffect(() => () => active.current?.abort(), []);
+  useEffect(() => () => active.current?.abort(), [owner]);
   useEffect(() => {
     if (error) errorRef.current?.focus();
   }, [error]);
@@ -136,7 +132,7 @@ export function EditingForm({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || !owner) return;
-    if (!admitted) {
+    if (!request.current && !admitted) {
       setError("当前没有已就绪的剪辑模式，请先完成能力配置");
       return;
     }
@@ -265,7 +261,11 @@ export function EditingForm({
     }
   }
   return (
-    <form onSubmit={(event) => void submit(event)} className="space-y-6">
+    <form
+      onSubmit={(event) => void submit(event)}
+      noValidate={locked}
+      className="space-y-6"
+    >
       {back && (
         <Link
           href={back}
@@ -285,7 +285,10 @@ export function EditingForm({
           </Link>
         </p>
       )}
-      <fieldset disabled={locked || busy} className="space-y-6">
+      <fieldset
+        disabled={locked || busy}
+        className="grid min-w-0 gap-6 lg:grid-cols-2 [&>label]:lg:col-span-2 [&>section:first-of-type]:lg:col-span-2"
+      >
         <label className="block font-medium">
           当前剧目
           <Input
@@ -318,7 +321,7 @@ export function EditingForm({
                 )
               }
             >
-              {parent?.source_manifest && !parent.source_directory && (
+              {parent?.source_manifest && (
                 <option value="existing">沿用原版选定素材（重新校验）</option>
               )}
               <option value="directory">Mac 上的文件夹</option>
@@ -332,6 +335,7 @@ export function EditingForm({
               value={grant}
               onChange={(event) => setGrant(event.target.value)}
               required={sourceMode === "files"}
+              disabled={sourceMode === "existing"}
             >
               <option value="">稍后授权目录</option>
               {device?.grants.map((value) => (
@@ -555,7 +559,16 @@ export function EditingForm({
           <EditingNotice>{error}</EditingNotice>
         </div>
       )}
-      {progress && <p role="status">{progress}</p>}
+      {progress && (
+        <div>
+          <p role="status">
+            {busy
+              ? "正在提交素材，请保持浏览器和 Mac 在线。"
+              : "请打开任务查看未完成的素材与本地校验状态。"}
+          </p>
+          <p aria-live="off">{progress}</p>
+        </div>
+      )}
       {submitted && (
         <Link
           href={`/workspace/editing/${submitted.id}`}
@@ -566,7 +579,7 @@ export function EditingForm({
       )}
       <Button
         type="submit"
-        disabled={busy || !admitted || !!submitted}
+        disabled={busy || (!locked && !admitted) || !!submitted}
         className="min-h-11 w-full text-base md:w-auto"
       >
         {busy ? "正在提交…" : locked ? "确认提交结果" : "开始剪辑"}

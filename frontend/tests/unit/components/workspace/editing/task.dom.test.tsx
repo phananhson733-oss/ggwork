@@ -111,7 +111,11 @@ it("preserves partial delivery while offline and retries only the failed output"
       </QueryClientProvider>
     </AuthProvider>,
   );
-  await screen.findByText(/部分完成 · 2\/3 条/);
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toContain(
+      "部分完成 · 2/3 条",
+    ),
+  );
   expect(screen.queryByText("来源对话")).toBeNull();
   expect(screen.queryByRole("link", { name: "下载成片" })).toBeNull();
   expect(screen.queryByRole("button", { name: "预览成片" })).toBeNull();
@@ -183,9 +187,136 @@ it("separates missing output files from a completed task and offers access retry
       </QueryClientProvider>
     </AuthProvider>,
   );
+  fireEvent.click(await screen.findByRole("button", { name: "检查成片访问" }));
   await screen.findByText(/生成设备未找到原成片/);
-  expect(screen.getByText(/已完成 · 3\/3 条/)).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toContain("已完成 · 3/3 条");
   expect(screen.getByRole("button", { name: "重新检查文件" })).toBeTruthy();
   expect(screen.queryByRole("link", { name: "下载成片" })).toBeNull();
   client.clear();
 });
+
+it("keeps a partly verified selection pending and preserves its receiving directory", async () => {
+  const writes: unknown[] = [];
+  rs.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    if (init?.method === "POST") writes.push(JSON.parse(init.body as string));
+    if (url.endsWith("/devices"))
+      return Response.json({
+        items: [
+          {
+            id: "mac",
+            name: "Studio",
+            ready: true,
+            online: true,
+            grants: ["incoming"],
+            reasons: [],
+          },
+        ],
+      });
+    if (url.endsWith("/capabilities")) return Response.json({ profiles: [] });
+    return Response.json({
+      ...task,
+      status: "waiting",
+      manifest_frozen: false,
+      outputs: [],
+      source_manifest: {
+        version: 2,
+        grant_id: "incoming",
+        files: [
+          {
+            media_id: "a",
+            name: "第一集.mp4",
+            episode: 1,
+            relative_path: "第一集.mp4",
+            size_bytes: 100,
+            state: "verified",
+            sha256: "a".repeat(64),
+            duration_seconds: 30,
+          },
+          {
+            media_id: "b",
+            name: "第二集.mp4",
+            episode: 2,
+            relative_path: "第二集.mp4",
+            size_bytes: 100,
+            state: "received",
+          },
+        ],
+      },
+    });
+  });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(
+    <AuthProvider initialUser={{ id: "prepare-owner" } as User}>
+      <QueryClientProvider client={client}>
+        <EditingTaskView taskId="t" />
+      </QueryClientProvider>
+    </AuthProvider>,
+  );
+  await screen.findByText(
+    "本次所选素材：1/2 个已在 Mac 校验，未完成项仍保留在清单中。",
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText<HTMLSelectElement>("已授权目录").value).toBe(
+      "incoming",
+    ),
+  );
+  expect(writes).toHaveLength(0);
+  client.clear();
+});
+
+it.each([true, false])(
+  "retries the stopped scope without replacing delivered outputs (confirmed plan: %s)",
+  async (confirmedPlan) => {
+    const writes: unknown[] = [];
+    const stopped = {
+      ...task,
+      status: "stopped",
+      stage: "stopped",
+      plan_confirmed: confirmedPlan,
+      completed_count: confirmedPlan ? 2 : 0,
+      plan: confirmedPlan ? { outputs: [] } : null,
+      outputs: confirmedPlan
+        ? [
+            ...task.outputs.slice(0, 2),
+            { ...task.outputs[2], status: "stopped", error: null },
+          ]
+        : task.outputs.map((output) => ({
+            ...output,
+            status: "stopped",
+            result: null,
+            error: null,
+          })),
+    };
+    rs.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (init?.method === "POST") writes.push(JSON.parse(init.body as string));
+      return Response.json(stopped);
+    });
+    const client = new QueryClient();
+    render(
+      <AuthProvider initialUser={{ id: "stopped-owner" } as User}>
+        <QueryClientProvider client={client}>
+          <EditingTaskView taskId="t" />
+        </QueryClientProvider>
+      </AuthProvider>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: confirmedPlan ? "重试此条" : "重新处理已停止任务",
+      }),
+    );
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(screen.queryByText(/执行状态待确认/)).toBeNull();
+    expect(writes[0]).toMatchObject(
+      confirmedPlan ? { output_ids: ["out-3"] } : { stage: "transcribing" },
+    );
+    client.clear();
+  },
+);
