@@ -6,7 +6,7 @@ English | [中文](./README_zh.md) | [日本語](./README_ja.md) | [Français](.
 
 **GGWork customization:** the pick workbench includes optional, owner-scoped Feishu operational feedback. It reads 15 business tables into versioned private storage, exposes evidence to the Agent and preserves historical candidate decisions. It is disabled by default, does not write to Feishu, and does not introduce a new ranking score. See the [feedback runbook](docs/pick-workbench/feedback-runbook.md) and [verification status](docs/pick-workbench/feedback-progress.md) before enabling it.
 
-GGWork exposes a shared read-only query API for the data board and Agent, with immutable mirror/rule pins and explicit private-import provenance. Gateway reader configuration and compatibility boundaries are in the [completion query contract](docs/pick-workbench/completion-contract.md).
+GGWork exposes a shared read-only query API for the data board and Agent, with immutable mirror/rule pins and explicit private-import provenance. The model and read-only operator card use a bounded structured projection while the board API retains complete source records. Gateway reader configuration and compatibility boundaries are in the [completion query contract](docs/pick-workbench/completion-contract.md).
 
 GGWork uses a conservative [completion fact checker and publication gate](docs/pick-workbench/answer-checking.md): provisional model prose is withheld, and only checked content or explicit incompletion enters the assistant message. The same message is used for live delivery, history, reconnect and subsequent context; at most one correction consumes the existing model-call and time budget.
 

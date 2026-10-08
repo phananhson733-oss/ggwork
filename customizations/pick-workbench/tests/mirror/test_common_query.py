@@ -222,7 +222,7 @@ async def test_query_tool_historical_facts_reach_checker_with_actual_data(common
         assert "[" not in rank.reference and "]" not in rank.reference
         assert check(rank.claim + " [" + rank.reference + "]。").status == "confirmed"
         assert check("本次榜单期次为2026-09-01。").status == "incomplete"
-        title = payload["rows"][0]["drama"]["title"]
+        title = payload["rows"][0]["title"]
         assert check(f"《{title}》的来源为wrong-source。").status == "incomplete"
         assert check(f"《{title}》在账号“other”范围内的发布状态为未发布。").status == "incomplete"
         assert check("整个剧库没有发布记录。").status == "incomplete"
@@ -347,4 +347,93 @@ async def test_common_candidate_snapshot_replays_same_order_and_rank_facts(commo
         assert replay["total"] == card["matched_total"]
     finally:
         await reader.close()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_unknown_language_common_tool_preserves_readonly_source_record(common_board, pg_cluster):
+    import json
+    from types import SimpleNamespace
+
+    from deerflow_extension_api import ExtensionData, TaskInfo
+    from deerflow_extension_api.runtime_bridge import EXTENSION_TASK_STORE_KEY
+    from sqlalchemy import text
+
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.context import PickLifecycle, task_from_runtime
+    from ggwork_pick.query_reader import QueryReader
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import query_data_tool
+
+    engine = host_engine(pg_cluster.async_url(common_board["info"]["database"]))
+    service = PickService(common_board["data_dir"])
+    await service.initialize(async_sessionmaker(engine))
+    service.query_reader = QueryReader(common_board["reader"], ssl=False)
+    schema = f"pickm_v{common_board['info']['versions']['v2']:06d}"
+    async with engine.begin() as conn:
+        old = dict((await conn.execute(text(f"SELECT lang,title FROM {schema}.catalog_rows WHERE row_key='c-2'"))).mappings().one())
+        await conn.execute(text(f"UPDATE {schema}.catalog_rows SET lang='',title='Unknown source language' WHERE row_key='c-2'"))
+    try:
+        store = ExtensionData("unknown-language-task")
+        await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("unknown-language-task", "r", "t", "lead"))
+        runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="unknown-language")
+        payload = json.loads(await query_data_tool.coroutine(query={"domain": "catalog", "scope": "full_catalog", "language": ""}, runtime=runtime))
+        assert payload["projection_version"] == "pick-query-model-v1"
+        assert payload["counts"]["returned"] == payload["projection"]["shown"] == 1
+        assert payload["projection"]["omitted_rows"] == 0
+        row = payload["rows"][0]
+        assert row["kind"] == "catalog_record" and row["identity"] is None
+        assert row["row_key"] == "c-2" and row["language"] == "" and row["eligibility"] == "unknown"
+        evidence = task_from_runtime(runtime).answer_evidence
+
+        def check(claim):
+            return build_checked_publication(claim, evidence=evidence, thread_id="t", run_id="r", message_id="m")
+
+        assert check("《Unknown source language》的语种状态为未知。").status == "confirmed"
+        assert check("《Unknown source language》的语种为en。").status == "incomplete"
+        assert check("《Unknown source language》的youtube规则为允许。").status == "incomplete"
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text(f"UPDATE {schema}.catalog_rows SET lang=:lang,title=:title WHERE row_key='c-2'"), old)
+        await service.stop()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rs_growth_projection_reports_actual_sort_value_and_citable_units(common_board, pg_cluster):
+    import json
+    from types import SimpleNamespace
+
+    from deerflow_extension_api import ExtensionData, TaskInfo
+    from deerflow_extension_api.runtime_bridge import EXTENSION_TASK_STORE_KEY
+
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.context import PickLifecycle, task_from_runtime
+    from ggwork_pick.query_reader import QueryReader
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import query_data_tool
+
+    engine = host_engine(pg_cluster.async_url(common_board["info"]["database"]))
+    service = PickService(common_board["data_dir"])
+    await service.initialize(async_sessionmaker(engine))
+    service.query_reader = QueryReader(common_board["reader"], ssl=False)
+    store = ExtensionData("growth-projection")
+    await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("growth-projection", "r", "t", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="growth")
+    try:
+        result = json.loads(await query_data_tool.coroutine(query={"domain": "rankings", "scope": "full_catalog", "rank": "rs_growth"}, runtime=runtime))
+        assert result["request"]["rs_sort"] == "rr" and result["effective_sort"] == "d7"
+        assert result["rank_limit"] == 50
+        metric = next(row["rank_metric"] for row in result["rows"] if row["rank_metric"] and row["rank_metric"]["value"] is not None)
+        assert metric["key"] == "d7" and metric["comparison_days"] == 7
+        assert metric["unit"] == "source_cents" and metric["scope"] == "change_in_platform_rolling_30d"
+        evidence = task_from_runtime(runtime).answer_evidence
+        fact = next(a for a in evidence.atoms if a.reference == metric["reference"] and a.field_name == "rs.d7")
+        assert fact.value == metric["value"]
+        checked = build_checked_publication(f"{fact.claim} [{fact.reference}]。", evidence=evidence, thread_id="t", run_id="r", message_id="m")
+        assert checked.status == "confirmed"
+        wrong = build_checked_publication("本次ReelShort实际排序字段为rr。", evidence=evidence, thread_id="t", run_id="r", message_id="m")
+        assert wrong.status == "incomplete"
+    finally:
+        await service.stop()
         await engine.dispose()

@@ -1,5 +1,6 @@
 """Conservative facts from common-query receipts, never arbitrary mirror prose."""
 
+import base64
 import hashlib
 import json
 import re
@@ -10,6 +11,22 @@ from ggwork_pick.answer_evidence import _RANK_LABELS, EvidenceAtom, EvidenceRead
 def _reference(call_id, subject):
     digest = hashlib.sha256(subject.encode()).hexdigest()[:20]
     return f"tool:{call_id}:row:{digest}"
+
+
+def bill_identity(row):
+    parts = [row["bill_date"], row["book_id"], row["promotion_type"]]
+    return "bill:" + hashlib.sha256(json.dumps(parts, ensure_ascii=False).encode()).hexdigest()
+
+
+def source_key(row):
+    drama = row["drama"]
+    key = drama.get("source_id")
+    if drama.get("source") == "realshort-pick" and key is not None:
+        try:
+            return base64.urlsafe_b64decode(key + "=" * (-len(key) % 4)).decode()
+        except (ValueError, UnicodeError):
+            return None
+    return key
 
 
 def _posted_scope(request):
@@ -64,6 +81,7 @@ def capture_common(evidence, call_id, payload):
             ("本次镜像版本为", "mirror_version"),
             ("本次规则版本为", "rule_version"),
             ("本次查询范围为", "scope"),
+            ("本次ReelShort实际排序字段为", "effective_sort"),
         ):
             evidence.atoms.append(EvidenceAtom(prefix, None, "", ref, field_name=field))
         return
@@ -80,7 +98,11 @@ def capture_common(evidence, call_id, payload):
     scope = {"candidate_pool": "候选池", "full_catalog": "完整剧库"}.get(request.get("scope"))
     atom("本次查询范围为", scope, "scope")
     posted_scope = _posted_scope(request)
+    board = payload.get("board") or {}
+    unknown_language = {row["row_key"] for table in ("catalog_rows", "rs_rows") for row in board.get(table, []) if not row["lang"]}
     for row in payload.get("rows", []):
+        if source_key(row) in unknown_language:
+            continue
         drama, subject = row["drama"], row["identity"]
         evidence.titles.add(drama["title"])
         if not _label(drama["title"]):
@@ -143,6 +165,27 @@ def capture_common(evidence, call_id, payload):
             if _url(signal.get("source_ref")):
                 atom(f"来源[{signal_ref}]为", signal["source_ref"], "source_ref", subject=subject, reference=signal_ref)
     board = payload.get("board") or {}
+    covered = {source_key(row) for row in payload.get("rows", [])}
+    for table in ("catalog_rows", "rs_rows"):
+        for row in board.get(table, []):
+            if row["row_key"] in covered and row["lang"]:
+                continue
+            title = row["title"]
+            evidence.titles.add(title)
+            if not _label(title):
+                continue
+            subject = f"catalog:{table}:{row['row_key']}"
+            row_ref = _reference(call_id, subject)
+            atom(f"《{title}》的语种状态为", "未知" if not row["lang"] else None, "catalog.language_status", subject=subject, reference=row_ref)
+            atom(f"《{title}》的上架日期为", _date(row.get("listed_on")), "catalog.listed_on", subject=subject, reference=row_ref)
+            atom(
+                f"《{title}》的剧场标识为“",
+                row["platform"] if _label(row["platform"]) else None,
+                "catalog.platform",
+                subject=subject,
+                reference=row_ref,
+                suffix="”",
+            )
     for platform, rule in (board.get("rules") or {}).get("platformRules", {}).items():
         name = rule.get("name")
         if not _label(name):
@@ -164,3 +207,39 @@ def capture_common(evidence, call_id, payload):
                 reference=record_ref,
             )
         atom(f"发布记录“{key}”的最近发布日期为", _date(posted.get("last_post_on")), "last_post_on", subject=key, reference=record_ref)
+
+    for bill in board.get("bill_rows", []):
+        if not all(isinstance(bill.get(key), str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", bill[key]) for key in ("book_id", "promotion_type")):
+            continue
+        day = _date(bill.get("bill_date"))
+        if day is None:
+            continue
+        subject = bill_identity(bill)
+        bill_ref = _reference(call_id, subject)
+        label = f"订单记录“{bill['book_id']}/{day}/{bill['promotion_type']}”"
+        orders = bill.get("order_cnt")
+        atom(label + "的来源订单数为", str(orders) if type(orders) is int and orders >= 0 else None, "bill.order_cnt", subject=subject, reference=bill_ref)
+        atom(label + "的账单日期为", day, "bill.bill_date", subject=subject, reference=bill_ref)
+    from ggwork_pick.query_rank_metric import KEYS, selected_metric
+
+    actual = board.get("effective_sort")
+    atom("本次ReelShort实际排序字段为", actual if actual in KEYS else None, "effective_sort")
+    if actual in KEYS:
+        for row in board.get("rs_rows", []):
+            if not _label(row["title"]):
+                continue
+            subject = "rs:" + row["row_key"]
+            metric = selected_metric(row, actual, _reference(call_id, subject))
+            if metric is None:
+                continue
+            title = f"《{row['title']}》"
+            value = _date(metric["value"]) if metric["unit"] == "timestamp" else _number(metric["value"])
+            atom(f"{title}的ReelShort来源指标“{actual}”值为", value, f"rs.{actual}", subject=subject, reference=metric["reference"])
+            for field in ("current", "baseline"):
+                atom(
+                    f"{title}的ReelShort指标“{actual}”{field}值为",
+                    _number(metric[field]),
+                    f"rs.{actual}.{field}",
+                    subject=subject,
+                    reference=metric["reference"],
+                )
