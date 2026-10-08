@@ -2,7 +2,7 @@
 
 **Parent:** T4
 **Blocked by:** Integrated T4 core/UI; implementation ready
-**Status:** in-progress
+**Status:** done
 
 Confirmed audit: external CTX/query-provenance-audit.md at c0290816. Same owner/pin canonical facts are preserved in responses but eligibility/source/exclude-selected SQL assumes only raw RealShort semantics. Preserve all existing production-feed behavior and unknown values; repair the broader accepted paired state without changing frozen QA identities or claiming production regression.
 
@@ -13,3 +13,5 @@ Confirmed audit: external CTX/query-provenance-audit.md at c0290816. Same owner/
 - Coordinate tools.py ownership with T4a: this child owns only error adapter handling; T4a owns reference binding/selection. Separate worktree; merge latest integration and obtain code/Python/DB reviews before merger.
 
 Candidate fixture concerns remain separate: baseline raw mirror metadata and status spellings were synthetic and did not traverse production G2–G9. Any QA normalization needs its own before/after receipt and cannot rewrite baseline or original 20 questions.
+
+Completed in f2620864; code/Python/DB approvals, six fixed hashes and merger221 tests without skips. Raw-only saved identities and empty-language readonly records are covered. No baseline or source-status normalization was hidden in the product repair.
