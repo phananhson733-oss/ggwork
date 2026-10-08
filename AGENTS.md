@@ -21,6 +21,12 @@ guide rather than expecting full detail here:
 - **[frontend/AGENTS.md](frontend/AGENTS.md)** — frontend depth: Next.js App Router layout,
   thread/streaming data flow, code style, commands.
 
+## Agent skills configuration
+
+- Issue tracker: GitHub in `phananhson733-oss/ggwork-deerflow`, explicitly selected with `--repo`; business remote `ggwork`, never upstream `origin`. See [issue tracker](docs/agents/issue-tracker.md) and [triage labels](docs/agents/triage-labels.md).
+- `ready-for-agent` marks actionable scoped work. Editing tasks follow [spec #53](docs/editing/spec.md), the [task graph](docs/editing/task-graph.md) and [delivery ledger](docs/editing/delivery-ledger.md); delivery and issue closure run through one `codex/clip-workbench-integration` PR.
+- The editing base is `b17623966ef81e68c202a40a009306f49ffb03c9`. Its extension API has no frontend UI hooks: retain packaged backend business logic and use the [documented narrow frontend mounts](docs/editing/integration.md). Source verification is not live deployment verification.
+
 ## What is DeerFlow
 
 DeerFlow is a LangGraph-based AI super-agent system with a full-stack architecture. The
