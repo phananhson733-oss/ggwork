@@ -3,8 +3,8 @@
 -- find 出的线程（逗号隔开，没有就传空串），不传直接报错：
 --   psql "postgresql://deerflow_app.<ref>@aws-0-us-east-1.pooler.supabase.com:5432/postgres" -X -v disk_threads='<线程>' -f pan-check.sql
 -- 输出两张表，只有条数、线程 id 和属主，不输出命中的文本：
---   1. 工作台 47 个位置各有几行命中。前 39 个 pan-redact.sql 会清除：GSC 的查询词（ggwp_gsc_query_daily.query）整行删除，
---      其余就地改写；最后 8 个（知识正文/来源、候选排除集合、旧页跳转链、反馈清单/原始记录/冻结证据/身份依据）
+--   1. 工作台 58 个位置各有几行命中。前 39 个 pan-redact.sql 会清除：GSC 的查询词（ggwp_gsc_query_daily.query）整行删除，
+--      其余就地改写；最后 19 个（知识正文/来源、候选排除集合、旧页跳转链、反馈清单/原始记录/冻结证据/身份依据、计划标题/行/回执/预览/导出/帖子关联依据和CSV字节）
 --      脚本不改，命中时停止并按来源属主处理，不能原地改写反馈内容哈希和历史证明。
 --      库还在迁移 0005 之前时，data_as_of_json、details_json、excluded_json 三列还不存在；还在迁移 0007 之前时，观察雷达的
 --      表和 obs_as_of_json 还不存在：这些位置照样列出、记 0。
@@ -41,7 +41,10 @@ SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_candid
        EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_sync_runs'::regclass AND attname = 'details_json' AND NOT attisdropped) AS has_details,
        EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'deerflow.ggwp_candidate_sets'::regclass AND attname = 'excluded_json' AND NOT attisdropped) AS has_excluded,
        to_regclass('deerflow.ggwp_obs_sets') IS NOT NULL AS has_obs,
-       to_regclass('deerflow.ggwp_feedback_versions') IS NOT NULL AS has_feedback \gset
+       to_regclass('deerflow.ggwp_feedback_versions') IS NOT NULL AS has_feedback,
+       to_regclass('deerflow.ggwp_content_plans') IS NOT NULL AS has_plans,
+       to_regclass('deerflow.ggwp_content_plan_exports') IS NOT NULL AS has_exports,
+       to_regclass('deerflow.ggwp_feedback_plan_links') IS NOT NULL AS has_plan_links \gset
 -- JSON 列先转 jsonb 再转文本，\uXXXX 转义的中文还原成字符再匹配；与 pan-redact.sql 选行的条件相同
 SELECT location, count AS rows FROM (
             SELECT 1 AS n, 'ggwp_drama_versions.payload_json' AS location, count(*) FROM deerflow.ggwp_drama_versions WHERE payload_json::jsonb::text ~* :'pan'
@@ -147,6 +150,62 @@ SELECT location, count AS rows FROM (
   UNION ALL SELECT 45, 'ggwp_feedback_records.values_json', 0
   UNION ALL SELECT 46, 'ggwp_feedback_result_evidence.evidence_json', 0
   UNION ALL SELECT 47, 'ggwp_feedback_identity_links.evidence_json', 0
+\endif
+-- 0009–0011 的计划、回执、关联依据和执行文件只检测。CSV按字节转义匹配，不假设它是有效UTF-8。
+\if :has_plans
+  UNION ALL SELECT 48, 'ggwp_content_plan_rows.source_json', count(*) FROM deerflow.ggwp_content_plan_rows WHERE source_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 48, 'ggwp_content_plan_rows.source_json', 0
+\endif
+\if :has_plans
+  UNION ALL SELECT 49, 'ggwp_content_plan_rows.editable_json', count(*) FROM deerflow.ggwp_content_plan_rows WHERE editable_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 49, 'ggwp_content_plan_rows.editable_json', 0
+\endif
+\if :has_plans
+  UNION ALL SELECT 50, 'ggwp_content_plan_commands.receipt_json', count(*) FROM deerflow.ggwp_content_plan_commands WHERE receipt_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 50, 'ggwp_content_plan_commands.receipt_json', 0
+\endif
+\if :has_exports
+  UNION ALL SELECT 51, 'ggwp_content_plan_previews.receipt_json', count(*) FROM deerflow.ggwp_content_plan_previews WHERE receipt_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 51, 'ggwp_content_plan_previews.receipt_json', 0
+\endif
+\if :has_exports
+  UNION ALL SELECT 52, 'ggwp_content_plan_exports.receipt_json', count(*) FROM deerflow.ggwp_content_plan_exports WHERE receipt_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 52, 'ggwp_content_plan_exports.receipt_json', 0
+\endif
+\if :has_plan_links
+  UNION ALL SELECT 53, 'ggwp_feedback_plan_links.receipt_json', count(*) FROM deerflow.ggwp_feedback_plan_links WHERE receipt_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 53, 'ggwp_feedback_plan_links.receipt_json', 0
+\endif
+\if :has_plan_links
+  UNION ALL SELECT 54, 'ggwp_feedback_plan_links.basis_json', count(*) FROM deerflow.ggwp_feedback_plan_links WHERE basis_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 54, 'ggwp_feedback_plan_links.basis_json', 0
+\endif
+\if :has_plan_links
+  UNION ALL SELECT 55, 'ggwp_feedback_plan_link_commands.receipt_json', count(*) FROM deerflow.ggwp_feedback_plan_link_commands WHERE receipt_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 55, 'ggwp_feedback_plan_link_commands.receipt_json', 0
+\endif
+\if :has_plan_links
+  UNION ALL SELECT 56, 'ggwp_feedback_plan_link_commands.basis_json', count(*) FROM deerflow.ggwp_feedback_plan_link_commands WHERE basis_json::jsonb::text ~* :'pan'
+\else
+  UNION ALL SELECT 56, 'ggwp_feedback_plan_link_commands.basis_json', 0
+\endif
+\if :has_plans
+  UNION ALL SELECT 57, 'ggwp_content_plans.title', count(*) FROM deerflow.ggwp_content_plans WHERE title ~* :'pan'
+\else
+  UNION ALL SELECT 57, 'ggwp_content_plans.title', 0
+\endif
+\if :has_exports
+  UNION ALL SELECT 58, 'ggwp_content_plan_exports.csv_bytes', count(*) FROM deerflow.ggwp_content_plan_exports WHERE encode(csv_bytes, 'escape') ~* :'pan_bytes'
+\else
+  UNION ALL SELECT 58, 'ggwp_content_plan_exports.csv_bytes', 0
 \endif
 ) AS located ORDER BY n;
 -- 线程的 DELETE 接口会删掉下面每张表里这个线程的行（runs 只删 operation_kind = 'run' 的）和属主目录下的线程目录，

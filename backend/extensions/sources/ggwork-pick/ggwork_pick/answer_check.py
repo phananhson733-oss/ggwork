@@ -3,14 +3,19 @@
 Ported in spirit from RealShort's ask answer-check / negative-claims: the model may explain,
 but it cannot introduce titles no tool returned, claim a save that only the UI can commit,
 or assert "not posted" unless a query filtered on publication records or the returned items'
-own records back it. Findings are stored per answer and shown beside it; the answer itself is
-never rewritten.
+own records back it. The legacy API returns sidecar notes; build_checked_publication
+returns a separate safe canonical payload for the host gate to publish.
 """
 
 import re
 import sys
 from bisect import bisect_left, bisect_right
 from typing import NamedTuple
+
+from ggwork_pick.answer_evidence import AnswerEvidence
+from ggwork_pick.completion_contracts import CheckedFact, CheckedPublication, ResultReference
+from ggwork_pick.contracts import unstorable_path
+from ggwork_pick.repository import stamp
 
 _TITLE = re.compile(r"《([^《》\n]{1,500})》")
 _WHO = r"(为你|帮你|给你)?(成功)?"
@@ -881,7 +886,7 @@ def _not_posted_notes(text: str, posted_checked: bool, seen: dict[str, Seen]) ->
     return judge.findings.notes()
 
 
-def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, posted_seen: dict[str, Seen] | None = None) -> list[str]:
+def _title_and_write_notes(text: str, known_titles: set[str]) -> list[str]:
     notes = []
     known = {_norm(title) for title in known_titles}
     # A dict keeps the titles in order and finds a repeated one at once, however many there are.
@@ -890,6 +895,116 @@ def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, pos
         notes.append("正文提到的" + "、".join(f"《{t}》" for t in list(unknown)[:5]) + "不在本轮查询结果中，请以候选卡为准。")
     if _claims(_SAVE_CLAIM, text):
         notes.append("本轮没有写入个人清单；只有点击「确认保存」并看到回执才算保存。")
+    return notes
+
+
+def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, posted_seen: dict[str, Seen] | None = None) -> list[str]:
+    notes = _title_and_write_notes(text, known_titles)
     marked = _known_bare_text(text, known_titles | {entry.title for entry in (posted_seen or {}).values()})
     notes.extend(_not_posted_notes(marked, posted_checked, posted_seen or {}))
     return notes
+
+
+CHECKER_VERSION = "pick-facts-v1"
+
+
+def build_checked_publication(
+    text: str,
+    *,
+    evidence: AnswerEvidence,
+    thread_id: str,
+    run_id: str,
+    message_id: str,
+    known_titles: set[str] | None = None,
+    posted_checked: bool = False,
+    posted_seen: dict[str, Seen] | None = None,
+    correction_count: int = 0,
+    references: list[ResultReference] | None = None,
+) -> CheckedPublication:
+    """Check *all* prose, returning a safe canonical payload for the host publication gate.
+
+    Only complete assertions supported by typed tool evidence are confirmed. Failure
+    to parse a block is unknown, never success. The existing note API remains intact.
+    This function does not publish anything or perform a model correction.
+    """
+    if len(text) > 100000 or unstorable_path(text):
+        return incomplete_publication(thread_id=thread_id, run_id=run_id, message_id=message_id, correction_count=correction_count)
+    claims = [part.strip() for part in re.split(r"[。\n]+", text) if part.strip()]
+    if len(claims) > 500 or any(len(claim) > 4000 for claim in claims):
+        return incomplete_publication(thread_id=thread_id, run_id=run_id, message_id=message_id, correction_count=correction_count)
+    facts = []
+    safe = []
+    for claim in claims:
+        citation = re.search(r"\s+\[([^\[\]]+)\]$", claim)
+        assertion = claim[: citation.start()].rstrip() if citation else claim
+        candidates = [
+            atom
+            for atom in evidence.atoms
+            if (assertion.startswith(atom.prefix) and assertion.endswith(atom.suffix))
+            or (atom.display_prefix and assertion.startswith(atom.display_prefix) and assertion.endswith(atom.display_suffix or ""))
+        ]
+        if citation:
+            candidates = [atom for atom in candidates if atom.reference == citation.group(1)]
+        exact = [atom for atom in candidates if assertion in (atom.claim, atom.display_claim)]
+        values = {atom.value for atom in candidates}
+        ambiguous = len(values) != 1 or None in values or (citation is None and len({atom.reference for atom in candidates}) > 1)
+        status = "unknown" if ambiguous else "confirmed" if exact else "contradicted"
+        titles = (known_titles or set()) | evidence.titles
+        if status == "confirmed" and exact and all(atom.field_name == "posted_status" for atom in exact):
+            # Exact owner-checked common-query scope facts already encode completeness.
+            # Retain unknown-title/save checks; do not widen legacy free-prose absence rules.
+            notes = _title_and_write_notes(claim, titles)
+        else:
+            notes = check_answer(claim, known_titles=titles, posted_checked=posted_checked, posted_seen=posted_seen)
+        if notes:
+            status = "unknown"
+        if status == "confirmed":
+            safe.append(exact[0].display_claim + (f" [{citation.group(1)}]" if citation else ""))
+        facts.append(
+            CheckedFact(
+                claim=claim,
+                status=status,
+                evidence_refs=list(dict.fromkeys(atom.reference for atom in (exact or candidates)))[:100],
+                reason="；".join(notes)[:1000]
+                if notes
+                else {"confirmed": "与本轮来源字段一致", "contradicted": "与本轮同一字段的来源值不符", "unknown": "未确认：没有支持这段完整断言的证据"}[status],
+            )
+        )
+    status = "confirmed" if facts and len(safe) == len(facts) else "partial" if safe else "incomplete"
+    content = "。\n".join(safe)
+    if status != "confirmed":
+        content += ("。\n" if content else "") + "未确认：其余内容缺少充分依据或与来源不符，本轮未能完成核对。"
+    if len(content) > 100000:
+        return incomplete_publication(thread_id=thread_id, run_id=run_id, message_id=message_id, correction_count=correction_count)
+    return CheckedPublication(
+        thread_id=thread_id,
+        run_id=run_id,
+        message_id=message_id,
+        status=status,
+        content=content,
+        facts=facts,
+        references=references or [],
+        checker_version=CHECKER_VERSION,
+        correction_count=correction_count,
+        checked_at=stamp(),
+    )
+
+
+def incomplete_publication(*, thread_id: str, run_id: str, message_id: str, correction_count: int = 0) -> CheckedPublication:
+    """The host's safe result when checking fails, expires or has no usable evidence.
+
+    No raw exception or unchecked model content enters this payload. Trusted host
+    identity is still required; this helper does not extend any execution budget.
+    """
+    return CheckedPublication(
+        thread_id=thread_id,
+        run_id=run_id,
+        message_id=message_id,
+        status="incomplete",
+        content="未确认：本轮未能完成事实核对，暂时无法提供已核对的结论。",
+        facts=[],
+        references=[],
+        checker_version=CHECKER_VERSION,
+        correction_count=correction_count,
+        checked_at=stamp(),
+    )
