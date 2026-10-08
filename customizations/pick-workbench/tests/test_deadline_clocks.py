@@ -111,3 +111,29 @@ def test_conversion_keeps_trusted_parent_total_and_never_renews_budget(monkeypat
 
     with asyncio.Runner(loop_factory=FakeClockLoop) as runner:
         runner.run(run())
+
+
+@pytest.mark.asyncio
+async def test_reserve_crossed_during_clock_conversion_records_failed_query(monkeypatch):
+    from ggwork_pick.answer_check import build_checked_publication
+
+    base = time.monotonic()
+    reads = [0]
+
+    def monotonic():
+        reads[0] += 1
+        return base if reads[0] == 1 else base + 0.02
+
+    task = PickTask(None, TaskInfo("task", "run", "thread", "lead"), deadline=base + 20.01)
+    task.answer_evidence.capture("pick_count_candidates", "old", {"total": 1})
+    monkeypatch.setattr("ggwork_pick.context.time", SimpleNamespace(monotonic=monotonic))
+    entered = []
+
+    async def handler(_):
+        entered.append(True)
+
+    with pytest.raises(TimeoutError):
+        await PickToolGate().awrap_tool_call(request_for(task, "pick_count_candidates"), handler)
+    assert not entered
+    checked = build_checked_publication("本次查询共1部", evidence=task.answer_evidence, thread_id="thread", run_id="run", message_id="m")
+    assert checked.status == "incomplete"
