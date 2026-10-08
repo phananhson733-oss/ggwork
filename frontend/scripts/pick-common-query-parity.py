@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import signal
 import socket
 import subprocess
 import sys
@@ -58,6 +59,26 @@ def isolated_pg_environment():
             if key.startswith("PG"):
                 os.environ.pop(key)
         os.environ.update(previous)
+
+
+def direct_http_client(origin: str):
+    """Synthetic Gateway credentials must never transit ambient HTTP proxies."""
+    import httpx
+
+    return httpx.Client(base_url=origin, timeout=15, trust_env=False)
+
+
+def frontend_environment(fixture: Path, origin: str) -> dict[str, str]:
+    values = {
+        key: os.environ[key]
+        for key in ("PATH", "HOME", "LANG", "TMPDIR")
+        if key in os.environ
+    }
+    return {
+        **values,
+        "PICK_COMMON_PARITY_FIXTURE": str(fixture),
+        "DEER_FLOW_INTERNAL_GATEWAY_BASE_URL": origin,
+    }
 
 
 def _run(
@@ -223,7 +244,7 @@ from app.gateway.pick_asgi import app
                 stdout=stream,
                 stderr=subprocess.STDOUT,
             )
-        with httpx.Client(base_url=origin, timeout=15) as client:
+        with direct_http_client(origin) as client:
             deadline = time.monotonic() + 60
             while time.monotonic() < deadline:
                 if process.poll() is not None:
@@ -259,7 +280,7 @@ from app.gateway.pick_asgi import app
             }
             # Auth/CSRF errors are real HTTP responses, not synthetic fixture answers.
             query = {"domain": "catalog", "scope": "full_catalog"}
-            with httpx.Client(base_url=origin, timeout=15) as anonymous:
+            with direct_http_client(origin) as anonymous:
                 anonymous.cookies.set("csrf_token", "anonymous-parity")
                 assert (
                     anonymous.post(
@@ -308,7 +329,7 @@ from app.gateway.pick_asgi import app
                 owned.status_code == 200
                 and owned.json()["pin"]["mirror_version"] is None
             )
-            with httpx.Client(base_url=origin, timeout=15) as other:
+            with direct_http_client(origin) as other:
                 registered = other.post(
                     "/api/v1/auth/register",
                     json={
@@ -336,11 +357,7 @@ from app.gateway.pick_asgi import app
                     system_role="user",
                 )
             private(output / "session.private.json", json.dumps(state))
-        test_env = {
-            **os.environ,
-            "PICK_COMMON_PARITY_FIXTURE": str(output / "session.private.json"),
-            "DEER_FLOW_INTERNAL_GATEWAY_BASE_URL": origin,
-        }
+        test_env = frontend_environment(output / "session.private.json", origin)
         command = [
             "pnpm",
             "exec",
@@ -349,19 +366,26 @@ from app.gateway.pick_asgi import app
             "common-query-parity.integration.test.ts",
         ]
         with (output / "parity-results.log").open("w", encoding="utf-8") as stream:
-            result = subprocess.run(
+            tests = subprocess.Popen(
                 command,
                 cwd=ROOT / "frontend",
                 env=test_env,
                 stdout=stream,
                 stderr=subprocess.STDOUT,
-                timeout=240,
-                check=False,
+                start_new_session=True,
             )
+            try:
+                return_code = tests.wait(timeout=240)
+            finally:
+                if tests.poll() is None:
+                    # Only the process group created above; kill every timed-out
+                    # test worker before tearing down its Gateway/database.
+                    os.killpg(tests.pid, signal.SIGKILL)
+                    tests.wait(timeout=5)
         print(
             json.dumps(
                 {
-                    "status": "passed" if result.returncode == 0 else "failed",
+                    "status": "passed" if return_code == 0 else "failed",
                     "model_runs": 0,
                     "frontend_role": "user",
                     "report": str(output / "parity-results.log"),
@@ -369,7 +393,7 @@ from app.gateway.pick_asgi import app
                 }
             )
         )
-        return result.returncode
+        return return_code
     finally:
         if process is not None:
             process.terminate()

@@ -2,6 +2,8 @@
 
 import importlib.util
 import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from unittest.mock import patch
 from pathlib import Path
 import unittest
@@ -43,6 +45,70 @@ class ClusterConfiguration(unittest.TestCase):
             for key, value in overrides.items():
                 self.assertEqual(os.environ[key], value)
             self.assertNotEqual(os.environ.get("PGAPPNAME"), "temporary-test-setting")
+
+    def test_frontend_child_cannot_inherit_proxies_or_node_autoload(self):
+        with patch.dict(
+            os.environ,
+            {
+                "HTTP_PROXY": "http://outside.example.invalid",
+                "NODE_USE_ENV_PROXY": "1",
+                "NODE_OPTIONS": "--require=untrusted",
+            },
+        ):
+            child = module.frontend_environment(
+                Path("fixture.private.json"), "http://127.0.0.1:1234"
+            )
+            self.assertNotIn("HTTP_PROXY", child)
+            self.assertNotIn("NODE_USE_ENV_PROXY", child)
+            self.assertNotIn("NODE_OPTIONS", child)
+            self.assertEqual(
+                child["DEER_FLOW_INTERNAL_GATEWAY_BASE_URL"], "http://127.0.0.1:1234"
+            )
+
+    def test_gateway_client_bypasses_an_ambient_loopback_proxy(self):
+        def handler(text):
+            class Handler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(text.encode())
+
+                def log_message(self, *_args):
+                    pass
+
+            return Handler
+
+        origin = ThreadingHTTPServer(("127.0.0.1", 0), handler("direct-origin"))
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler("proxy-was-used"))
+        workers = [
+            Thread(target=server.serve_forever, daemon=True)
+            for server in (origin, proxy)
+        ]
+        for worker in workers:
+            worker.start()
+        try:
+            proxy_url = f"http://127.0.0.1:{proxy.server_port}"
+            with patch.dict(
+                os.environ,
+                {
+                    "HTTP_PROXY": proxy_url,
+                    "ALL_PROXY": proxy_url,
+                    "NO_PROXY": "",
+                    "http_proxy": proxy_url,
+                    "all_proxy": proxy_url,
+                    "no_proxy": "",
+                },
+            ):
+                with module.direct_http_client(
+                    f"http://127.0.0.1:{origin.server_port}"
+                ) as client:
+                    self.assertEqual(client.get("/health").text, "direct-origin")
+        finally:
+            for server in (origin, proxy):
+                server.shutdown()
+                server.server_close()
+            for worker in workers:
+                worker.join(timeout=2)
 
     def test_only_explicit_local_throwaway_configuration_is_accepted(self):
         target = "postgresql://synthetic@127.0.0.1:5432/postgres"
