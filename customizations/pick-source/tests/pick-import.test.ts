@@ -392,4 +392,3 @@ test("import-catalog.ts 的接线：守门与 --dry 都在 begin 之前，三步
   assert.match(src, /ownedBatch\(attempt, \[getDb\(\)\.execute\(sourceSuccessSql\("pick_catalog", /);
   assert.match(src, /failSource\("pick_catalog", /);
 });
-

@@ -56,6 +56,7 @@
     "src/db/index.ts",
     "src/lib/pick/export-v2.ts",
     "src/lib/queries.ts",
+    "src/lib/pick/queries-shared.ts",
     "src/lib/pick/feed-map.ts",
     "src/lib/sync.ts",
     "src/lib/cps/client.ts",

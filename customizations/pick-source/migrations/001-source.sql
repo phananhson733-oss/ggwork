@@ -557,5 +557,3 @@ ALTER TABLE ONLY pick_source.chapters
 --
 -- PostgreSQL database dump complete
 --
-
-
