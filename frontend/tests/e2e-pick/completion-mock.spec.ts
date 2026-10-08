@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import candidate from "../unit/core/pick/fixtures/backend-result.json" with { type: "json" };
 import fixture from "../unit/core/pick/fixtures/completion-v1.json" with { type: "json" };
 
 test("mock HTTP: plan edits, blockers, immutable receipt and review across responsive widths", async ({
@@ -65,6 +66,31 @@ test("mock HTTP: plan edits, blockers, immutable receipt and review across respo
       });
     if (path === "/api/pick/feedback/posts")
       return route.fulfill({ json: fixture.review });
+    if (path === "/api/pick/selections")
+      return route.fulfill({
+        json: {
+          selections: [
+            {
+              id: "selection-one",
+              identity: candidate.items[0]!.identity,
+              source_result_id: candidate.id,
+              source_item_id: candidate.items[0]!.item_id,
+              snapshot_json: candidate.items[0],
+              note: "",
+              state: "selected",
+              version: 1,
+              created_at: "2026-10-08T10:00:00Z",
+              updated_at: "2026-10-08T10:00:00Z",
+            },
+          ],
+        },
+      });
+    if (path === "/api/pick/plans" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      expect(body.rows[0].selection_id).toBe("selection-one");
+      plan = { ...plan, id: "created-plan", version: 1, title: body.title };
+      return route.fulfill({ json: plan });
+    }
     if (path === "/api/pick/plans")
       return route.fulfill({
         json: { items: [plan], total: 1, next_offset: null },
@@ -170,4 +196,15 @@ test("mock HTTP: plan edits, blockers, immutable receipt and review across respo
   await page.getByRole("checkbox", { name: /我已核对/ }).check();
   await page.getByRole("button", { name: "确认双方证据并关联" }).click();
   await expect(page.getByRole("status")).toContainText("关联已确认");
+  await page.goto("/workspace/pick-plans?selection=selection-one");
+  await page.getByLabel("新计划名称").fill("从个人清单创建");
+  await page.getByRole("button", { name: "确认选择并创建草稿" }).click();
+  await expect(page).toHaveURL(/\/workspace\/pick-plans\/created-plan$/);
+  await expect(page.getByLabel("计划名称", { exact: true })).toHaveValue(
+    "从个人清单创建",
+  );
+  await page.getByRole("link", { name: "全部排期", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "新建排期", exact: true }),
+  ).toBeVisible();
 });

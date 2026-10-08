@@ -1,6 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ function OwnedPlans({
   planId?: string;
   selectionIds: string[];
 }) {
+  const router = useRouter();
   const [offset, setOffset] = useState(0);
   const [creating, setCreating] = useState(selectionIds.length > 0);
   const [selected, setSelected] = useState<string[]>(selectionIds);
@@ -151,7 +153,12 @@ function OwnedPlans({
             request.current = new AbortController();
             void createPlan(pending.current.body, request.current.signal)
               .then((result) => {
-                if (active.current) setCreated(result);
+                if (active.current) {
+                  setCreated(result);
+                  router.replace(
+                    `/workspace/pick-plans/${encodeURIComponent(result.id)}`,
+                  );
+                }
               })
               .catch((reason) => {
                 if (active.current)
