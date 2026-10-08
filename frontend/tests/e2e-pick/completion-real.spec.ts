@@ -164,8 +164,8 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
                 /\[result:[^\]]+\]/g,
               )) {
                 const range = document.createRange();
-                range.setStart(node, match.index!);
-                range.setEnd(node, match.index! + match[0].length);
+                range.setStart(node, match.index);
+                range.setEnd(node, match.index + match[0].length);
                 tokens.push({
                   token: match[0],
                   rects: [...range.getClientRects()].map((rect) => ({
