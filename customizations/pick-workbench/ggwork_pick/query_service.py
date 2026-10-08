@@ -61,20 +61,32 @@ async def board_data(conn, keys, rules):
     return data
 
 
-def fact_rows(board, imported, request, *, actual_period=None):
-    """Keep imported identity and evidence when present. Board-only records retain raw unknown language."""
+def canonical_rows(imported):
+    """One pinned full identity per raw key; overlapping namespaces cannot overwrite facts."""
     by_key = {}
     for row in imported:
-        if row["source"] != "realshort-pick":
-            by_key[row["source_id"]] = row
+        key = row["source_id"]
         if row["source"] == "realshort-pick":
             try:
-                by_key[base64.urlsafe_b64decode(row["source_id"] + "=" * (-len(row["source_id"]) % 4)).decode()] = row
+                key = base64.urlsafe_b64decode(key + "=" * (-len(key) % 4)).decode()
+                if base64.urlsafe_b64encode(key.encode()).decode().rstrip("=") != row["source_id"]:
+                    raise ValueError
             except (ValueError, UnicodeError):
-                continue
+                raise QueryFailure("source_unavailable", "剧库来源标识无法与镜像核对") from None
+        if key in by_key:
+            raise QueryFailure("source_unavailable", "剧库来源标识存在歧义，无法核对")
+        by_key[key] = row
+    return by_key
+
+
+def fact_rows(board, imported, request, *, actual_period=None):
+    """Canonical facts never override a raw explicit delisting or platform denial."""
+    by_key = canonical_rows(imported)
     raw = {r["row_key"]: r for r in [*board.get("catalog_rows", []), *board.get("rs_rows", [])]}
     output = []
     for key in board["row_keys"]:
+        if key in raw and not raw[key]["lang"].strip():
+            continue  # Unknown-language records remain readonly, even beside a canonical row.
         row = by_key.get(key)
         if row is None:
             source = raw.get(key)
@@ -88,7 +100,14 @@ def fact_rows(board, imported, request, *, actual_period=None):
                 "theater": source["platform"],
                 "availability": "delisted" if source["off_on"] else "unknown",
             }
-        drama = DramaInput.model_validate({k: v for k, v in row.items() if k in DramaInput.model_fields})
+        values = {k: v for k, v in row.items() if k in DramaInput.model_fields}
+        source = raw.get(key)
+        if source is not None:
+            if source["off_on"]:
+                values["availability"] = "delisted"
+            if board["rules"]["platformRules"].get(source["platform"], {}).get("yt") == "no":
+                values["channel_rules"] = {**values.get("channel_rules", {}), "youtube": "denied"}
+        drama = DramaInput.model_validate(values)
         for ranked in board.get("rank_rows", []):
             if ranked["row_key"] != key:
                 continue
@@ -126,14 +145,14 @@ class CommonQueryService:
     def __init__(self, repository, reader=None):
         self.repository, self.reader = repository, reader
 
-    async def query(self, request: CommonQuery, *, deadline=None):
+    async def query(self, request: CommonQuery, *, deadline=None, excluded_identities=frozenset()):
         loop = asyncio.get_running_loop()
         deadline = min(deadline if deadline is not None else float("inf"), loop.time() + min(10000, request.budget_ms) / 1000)
         try:
             if loop.time() >= deadline:
                 raise TimeoutError
             async with asyncio.timeout_at(deadline):
-                result = await self._query(request, deadline=deadline)
+                result = await self._query(request, deadline=deadline, excluded_identities=excluded_identities)
                 if loop.time() >= deadline:
                     raise TimeoutError
                 return result
@@ -151,7 +170,7 @@ class CommonQueryService:
                 raise QueryFailure("source_unavailable", "查询数据暂时不可读取", retryable=True) from None
             raise
 
-    async def _query(self, req, *, deadline):
+    async def _query(self, req, *, deadline, excluded_identities):
         self._validate_domain(req)
         if req.published_from and req.published_to and req.published_from > req.published_to:
             raise QueryFailure("invalid_query", "发布起始日期不能晚于结束日期")
@@ -225,15 +244,42 @@ class CommonQueryService:
                 ):
                     updates["language"] = next((key for key, value in rules["langLoc"].items() if value == req.language), req.language)
                 effective_request = req.model_copy(update=updates)
+            imported = await self.repository.catalog_rows(catalog_id)
+            by_key = canonical_rows(imported)
+            raw_identity_rows = await conn.fetch("SELECT row_key,lang FROM catalog_rows UNION ALL SELECT row_key,lang FROM rs_rows")
+            raw_keys = [r["row_key"] for r in raw_identity_rows]
+            if len(raw_keys) != len(set(raw_keys)):
+                raise QueryFailure("source_unavailable", "镜像来源标识存在歧义，无法核对")
             selected = await self.repository.selections() if req.exclude_selected else []
+            excluded = set(excluded_identities) | {s["identity"] for s in selected}
             excluded_keys = []
-            for selection in selected:
-                parts = json.loads(selection["identity"])
-                if parts[0] == "realshort-pick":
-                    try:
-                        excluded_keys.append(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)).decode())
-                    except (ValueError, UnicodeError):
-                        pass
+            canonical = {"sources": {}, "eligible": [], "denied": [], "delisted": []}
+            for raw_row in raw_identity_rows:
+                key = raw_row["row_key"]
+                row = by_key.get(key)
+                source = row["source"] if row else "realshort-pick"
+                canonical["sources"].setdefault(source, []).append(key)
+                if row is None:
+                    # fact_rows exposes precisely this fallback identity for known-language
+                    # raw records. Missing canonical facts never grant eligibility.
+                    if raw_row["lang"]:
+                        identity = json.dumps(
+                            ["realshort-pick", base64.urlsafe_b64encode(key.encode()).decode().rstrip("="), raw_row["lang"].strip()],
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                        if identity in excluded:
+                            excluded_keys.append(key)
+                    continue
+                if row["identity"] in excluded:
+                    excluded_keys.append(key)
+                permission = row["channel_rules"].get("youtube", "unknown")
+                if raw_row["lang"].strip() and row["availability"] == "active" and permission == "allowed":
+                    canonical["eligible"].append(key)
+                if permission == "denied":
+                    canonical["denied"].append(key)
+                if row["availability"] == "delisted":
+                    canonical["delisted"].append(key)
             if req.published_from or req.published_to:
                 from ggwork_pick.query_posted import validate_publication_window
 
@@ -259,7 +305,7 @@ class CommonQueryService:
             elif req.domain == "rules":
                 keys, total, matched, facets = [], 0, 0, {}
             elif req.domain in {"catalog", "candidates"}:
-                keys, total, matched, facets = await catalog_page(conn, effective_request, query_rules(rules), excluded_keys=excluded_keys)
+                keys, total, matched, facets = await catalog_page(conn, effective_request, query_rules(rules), excluded_keys=excluded_keys, canonical=canonical)
             else:
                 raise QueryFailure("invalid_query", "该查询域尚未就绪")
             board = board if board is not None else await board_data(conn, keys, rules)
@@ -272,7 +318,6 @@ class CommonQueryService:
                 sources=meta.get("sources", {}),
                 posted_stats=meta.get("control", {}).get("postedStats"),
             )
-            imported = await self.repository.catalog_rows(catalog_id)
             rows = fact_rows(board, imported, req, actual_period=rank_result.actual_period if rank_result else None)
             returned = len(rank_result.bill_rows) if rank_result is not None and req.rank == "rs_ledger" else len(keys)
             next_offset = req.offset + returned if req.offset + returned < matched else None
@@ -426,7 +471,7 @@ class CommonQueryService:
             req = CommonQuery(domain="rankings", scope="full_catalog", rank=conditions.signal_kind, order="rank", pin=req.pin, limit=200)
         found = []
         while True:
-            response = await self.query(req, deadline=deadline)
+            response = await self.query(req, deadline=deadline, excluded_identities=excluded)
             for fact in response.rows:
                 row = fact.drama.model_dump(mode="json")
                 row["identity"] = fact.identity

@@ -23,7 +23,7 @@ ORDER = {
 }
 
 
-def predicates(req, rules, *, skip=None, excluded_keys=()):
+def predicates(req, rules, *, canonical, skip=None, excluded_keys=()):
     args, clauses = [], []
 
     def bind(value):
@@ -34,6 +34,8 @@ def predicates(req, rules, *, skip=None, excluded_keys=()):
         clauses.append("rows.has_signal")
     if not req.with_off:
         clauses.append("rows.off_on IS NULL")
+        if canonical:
+            clauses.append(f"rows.row_key <> ALL({bind(canonical['delisted'])}::text[])")
     if skip != "platform":
         if req.theater:
             clauses.append(f"rows.platform = {bind(req.theater)}")
@@ -42,8 +44,7 @@ def predicates(req, rules, *, skip=None, excluded_keys=()):
     if req.language is not None and skip != "language":
         clauses.append(f"rows.lang = {bind(req.language)}")
     if req.source:
-        # The mirrored source keys are stable namespaces, not a title match.
-        clauses.append("true" if req.source == "realshort-pick" else "false")
+        clauses.append(f"rows.row_key = ANY({bind(canonical['sources'].get(req.source, []))}::text[])")
     if req.source_id:
         p = bind(req.source_id)
         clauses.append(f"(rows.row_key = {p} OR rows.drama_id = {p} OR {SOURCE_ID} = {p})")
@@ -87,9 +88,9 @@ def predicates(req, rules, *, skip=None, excluded_keys=()):
     if req.channel == "youtube":
         clauses.append(f"rows.platform <> ALL({bind(rules['ytBlocked'])}::text[])")
         if req.confirmed_eligible_only:
-            # The source feed never certifies active status or allowance; rule eligibility
-            # is an explicit board filter (youtube_ok), not a confirmed candidate fact.
-            clauses.append("false")
+            clauses.append("rows.off_on IS NULL")
+            clauses.append(f"rows.row_key = ANY({bind(canonical['eligible'])}::text[])")
+        clauses.append(f"rows.row_key <> ALL({bind(canonical['denied'])}::text[])")
     if req.dated_only:
         clauses.append("rows.latest_evidence_on IS NOT NULL")
     if excluded_keys:
@@ -99,8 +100,8 @@ def predicates(req, rules, *, skip=None, excluded_keys=()):
     return (" WHERE " + " AND ".join(clauses) if clauses else ""), args
 
 
-async def catalog_page(conn, req, rules, *, excluded_keys=()):
-    where, args = predicates(req, rules, excluded_keys=excluded_keys)
+async def catalog_page(conn, req, rules, *, canonical, excluded_keys=()):
+    where, args = predicates(req, rules, excluded_keys=excluded_keys, canonical=canonical)
     total_req = req.model_copy(
         update={
             "query": None,
@@ -119,7 +120,7 @@ async def catalog_page(conn, req, rules, *, excluded_keys=()):
             "hot_only": False,
         }
     )
-    universe, ua = predicates(total_req, rules)
+    universe, ua = predicates(total_req, rules, canonical=canonical)
     total = await conn.fetchval(f"SELECT count(*) FROM {UNION}{universe}", *ua)
     matched = await conn.fetchval(f"SELECT count(*) FROM {UNION}{where}", *args)
     sort = ORDER.get(req.order, ORDER["evidence"])
@@ -128,18 +129,18 @@ async def catalog_page(conn, req, rules, *, excluded_keys=()):
     )
     facets = {}
     for dimension, column, name in [("platform", "platform", "platforms"), ("language", "lang", "languages")]:
-        fw, fa = predicates(req, rules, skip=dimension, excluded_keys=excluded_keys)
+        fw, fa = predicates(req, rules, skip=dimension, excluded_keys=excluded_keys, canonical=canonical)
         found = await conn.fetch(f"SELECT rows.{column} AS k,count(*)::int n FROM {UNION}{fw} GROUP BY rows.{column} ORDER BY n DESC,k ASC", *fa)
         facets[name] = {r["k"]: r["n"] for r in found}
         if dimension == "language":
             facets["language_order"] = [r["k"] for r in found]
-    fw, fa = predicates(req, rules, skip="basis", excluded_keys=excluded_keys)
+    fw, fa = predicates(req, rules, skip="basis", excluded_keys=excluded_keys, canonical=canonical)
     bases = await conn.fetch(
         f"SELECT s.kind AS k,count(DISTINCT s.row_key)::int n FROM catalog_signals s JOIN {UNION} ON rows.row_key=s.row_key{fw} GROUP BY s.kind", *fa
     )
     facets["bases"] = {r["k"]: r["n"] for r in bases}
     for kind in ("clk", "bill", "gsc"):
         facets["bases"][kind] = await conn.fetchval(f"SELECT count(*) FILTER (WHERE rows.rs_{kind}) FROM {UNION}{fw}", *fa)
-    fw, fa = predicates(req, rules, skip="posted", excluded_keys=excluded_keys)
+    fw, fa = predicates(req, rules, skip="posted", excluded_keys=excluded_keys, canonical=canonical)
     facets["posted"] = {kind: await conn.fetchval(f"SELECT count(*) FILTER (WHERE {clause}) FROM {UNION}{fw}", *fa) for kind, clause in POSTED.items()}
     return [r["row_key"] for r in page], total, matched, facets
