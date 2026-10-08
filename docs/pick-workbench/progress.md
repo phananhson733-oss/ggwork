@@ -1,6 +1,28 @@
 > 项目统一命名为 **ggwork-deerflow**，业务仓库为 `phananhson733-oss/ggwork-deerflow`。本地目录、旧版项目和部署方式见[项目对应关系](../project-identity.md)。以下发布记录中的旧 GitHub 地址、remote 短名和提交标识保留为历史证据。
 
-# 当前发布状态（2026-10-08，PR #52 完整历史雷达集成）
+# Trends 五词修复发布记录（2026-10-08，PR #66）
+
+[PR #66](https://github.com/phananhson733-oss/ggwork-deerflow/pull/66) 已合并发布，业务代码 `9c6ae901a97fbdf4c4923fd2ff81b73aa0fb2338`，前端版本 `20261008-9c6ae90`。保留同期主线原生数据源迁移与 CPS 读取重试；发布前确认 CPS 同步已结束成功。Trends/Python/前端与最终 PR 测试版本一致，合并时额外包含的 CPS 修复有独立 Native source CI 通过。
+
+- 最多5个不同剧名共享查询，正常组间120–180秒；同名不同身份拆组，逐剧保留身份、曲线、状态和同组词。HTTP按组记账，覆盖率和表格按剧计数；失败不写默认热度。
+- 新恢复合同 `daily-five-v2`，用户明确批准保留历史并开启新轮次。`since=2026-10-09`；结构化授权绑定旧起点、旧批次、新起点和批准时间，随新计划留存。同起点不能跨夜切换policy/pace，旧授权不能解除新轮次停止或全局禁用。
+- Gateway `46e10e04-9302-434a-8ba2-f2460e03dbfe` SUCCESS；Vercel `dpl_HB3ybBu8by1GFo8mvpMhJrxshjC1` READY，正式域名与 About 版本已核对。维持原生源和现有调度配置，源 revision 随实际组合发布提交更新；生产迁移仍为0008。
+- 采集器自检部署 `43a48ac2-75bc-4a65-839a-df7ce7cf42f2` 自检和只读预检通过：角色pick_observer，包摘要 `sha256:2377b1e3960b032e83d53bb57eae3065923228a777f7d740d90847470ea3babe` 与 Gateway 实机及发布源码一致。首轮10部、2组、4基础请求、cap24；qualified_nights=0，reasons/refused_by为空。120–180秒节奏和授权回执均在实际容器中核实。
+- 正式 cron 部署 `025c3bfe-9474-4863-9344-ef62b59d8b73` SUCCESS，服务设置和部署manifest逐项匹配。下一次触发为2026-10-08 17:00 UTC，仅窗口检查；首个有效窗口17:30 UTC，对应2026-10-09批次，截止次日01:45 UTC。失败或限流可能延长等待或停止，不保证预检估算等于实际耗时。
+- 部署前后旧批次/预算记录、运行状态、请求与原始结果总量一致；保护性配置（数据库身份、TLS和状态密钥）哈希一致；发布过程中零新增Google请求。历史US雷达没有被新全球批次覆盖，原日级失败表及停止告警继续保留。
+- 最终组合 CI `37781842812` SUCCESS：业务双库5037 passed /29 skipped，宿主108 passed，reader45 passed /0 skipped。前端完整3006 passed /45本地PG-dependent skipped，check/build通过；本地组合业务4060 passed。独立Python/数据审查的分组展示、跨夜profile、组身份和计划外请求问题均修复并复核通过。
+- 本地直连生产预检超时未计通过；最终以实际采集器容器预检为证据。源码合并冲突、可选PG驱动缺失、初次菜单定位失败等记录保留在私有验收目录。浏览器最终版本及旧表回读通过，未记录warning/error。
+- 只读验收heartbeat已更新为新policy/起点/组与剧的计数口径，原时刻与通知边界不变。**尚未到首个真实采集窗口；三个真实合格夜晚和首周观察仍未完成。** 容器自检、预检和模拟成功都不计作真实采集通过。
+
+执行合同见[五词合批恢复](../plans/2026-10-08-trends-five-title-recovery.md)。
+
+- `pick-deploy-guard target=gateway commit=9c6ae901a97fbdf4c4923fd2ff81b73aa0fb2338 prod_head=0008 chain_head=0008 at=2026-10-08T13:37:55Z`
+- `pick-deploy-guard target=frontend commit=9c6ae901a97fbdf4c4923fd2ff81b73aa0fb2338 at=2026-10-08T13:39:26Z`
+- `pick-deploy-guard target=cron:trends commit=9c6ae901a97fbdf4c4923fd2ff81b73aa0fb2338 prod_head=0008 chain_head=0008 at=2026-10-08T14:06:43Z`
+
+---
+
+# 历史发布状态（2026-10-08，PR #52 完整历史雷达集成）
 
 [PR #52](https://github.com/phananhson733-oss/ggwork-deerflow/pull/52) 已合并并发布，纠正 PR #48 只迁移单晚表格、遗漏本地完整浏览体验的问题。产品提交 `98b8427d588cadad06748ba9311aeaef69ac1589` 与最终通过检查的 PR HEAD 文件树完全一致；前端版本 `20261008-98b8427`。
 
