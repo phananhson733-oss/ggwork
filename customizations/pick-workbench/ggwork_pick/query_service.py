@@ -85,6 +85,8 @@ def fact_rows(board, imported, request, *, actual_period=None):
     raw = {r["row_key"]: r for r in [*board.get("catalog_rows", []), *board.get("rs_rows", [])]}
     output = []
     for key in board["row_keys"]:
+        if key in raw and not raw[key]["lang"].strip():
+            continue  # Unknown-language records remain readonly, even beside a canonical row.
         row = by_key.get(key)
         if row is None:
             source = raw.get(key)
@@ -272,7 +274,7 @@ class CommonQueryService:
                 if row["identity"] in excluded:
                     excluded_keys.append(key)
                 permission = row["channel_rules"].get("youtube", "unknown")
-                if row["availability"] == "active" and permission == "allowed":
+                if raw_row["lang"].strip() and row["availability"] == "active" and permission == "allowed":
                     canonical["eligible"].append(key)
                 if permission == "denied":
                     canonical["denied"].append(key)

@@ -222,3 +222,29 @@ async def test_saved_realshort_identity_stays_excluded_when_canonical_row_disapp
     assert sum(excluded.facets.platforms.values()) == 0
     bob = await CommonQueryService(PickRepository(repo.session_factory, "bob"), service.reader).query(req)
     assert bob.counts.matched == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unknown_language", ["", " \t "])
+async def test_unknown_raw_language_never_becomes_confirmed_candidate(canonical_world, unknown_language):
+    from ggwork_pick.query_model_projection import model_projection
+    from ggwork_pick.selection import SelectionService
+
+    service, repo, world, conn, shared, importer, as_of = canonical_world
+    changed = gw.with_table(world, "catalog_rows", [{**r, "lang": unknown_language} if r["row_key"] == "c-2" else r for r in world.tables["catalog_rows"]])
+    await bf._publish(conn, shared, importer, changed, as_of + timedelta(days=1))
+    request = CommonQuery(domain="catalog", scope="full_catalog", source_id="c-2", channel="youtube")
+    confirmed = await service.query(request)
+    assert confirmed.counts.matched == confirmed.counts.returned == 0
+    candidate = await SelectionService(repo, query_service=service).query(
+        {"query": "c-2", "channel": "youtube", "exclude_selected": False}, thread_id="t", run_id="r", call_id="unknown"
+    )
+    assert candidate["matched_total"] == 0
+    unfiltered = await service.query(request.model_copy(update={"channel": None}))
+    assert unfiltered.counts.matched == 1
+    assert unfiltered.board.row_keys == ["c-2"]
+    assert unfiltered.rows == []
+    projection = model_projection(unfiltered.model_dump(mode="json"), call_id="unknown-language", requested_limit=20)
+    assert projection["rows"][0]["kind"] == "catalog_record"
+    assert projection["rows"][0]["identity"] is None
+    assert projection["rows"][0]["eligibility"] == "unknown"
