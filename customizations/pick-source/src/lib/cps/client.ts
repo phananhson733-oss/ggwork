@@ -1,4 +1,5 @@
 import "server-only";
+import { setTimeout as backoff } from "node:timers/promises";
 import { checkSyncDeadline, getSyncSignal } from "@/lib/sync-deadline";
 
 import {
@@ -126,10 +127,28 @@ async function getToken(forceRefresh = false): Promise<string> {
 /** 上游用这些 code 表示登录态失效，需要重新登录 */
 const AUTH_ERROR_CODES = new Set([401, 403, 1001, 10001, 100001]);
 
-/**
- * 带鉴权的 POST。token 失效时自动重新登录并重试一次。
- */
+/** Retry the same read after an explicit transient failure; never skip a page. */
 async function post<T>(
+  endpoint: string,
+  body: Record<string, unknown>,
+  parse: (raw: unknown) => T,
+): Promise<T> {
+  for (let retry = 0; ; retry++) {
+    try {
+      return await postAuthenticated(endpoint, body, parse);
+    } catch (error) {
+      const transient = error instanceof CpsApiError && (
+        [429, 502, 503, 504].includes(error.code) ||
+        (error.code === 100000 && error.message.endsWith(" service overloaded"))
+      );
+      if (!transient || retry >= 3) throw error;
+      await backoff(1000 * 2 ** retry, undefined, { signal: getSyncSignal() });
+    }
+  }
+}
+
+/** Token expiry gets one independent authentication retry. */
+async function postAuthenticated<T>(
   endpoint: string,
   body: Record<string, unknown>,
   parse: (raw: unknown) => T,
@@ -150,7 +169,7 @@ async function post<T>(
   });
 
   if ((res.status === 401 || res.status === 403) && attempt === 0) {
-    return post(endpoint, body, parse, attempt + 1);
+    return postAuthenticated(endpoint, body, parse, attempt + 1);
   }
   if (!res.ok) {
     throw new CpsApiError(endpoint, res.status, `HTTP ${res.status}`);
@@ -159,7 +178,7 @@ async function post<T>(
   const raw: unknown = await res.json();
   const code = extractCode(raw);
   if (code !== 0 && AUTH_ERROR_CODES.has(code) && attempt === 0) {
-    return post(endpoint, body, parse, attempt + 1);
+    return postAuthenticated(endpoint, body, parse, attempt + 1);
   }
   return parse(raw);
 }
