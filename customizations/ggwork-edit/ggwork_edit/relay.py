@@ -71,8 +71,8 @@ class Relay:
         transfer.cancelled = True
         for reader in transfer.readers:
             reader.cancel()
-        # Keep quota reserved until every buffered request-body reader exits.
-        if not transfer.readers:
+        # Keep quota reserved for the full HTTP handler lifetime, including DB awaits after buffering.
+        if not transfer.readers and not transfer.busy:
             self.transfers.pop(transfer.id, None)
         for command_id, command in list(self.commands.items()):
             if command["transfer"] is transfer:

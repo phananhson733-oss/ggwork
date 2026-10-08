@@ -34,6 +34,7 @@ class RelayResponse(StreamingResponse):
         try:
             await super().__call__(scope, receive, bounded_send)
         finally:
+            self.transfer.busy = False
             self.relay.remove(self.transfer)
 
 
@@ -109,6 +110,8 @@ def build_relay_router(relay):
             raise
         finally:
             transfer.busy = False
+            if transfer.cancelled:
+                relay.remove(transfer)
 
     @router.get("/tasks/{task_id}/outputs/{output_id}/access")
     async def access(task_id: str, output_id: str, request: Request):
@@ -135,6 +138,7 @@ def build_relay_router(relay):
             raise
         finally:
             if transfer:
+                transfer.busy = False
                 relay.remove(transfer)
 
     @router.get("/tasks/{task_id}/outputs/{output_id}/content")
@@ -167,6 +171,7 @@ def build_relay_router(relay):
         try:
             first = await relay.exchange(transfer, "read", start, min(CHUNK_BYTES, end - start + 1))
         except BaseException:
+            transfer.busy = False
             relay.remove(transfer)
             raise
 
