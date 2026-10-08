@@ -24,6 +24,8 @@ import { fetch as fetcher } from "@/core/api/fetcher";
 import { type SaveCommand } from "@/core/pick/api";
 import { pickResultSchema } from "@/core/pick/types";
 
+import { PickReferenceNotice } from "@/components/workspace/pick/pick-reference-notice";
+
 import payload from "../../../core/pick/fixtures/backend-result.json";
 
 const first = pickResultSchema.parse({
@@ -63,6 +65,15 @@ function Harness({ threadId }: { threadId: string }) {
       >
         Read reference
       </button>
+      <button
+        onClick={() => {
+          document.title =
+            JSON.stringify(pick.contextFor(threadId)) ?? "unbound";
+        }}
+      >
+        Read turn context
+      </button>
+      <PickReferenceNotice threadId={threadId} />
       <CandidateComparison
         key={`${owner}:${threadId}`}
         threadId={threadId}
@@ -353,4 +364,46 @@ describe("comparison through authenticated HTTP", () => {
     await screen.findAllByRole("option", { name: /first/ });
     expect(screen.queryByText(/保存完成/)).toBeNull();
   });
+});
+
+it("binds both selected groups only on explicit action and freezes that choice", async () => {
+  mount();
+  await chooseBatches();
+  const button = screen.getByRole<HTMLButtonElement>("button", {
+    name: "引用所选两批到对话",
+  });
+  expect(button.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("采用来源：Feed Drama 1"), {
+    target: { value: "first" },
+  });
+  fireEvent.change(screen.getByLabelText("采用来源：Other drama"), {
+    target: { value: "second" },
+  });
+  fireEvent.click(screen.getByText("Read turn context"));
+  expect(document.title).toBe("unbound");
+  expect(button.disabled).toBe(true);
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "引用第一批：Feed Drama 1" }),
+  );
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "引用第二批：Feed Drama 1" }),
+  );
+  fireEvent.click(button);
+  fireEvent.click(screen.getByText("Read turn context"));
+  const bound = JSON.parse(document.title);
+  expect(bound.pick_references.version).toBe("pick-references-v1");
+  expect(bound.pick_references.references).toEqual([
+    { result_id: "first", item_ids: [first.items[0]!.item_id] },
+    { result_id: "second", item_ids: ["second-item"] },
+  ]);
+  fireEvent.change(screen.getByLabelText("采用来源：Feed Drama 1"), {
+    target: { value: "second" },
+  });
+  fireEvent.click(screen.getByText("Read turn context"));
+  expect(JSON.parse(document.title)).toEqual(bound);
+  expect(screen.getByText("本轮引用 2 批候选")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "取消多批引用" }));
+  fireEvent.click(screen.getByText("Read turn context"));
+  expect(document.title).toBe("unbound");
+  expect(screen.queryByLabelText("本轮候选引用")).toBeNull();
 });

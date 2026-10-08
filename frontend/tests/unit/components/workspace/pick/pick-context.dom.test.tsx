@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, rs } from "@rstest/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -176,4 +177,124 @@ describe("personal candidate scope", () => {
     );
     expect(screen.getByText("none")).toBeTruthy();
   });
+});
+
+it("fails closed visibly when a stored plural reference cannot be re-authorized", async () => {
+  const { getPickResult } = await import("@/core/pick/api");
+  const { useRestorePick } =
+    await import("@/components/workspace/pick/pick-context");
+  const { PickReferenceNotice } =
+    await import("@/components/workspace/pick/pick-reference-notice");
+  sessionStorage.setItem(
+    `ggwork-pick:${JSON.stringify(["alice", "t1"])}`,
+    JSON.stringify({
+      pick_references: {
+        version: "pick-references-v1",
+        references: [
+          { result_id: "gone", item_ids: ["i"] },
+          { result_id: "other", item_ids: ["j"] },
+        ],
+      },
+    }),
+  );
+  rs.mocked(getPickResult).mockRejectedValue(new Error("private source error"));
+  function RestoreProbe() {
+    useRestorePick("t1");
+    const pick = usePickContext()!;
+    return (
+      <>
+        <PickReferenceNotice threadId="t1" />
+        <button
+          onClick={() => {
+            try {
+              document.title =
+                JSON.stringify(pick.contextFor("t1")) ?? "unbound";
+            } catch {
+              document.title = "blocked";
+            }
+          }}
+        >
+          Read restored context
+        </button>
+      </>
+    );
+  }
+  render(
+    <PickProvider>
+      <RestoreProbe />
+    </PickProvider>,
+  );
+  await screen.findByRole("alert");
+  expect(screen.getByRole("alert").textContent).not.toContain("private source");
+  fireEvent.click(screen.getByText("Read restored context"));
+  expect(document.title).toBe("blocked");
+  fireEvent.click(screen.getByRole("button", { name: "取消多批引用" }));
+  fireEvent.click(screen.getByText("Read restored context"));
+  expect(document.title).toBe("unbound");
+});
+
+it("blocks dispatch during plural restore and cancellation fences a late response", async () => {
+  const { getPickResult } = await import("@/core/pick/api");
+  const { useRestorePick } =
+    await import("@/components/workspace/pick/pick-context");
+  const { PickReferenceNotice } =
+    await import("@/components/workspace/pick/pick-reference-notice");
+  const refs = {
+    version: "pick-references-v1",
+    references: [
+      { result_id: "a", item_ids: ["i"] },
+      { result_id: "b", item_ids: ["j"] },
+    ],
+  };
+  sessionStorage.setItem(
+    `ggwork-pick:${JSON.stringify(["alice", "t1"])}`,
+    JSON.stringify({ pick_references: refs }),
+  );
+  const completions: Array<(r: PickResult) => void> = [];
+  rs.mocked(getPickResult).mockImplementation(
+    () => new Promise<PickResult>((resolve) => completions.push(resolve)),
+  );
+  function Probe() {
+    useRestorePick("t1");
+    const pick = usePickContext()!;
+    return (
+      <>
+        <PickReferenceNotice threadId="t1" />
+        <button
+          onClick={() => {
+            try {
+              document.title =
+                JSON.stringify(pick.contextFor("t1")) ?? "unbound";
+            } catch {
+              document.title = "blocked";
+            }
+          }}
+        >
+          Dispatch restore
+        </button>
+      </>
+    );
+  }
+  render(
+    <PickProvider>
+      <Probe />
+    </PickProvider>,
+  );
+  await waitFor(() => expect(completions).toHaveLength(2));
+  fireEvent.click(screen.getByText("Dispatch restore"));
+  expect(document.title).toBe("blocked");
+  fireEvent.click(screen.getByRole("button", { name: "取消多批引用" }));
+  await act(async () => {
+    completions.forEach((resolve, index) =>
+      resolve({
+        ...result,
+        id: index === 0 ? "a" : "b",
+        items: [
+          { item_id: index === 0 ? "i" : "j" } as PickResult["items"][number],
+        ],
+      }),
+    );
+  });
+  fireEvent.click(screen.getByText("Dispatch restore"));
+  expect(document.title).toBe("unbound");
 });

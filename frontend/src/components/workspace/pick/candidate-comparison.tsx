@@ -272,10 +272,14 @@ function ComparisonItem({
   row,
   choice,
   onChoose,
+  referenceChoices,
+  onReference,
 }: {
   row: ComparisonRow;
   choice: ComparisonChoices[string];
   onChoose: (side: ComparisonChoices[string]) => void;
+  referenceChoices: { first: string[]; second: string[] };
+  onReference: (side: "first" | "second", itemId: string) => void;
 }) {
   const [detail, setDetail] = useState<"first" | "second">(
     row.first ? "first" : "second",
@@ -331,6 +335,17 @@ function ComparisonItem({
           detail === "first" ? "block" : "hidden",
         )}
       >
+        {row.first && (
+          <label className="mb-2 flex min-h-11 items-center gap-2">
+            <input
+              type="checkbox"
+              aria-label={`引用第一批：${title}${row.ambiguousTitle ? `（${row.identity}）` : ""}`}
+              checked={referenceChoices.first.includes(row.first.item.item_id)}
+              onChange={() => onReference("first", row.first!.item.item_id)}
+            />
+            引用第一批到对话
+          </label>
+        )}
         <SourceEvidence source={row.first} />
       </td>
       <td
@@ -339,6 +354,19 @@ function ComparisonItem({
           detail === "second" ? "block" : "hidden",
         )}
       >
+        {row.second && (
+          <label className="mb-2 flex min-h-11 items-center gap-2">
+            <input
+              type="checkbox"
+              aria-label={`引用第二批：${title}${row.ambiguousTitle ? `（${row.identity}）` : ""}`}
+              checked={referenceChoices.second.includes(
+                row.second.item.item_id,
+              )}
+              onChange={() => onReference("second", row.second!.item.item_id)}
+            />
+            引用第二批到对话
+          </label>
+        )}
         <SourceEvidence source={row.second} />
       </td>
     </tr>
@@ -362,6 +390,10 @@ function LoadedComparison({
 }) {
   const pick = usePickContext()!;
   const [choices, setChoices] = useState<ComparisonChoices>({});
+  const [referenceChoices, setReferenceChoices] = useState<{
+    first: string[];
+    second: string[];
+  }>({ first: [], second: [] });
   const query = useQuery({
     queryKey: ["pick-comparison", pick.ownerId, threadId, firstId, secondId],
     queryFn: async ({ signal }) => {
@@ -392,6 +424,14 @@ function LoadedComparison({
     );
   const { first, second, rows } = query.data;
   const groups = selectionGroups(rows, choices);
+  const referenceGroups = (
+    [
+      [first, referenceChoices.first],
+      [second, referenceChoices.second],
+    ] as const
+  )
+    .filter(([, ids]) => ids.length > 0)
+    .map(([result, ids]) => ({ result_id: result.id, item_ids: [...ids] }));
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
@@ -440,6 +480,15 @@ function LoadedComparison({
                 key={row.identity}
                 row={row}
                 choice={choices[row.identity]}
+                referenceChoices={referenceChoices}
+                onReference={(side, itemId) =>
+                  setReferenceChoices((old) => ({
+                    ...old,
+                    [side]: old[side].includes(itemId)
+                      ? old[side].filter((id) => id !== itemId)
+                      : [...old[side], itemId],
+                  }))
+                }
                 onChoose={(side) =>
                   setChoices((old) => ({ ...old, [row.identity]: side }))
                 }
@@ -455,6 +504,19 @@ function LoadedComparison({
       </p>
       <ComparisonSave groups={groups} firstId={first.id} onLock={onLock} />
       <div className="flex flex-wrap gap-3">
+        <Button
+          className="min-h-11"
+          disabled={locked || referenceGroups.length !== 2}
+          onClick={() => {
+            pick.bindReferences(threadId, [first, second], {
+              version: "pick-references-v1",
+              references: referenceGroups,
+            });
+            onUseBatch();
+          }}
+        >
+          引用所选两批到对话
+        </Button>
         {(
           [
             [first, "第一批"],
@@ -480,7 +542,7 @@ function LoadedComparison({
         ))}
       </div>
       <p className="text-helper">
-        继续对话仅引用指定的一批；该批未选择条目时引用整批。
+        单批继续对话只引用该批，未选条目时引用整批；双批引用需勾选两批的对话引用，可同时保留同一剧在不同批次的依据；保存仍只采用每个身份的一份来源。
       </p>
     </div>
   );

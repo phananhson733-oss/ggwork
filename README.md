@@ -10,6 +10,8 @@ GGWork exposes a shared read-only query API for the data board and Agent, with i
 
 GGWork uses a conservative [completion fact checker and publication gate](docs/pick-workbench/answer-checking.md): provisional model prose is withheld, and only checked content or explicit incompletion enters the assistant message. The same message is used for live delivery, history, reconnect and subsequent context; at most one correction consumes the existing model-call and time budget.
 
+The personal pick workbench supports explicitly referencing selected items from two historical candidate batches in one chat. Each batch keeps its own source snapshot; comparison alone does not bind chat context. See [the reference contract](docs/pick-workbench/completion-contract.md#explicit-plural-chat-references).
+
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](./backend/pyproject.toml)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](./Makefile)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
