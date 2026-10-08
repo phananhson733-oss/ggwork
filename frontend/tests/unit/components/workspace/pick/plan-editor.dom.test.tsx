@@ -303,3 +303,15 @@ it("reconciles a server timezone conflict with an explicit choice without losing
     rows: [{ note: "本地备注" }],
   });
 });
+
+it("keeps the row edit button compact while retaining its full accessible title", () => {
+  const plan = planSchema.parse(fixture.plan);
+  plan.rows[0]!.title = "用于验证长剧名不会挤宽操作列的完整名称".repeat(4);
+  render(<PlanEditor initial={plan} />);
+  const button = screen.getByRole("button", {
+    name: `编辑 ${plan.rows[0]!.title}`,
+  });
+  expect(button.textContent).toBe("编辑");
+  expect(button.getAttribute("title")).toBe(`编辑 ${plan.rows[0]!.title}`);
+  expect(screen.getByText(plan.rows[0]!.title)).toBeTruthy();
+});

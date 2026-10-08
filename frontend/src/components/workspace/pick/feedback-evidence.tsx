@@ -44,13 +44,17 @@ const warningLabels: Record<string, string> = {
   ambiguous_post_drama: "部分帖子无法唯一归属到剧集",
   undated_observations: "部分观测缺少采集日期",
   publication_not_confirmed_public: "部分发布记录尚未确认公开发布",
+  conflicting_publication_times: "同一帖子的发布时间存在冲突，观察时长待核对",
   conflicting_observations: "同一帖子存在冲突观测",
   ambiguous_revenue_drama: "部分收益无法唯一归属到剧集",
   post_rs_currency_and_attribution_unverified:
     "发布记录收益的币种和归因尚待核实",
 };
-function warningText(value: string) {
-  return warningLabels[value] ?? `待核实：${value}`;
+export function warningText(value: string) {
+  return (
+    warningLabels[value] ??
+    (/^[a-z0-9_]+$/.test(value) ? "部分来源证据仍待核实" : value)
+  );
 }
 
 export function FeedbackSummary({ feedback }: { feedback: FeedbackReply }) {

@@ -35,7 +35,7 @@ export function PostFollowUpQuery({
           scope: "candidate_pool",
           language: post.language,
           channel: post.channel,
-          account: post.account_id,
+          account: null,
           exclude_selected: true,
           confirmed_eligible_only: true,
           pin,
@@ -45,10 +45,24 @@ export function PostFollowUpQuery({
         signal,
       ),
     retry: false,
+    enabled: post.account_id === null,
   });
+  if (post.account_id !== null) {
+    return (
+      <section className="space-y-3 border p-4" aria-label="复盘后的新查询">
+        <h2 className="text-lg">同账号继续选剧暂不可用</h2>
+        <p>
+          反馈账号与资料查询账号尚无已验证的账号对应关系，不能保证同账号筛选准确。
+        </p>
+        <p>
+          原反馈版本 {feedbackVersion} 保留；请回到选剧对话明确选择查询范围。
+        </p>
+      </section>
+    );
+  }
   return (
     <section className="space-y-3 border p-4" aria-label="复盘后的新查询">
-      <h2 className="text-lg">按这条发布记录的账号、平台和语种重新查询</h2>
+      <h2 className="text-lg">按这条发布记录的平台和语种重新查询</h2>
       <p>
         原反馈版本 {feedbackVersion}{" "}
         保留；新查询使用当前来源，排序不表示收益预测。

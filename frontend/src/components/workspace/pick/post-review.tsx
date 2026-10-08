@@ -21,6 +21,7 @@ import {
 } from "@/core/pick/completion-types";
 import { replayHref } from "@/core/pick/links";
 
+import { warningText } from "./feedback-evidence";
 import { grains, lanes, money } from "./feedback-evidence";
 import { SourceResult } from "./my-selections";
 import { PostFollowUpQuery } from "./review-query";
@@ -205,7 +206,7 @@ export function OwnedPostReview({ ownerId }: { ownerId: string }) {
               {data.total === 0 && <p>当前范围没有可读取的发布记录。</p>}
               {data.warnings.map((warning, index) => (
                 <p key={index} className="text-warning-ink">
-                  {warning}
+                  {warningText(warning)}
                 </p>
               ))}
               <ul>
@@ -226,7 +227,9 @@ export function OwnedPostReview({ ownerId }: { ownerId: string }) {
                     <p>
                       已观察 {post.observation_days ?? "未知"} 天 / 目标{" "}
                       {post.requested_observation_days} 天
-                      {post.window_complete ? "（窗口完整）" : "（窗口不足）"}
+                      {post.window_complete
+                        ? "（观察门槛已达到）"
+                        : "（观察时长或指标不足）"}
                     </p>
                     <div className="flex flex-wrap gap-4">
                       <span>播放：{post.views ?? "未提供/未更新"}</span>
@@ -264,6 +267,9 @@ export function OwnedPostReview({ ownerId }: { ownerId: string }) {
                         来源与关联依据
                       </summary>
                       <p className="break-all">帖子标识：{post.post_key}</p>
+                      <p>
+                        帖子账号是反馈来源记录标识；计划账号是人工填写内容。系统尚未验证两者对应关系，请分别核对。
+                      </p>
                       <Evidence refs={post.evidence_refs} />
                       {post.link && (
                         <>
@@ -425,6 +431,9 @@ function ManualLink({
       <p>
         真实帖子：{post.title} · {post.account_id ?? "账号未知"} ·{" "}
         {post.channel ?? "平台未知"} · {post.published_at ?? "时间未知"}
+      </p>
+      <p>
+        帖子账号是反馈来源记录标识；计划账号是人工填写内容。系统尚未验证两者对应关系，请分别核对。
       </p>
       <Evidence refs={post.evidence_refs} />
       <label className="block">
