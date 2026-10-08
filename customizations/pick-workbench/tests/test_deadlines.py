@@ -77,14 +77,18 @@ async def test_inflight_ordinary_tool_is_cancelled_at_reserve():
 
 
 @pytest.mark.asyncio
-async def test_agent_query_budget_includes_setup_and_rejects_late_success(monkeypatch):
+@pytest.mark.parametrize("budget_ms", [100, 10000])
+async def test_agent_query_budget_includes_setup_and_rejects_late_success(monkeypatch, budget_ms):
     from ggwork_pick.context import PickTask
     from ggwork_pick.middleware import PickToolGate
 
     task = PickTask(None, TaskInfo("t", "r", "c", "lead"), budget=120)
     store = ExtensionData("t")
     store.set(task)
-    request = SimpleNamespace(runtime=SimpleNamespace(context={EXTENSION_TASK_STORE_KEY: store}), tool_call={"name": "pick_query_data"})
+    request = SimpleNamespace(
+        runtime=SimpleNamespace(context={EXTENSION_TASK_STORE_KEY: store}),
+        tool_call={"name": "pick_query_data", "args": {"query": {"domain": "catalog", "budget_ms": budget_ms}}},
+    )
     loop = asyncio.get_running_loop()
     real_time = loop.time
     offset = [0]
@@ -92,8 +96,8 @@ async def test_agent_query_budget_includes_setup_and_rejects_late_success(monkey
     started = loop.time()
 
     async def setup_and_encode(_):
-        assert task.query_deadline <= started + 10.01
-        offset[0] = 11
+        assert task.query_deadline <= started + budget_ms / 1000 + 0.01
+        offset[0] = budget_ms / 1000 + 1
         return "late success"
 
     try:
@@ -103,3 +107,35 @@ async def test_agent_query_budget_includes_setup_and_rejects_late_success(monkey
         offset[0] = 0
     # A subsequent call receives a fresh per-call budget, never a stale ContextVar.
     assert task.query_deadline == task.ordinary_deadline
+
+
+@pytest.mark.asyncio
+async def test_short_query_budget_expires_waiting_for_tool_execution_lock():
+    from ggwork_pick.context import PickTask
+    from ggwork_pick.middleware import PickToolGate
+
+    task = PickTask(None, TaskInfo("t", "r", "c", "lead"))
+    store = ExtensionData("t")
+    store.set(task)
+    request = SimpleNamespace(
+        runtime=SimpleNamespace(context={EXTENSION_TASK_STORE_KEY: store}),
+        tool_call={"name": "pick_query_data", "args": {"query": {"domain": "catalog", "budget_ms": 30}}},
+    )
+    entered = []
+
+    async def work(_):
+        entered.append(True)
+
+    await task.execution_lock.acquire()
+    waiting = asyncio.create_task(PickToolGate().awrap_tool_call(request, work))
+    try:
+        await asyncio.sleep(0.08)
+        assert waiting.done()
+        with pytest.raises(TimeoutError):
+            await waiting
+        assert entered == []
+    finally:
+        task.execution_lock.release()
+        if not waiting.done():
+            waiting.cancel()
+            await asyncio.gather(waiting, return_exceptions=True)

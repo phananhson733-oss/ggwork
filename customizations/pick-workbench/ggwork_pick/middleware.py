@@ -321,7 +321,14 @@ class PickToolGate(AgentMiddleware):
         loop = asyncio.get_running_loop()
         deadline = task.ordinary_deadline
         if name in {"pick_query_candidates", "pick_count_candidates", "pick_query_data"}:
-            deadline = min(deadline, loop.time() + 10)
+            budget_ms = 10000
+            if name == "pick_query_data":
+                args = request.tool_call.get("args")
+                query = args.get("query") if isinstance(args, dict) else None
+                requested = query.get("budget_ms") if isinstance(query, dict) else None
+                if type(requested) is int and requested > 0:
+                    budget_ms = min(budget_ms, requested)
+            deadline = min(deadline, loop.time() + budget_ms / 1000)
         token = query_call_deadline.set(deadline)
         try:
             async with asyncio.timeout_at(deadline):
