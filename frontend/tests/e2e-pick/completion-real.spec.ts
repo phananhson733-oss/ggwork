@@ -37,17 +37,64 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
       }, theme);
       for (const width of [320, 768, 1280, 1440]) {
         await page.setViewportSize({ width, height: 900 });
+        if (screen === "data" || screen === "chat-checked") {
+          const action =
+            screen === "data"
+              ? page
+                  .getByRole("navigation", { name: "选剧资料分页" })
+                  .getByRole("link")
+                  .first()
+              : page
+                  .getByRole("button", {
+                    name: /(?:Copy|Copied) to clipboard|复制到剪贴板|已复制/,
+                  })
+                  .last();
+          await action.focus();
+          await page.keyboard.press("Tab");
+          await page.keyboard.press("Shift+Tab");
+          await expect(action).toBeFocused();
+          await expect
+            .poll(() =>
+              action.evaluate((element) => {
+                const box = element.getBoundingClientRect();
+                const hit = document.elementFromPoint(
+                  box.x + box.width / 2,
+                  box.y + box.height / 2,
+                );
+                let current: Element | null = element;
+                while (current) {
+                  const style = getComputedStyle(current);
+                  if (
+                    Number(style.opacity) < 0.99 ||
+                    style.visibility !== "visible"
+                  )
+                    return false;
+                  current = current.parentElement;
+                }
+                return hit === element || (!!hit && element.contains(hit));
+              }),
+            )
+            .toBe(true);
+          const bounds = await action.boundingBox();
+          expect(bounds!.width).toBeGreaterThanOrEqual(44);
+          expect(bounds!.height).toBeGreaterThanOrEqual(44);
+        }
         await page.screenshot({
           path: info.outputPath(`${screen}-${theme}-${width}.png`),
           fullPage: true,
           animations: "disabled",
         });
+        const measured = await visualMeasurements(page, "main");
+        if (screen === "data" || screen === "chat-checked") {
+          expect(measured.focus?.outlineStyle).toBe("solid");
+          expect(measured.focus!.outlineContrast).toBeGreaterThanOrEqual(3);
+        }
         screenMeasurements.push({
           screen,
           theme,
           width,
           scope: "business main element; inherited controls included",
-          measurement: await visualMeasurements(page, "main"),
+          measurement: measured,
         });
       }
     }
@@ -406,14 +453,20 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
     }
     await page.keyboard.press("Escape");
     await expect(firstEdit).toBeFocused();
-    await page.screenshot({ path: info.outputPath(`focus-${theme}-return-button.png`), animations: "disabled" });
+    await page.screenshot({
+      path: info.outputPath(`focus-${theme}-return-button.png`),
+      animations: "disabled",
+    });
     focusMeasurements.push({
       theme,
       label: "row edit button",
       measurement: (await visualMeasurements(page)).focus,
     });
     await page.getByLabel("计划名称", { exact: true }).focus();
-    await page.screenshot({ path: info.outputPath(`focus-${theme}-plan-title.png`), animations: "disabled" });
+    await page.screenshot({
+      path: info.outputPath(`focus-${theme}-plan-title.png`),
+      animations: "disabled",
+    });
     focusMeasurements.push({
       theme,
       label: "plan title",
@@ -425,7 +478,11 @@ test("real Gateway: checked chat to saved selections and revision-bound executio
     await localTime.fill("2026-03-08T02:30");
     await expect(localTime).toHaveAttribute("aria-invalid", "true");
     await expect(
-      page.getByRole("button", { name: "保存计划", exact: true, includeHidden: true }),
+      page.getByRole("button", {
+        name: "保存计划",
+        exact: true,
+        includeHidden: true,
+      }),
     ).toBeDisabled();
     await localTime.focus();
     await page.screenshot({
