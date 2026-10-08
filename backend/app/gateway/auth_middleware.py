@@ -9,6 +9,7 @@ owner filtering works automatically via the sentinel pattern.
 Fine-grained permission checks remain in authz.py decorators.
 """
 
+import asyncio
 from collections.abc import Callable
 
 from fastapi import HTTPException, Request, Response
@@ -19,6 +20,7 @@ from starlette.types import ASGIApp
 from app.gateway.auth.errors import AuthErrorCode, AuthErrorResponse
 from app.gateway.auth_disabled import (
     AUTH_SOURCE_AUTH_DISABLED,
+    AUTH_SOURCE_EXTENSION,
     AUTH_SOURCE_INTERNAL,
     AUTH_SOURCE_PAT,
     AUTH_SOURCE_SESSION,
@@ -28,6 +30,7 @@ from app.gateway.auth_disabled import (
 from app.gateway.authz import AuthContext, resolve_route_permissions
 from app.gateway.internal_auth import INTERNAL_AUTH_HEADER_NAME, get_internal_user, is_valid_internal_auth_token
 from app.gateway.request_path import get_request_route_path
+from deerflow.extensions.gateway import resolve_bearer_authenticator
 from deerflow.runtime.user_context import reset_current_user, set_current_user
 
 # Paths that never require authentication.
@@ -91,6 +94,33 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if _is_public(get_request_route_path(request)):
             return await call_next(request)
 
+        authenticator = resolve_bearer_authenticator(request)
+        extension_user = None
+        if authenticator is not None:
+            from deerflow_extension_api import ExtensionCredential
+
+            from app.gateway.auth.pat import extract_bearer_token
+            from app.gateway.deps import get_local_provider
+
+            task = asyncio.current_task()
+            cancellation_count = task.cancelling() if task is not None else 0
+            try:
+                bearer = extract_bearer_token(request.headers.get("authorization"))
+                credential = await authenticator.authenticate(bearer) if bearer else None
+                if isinstance(credential, ExtensionCredential) and isinstance(credential.user_id, str) and credential.user_id and isinstance(credential.subject_id, str) and credential.subject_id:
+                    extension_user = await get_local_provider().get_user(credential.user_id)
+            except asyncio.CancelledError:
+                if task is not None and task.cancelling() > cancellation_count:
+                    raise
+                extension_user = None
+            except Exception:
+                # Extension/storage failures must not expose tokens or fall back
+                # to broader cookie/internal authority.
+                extension_user = None
+            if extension_user is None:
+                return JSONResponse(status_code=401, content={"detail": "Invalid token"})
+            request.state.extension_subject_id = credential.subject_id
+
         internal_user = None
         if is_valid_internal_auth_token(request.headers.get(INTERNAL_AUTH_HEADER_NAME)):
             # Extract the channel owner user ID from the trusted header.
@@ -111,7 +141,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         pat_scopes: frozenset[str] = frozenset()
 
         # Non-public path: require session cookie
-        if internal_user is not None:
+        if extension_user is not None:
+            user = extension_user
+            auth_source = AUTH_SOURCE_EXTENSION
+        elif internal_user is not None:
             user = internal_user
             auth_source = AUTH_SOURCE_INTERNAL
         elif authorization is not None and not is_auth_disabled():
@@ -181,9 +214,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # JWT-decode + DB-lookup pipeline a second time per request).
         request.state.user = user
         request.state.auth_source = auth_source
-        permissions = await resolve_route_permissions(
-            user,
-            is_internal=auth_source == AUTH_SOURCE_INTERNAL,
+        permissions = (
+            []
+            if auth_source == AUTH_SOURCE_EXTENSION
+            else await resolve_route_permissions(
+                user,
+                is_internal=auth_source == AUTH_SOURCE_INTERNAL,
+            )
         )
         if auth_source == AUTH_SOURCE_PAT:
             # A PAT can only narrow its owning user's permissions: the stored

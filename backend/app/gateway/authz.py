@@ -303,6 +303,12 @@ async def resolve_route_permissions_for_request(request: Request, user: Any) -> 
     internal auth header), so middleware-less consumers resolve exactly what
     ``_authenticate`` resolves and the two cannot drift apart.
     """
+    from app.gateway.auth_disabled import AUTH_SOURCE_EXTENSION
+
+    # Re-authentication by @require_auth must retain the restricted credential,
+    # rather than restoring its owner's session permissions.
+    if getattr(getattr(request, "state", None), "auth_source", None) == AUTH_SOURCE_EXTENSION:
+        return []
     return await resolve_route_permissions(user, is_internal=_is_internal_caller(request, user))
 
 
@@ -550,10 +556,13 @@ def _is_internal_caller(request: Request, user: Any) -> bool:
     3. The request carries a valid internal auth token header (decorator-only path
        where AuthMiddleware may not have stamped ``auth_source`` yet).
     """
-    from app.gateway.auth_disabled import AUTH_SOURCE_INTERNAL
+    from app.gateway.auth_disabled import AUTH_SOURCE_EXTENSION, AUTH_SOURCE_INTERNAL
     from app.gateway.internal_auth import INTERNAL_AUTH_HEADER_NAME, INTERNAL_SYSTEM_ROLE, is_valid_internal_auth_token
 
-    if getattr(getattr(request, "state", None), "auth_source", None) == AUTH_SOURCE_INTERNAL:
+    auth_source = getattr(getattr(request, "state", None), "auth_source", None)
+    if auth_source == AUTH_SOURCE_EXTENSION:
+        return False
+    if auth_source == AUTH_SOURCE_INTERNAL:
         return True
     if getattr(user, "system_role", None) == INTERNAL_SYSTEM_ROLE:
         return True

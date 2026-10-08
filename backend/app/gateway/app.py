@@ -7,7 +7,7 @@ from deerflow_extension_api import EXTENSION_PRINCIPAL_RESOLVER_KEY, ExtensionPr
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.gateway.auth_disabled import AUTH_SOURCE_INTERNAL, AUTH_SOURCE_PAT, warn_if_auth_disabled_enabled
+from app.gateway.auth_disabled import AUTH_SOURCE_EXTENSION, AUTH_SOURCE_INTERNAL, AUTH_SOURCE_PAT, warn_if_auth_disabled_enabled
 from app.gateway.auth_middleware import AuthMiddleware
 from app.gateway.browser_capability import ensure_browser_runtime_available
 from app.gateway.config import get_gateway_config
@@ -816,6 +816,8 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
         user = getattr(request.state, "user", None)
         if user is None:
             return None
+        if getattr(request.state, "auth_source", None) == AUTH_SOURCE_EXTENSION:
+            return ExtensionPrincipal(user_id=str(user.id), subject_id=request.state.extension_subject_id)
         system_role = getattr(user, "system_role", None)
         # PAT credentials never carry admin capability (#5041): suppress every
         # admin signal — both ``is_admin`` and the ``admin`` role — so an
