@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import json
 from datetime import date, datetime
 
 from pydantic import ValidationError
@@ -243,18 +244,30 @@ class CommonQueryService:
                 effective_request = req.model_copy(update=updates)
             imported = await self.repository.catalog_rows(catalog_id)
             by_key = canonical_rows(imported)
-            raw_keys = [r["row_key"] for r in await conn.fetch("SELECT row_key FROM catalog_rows UNION ALL SELECT row_key FROM rs_rows")]
+            raw_identity_rows = await conn.fetch("SELECT row_key,lang FROM catalog_rows UNION ALL SELECT row_key,lang FROM rs_rows")
+            raw_keys = [r["row_key"] for r in raw_identity_rows]
             if len(raw_keys) != len(set(raw_keys)):
                 raise QueryFailure("source_unavailable", "镜像来源标识存在歧义，无法核对")
             selected = await self.repository.selections() if req.exclude_selected else []
             excluded = set(excluded_identities) | {s["identity"] for s in selected}
             excluded_keys = []
             canonical = {"sources": {}, "eligible": [], "denied": [], "delisted": []}
-            for key in raw_keys:
+            for raw_row in raw_identity_rows:
+                key = raw_row["row_key"]
                 row = by_key.get(key)
                 source = row["source"] if row else "realshort-pick"
                 canonical["sources"].setdefault(source, []).append(key)
                 if row is None:
+                    # fact_rows exposes precisely this fallback identity for known-language
+                    # raw records. Missing canonical facts never grant eligibility.
+                    if raw_row["lang"]:
+                        identity = json.dumps(
+                            ["realshort-pick", base64.urlsafe_b64encode(key.encode()).decode().rstrip("="), raw_row["lang"].strip()],
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                        if identity in excluded:
+                            excluded_keys.append(key)
                     continue
                 if row["identity"] in excluded:
                     excluded_keys.append(key)

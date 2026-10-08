@@ -192,3 +192,33 @@ async def test_ambiguous_cross_source_identity_fails_closed(canonical_world):
         await service.query(CommonQuery(domain="catalog", scope="full_catalog", source="synthetic"))
     assert caught.value.code == "source_unavailable"
     assert caught.value.retryable is False
+
+
+@pytest.mark.asyncio
+async def test_saved_realshort_identity_stays_excluded_when_canonical_row_disappears(canonical_world):
+    from ggwork_pick.selection import SelectionService
+
+    service, repo, world, conn, shared, importer, as_of = canonical_world
+    canonical = [
+        {**row, "source": "realshort-pick", "source_id": gw.b64url("c-1"), "language": bf.LANGUAGE} if row["source_id"] == "c-1" else row
+        for row in world.v1_rows
+    ]
+    first_world = gw.with_v1(world, canonical)
+    await bf._publish(conn, shared, importer, first_world, as_of + timedelta(days=1))
+    chosen = await SelectionService(repo, query_service=service).query(
+        {"query": "c-1", "limit": 1}, thread_id="thread", run_id="select-old", call_id="select-old"
+    )
+    assert chosen["matched_total"] == 1
+    await repo.save_selection("save-old", chosen["id"], [chosen["items"][0]["item_id"]])
+    next_world = gw.with_v1(first_world, [row for row in canonical if row["source"] != "realshort-pick"])
+    next_world = gw.with_table(next_world, "catalog_rows", [{**r, "has_signal": False} if r["row_key"] == "c-1" else r for r in world.tables["catalog_rows"]])
+    await bf._publish(conn, shared, importer, next_world, as_of + timedelta(days=2))
+    req = CommonQuery(domain="catalog", scope="full_catalog", source_id="c-1", exclude_selected=True)
+    visible = await service.query(req.model_copy(update={"exclude_selected": False}))
+    assert visible.rows[0].identity == chosen["items"][0]["identity"]
+    excluded = await service.query(req)
+    assert excluded.counts.matched == excluded.counts.returned == 0
+    assert excluded.board.row_keys == []
+    assert sum(excluded.facets.platforms.values()) == 0
+    bob = await CommonQueryService(PickRepository(repo.session_factory, "bob"), service.reader).query(req)
+    assert bob.counts.matched == 1
