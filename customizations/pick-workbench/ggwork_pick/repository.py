@@ -534,12 +534,17 @@ class PickRepository:
             )
             return dict(row) if row else None
 
-    async def add_result(self, record: dict) -> dict:
+    async def add_result(self, record: dict, *, feedback=None) -> dict:
+        """Publish a candidate and, when required, its prepared feedback in one transaction."""
         record = _fits(candidate_sets, storable({**record, "owner_id": self.owner_id}))
         async with self.session_factory() as session:
             try:
                 async with session.begin():
                     await session.execute(insert(candidate_sets).values(**record))
+                    if feedback is not None:
+                        from ggwork_pick.feedback.repository import FeedbackRepository
+
+                        await FeedbackRepository(self.session_factory, self.owner_id).freeze_result(record["id"], feedback, session=session)
             except IntegrityError:
                 old = await self.result_for_call(record["run_id"], record["tool_call_id"])
                 if old is None:

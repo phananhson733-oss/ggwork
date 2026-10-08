@@ -14,6 +14,8 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from ggwork_pick.feedback.settings import FeedbackSettings
+from ggwork_pick.feedback.sync import FeedbackSyncService
 from ggwork_pick.repository import PickRepository
 from ggwork_pick.schedule import CATCH_UP_DELAY_SECONDS, guarded_pull, run_schedule
 
@@ -100,7 +102,14 @@ class SyncSettings:
 
 
 class PickService:
-    def __init__(self, data_dir: Path, sync_settings: SyncSettings | None = None, *, catch_up_delay: float = CATCH_UP_DELAY_SECONDS):
+    def __init__(
+        self,
+        data_dir: Path,
+        sync_settings: SyncSettings | None = None,
+        *,
+        catch_up_delay: float = CATCH_UP_DELAY_SECONDS,
+        feedback_settings: FeedbackSettings | None = None,
+    ):
         self.data_dir = data_dir
         self.run_evidence_reader = None
         self.session_factory: async_sessionmaker | None = None
@@ -110,6 +119,9 @@ class PickService:
         self.scheduler: asyncio.Task | None = None
         self.catch_up_delay = catch_up_delay
         self._background: set[asyncio.Task] = set()
+        self.feedback_settings = feedback_settings or FeedbackSettings()
+        self.feedback: FeedbackSyncService | None = None
+        self.feedback_scheduler: asyncio.Task | None = None
 
     def _engine(self):
         return self.session_factory.kw.get("bind") if self.session_factory is not None else None
@@ -198,6 +210,7 @@ class PickService:
         # One gateway process: whatever a previous process left "running" can never finish.
         await PickRepository.shared(session_factory).close_interrupted_runs()
         self.session_factory = session_factory
+        self.feedback = FeedbackSyncService(session_factory, owner_id=self.feedback_settings.owner_id, enabled=self.feedback_settings.enabled)
 
     async def start(self, deps) -> None:
         if deps.session_factory is None:
@@ -205,8 +218,20 @@ class PickService:
         self.run_evidence_reader = deps.run_evidence_reader
         await self.initialize(deps.session_factory)
         self._start_schedule()
+        if self.feedback_settings.scheduled and self.feedback is not None and self.feedback.enabled:
+            from ggwork_pick.feedback.schedule import run_feedback_schedule
+
+            self.feedback_scheduler = asyncio.create_task(run_feedback_schedule(self.feedback))
 
     async def stop(self) -> None:
+        if self.feedback_scheduler is not None:
+            self.feedback_scheduler.cancel()
+            await asyncio.gather(self.feedback_scheduler, return_exceptions=True)
+        if self.feedback is not None:
+            try:
+                await asyncio.wait_for(self.feedback.stop(), STOP_GRACE_SECONDS)
+            except TimeoutError:
+                logger.warning("Feedback shutdown exceeded its grace period")
         tasks = list(self._background)
         if self.scheduler is not None:
             self.scheduler.cancel()

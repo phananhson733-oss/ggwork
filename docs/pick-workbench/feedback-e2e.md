@@ -1,0 +1,20 @@
+# Feedback browser acceptance (synthetic provider, real Gateway)
+
+Run only in this isolated worktree, with no existing frontend dev process in the same checkout. Requires installed backend Python dependencies and frontend pnpm dependencies plus Playwright Chromium.
+
+```sh
+backend/.venv/bin/python customizations/pick-workbench/tests/feedback/e2e_launcher.py up
+backend/.venv/bin/python customizations/pick-workbench/tests/feedback/e2e_launcher.py test --repeat 3
+# After browser inspection:
+backend/.venv/bin/python customizations/pick-workbench/tests/feedback/e2e_launcher.py down
+```
+
+`up` creates a private ignored `backend/.deer-flow/feedback-e2e` directory, fresh SQLite database, random loopback ports, isolated configuration and a normal QA user. It uses real admin initialization, user provisioning, login and initial password change. Credentials remain in a mode-0600 file; do not print or commit it. Existing fixture directories cause a refusal, not a destructive reset. After stopping, archive/delete only that task-owned fixture directory if a fully fresh instance is needed.
+
+The launcher serves the **test-only** `tests/feedback/e2e_support.py` module, never the deployed app entrypoint. It substitutes a synthetic Feishu provider and adds authenticated fixture endpoints for enabling that provider and executing the real candidate tool. The candidate fixture writes an explicitly scripted successful run to the actual run store. It does not invoke or validate a live model. No feedback HTTP route is intercepted, authentication is retained, and source records pass through real sync/normalization/SQL/version/evidence paths.
+
+The frontend uses the actual Next.js dev server. Tests cover 15-table refresh/status rendering, real candidate evidence, zero versus missing observations, frozen historical notes after a new source version, explicit selection-save request and retry, source links, source partial quality, missing authorization, failed scans retaining old version, and pending UI. The test additionally asserts candidate queries do not save selections and historical candidate items/order/conditions remain unchanged. This is synthetic browser acceptance, not live Feishu A14, real-model tool-selection acceptance, a production build, or PostgreSQL E2E.
+
+Tracked `frontend/playwright.feedback.config.ts` selects only this scenario and requires a loopback target. Trace, video and automatic failure screenshots are disabled to avoid recording login credentials. Explicit screenshots are taken only after authentication. Outputs persist under `frontend/test-results/feedback/`; HTML report under `report/`, screenshots under `artifacts/`. Private process IDs, birth times, process groups, exact commands and logs remain in the fixture directory. The launcher explicitly blanks both public backend URL overrides and disables static/demo mode so Next dotenv cannot redirect browser API calls outside the local gateway. Keep servers running until visual inspection is complete; `down` requires matching PID, birth time, process group leader, exact command and fixture port before stopping their process groups; missing or mismatched metadata is skipped and preserves artifacts.
+
+To run the config manually, set `PICK_FEEDBACK_E2E_HOME` to the private fixture directory and `PICK_FEEDBACK_E2E_URL` to the frontend loopback URL printed by `up`, then run `pnpm exec playwright test -c playwright.feedback.config.ts` in `frontend`. Missing fixture configuration yields a skip, which is not a pass.

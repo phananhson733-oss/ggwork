@@ -480,6 +480,7 @@ class SelectionService:
         parent_result_id: str | None = None,
         use_latest: bool = False,
         pinned_versions: Pin | tuple[str | None, str | None] | None = None,
+        feedback_builder=None,
     ) -> tuple[dict, dict]:
         """(result view, stored row). The view cannot carry the frozen data_as_of: the frontend's result schema is
         strict (U51). A repeated call returns the row the first call wrote, so the tool answers with what it froze.
@@ -495,27 +496,27 @@ class SelectionService:
         rows = await self.repository.catalog_rows(pin.catalog_id)
         matches = await self._matched_in_scope(rows, effective, excluded, pin)
         items = [candidate_item(row, effective, len(matches)) for row in matches[: effective.limit]]
-        record = await self.repository.add_result(
-            dict(
-                id=uuid4().hex,
-                thread_id=thread_id,
-                run_id=run_id,
-                tool_call_id=call_id,
-                request_hash=request_hash,
-                parent_result_id=parent_result_id,
-                catalog_batch_id=pin.catalog_id,
-                knowledge_batch_id=pin.knowledge_id,
-                rule_version=RULE_VERSION,
-                ranking_version=ranking_version_for(effective),
-                conditions_json=effective.model_dump(),
-                ordered_items_json=items,
-                created_at=stamp(),
-                # Frozen with the result (P2-5b): what it left out, for replay, and the data it stood on.
-                excluded_json=sorted(excluded),
-                mirror_version=pin.mirror_version,
-                data_as_of_json=pin.data_as_of,
-            )
+        record = dict(
+            id=uuid4().hex,
+            thread_id=thread_id,
+            run_id=run_id,
+            tool_call_id=call_id,
+            request_hash=request_hash,
+            parent_result_id=parent_result_id,
+            catalog_batch_id=pin.catalog_id,
+            knowledge_batch_id=pin.knowledge_id,
+            rule_version=RULE_VERSION,
+            ranking_version=ranking_version_for(effective),
+            conditions_json=effective.model_dump(),
+            ordered_items_json=items,
+            created_at=stamp(),
+            # Frozen with the result (P2-5b): what it left out, for replay, and the data it stood on.
+            excluded_json=sorted(excluded),
+            mirror_version=pin.mirror_version,
+            data_as_of_json=pin.data_as_of,
         )
+        feedback = await feedback_builder(record) if feedback_builder is not None else None
+        record = await self.repository.add_result(record, feedback=feedback)
         return result_view(record), record
 
     async def count(self, filters: dict, *, parent: dict | None = None, pinned_versions=None, emit_mirror_version: bool = False) -> dict:

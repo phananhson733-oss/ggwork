@@ -1,8 +1,71 @@
 """Extension-private SQLAlchemy tables. Never register with the host metadata."""
 
-from sqlalchemy import JSON, Boolean, Column, Float, Integer, MetaData, String, Table, Text, false, text
+from sqlalchemy import JSON, Boolean, Column, Float, Integer, MetaData, String, Table, Text, UniqueConstraint, false, text
 
 metadata = MetaData()
+
+# Feedback is private to the authenticated owner, unlike the shared catalogue. Result evidence lives beside
+# candidate snapshots so the existing strict item/result contract remains unchanged.
+feedback_scopes = Table(
+    "ggwp_feedback_scopes",
+    metadata,
+    Column("owner_id", String(128), primary_key=True),
+    Column("current_version_id", String(64)),
+    Column("last_verified_at", String(40)),
+    Column("lease_token", String(64)),
+    Column("lease_until", String(40)),
+)
+feedback_versions = Table(
+    "ggwp_feedback_versions",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("owner_id", String(128), nullable=False),
+    Column("content_hash", String(64), nullable=False),
+    Column("scan_started_at", String(40), nullable=False),
+    Column("scan_completed_at", String(40), nullable=False),
+    Column("published_at", String(40), nullable=False),
+    Column("manifest_json", JSON, nullable=False),
+    UniqueConstraint("owner_id", "content_hash", name="ggwp_feedback_version_content"),
+)
+feedback_records = Table(
+    "ggwp_feedback_records",
+    metadata,
+    Column("version_id", String(64), primary_key=True),
+    Column("table_id", String(128), primary_key=True),
+    Column("record_id", String(128), primary_key=True),
+    Column("values_json", JSON, nullable=False),
+)
+feedback_runs = Table(
+    "ggwp_feedback_runs",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("owner_id", String(128), nullable=False),
+    Column("trigger", String(20), nullable=False),
+    Column("status", String(20), nullable=False),
+    Column("started_at", String(40), nullable=False),
+    Column("finished_at", String(40)),
+    Column("version_id", String(64)),
+    Column("error_code", String(40)),
+)
+feedback_result_evidence = Table(
+    "ggwp_feedback_result_evidence",
+    metadata,
+    Column("result_id", String(64), primary_key=True),
+    Column("owner_id", String(128), nullable=False),
+    Column("version_id", String(64), nullable=False),
+    Column("evidence_json", JSON, nullable=False),
+    Column("created_at", String(40), nullable=False),
+)
+feedback_identity_links = Table(
+    "ggwp_feedback_identity_links",
+    metadata,
+    Column("owner_id", String(128), primary_key=True),
+    Column("source_record_id", String(128), primary_key=True),
+    Column("catalog_identity", String(512), nullable=False),
+    Column("method", String(40), nullable=False),
+    Column("evidence_json", JSON, nullable=False),
+    Column("confirmed_at", String(40), nullable=False),
+)
 
 import_batches = Table(
     "ggwp_import_batches",

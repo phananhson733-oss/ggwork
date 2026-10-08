@@ -160,6 +160,10 @@ def build_router(service):
         data_as_of = await owner.result_data_as_of(record, emit_mirror_version=service.sync_settings.emits_mirror_version)
         return {**result_view(record), "run_status": status, "data_as_of": data_as_of}
 
+    from ggwork_pick.feedback.routes import register_feedback_routes
+
+    register_feedback_routes(router, service, repository)
+
     @router.get("/sync")
     async def sync_status(request: Request):
         repo = repository(request)
@@ -254,10 +258,18 @@ def build_router(service):
         except LookupError as exc:
             raise api_error(exc) from None
         data_as_of = await repo.result_data_as_of(record, emit_mirror_version=False)
+        from ggwork_pick.feedback.repository import FeedbackRepository
+
+        frozen = await FeedbackRepository(service.session_factory, repo.owner_id).result_evidence(result_id)
         try:
-            return await SelectionService(repo).notes(record, data_as_of=data_as_of)
+            notes = await SelectionService(repo).notes(record, data_as_of=data_as_of)
         except NotesGone as exc:
-            raise HTTPException(410, str(exc)) from None
+            if frozen is None:
+                raise HTTPException(410, str(exc)) from None
+            notes = {"item_facts": {}, "data_notices": ["原剧库依据已过保留期；以下反馈为当时保存的独立证据。"]}
+        if frozen is not None:
+            notes["feedback"] = frozen.model_copy(update={"freshness": "historical"}).model_dump(mode="json")
+        return notes
 
     @router.get("/replay")
     async def replay(request: Request, result_id: str = Query(min_length=1, max_length=64)):

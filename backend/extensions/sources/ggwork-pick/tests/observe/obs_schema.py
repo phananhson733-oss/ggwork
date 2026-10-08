@@ -142,6 +142,7 @@ async def assert_0007_in_place(engine) -> None:
     assert all(candidates[name]["nullable"] for name in CANDIDATE_COLUMNS)
     assert CANDIDATE_INDEXES <= await index_names(engine)
     assert await runtime_rows(engine) == [("gsc", 0), ("trends", 0)]
-    assert await scalar(engine, "select version_num from ggwp_alembic_version") == revisions.head() == "0007"
+    # The fixture migrates to the current head; later additive revisions retain the 0007 invariants above.
+    assert await scalar(engine, "select version_num from ggwp_alembic_version") == revisions.head()
     if engine.dialect.name == "postgresql":
         assert await view_names(engine) == set(VIEW_NAMES)

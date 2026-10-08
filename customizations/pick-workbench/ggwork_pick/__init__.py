@@ -14,11 +14,12 @@ from deerflow_extension_api import extension
 @extension(api="0.2.1", name="ggwork-pick")
 def install(registry, config):
     from ggwork_pick.context import PickLifecycle
+    from ggwork_pick.feedback.settings import FeedbackSettings
     from ggwork_pick.routes import build_router
     from ggwork_pick.service import PickService, SyncSettings
 
     data_dir = Path(config.get("data_dir") or Path(os.environ.get("DEER_FLOW_HOME", ".deer-flow")) / "pick")
-    service = PickService(data_dir, SyncSettings.from_env())
+    service = PickService(data_dir, SyncSettings.from_env(), feedback_settings=FeedbackSettings.from_env())
     registry.service(service)
     registry.routers((build_router(service),))
     registry.task_lifecycle(PickLifecycle(service))

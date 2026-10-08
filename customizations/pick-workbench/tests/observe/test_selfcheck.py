@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+import revisions
 from obs_db_helpers import (
     T0,
     CountingTransport,
@@ -92,11 +93,11 @@ async def test_selfcheck_passes_and_reports(obs_url):
         report = await selfcheck.run_selfcheck(db, selfcheck.expectations_from(collector_env(obs_url)))
     finally:
         await db.dispose()
-    assert (report.collector_version, report.migration_head) == (COLLECTOR_VERSION, MIN_MIGRATION_HEAD)
+    assert (report.collector_version, report.migration_head) == (COLLECTOR_VERSION, revisions.head())
     assert report.role == (collector_env(obs_url)["PICK_OBS_EXPECTED_ROLE"] if is_postgres(obs_url) else None)
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", report.package_digest)
     line = report.line()
-    assert all(part in line for part in (COLLECTOR_VERSION, MIN_MIGRATION_HEAD, report.package_digest))
+    assert all(part in line for part in (COLLECTOR_VERSION, revisions.head(), report.package_digest))
     assert "pick-ci" not in line and "@" not in line  # never the DSN or its password
 
 
@@ -132,15 +133,16 @@ async def test_missing_version_table_names_the_search_path(pg_cluster, pg_db_url
 @pytest.mark.asyncio
 async def test_selfcheck_accepts_known_newer_head(obs_url, tmp_path):
     """D5: a newer head the image knows passes; the same head is refused by an image that does not know it."""
-    await _set_head(obs_url, "0008")
-    newer = selfcheck.migration_chain(_chain_with(tmp_path, "0008_later.py", "0008", "0007"))
+    future = "test_future"
+    await _set_head(obs_url, future)
+    newer = selfcheck.migration_chain(_chain_with(tmp_path, "test_future.py", future, revisions.head()))
     expectations = selfcheck.expectations_from(collector_env(obs_url))
     db = open_db(obs_url)
     try:
         report = await selfcheck.run_selfcheck(db, expectations, chain=newer)
-        assert report.migration_head == "0008"
+        assert report.migration_head == future
         with pytest.raises(Refused) as refused:
-            await selfcheck.run_selfcheck(db, expectations)  # this image's chain ends at 0007
+            await selfcheck.run_selfcheck(db, expectations)  # The fixture-only future is unknown to this image.
         assert exit_code_for(refused.value) == ExitCode.REFUSED
     finally:
         await db.dispose()
@@ -270,7 +272,7 @@ async def test_no_session_set(obs_url):
 async def test_selfcheck_only_and_two_heads(obs_url):
     """--selfcheck-only runs the check on the channel's database and nothing else; two heads are refused."""
     report = await selfcheck.selfcheck_only("gsc", environ=collector_env(obs_url))
-    assert report.migration_head == MIN_MIGRATION_HEAD
+    assert report.migration_head == revisions.head()
     await execute(obs_url, "insert into ggwp_alembic_version (version_num) values ('0006')")
     with pytest.raises(Refused):
         await selfcheck.selfcheck_only("trends", environ=collector_env(obs_url))

@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { type FeedbackItem } from "@/core/pick/feedback-schema";
 import {
   conditionsLine,
   dataAsOfLine,
@@ -24,6 +25,8 @@ import {
   type PickItem,
   type PickResult,
 } from "@/core/pick/types";
+
+import { FeedbackEvidence, FeedbackSummary } from "./feedback-evidence";
 
 /** Opens one row's evidence page in the pick board, in a new tab so the chat stays. */
 export function RowCheckLink({ href, title }: { href: string; title: string }) {
@@ -95,6 +98,7 @@ function CandidateCard({
   busy,
   readOnly,
   facts,
+  feedback,
 }: {
   item: PickItem;
   index: number;
@@ -104,6 +108,7 @@ function CandidateCard({
   busy: boolean;
   readOnly: boolean;
   facts: PickItemFacts | undefined;
+  feedback?: FeedbackItem | null;
 }) {
   const checks = itemChecks(item, result.conditions, facts);
   const primary = primaryEvidence(item, result.conditions);
@@ -183,6 +188,9 @@ function CandidateCard({
         <p className="mt-2">
           <RowCheckLink href={checkHref} title={item.title} />
         </p>
+      )}
+      {feedback !== undefined && (
+        <FeedbackEvidence item={feedback ?? undefined} />
       )}
       <EvidenceDetails item={item} />
     </article>
@@ -302,6 +310,7 @@ export function CandidateView({
         数据截至：{dataAsOfLine(result.data_as_of)}
       </p>
       <ResultNotices notes={notes} />
+      {read?.feedback && <FeedbackSummary feedback={read.feedback} />}
       {replayHref && <ReplayLink href={replayHref} />}
       {result.items.length === 0 && <EmptyResult notes={read} />}
       {result.items.map((item, index) => (
@@ -315,6 +324,13 @@ export function CandidateView({
           busy={busy}
           readOnly={readOnly}
           facts={read?.item_facts[item.item_id]}
+          feedback={
+            read?.feedback
+              ? (read.feedback.items.find(
+                  (entry) => entry.key === item.identity,
+                ) ?? null)
+              : undefined
+          }
         />
       ))}
       <p className="text-muted-foreground text-xs">

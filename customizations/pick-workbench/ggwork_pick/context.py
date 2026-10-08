@@ -51,6 +51,9 @@ class PickTask:
     # Normalized title -> what the posted summaries of items a tool returned say (answer_check.with_posted).
     posted_seen: dict[str, Seen] = field(default_factory=dict)
     versions_refreshed: bool = False
+    feedback_checked: bool = False
+    feedback_pin: object | None = None
+    feedback_failure: dict | None = None
     execution_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     initialized: bool = False
     model_calls: int = 0

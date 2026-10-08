@@ -76,7 +76,9 @@ async def _bound_parent(task, repo, filters: dict) -> dict | None:
 
 
 @tool("pick_query_candidates")
-async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_latest: bool = False) -> str:
+async def query_candidates_tool(
+    filters: PickConditions, runtime: Runtime, use_latest: bool = False, feedback_refresh_id: Annotated[str, Field(pattern=r"^fr_[0-9a-f]{32}$")] | None = None
+) -> str:
     """查询真实剧库。filters支持theater/language/channel/query/tags/limit(1-20)/exclude_selected/exclude_previous/
     signal_kind/sort/exclude_posted/posted_account/hot_only。
     filters是本次的完整条件，用本轮最新数据；在上一份候选基础上细化时，把要保留的条件一起写上。
@@ -95,6 +97,7 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
     matched_total为0时另有zero_diagnosis：去掉每一项条件后各有多少部，据此说明是哪个条件筛空的，不自行推测原因。
     hot_only时另有hot_scope：算作热门依据的信号种类与未算的种类。
     数据过期时另有data_notices：批次太久没更新、剧单导入太久、榜单最新一期太旧等提示，回答里如实转述。
+    启用运营反馈时先刷新并固定版本；返回refresh_pending时不要循环查询，稍后传返回的feedback_refresh_id继续该任务。
     """
     task = task_from_runtime(runtime)
     repo = await task.repository(runtime)
@@ -105,6 +108,17 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
     requested = PickConditions.model_validate(filters).requested()
 
     async def work():
+        from ggwork_pick.feedback.repository import FeedbackRepository
+        from ggwork_pick.feedback.runtime import candidate_feedback, model_feedback, prepare_feedback
+
+        parent = await _bound_parent(task, repo, requested) if not task.versions_refreshed else None
+        feedback_pin, feedback_failure = await prepare_feedback(task, parent=parent, resume_run_id=feedback_refresh_id)
+        if feedback_failure and requested.get("sort") != "rank":
+            return json.dumps(feedback_failure, ensure_ascii=False)
+
+        async def feedback_builder(record):
+            return await candidate_feedback(task, repo, record, feedback_pin)
+
         result, record = await SelectionService(repo).query_with_record(
             requested,
             thread_id=task.info.thread_id,
@@ -113,18 +127,29 @@ async def query_candidates_tool(filters: PickConditions, runtime: Runtime, use_l
             parent_result_id=task.reference_id,
             use_latest=task.versions_refreshed,
             pinned_versions=task.pin(),
+            feedback_builder=feedback_builder if feedback_pin is not None else None,
         )
+        # What the result froze, also on a repeated call after a later publish rewrote its batch (P2-8a, U51); with the
+        # P4-1 switch on, and the mirror version its row recorded.
+        data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
+        # For the model only: the card reads the stored result through /api/pick/results, never these keys.
+        explained = await SelectionService(repo).model_view(record, data_as_of=data_as_of)
+        feedback = None
+        if feedback_pin is not None:
+            task.plugin_read = True
+            feedback = await FeedbackRepository(task.service.session_factory, task.owner_id).result_evidence(record["id"])
+            if feedback is None:
+                raise ValueError("这份候选没有保存运营反馈依据，请重新查询")
+        if feedback is not None:
+            explained["feedback"] = model_feedback(feedback)
+        elif feedback_failure:
+            explained["feedback"] = feedback_failure
         task.produced_result_ids.add(result["id"])
         task.known_titles.update(item["title"] for item in result["items"])
         conditions = PickConditions.model_validate(result["conditions"])
         task.posted_seen = with_posted(task.posted_seen, result["items"], account=conditions.posted_account)
         if conditions.filters_posted:
             task.posted_checked = True
-        # What the result froze, also on a repeated call after a later publish rewrote its batch (P2-8a, U51); with the
-        # P4-1 switch on, and the mirror version its row recorded.
-        data_as_of = await repo.result_data_as_of(record, emit_mirror_version=_emits_mirror_version(task))
-        # For the model only: the card reads the stored result through /api/pick/results, never these keys.
-        explained = await SelectionService(repo).model_view(record, data_as_of=data_as_of)
         return json.dumps(model_payload({**result, "data_as_of": data_as_of, **explained}), ensure_ascii=False, separators=(",", ":"))
 
     return await _answer(work)
@@ -181,6 +206,11 @@ async def get_drama_detail_tool(result_id: str, item_id: str, runtime: Runtime) 
         task.known_titles.add(detail["item"]["title"])
         account = PickConditions.model_validate(record["conditions_json"]).posted_account
         task.posted_seen = with_posted(task.posted_seen, [detail["item"]], account=account)
+        from ggwork_pick.feedback.runtime import frozen_feedback, model_feedback
+
+        feedback = await frozen_feedback(task, result_id)
+        if feedback.status == "ok" or task.feedback_checked:
+            detail["feedback"] = model_feedback(feedback)
         return json.dumps(model_payload({**detail, "data_as_of": data_as_of}), ensure_ascii=False, separators=(",", ":"))
 
     return await _answer(work)

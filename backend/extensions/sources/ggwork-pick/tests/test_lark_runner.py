@@ -35,6 +35,49 @@ ALLOWED_ENV = {
 }
 
 
+def test_feedback_export_reads_bounded_artifacts_before_scratch_cleanup(monkeypatch):
+    def export(config, _data):
+        work = config.parent / "work"
+        (work / "feedback.ndjson").write_text('{"record_id":"synthetic"}\n', encoding="utf-8")
+        (work / "feedback.manifest.json").write_text('{"records_count":1,"has_more":false}', encoding="utf-8")
+
+    fake = FakeCli(stdout='{"ok":true}', action=export)
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
+    monkeypatch.setattr(lark_runner, "command_risk", lambda *_args, **_kwargs: "read")
+    _user_tree()
+    result = lark_runner.run_feedback_export("alice", "tblHeWrgRPNshRdE", ("fldSynthetic",), 0)
+    assert result.records == '{"record_id":"synthetic"}\n'
+    assert '"records_count":1' in result.manifest
+    assert result.completed.exit_code == 0
+    (call,) = fake.calls
+    assert "--as" in call.args and call.args[-1] == "user"
+    assert "--view-id" not in call.args
+    assert call.args[call.args.index("--limit") + 1] == "2000"
+    assert not Path(call.kwargs["cwd"]).exists()
+
+
+def test_feedback_export_rejects_symlinks_without_reading_target(monkeypatch, tmp_path):
+    private = tmp_path / "private"
+    private.write_text("not an export", encoding="utf-8")
+
+    def export(config, _data):
+        work = config.parent / "work"
+        (work / "feedback.ndjson").symlink_to(private)
+        (work / "feedback.manifest.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(lark_runner, "_run_process", FakeCli(stdout='{"ok":true}', action=export))
+    monkeypatch.setattr(lark_runner, "command_risk", lambda *_args, **_kwargs: "read")
+    _user_tree()
+    with pytest.raises(lark_runner.LarkUnavailable):
+        lark_runner.run_feedback_export("alice", "tblHeWrgRPNshRdE", ("fldSynthetic",), 0)
+
+
+@pytest.mark.parametrize("table,fields,offset", [("tblForeign", ("fldA",), 0), ("tblHeWrgRPNshRdE", ("@secret",), 0), ("tblHeWrgRPNshRdE", ("fldA",), -1)])
+def test_feedback_export_cannot_read_arbitrary_tables_or_paths(table, fields, offset):
+    with pytest.raises(ValueError):
+        lark_runner.run_feedback_export("alice", table, fields, offset)
+
+
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(paths_module, "_paths", Paths(base_dir=tmp_path / "home"))

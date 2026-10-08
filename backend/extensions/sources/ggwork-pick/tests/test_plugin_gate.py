@@ -179,3 +179,45 @@ async def test_actions_with_external_effects_wait_for_the_user_after_a_plugin_re
     fresh_runtime, _ = _runtime()
     fresh = SimpleNamespace(runtime=fresh_runtime, tool_call={"name": writer.name}, tool=writer)
     assert await gate.awrap_tool_call(fresh, handler) == "ok"
+
+
+@pytest.mark.asyncio
+async def test_external_effect_is_checked_after_queued_feedback_read_finishes():
+    import asyncio
+
+    from ggwork_pick.middleware import PickToolGate
+
+    runtime, task = _runtime()
+    gate = PickToolGate()
+    reading = asyncio.Event()
+    release = asyncio.Event()
+    writer_queued = asyncio.Event()
+
+    async def feedback_handler(_request):
+        reading.set()
+        await release.wait()
+        task.plugin_read = True
+        return "synthetic feedback"
+
+    reader = SimpleNamespace(runtime=runtime, tool_call={"name": "pick_get_feedback"}, tool=None)
+    writer = SimpleNamespace(runtime=runtime, tool_call={"name": send_message.name}, tool=send_message)
+    writer_handler = AsyncMock(return_value="must not execute")
+
+    async def queued_writer():
+        writer_queued.set()
+        return await gate.awrap_tool_call(writer, writer_handler)
+
+    feedback = asyncio.create_task(gate.awrap_tool_call(reader, feedback_handler))
+    await reading.wait()
+    action = asyncio.create_task(queued_writer())
+    await writer_queued.wait()
+    release.set()
+    assert await feedback == "synthetic feedback"
+    with pytest.raises(ValueError, match="用户确认"):
+        await action
+    writer_handler.assert_not_called()
+    assert (task.plugin_calls, task.tool_calls) == (0, 1)
+    # Safe reads remain available after feedback, under the independent plugin budget.
+    read = SimpleNamespace(runtime=runtime, tool_call={"name": web_search.name}, tool=web_search)
+    assert await gate.awrap_tool_call(read, AsyncMock(return_value="safe read")) == "safe read"
+    assert task.plugin_calls == 1
