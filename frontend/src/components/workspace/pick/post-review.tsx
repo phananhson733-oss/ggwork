@@ -21,6 +21,7 @@ import {
 } from "@/core/pick/completion-types";
 import { replayHref } from "@/core/pick/links";
 
+import { warningText } from "./feedback-evidence";
 import { grains, lanes, money } from "./feedback-evidence";
 import { SourceResult } from "./my-selections";
 import { PostFollowUpQuery } from "./review-query";
@@ -205,7 +206,7 @@ export function OwnedPostReview({ ownerId }: { ownerId: string }) {
               {data.total === 0 && <p>当前范围没有可读取的发布记录。</p>}
               {data.warnings.map((warning, index) => (
                 <p key={index} className="text-warning-ink">
-                  {warning}
+                  {warningText(warning)}
                 </p>
               ))}
               <ul>

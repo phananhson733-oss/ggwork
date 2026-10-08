@@ -7,10 +7,10 @@ from ggwork_pick.feedback.repository import FeedbackRepository
 from ggwork_pick.feedback.sync import FeedbackSyncService
 
 
-async def published(service, source_rows=None, owner="alice"):
+async def published(service, source_rows=None, owner="alice", transform_version="feedback-v1"):
     repo = FeedbackRepository(service.session_factory, owner)
     run = await repo.claim("manual")
-    return await repo.publish(run["id"], snapshot_from_rows(source_rows or operating_rows()))
+    return await repo.publish(run["id"], snapshot_from_rows(source_rows or operating_rows(), transform_version=transform_version))
 
 
 @pytest.mark.asyncio
@@ -207,4 +207,231 @@ async def test_filters_pagination_invalid_dates_foreign_versions_and_missing_pos
     service.feedback.enabled = False
     audit = (await client.get("/api/pick/feedback/plan-links", headers=headers, params={"plan_id": plan["id"]})).json()
     assert audit["items"] == [{**receipt, "status": "needs_review"}]
+    assert (await client.post("/api/pick/feedback/plan-links", headers=headers, json=body)).json() == receipt
     assert (await client.post("/api/pick/feedback/plan-links", headers=headers, json={**body, "request_id": "disabled"})).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_concurrent_different_targets_have_one_attribution_and_source_contradictions_block(app_client):
+    import asyncio
+
+    from test_planning import editable
+
+    client, service = app_client
+    _, plan, body = await plan_and_version(client, service)
+    headers = {"test-owner": "alice"}
+    candidates = [body, {**body, "request_id": "racing-target", "row_id": plan["rows"][1]["row_id"]}]
+    responses = await asyncio.gather(*[client.post("/api/pick/feedback/plan-links", headers=headers, json=command) for command in candidates])
+    assert sorted(reply.status_code for reply in responses) == [200, 409]
+    assert len((await client.get("/api/pick/feedback/plan-links", headers=headers, params={"plan_id": plan["id"]})).json()["items"]) == 1
+    patch = {**editable(plan), "request_id": "channel-change", "expected_version": 1, "timezone_change": None}
+    patch["rows"][0]["channel"] = "youtube"
+    assert (await client.patch("/api/pick/plans/" + plan["id"], headers=headers, json=patch)).status_code == 200
+    conflict = await client.post(
+        "/api/pick/feedback/plan-links",
+        headers=headers,
+        json={**body, "request_id": "known-channel-conflict", "expected_plan_version": 2, "post_key": "tiktok:post-1"},
+    )
+    assert conflict.status_code == 409 and conflict.json()["detail"]["code"] == "link_conflict"
+
+
+@pytest.mark.asyncio
+async def test_known_v1_catalog_identity_blocks_other_row_and_binding_drift(app_client):
+    import json
+
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+
+    client, service = app_client
+    source, plan, body = await plan_and_version(client, service)
+    headers = {"test-owner": "alice"}
+    catalog = [
+        dict(
+            source="synthetic",
+            source_id=str(i),
+            title=f"Synthetic {i}",
+            language="en",
+            theater="Example",
+            posted={
+                "matched": True,
+                "records": ["SD-A" if i == 0 else "SD-OTHER"],
+                "accounts": [],
+                "post_count": 0,
+                "sched_count": 0,
+            },
+        )
+        for i in range(2)
+    ]
+    await Importer(PickRepository(service.session_factory, "alice"), service.data_dir).catalog(json.dumps(catalog).encode(), "json")
+    posts = (await client.get("/api/pick/feedback/posts", headers=headers)).json()
+    assert posts["items"][0]["identity"] == plan["rows"][0]["identity"]
+    wrong = await client.post(
+        "/api/pick/feedback/plan-links", headers=headers, json={**body, "request_id": "wrong-identity", "row_id": plan["rows"][1]["row_id"]}
+    )
+    assert wrong.status_code == 409 and wrong.json()["detail"]["code"] == "link_conflict"
+    receipt = (await client.post("/api/pick/feedback/plan-links", headers=headers, json=body)).json()
+    source["dramas"][0]["剧ID"] = "SD-OTHER"
+    await published(service, source)
+    current = (await client.get("/api/pick/feedback/posts", headers=headers)).json()
+    assert current["items"][0]["identity"] == plan["rows"][1]["identity"]
+    assert current["items"][0]["link"] == {**receipt, "status": "conflict"}
+    assert (await client.post("/api/pick/feedback/plan-links", headers=headers, json=body)).json() == receipt
+
+
+@pytest.mark.asyncio
+async def test_v2_ambiguous_master_never_preserves_a_confirmed_binding(app_client):
+    client, service = app_client
+    source, plan, body = await plan_and_version(client, service)
+    headers = {"test-owner": "alice"}
+    source["dramas"][0].update({"选剧台剧集ID": plan["rows"][0]["identity"], "选剧台对应状态": "已确认"})
+    initial = await published(service, source, transform_version="feedback-v2")
+    body["feedback_version_id"] = initial["id"]
+    receipt = (await client.post("/api/pick/feedback/plan-links", headers=headers, json=body)).json()
+    assert receipt["status"] == "confirmed"
+    source["dramas"].append({**source["dramas"][0], "record_id": "duplicate-master"})
+    await published(service, source, transform_version="feedback-v2")
+    reviewed = (await client.get("/api/pick/feedback/posts", headers=headers)).json()["items"][0]
+    assert reviewed["identity"] is None
+    assert reviewed["link"]["status"] != "confirmed"
+    assert (await client.post("/api/pick/feedback/plan-links", headers=headers, json=body)).json() == receipt
+
+
+@pytest.mark.asyncio
+async def test_multiple_release_order_and_metric_only_revision_preserve_link(app_client):
+    client, service = app_client
+    source, plan, body = await plan_and_version(client, service)
+    headers = {"test-owner": "alice"}
+    source["posts"].append({**source["posts"][0], "record_id": "additional-release"})
+    initial = await published(service, source)
+    body["feedback_version_id"] = initial["id"]
+    receipt = (await client.post("/api/pick/feedback/plan-links", headers=headers, json=body)).json()
+    source["posts"].reverse()
+    source["observations"][1]["播放量"] = 777
+    await published(service, source)
+    latest = (await client.get("/api/pick/feedback/posts", headers=headers)).json()["items"][0]
+    assert latest["views"] == 777 and latest["link"] == receipt
+    another = await client.post("/api/pick/feedback/plan-links", headers=headers, json={**body, "request_id": "another-post", "post_key": "tiktok:post-1"})
+    assert another.status_code == 200  # many posts may legitimately share a plan row
+    assert len((await client.get("/api/pick/feedback/plan-links", headers=headers, params={"plan_id": plan["id"]})).json()["items"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_declared_v2_identity_remains_negative_constraint_when_catalog_lacks_it(app_client):
+    import json
+
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+
+    client, service = app_client
+    source, plan, body = await plan_and_version(client, service)
+    headers = {"test-owner": "alice"}
+    source["dramas"][0].update({"选剧台剧集ID": plan["rows"][0]["identity"], "选剧台对应状态": "已确认"})
+    version = await published(service, source, transform_version="feedback-v2")
+    await Importer(PickRepository(service.session_factory, "alice"), service.data_dir).catalog(
+        json.dumps([{"source": "synthetic", "source_id": "1", "title": "Only B remains", "language": "en", "theater": "Example"}]).encode(), "json"
+    )
+    shown = (await client.get("/api/pick/feedback/posts", headers=headers)).json()["items"][0]
+    assert shown["identity"] is None
+    response = await client.post(
+        "/api/pick/feedback/plan-links", headers=headers, json={**body, "feedback_version_id": version["id"], "row_id": plan["rows"][1]["row_id"]}
+    )
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "link_conflict"
+
+
+@pytest.mark.asyncio
+async def test_review_query_whitespace_identifiers_are_bounded_validation_errors(app_client):
+    client, service = app_client
+    service.feedback = FeedbackSyncService(service.session_factory, owner_id="alice", enabled=True)
+    for field in ("account_id", "feedback_version_id"):
+        response = await client.get("/api/pick/feedback/posts", headers={"test-owner": "alice"}, params={field: "   "})
+        assert response.status_code == 422
+        assert response.json()["detail"]["code"] == "invalid_query"
+
+
+@pytest.mark.asyncio
+async def test_historical_feedback_remains_auditable_without_current_pointer(app_client):
+    from sqlalchemy import update
+
+    from ggwork_pick.models import feedback_scopes
+
+    client, service = app_client
+    _, _, body = await plan_and_version(client, service)
+    headers = {"test-owner": "alice"}
+    receipt = (await client.post("/api/pick/feedback/plan-links", headers=headers, json=body)).json()
+    # Arrange the schema's supported unavailable-current state in this disposable DB.
+    async with service.session_factory.begin() as session:
+        await session.execute(update(feedback_scopes).where(feedback_scopes.c.owner_id == "alice").values(current_version_id=None))
+    historical = await client.get("/api/pick/feedback/posts", headers=headers, params={"feedback_version_id": body["feedback_version_id"]})
+    assert historical.status_code == 200
+    assert historical.json()["items"][0]["link"] == {**receipt, "status": "needs_review"}
+    unavailable = (await client.get("/api/pick/feedback/posts", headers=headers)).json()
+    assert unavailable["status"] == "unavailable" and unavailable["total"] is None
+
+
+@pytest.mark.asyncio
+async def test_existing_language_alias_binding_can_be_manually_confirmed(app_client):
+    import json
+
+    from test_planning import draft_input
+
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+
+    client, service = app_client
+    service.feedback = FeedbackSyncService(service.session_factory, owner_id="alice", enabled=True)
+    version = await published(service)
+    body, _ = await draft_input(service, count=1)
+    repo = PickRepository(service.session_factory, "alice")
+    await Importer(repo, service.data_dir).catalog(
+        json.dumps(
+            [
+                dict(
+                    source="synthetic",
+                    source_id="alias",
+                    title="Alias",
+                    language="英语",
+                    theater="ReelShort",
+                    posted={"matched": True, "records": ["SD-A"], "post_count": 0},
+                )
+            ]
+        ).encode(),
+        "json",
+    )
+    card = await SelectionService(repo).query({}, thread_id="alias", run_id="alias", call_id="alias")
+    item = card["items"][0]
+    body["rows"][0].update(identity=item["identity"], source_result_id=card["id"], source_item_id=item["item_id"])
+    headers = {"test-owner": "alice"}
+    plan = (await client.post("/api/pick/plans", headers=headers, json=body)).json()
+    post = (await client.get("/api/pick/feedback/posts", headers=headers)).json()["items"][0]
+    assert post["identity"] == item["identity"]
+    response = await client.post(
+        "/api/pick/feedback/plan-links",
+        headers=headers,
+        json=dict(
+            request_id="alias",
+            plan_id=plan["id"],
+            row_id=plan["rows"][0]["row_id"],
+            expected_plan_version=1,
+            feedback_version_id=version["id"],
+            post_key=post["post_key"],
+            confirmation="manual",
+        ),
+    )
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.asyncio
+async def test_conflicting_publication_times_do_not_certify_observation_window(app_client):
+    client, service = app_client
+    service.feedback = FeedbackSyncService(service.session_factory, owner_id="alice", enabled=True)
+    source = operating_rows()
+    source["posts"][0]["实际发布时间"] = "2026-09-25T12:00:00+08:00"
+    source["posts"].append({**source["posts"][0], "record_id": "conflicting-release", "实际发布时间": "2026-10-05T12:00:00+08:00"})
+    source["observations"][1].update({"快照日期": "2026-10-07T12:00:00+08:00", "点赞": 10, "评论": 0})
+    await published(service, source)
+    reply = (await client.get("/api/pick/feedback/posts", headers={"test-owner": "alice"})).json()
+    post = next(item for item in reply["items"] if item["post_key"] == "tiktok:post-0")
+    assert post["observation_days"] is None and post["window_complete"] is False
+    assert post["published_at"] is None and post["views"] == 150 and post["comments"] == 0
+    assert "conflicting_publication_times" in reply["warnings"]

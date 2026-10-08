@@ -1,6 +1,10 @@
 """Minimal authenticated feedback status; never return raw manifests or finance records."""
 
+import asyncio
+
 from fastapi import HTTPException, Request
+from pydantic import ValidationError
+from sqlalchemy.exc import DBAPIError
 
 from ggwork_pick.feedback.contracts import TABLE_BY_ID
 
@@ -85,17 +89,20 @@ def register_feedback_routes(router, service, repository):
         offset: int = Query(0, ge=0),
         limit: int = Query(20, ge=1, le=50),
     ):
-        query = ReviewQuery(
-            feedback_version_id=feedback_version_id,
-            account_id=account_id,
-            channel=channel,
-            language=language,
-            published_from=published_from,
-            published_to=published_to,
-            offset=offset,
-            limit=limit,
-        )
         repo = repository(request)
+        try:
+            query = ReviewQuery(
+                feedback_version_id=feedback_version_id,
+                account_id=account_id,
+                channel=channel,
+                language=language,
+                published_from=published_from,
+                published_to=published_to,
+                offset=offset,
+                limit=limit,
+            )
+        except ValidationError:
+            raise HTTPException(422, CompletionError(code="invalid_query", message="复盘筛选条件无效", retryable=False).model_dump()) from None
         feedback = service.feedback
         if feedback is None or not feedback.enabled:
             return unavailable("disabled", "反馈来源未启用")
@@ -104,7 +111,12 @@ def register_feedback_routes(router, service, repository):
         except PermissionError:
             return unavailable("auth_required", "当前账号没有反馈来源读取权限")
         try:
-            return await ReviewService(repo).posts(query)
+            async with asyncio.timeout(10):
+                return await ReviewService(repo).posts(query)
+        except TimeoutError:
+            raise HTTPException(504, CompletionError(code="query_timeout", message="反馈读取超时，请重试", retryable=True).model_dump()) from None
+        except (DBAPIError, ValidationError):
+            raise HTTPException(503, CompletionError(code="source_unavailable", message="反馈记录暂不可读取", retryable=True).model_dump()) from None
         except LookupError:
             raise HTTPException(404, CompletionError(code="not_found", message="反馈版本不可用", retryable=False).model_dump()) from None
         except QueryFailure as exc:
@@ -115,7 +127,14 @@ def register_feedback_routes(router, service, repository):
 
     async def linked_answer(work):
         try:
-            return await work
+            async with asyncio.timeout(10):
+                return await work
+        except TimeoutError:
+            raise HTTPException(504, CompletionError(code="query_timeout", message="关联核对超时，请保留原操作重试", retryable=True).model_dump()) from None
+        except (DBAPIError, ValidationError):
+            raise HTTPException(
+                503, CompletionError(code="source_unavailable", message="关联依据暂不可读取，请保留原操作重试", retryable=True).model_dump()
+            ) from None
         except LookupError:
             raise HTTPException(404, CompletionError(code="not_found", message="计划或反馈记录不可用", retryable=False).model_dump()) from None
         except QueryFailure as exc:
@@ -126,10 +145,18 @@ def register_feedback_routes(router, service, repository):
 
     @router.post("/feedback/plan-links", response_model=PlanLink)
     async def create_plan_link(body: PlanLinkCommand, request: Request):
-        owner, feedback = allowed(request)
-        if feedback is None:
-            raise HTTPException(409, CompletionError(code="link_conflict", message="反馈来源未启用，无法确认关联", retryable=False).model_dump())
-        return await linked_answer(PlanLinkService(repository(request)).create(body))
+        links = PlanLinkService(repository(request))
+
+        async def operation():
+            previous = await links.retry(body)
+            if previous is not None:
+                return previous
+            _, feedback = allowed(request)
+            if feedback is None:
+                raise QueryFailure("link_conflict", "反馈来源未启用，无法确认关联")
+            return await links.create(body)
+
+        return await linked_answer(operation())
 
     @router.get("/feedback/plan-links", response_model=PlanLinkList)
     async def list_plan_links(plan_id: str, request: Request):
