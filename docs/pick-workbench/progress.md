@@ -841,3 +841,12 @@ PR [#31](https://github.com/phananhson733-oss/ggwork/pull/31) 已合并，生产
 - `pick-deploy-guard target=frontend commit=85c7cdb94684174c3c3ed8e80fe4dbea9986d00f at=2026-10-06T05:36:51Z`
 
 本段与 nullable mirror verifier 修复属于 QA/文档后续；未重新部署不同产品提交。完整用户目标未因这组 PASS 自动标记完成，采集停止状态及历史失败保持。
+
+## 2026-10-08 飞书确认映射发布
+
+PR #47 产品提交 `638f3ae18a44f2d9496234a689c380d9a95fc0b2` 已部署到gateway和正式前端，版本 `20261008-638f3ae`。v2完整读取包含16表，确认身份和收益归因采用同一不可变快照；v1历史及严格候选协议不变。本地双库完整回归4974 passed / 25 skipped，PR CI 4970 passed / 29 skipped，前端2999 passed / 45 skipped，原10/20投影基准通过。真实本机CLI双扫描、Agent分析、合成浏览器映射变更与历史冻结均通过；部署后核对165个业务源码文件、私有权限、健康及正式域名。
+
+- `pick-deploy-guard target=gateway commit=638f3ae18a44f2d9496234a689c380d9a95fc0b2 prod_head=0008 chain_head=0008 at=2026-10-08T09:04:15Z`
+- `pick-deploy-guard target=frontend commit=638f3ae18a44f2d9496234a689c380d9a95fc0b2 at=2026-10-08T09:04:18Z`
+
+初始映射仍待确认，生产反馈及调度仍关闭；已登录页面确认关闭状态，未触发生产反馈或模型请求。原有RealShort feed 503另行记录，不将该来源宣称为健康。现有采集器、停止标记及计划保持，迁移仍为0008；本次没有cron兼容镜像更新。详见[发布记录](releases/2026-10-08-feedback-identity-mapping.md)及[映射维护说明](feedback-identity-mapping.md)。
