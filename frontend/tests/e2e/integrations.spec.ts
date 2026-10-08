@@ -212,6 +212,41 @@ test.describe("Integrations settings", () => {
     ).toHaveCount(0);
   });
 
+  test("shows Lark as connected when the user token is valid locally", async ({
+    page,
+  }) => {
+    mockLangGraphAPI(page);
+
+    const configuredStatus = configuredLarkStatus();
+    await page.route("**/api/integrations/lark/status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...configuredStatus,
+          auth: {
+            status: "authenticated",
+            message:
+              "Lark/Feishu user token is valid locally (not live-verified).",
+            user: "existing-user",
+            verified: false,
+          },
+        }),
+      });
+    });
+
+    await page.goto("/workspace/capabilities?tab=plugins&plugin=lark");
+    const dialog = page.getByRole("dialog", { name: "Lark / Feishu" });
+
+    await expect(dialog.getByText("Lark is connected")).toBeVisible();
+    await expect(dialog.getByText("Pending")).toHaveCount(0);
+    await expect(dialog.getByText("not live-verified")).toHaveCount(0);
+    await expect(
+      dialog.getByRole("button", { name: "Calendar" }),
+    ).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Events" })).toHaveCount(0);
+  });
+
   test("closes the plugin dialog before opening general settings", async ({
     page,
   }) => {

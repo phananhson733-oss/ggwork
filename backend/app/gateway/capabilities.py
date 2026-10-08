@@ -210,7 +210,8 @@ class LarkAdapter:
                 installed=status.installed,
                 version=status.manifest_version,
                 scope="user",
-                auth_status="connected" if status.auth.status == "authenticated" and status.auth.verified else "configured" if status.auth.status == "authenticated" else "required",
+                # "authenticated" means the user's token is locally valid or refreshable.
+                auth_status="connected" if status.auth.status == "authenticated" else "required",
                 health="unknown",
             )
         ]

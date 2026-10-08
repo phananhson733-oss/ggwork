@@ -60,7 +60,6 @@ type LarkAuthDomain =
   | "contact"
   | "docs"
   | "drive"
-  | "event"
   | "im"
   | "mail"
   | "markdown"
@@ -96,7 +95,6 @@ const LARK_AUTH_DOMAINS: LarkAuthDomain[] = [
   "approval",
   "attendance",
   "okr",
-  "event",
   "apps",
   "all",
 ];
@@ -177,8 +175,10 @@ function LarkIntegrationCard() {
     isCheckingConnection ||
     pendingFlow != null ||
     install.isPending;
-  const credentialsConfigured = data?.auth.status === "authenticated";
-  const isConnected = credentialsConfigured && data?.auth.verified === true;
+  // The Gateway reports "authenticated" only while the user's token is locally
+  // valid or refreshable, so that alone means connected; a live check is extra.
+  const isConnected = data?.auth.status === "authenticated";
+  const isLiveVerified = isConnected && data?.auth.verified === true;
   // The sandbox-runtime readiness row only applies when the sandbox actually
   // runs lark-cli (AIO / provisioner modes report a non-"none" mode).
   const showSandboxRuntime = !!data && data.sandbox_runtime_mode !== "none";
@@ -634,9 +634,9 @@ function LarkIntegrationCard() {
     ? t.settings.integrations.lark.checkingConnection
     : connectBusy
       ? t.settings.integrations.lark.authStarting
-      : credentialsConfigured && hasAdditionalPermissionRequest
+      : isConnected && hasAdditionalPermissionRequest
         ? t.settings.integrations.lark.requestPermissions
-        : credentialsConfigured
+        : isConnected
           ? t.settings.integrations.lark.connectedAction
           : t.settings.integrations.lark.connect;
 
@@ -720,14 +720,8 @@ function LarkIntegrationCard() {
                 label={t.settings.integrations.lark.auth}
                 ok={isConnected}
                 value={
-                  data.auth.status === "authenticated"
-                    ? data.auth.verified
-                      ? (data.auth.user ?? t.settings.integrations.connected)
-                      : data.auth.user
-                        ? t.settings.integrations.lark.authConfiguredFor(
-                            data.auth.user,
-                          )
-                        : t.settings.integrations.lark.authConfigured
+                  isConnected
+                    ? (data.auth.user ?? t.settings.integrations.connected)
                     : t.settings.integrations.lark.authNotConfigured
                 }
               />
@@ -776,8 +770,8 @@ function LarkIntegrationCard() {
             <IntegrationNextStep
               installed={data.installed}
               cliReady={data.cli.available}
+              liveVerified={isLiveVerified}
               connected={isConnected}
-              credentialsConfigured={credentialsConfigured}
             />
             {data.installed && data.cli.available && (
               <div className="rounded-lg border p-3">
@@ -1076,13 +1070,13 @@ function StatusItem({
 function IntegrationNextStep({
   installed,
   cliReady,
+  liveVerified,
   connected,
-  credentialsConfigured,
 }: {
   installed: boolean;
   cliReady: boolean;
+  liveVerified: boolean;
   connected: boolean;
-  credentialsConfigured: boolean;
 }) {
   const { t } = useI18n();
   if (!installed) {
@@ -1105,7 +1099,7 @@ function IntegrationNextStep({
       </Alert>
     );
   }
-  if (connected) {
+  if (liveVerified) {
     return (
       <Alert>
         <CheckCircle2Icon />
@@ -1116,7 +1110,7 @@ function IntegrationNextStep({
       </Alert>
     );
   }
-  if (credentialsConfigured) {
+  if (connected) {
     return (
       <Alert>
         <CheckCircle2Icon />

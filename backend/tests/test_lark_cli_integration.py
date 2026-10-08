@@ -2111,6 +2111,103 @@ def test_lark_cli_env_from_runtime_ignores_non_lark_commands(tmp_path, monkeypat
     assert _lark_cli_env_from_runtime(runtime, "echo hello", sandbox_paths=False) is None
 
 
+def _probe_auth_status(monkeypatch, tmp_path, user_identity: dict, *, verify: bool = False) -> lark_cli.LarkAuthProbe:
+    """Run probe_lark_auth against lark-cli 1.0.96 ``auth status --json`` output.
+
+    ``auth status`` exits 0 whenever the app config loads; the user's state lives
+    only in ``identities.user``.
+    """
+    _patch_paths(monkeypatch, tmp_path / "home")
+    monkeypatch.setattr(lark_cli, "_resolve_lark_cli_path", lambda: "/usr/bin/lark-cli")
+    monkeypatch.setattr(lark_cli, "read_lark_app_config", lambda _user_id: {"configured": True, "app_id": "cli_app", "brand": "feishu"})
+    monkeypatch.setattr(lark_cli, "lark_cli_env", lambda _user_id: {})
+    stdout = json.dumps(
+        {
+            "appId": "cli_app",
+            "brand": "feishu",
+            "identities": {"bot": {"status": "ready", "available": True}, "user": user_identity},
+            "identity": "user" if user_identity.get("available") else "bot",
+        }
+    )
+    monkeypatch.setattr(
+        lark_cli.subprocess,
+        "run",
+        lambda args, **_kwargs: subprocess.CompletedProcess(args=args, returncode=0, stdout=stdout, stderr=""),
+    )
+    return lark_cli.probe_lark_auth("alice", verify=verify)
+
+
+def test_lark_auth_probe_treats_locally_valid_user_token_as_authenticated(monkeypatch, tmp_path) -> None:
+    probe = _probe_auth_status(
+        monkeypatch,
+        tmp_path,
+        {"status": "ready", "available": True, "userName": "Alice", "tokenStatus": "valid"},
+    )
+
+    assert probe.status == "authenticated"
+    assert probe.user == "Alice"
+    assert probe.verified is False
+
+
+def test_lark_auth_probe_treats_refreshable_user_token_as_authenticated(monkeypatch, tmp_path) -> None:
+    probe = _probe_auth_status(
+        monkeypatch,
+        tmp_path,
+        {"status": "needs_refresh", "available": True, "userName": "Alice", "tokenStatus": "needs_refresh"},
+    )
+
+    assert probe.status == "authenticated"
+    assert "refresh" in (probe.message or "")
+
+
+def test_lark_auth_probe_reports_missing_user_token_even_when_cli_exits_zero(monkeypatch, tmp_path) -> None:
+    probe = _probe_auth_status(
+        monkeypatch,
+        tmp_path,
+        {"status": "missing", "available": False, "message": "User identity: missing (refresh token expired)"},
+    )
+
+    assert probe.status == "not_authorized"
+    assert probe.message == "User identity: missing (refresh token expired)"
+
+
+def test_lark_auth_probe_reports_failed_live_verification(monkeypatch, tmp_path) -> None:
+    probe = _probe_auth_status(
+        monkeypatch,
+        tmp_path,
+        {"status": "verify_failed", "available": False, "verified": False, "message": "User identity: verify failed: token revoked"},
+        verify=True,
+    )
+
+    assert probe.status == "not_authorized"
+    assert probe.verified is False
+    assert "verify failed" in (probe.message or "")
+
+
+def test_lark_auth_probe_never_reports_live_verified_when_cli_says_unverified(monkeypatch, tmp_path) -> None:
+    probe = _probe_auth_status(
+        monkeypatch,
+        tmp_path,
+        {"status": "ready", "available": True, "verified": False, "message": "User identity: verify failed: timeout"},
+        verify=True,
+    )
+
+    assert probe.status == "not_authorized"
+    assert probe.verified is False
+
+
+def test_lark_auth_probe_reports_successful_live_verification(monkeypatch, tmp_path) -> None:
+    probe = _probe_auth_status(
+        monkeypatch,
+        tmp_path,
+        {"status": "ready", "available": True, "verified": True, "userName": "Alice", "tokenStatus": "valid"},
+        verify=True,
+    )
+
+    assert probe.status == "authenticated"
+    assert probe.verified is True
+
+
 def test_lark_auth_probe_distinguishes_local_configuration_from_live_verification(monkeypatch, tmp_path) -> None:
     assert "verified" in lark_cli.LarkAuthProbe.__dataclass_fields__
     _patch_paths(monkeypatch, tmp_path / "home")

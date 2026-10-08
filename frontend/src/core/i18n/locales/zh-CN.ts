@@ -1445,8 +1445,6 @@ export const zhCN: Translations = {
         runtimeVersionMismatch:
           "技能包版本与 Gateway 运行时 lark-cli 不一致；管理员重新安装会尝试更新 managed Gateway CLI 并重新对齐技能包",
         authNotConfigured: "尚未连接",
-        authConfigured: "凭证已配置（未实时验证）",
-        authConfiguredFor: (user) => `${user} · 凭证已配置（未实时验证）`,
         connect: "连接飞书",
         authStarting: "正在打开连接链接...",
         checkingConnection: "正在检查连接状态...",
@@ -1554,10 +1552,6 @@ export const zhCN: Translations = {
             label: "OKR",
             description: "目标、关键结果、对齐、指标与进展。",
           },
-          event: {
-            label: "实时事件",
-            description: "订阅并消费平台实时事件。",
-          },
           apps: {
             label: "妙搭应用",
             description: "创建 Spark/妙搭应用、发布站点并管理可见范围。",
@@ -1597,9 +1591,9 @@ export const zhCN: Translations = {
         cliNextTitle: "需要安装 Gateway CLI",
         cliNextDescription:
           "技能包已安装，但 Gateway 找不到 lark-cli。管理员重新安装集成会尝试下载 managed Gateway CLI；离线部署可使用内置 @larksuite/cli 的镜像。",
-        configuredTitle: "飞书凭证已在本地配置",
+        configuredTitle: "飞书已连接",
         configuredDescription:
-          "当前只确认本地存在凭证，尚未向飞书实时验证有效性。重新连接可刷新并实时验证授权。",
+          "本地授权有效，可以直接使用飞书功能；凭证会在使用时自动续期。需要追加权限时，在下方勾选业务域后重新连接。",
         connectedTitle: "飞书授权已实时验证",
         connectedDescription:
           "本次连接流程已向飞书验证当前用户授权。需要刷新授权或追加权限时，可重新连接。",
