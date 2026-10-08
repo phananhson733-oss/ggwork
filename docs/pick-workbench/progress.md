@@ -1,3 +1,5 @@
+> 项目统一命名为 **ggwork-deerflow**，业务仓库为 `phananhson733-oss/ggwork-deerflow`。本地目录、旧版项目和部署方式见[项目对应关系](../project-identity.md)。以下发布记录中的旧 GitHub 地址、remote 短名和提交标识保留为历史证据。
+
 # 当前发布状态（PR #44 运营反馈代码发布）
 
 [PR #44](https://github.com/phananhson733-oss/ggwork/pull/44) 已合并并部署，产品提交 `3b55cefed66cf8436a69e74d09f6600c45ad26d7`；前端构建版本 `20261007-3b55cef`。最终 PR CI 成功，合并代码树与通过检查的 PR HEAD 相同。

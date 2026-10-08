@@ -23,7 +23,7 @@ backend/.venv/bin/python scripts/pick-deploy-guard.py frontend [--out 新目录]
 
 | 选项 | 含义 |
 |---|---|
-| `--remote` | 部署来源的远端，默认 `ggwork`。本仓库的 `origin` 是上游 DeerFlow，ggwork 的 main 在 `ggwork/main`；在一个 origin 就是 ggwork 的克隆里，写 `--remote origin`。不管叫什么名字，它的 URL 都必须指向共享仓库 `phananhson733-oss/ggwork`，指向 fork 或别的仓库会被拒绝 |
+| `--remote` | 部署来源的远端，默认 `ggwork`。本仓库的 `origin` 是上游 DeerFlow，ggwork 的 main 在 `ggwork/main`；在一个 origin 就是 ggwork 的克隆里，写 `--remote origin`。不管叫什么名字，它的 URL 都必须指向共享仓库 `phananhson733-oss/ggwork-deerflow`，指向 fork 或别的仓库会被拒绝 |
 | `--repo` | 要核对的检出，默认脚本所在的检出。用子目录也行，守卫会找到检出根目录 |
 | `--first-record` | 只在 progress.md 里还没有这个目标的守卫记录时用（第一次经守卫部署它）。已有记录时带它会被拒绝，所以不能用它绕过祖先检查 |
 | `--out`（只有 frontend） | 导出到这个目录。它须不存在，守卫新建它，权限 700。不写时在系统临时目录里新建 `pick-frontend-<提交前 12 位>-*` |
@@ -39,7 +39,7 @@ backend/.venv/bin/python scripts/pick-deploy-guard.py frontend [--out 新目录]
 | 1 | 远端名合法（字母、数字、点、下划线、连字符，不以连字符开头） | 全部 | 拒绝 |
 | 2 | 工作区干净：`git status --porcelain` 为空（含未跟踪文件） | 全部 | 拒绝，列出前 10 项 |
 | 3 | 检出里没有未跟踪的 `.env*`，**gitignore 的也算**；`node_modules/`、`.venv/` 下依赖自带的不算 | 全部 | 拒绝，列出文件名（不读内容） |
-| 4 | 远端的 URL 指向共享仓库 `phananhson733-oss/ggwork`（`git remote get-url`，只比较路径最后两段，不分大小写，去掉 `.git`；URL 可能带 token，一律不打印） | 全部 | 拒绝，不 fetch |
+| 4 | 远端的 URL 指向共享仓库 `phananhson733-oss/ggwork-deerflow`（`git remote get-url`，只比较路径最后两段，不分大小写，去掉 `.git`；URL 可能带 token，一律不打印） | 全部 | 拒绝，不 fetch |
 | 5 | `git fetch <远端> main`，HEAD 必须等于刚取回的 `<远端>/main` | 全部 | 拒绝；fetch 失败算出错 |
 | 6 | progress.md 里这个目标最近一条守卫记录的提交，必须是 HEAD 或 HEAD 的祖先 | 全部 | 拒绝 |
 | 7 | 本检出的迁移链：托管副本与源码两条链逐项相同，且各自是一条不分叉的链 | gateway、cron | 拒绝 |

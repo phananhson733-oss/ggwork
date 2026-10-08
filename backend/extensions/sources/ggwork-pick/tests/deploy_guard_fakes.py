@@ -35,7 +35,7 @@ PASSWORD = "S3cr3t-Pw0rd"
 HOST = "db.secret-host.invalid"
 SECRET_DSN = f"postgresql+asyncpg://pick_observer.projref:{PASSWORD}@{HOST}:5432/postgres"
 TOKEN = "ghp_T0kenThatMustNotShow"
-SHARED_URL = "https://github.com/phananhson733-oss/ggwork.git"
+SHARED_URL = "https://github.com/phananhson733-oss/ggwork-deerflow.git"
 NOW = datetime(2026, 9, 26, 20, 45, 12, tzinfo=UTC)
 MODULE_NAME = "pick_deploy_guard"
 

@@ -1,5 +1,14 @@
 # AGENTS.md
 
+## GGWork project identity
+
+- Canonical project: **ggwork-deerflow**. Business repository: `https://github.com/phananhson733-oss/ggwork-deerflow`.
+- Primary local checkout: `/Users/wzb/Code/ggwork-deerflow`; worktrees belong under `/Users/wzb/Code/ggwork-deerflow-wt/`. The primary checkout may be on an older feature branch; fetch business `main` and use an isolated worktree for new changes.
+- In the shared local repository, remote `ggwork` points to the business repository; `origin` remains `bytedance/deer-flow`. Preserve these remote short names for existing branches and commands.
+- `/Users/wzb/Code/ggwork` and `phananhson733-oss/pick-workbench` are the legacy standalone implementation, not this website's source. Do not make website changes there.
+- Vercel project: `ggwork-deerflow`, root directory `frontend`, website `https://ggwork-deerflow.vercel.app`. Railway project: `ggwork-deerflow`. Both currently use CLI deployments; a GitHub push alone is not a production release.
+- See [project identity and migration](docs/project-identity.md) for the complete mapping and rename boundary.
+
 This file provides guidance to AI coding agents (Claude Code, Codex, and others) when working with code in this repository. It is the source of truth; the sibling `CLAUDE.md` imports it via `@AGENTS.md`.
 
 It is the **monorepo orientation layer**: it maps the whole repo and points to the

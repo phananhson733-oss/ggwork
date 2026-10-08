@@ -2,7 +2,7 @@
 
 test_deploy_guard.py pins the rules with fakes; here GitRepo and read_prod_state, the two adapters those fakes stand in
 for, answer the same questions from a throwaway repository pushed to a local bare remote laid out like the shared one
-(.../phananhson733-oss/ggwork.git), and from the PICK_TEST_PG_URL cluster. Nothing leaves the machine: the remotes are
+(.../phananhson733-oss/ggwork-deerflow.git), and from the PICK_TEST_PG_URL cluster. Nothing leaves the machine: the remotes are
 directories, and the one connection that fails goes to 127.0.0.1 port 1. Git runs without the user's configuration (no
 signing, no hooks, no credential helpers). The cluster has no TLS, so these runs allow PGSSLMODE=disable through main();
 the command line cannot.
@@ -76,7 +76,7 @@ def bare(tmp_path, owner: str, name: str):
 @pytest.fixture
 def checkout(tmp_path, git_env):
     """A clean clone whose HEAD is the main of its "ggwork" remote, a bare repository next to it."""
-    origin = bare(tmp_path, "phananhson733-oss", "ggwork")
+    origin = bare(tmp_path, "phananhson733-oss", "ggwork-deerflow")
     work = make_root(tmp_path)
     (work / "frontend").mkdir()
     (work / "frontend" / "package.json").write_text('{"name": "frontend"}\n')
@@ -121,7 +121,7 @@ def test_dirty_and_env_files_refused(guard, checkout, tmp_path):
 
 
 def test_behind_the_fetched_main_refused(guard, checkout, tmp_path):
-    other, origin = tmp_path / "other", tmp_path / "phananhson733-oss" / "ggwork.git"
+    other, origin = tmp_path / "other", tmp_path / "phananhson733-oss" / "ggwork-deerflow.git"
     git(tmp_path, "clone", "--quiet", "--origin", "ggwork", str(origin), str(other))
     (other / "NEWS").write_text("moved on\n")
     commit_all(other, "moved on")
@@ -137,7 +137,7 @@ def test_a_fork_remote_is_refused_before_it_is_fetched(guard, checkout, tmp_path
     git(checkout, "remote", "add", "fork", str(fork))
     git(checkout, "push", "--quiet", str(fork), "main")  # by path: no remote-tracking ref yet
     code, out, err = run_guard(["gateway", "--first-record", "--remote", "fork"], guard.GitRepo.open(checkout), env=dsn_environment(tmp_path))
-    assert code == 2 and out == "" and "phananhson733-oss/ggwork" in err and str(fork) not in err
+    assert code == 2 and out == "" and "phananhson733-oss/ggwork-deerflow" in err and str(fork) not in err
     assert subprocess.run(["git", "-C", str(checkout), "rev-parse", "--verify", "--quiet", "refs/remotes/fork/main"]).returncode != 0
 
 
