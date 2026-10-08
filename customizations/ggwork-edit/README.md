@@ -40,3 +40,17 @@ Tests: from repository root, select this checkout's package and extension API on
 HTTP tests use synthetic media metadata and temporary SQLite. Native decoding,
 transcription, model quality, relay transport, signing and distribution must be
 verified by their own integration work.
+
+History is paginated with `limit` (1–100) and `offset`; responses include `total`
+and `next_offset`, so older tasks remain reachable. Reads do not take the owner
+mutation lock. Source-conversation links are accepted only from the authenticated
+runtime's separately supplied thread identity; browser-supplied arbitrary links
+are refused.
+
+Set `EDIT_TEST_PG_URL` only to a disposable PostgreSQL cluster to run the same
+suite on PostgreSQL as well as SQLite. The fixture creates and drops isolated test
+databases. `test_gateway_auth.py` mounts the real host Gateway middleware and the
+real editing authenticator, exercising session/CSRF pairing and constrained token
+use without injecting a synthetic principal. Include this checkout's `backend`,
+`backend/packages/harness`, and `backend/packages/extension-api` on `PYTHONPATH`
+when using another checkout's Python environment.
