@@ -55,7 +55,8 @@ unknown naming/order, and symlinks are refused. Explicit selected manifests reta
 all selected files; missing entries are not silently skipped.
 
 `doctor` verifies platform, executable availability, actual model loading and a
-real encoder probe. English-only models require language `en`; `auto` or another
+real encoder probe. Loaded whisper model metadata must confirm multilingual
+capability; merely labeling English-only weights as multilingual fails readiness. English-only models require language `en`; `auto` or another
 language requires multilingual weights. Original audio is required. Only `hook`
 and `highlight` profiles execute. Narration, TTS, visual-only montage and editor
 project export are unsupported. Rendering uses padded 720×1280, 1280×720 or

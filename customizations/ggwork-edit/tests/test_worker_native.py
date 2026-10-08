@@ -280,3 +280,34 @@ async def test_planner_rejection_reports_failure_instead_of_replanning_forever(t
         await WorkerSession(store, http).execute(task)
     assert failures == ["gateway_request_rejected"]
     assert store.journal() == {}
+
+
+@pytest.mark.asyncio
+async def test_transcription_never_overwrites_preexisting_symlink_targets(tmp_path):
+    store = configured(tmp_path)
+    worker = NativeWorker(store)
+    manifest = await worker.verify_manifest(await worker.discover("drama", "."))
+    outside = tmp_path / "precious-source.wav"
+    outside.write_bytes(b"must remain unchanged")
+    work = store.workspace("resumed-attempt")
+    (work / "media-1.wav").symlink_to(outside)
+    (work / "media-1-asr.json").symlink_to(outside)
+    await worker.transcribe(manifest, "en", "resumed-attempt")
+    assert outside.read_bytes() == b"must remain unchanged"
+
+
+@pytest.mark.asyncio
+async def test_real_english_model_cannot_claim_multilingual_readiness(tmp_path):
+    from ggwork_edit.worker.native import doctor
+    from ggwork_edit.worker.storage import private_json
+
+    store = configured(tmp_path)
+    config = store.config()
+    config["model_language"] = "multilingual"
+    private_json(store.home / "config.json", config)
+    report = await doctor(store)
+    assert not report["ready"] and "model_language_mismatch" in report["reasons"]
+    worker = NativeWorker(store)
+    manifest = await worker.verify_manifest(await worker.discover("drama", "."))
+    with pytest.raises(WorkerError, match="model_language_mismatch"):
+        await worker.transcribe(manifest, "fr", "wrong-model-attempt")

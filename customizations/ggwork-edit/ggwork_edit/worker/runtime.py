@@ -32,7 +32,7 @@ class WorkerSession:
         self.preparation_cache = {}
 
     async def request(self, method, path, **kwargs):
-        response = await self.http.request(method, self.base + path, **kwargs)
+        response = await self.http.request(method, self.base + path, follow_redirects=False, **kwargs)
         if response.status_code in (401, 403):
             self.authorization_lost = True
             self.stop.set()
@@ -46,9 +46,14 @@ class WorkerSession:
     async def claim(self):
         if self.state.get("task_id"):
             task = await self.request("GET", "/tasks/" + self.state["task_id"])
-            if task["attempt"]["id"] != self.state["attempt"]["id"]:
-                raise WorkerError("attempt_identity_changed")
-            return task
+            current_attempt = task.get("attempt")
+            if task["status"] == "queued" or current_attempt is None or current_attempt["id"] != self.state["attempt"]["id"]:
+                # Owner retry/supersession is authoritative. A lost terminal ACK
+                # must not cause replay against a newly queued or different attempt.
+                self.state = {}
+                self.save()
+            else:
+                return task
         if "claim_request_id" not in self.state:
             self.state = {"claim_request_id": uuid4().hex}
             self.save()

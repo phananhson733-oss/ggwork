@@ -78,6 +78,28 @@ class ProcessRunner:
             pass
 
 
+async def inspect_model(store, runner):
+    """Read actual loaded model metadata; a CLI label is not capability evidence."""
+    config = store.config()
+    with tempfile.TemporaryDirectory(prefix=".model-probe-", dir=store.home) as directory:
+        wav = Path(directory) / "probe.wav"
+        prefix = Path(directory) / "metadata"
+        with wave.open(str(wav), "wb") as stream:
+            stream.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+            stream.writeframes(b"\0" * 32000)
+        await runner.run(["whisper-cli", "-m", config["model"], "-f", wav, "-l", "en", "-ojf", "-of", prefix])
+        try:
+            metadata = json.loads(prefix.with_suffix(".json").read_text(encoding="utf-8"))
+            multilingual = metadata["model"]["multilingual"]
+            if not isinstance(multilingual, bool):
+                raise ValueError("invalid model metadata")
+        except (KeyError, ValueError, OSError) as error:
+            raise WorkerError("model_metadata_invalid") from error
+        if config["model_language"] == "multilingual" and not multilingual:
+            raise WorkerError("model_language_mismatch")
+        return multilingual
+
+
 async def doctor(store):
     config = store.config()
     reasons = []
@@ -108,15 +130,12 @@ async def doctor(store):
         reasons.append("output_directory_unavailable")
     if not reasons:
         try:
-            with tempfile.TemporaryDirectory(dir=store.home) as directory:
-                wav = Path(directory) / "probe.wav"
-                with wave.open(str(wav), "wb") as stream:
-                    stream.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
-                    stream.writeframes(b"\0" * 32000)
-                runner = ProcessRunner(lock_fd=store.lock_fd)
-                await runner.run(["whisper-cli", "-m", model, "-f", wav, "-l", "en", "-nt"])
-                await runner.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=size=64x64:duration=0.1", "-c:v", "libx264", "-f", "null", "-"])
-        except (WorkerError, OSError):
+            runner = ProcessRunner(lock_fd=store.lock_fd)
+            await inspect_model(store, runner)
+            await runner.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=size=64x64:duration=0.1", "-c:v", "libx264", "-f", "null", "-"])
+        except WorkerError as error:
+            reasons.append(str(error))
+        except OSError:
             reasons.append("native_toolchain_unusable")
     return {
         "platform": "darwin-arm64" if supported else "unsupported",
@@ -132,6 +151,7 @@ class NativeWorker:
         self.store = store
         self.runner = ProcessRunner(stop, store.lock_fd)
         self._proofs = {}
+        self._model_proof = None
 
     async def probe(self, path):
         raw = await self.runner.run(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", path])
@@ -218,20 +238,26 @@ class NativeWorker:
         cache.mkdir(mode=0o700, exist_ok=True)
         work = self.store.workspace(attempt_id)
         executable_hash = await asyncio.to_thread(digest, shutil.which("whisper-cli"))
+        model_proof = (config["model_sha256"], executable_hash, config["model_language"])
+        if self._model_proof != model_proof:
+            await inspect_model(self.store, self.runner)
+            self._model_proof = model_proof
         transcripts = []
         for source in manifest["files"]:
             key = hashlib.sha256(
-                json.dumps([source["sha256"], config["model_sha256"], executable_hash, language, "whisper-cpp-json-v1-16khz"]).encode()
+                json.dumps([source["sha256"], config["model_sha256"], executable_hash, language, "whisper-cpp-json-v2-16khz"]).encode()
             ).hexdigest()
             cached = no_symlink(cache / (key + ".json"))
             if cached.exists():
                 segments = json.loads(cached.read_text(encoding="utf-8"))
             else:
                 path = self.store.source(manifest["grant_id"], source["relative_path"])
-                wav = work / (identifier(source["media_id"]) + ".wav")
-                prefix = work / (identifier(source["media_id"]) + "-asr")
-                await self.runner.run(["ffmpeg", "-v", "error", "-y", "-i", path, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav])
-                try:
+                # Each invocation owns fresh private scratch paths. Resumed workspace
+                # entries (including symlinks) are never reused as native destinations.
+                with tempfile.TemporaryDirectory(prefix=".asr-", dir=work) as scratch:
+                    wav = Path(scratch) / "audio.wav"
+                    prefix = Path(scratch) / "transcript"
+                    await self.runner.run(["ffmpeg", "-v", "error", "-n", "-i", path, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav])
                     await self.runner.run(["whisper-cli", "-m", config["model"], "-f", wav, "-l", language, "-ojf", "-of", prefix])
                     raw = json.loads(Path(str(prefix) + ".json").read_text(encoding="utf-8"))
                     segments = [
@@ -244,8 +270,6 @@ class NativeWorker:
                         raise WorkerError("transcript_timestamp_invalid")
                     await self.check_identity(manifest)
                     private_json(cached, segments)
-                finally:
-                    wav.unlink(missing_ok=True)
             transcripts.append({"media_id": source["media_id"], "segments": segments})
         return transcripts
 
@@ -290,7 +314,7 @@ class NativeWorker:
         final = confined(work, identifier(output_id) + ".mp4")
         if final.exists():
             raise WorkerError("output_exists")
-        partial = work / (identifier(output_id) + ".partial.mp4")
+        partial = no_symlink(work / (identifier(output_id) + ".partial.mp4"))
         if partial.exists():
             partial.unlink()  # Unpublished crash residue, never a delivered output.
         output = next(o for o in plan["outputs"] if o["output_id"] == output_id)
@@ -358,7 +382,7 @@ class NativeWorker:
             # Exclusive link publishes atomically without replacing any completed bytes.
             os.link(partial, final)
             os.chmod(final, 0o400)
-            indexes = self.store.home / "artifacts"
+            indexes = no_symlink(self.store.home / "artifacts")
             indexes.mkdir(mode=0o700, exist_ok=True)
             index = indexes / (artifact_id + ".json")
             if index.exists():

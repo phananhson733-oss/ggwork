@@ -80,3 +80,41 @@ async def test_restart_renews_lease_before_replaying_uncertain_output_receipt(tm
     assert [e["kind"] for e in events] == ["heartbeat", "complete"]
     assert events[1] == pending
     assert store.journal() == {}
+
+
+@pytest.mark.asyncio
+async def test_owner_retry_after_lost_terminal_response_gets_fresh_claim(tmp_path):
+    store = WorkerStore(tmp_path / "state")
+    store.setup(
+        gateway="https://example.test",
+        device_id="device-1",
+        token="test",
+        output_root=tmp_path / "output",
+        model=tmp_path / "model",
+        model_sha256="a" * 64,
+        model_language="en",
+    )
+    old = {"id": "old-attempt", "fence": 1, "output_ids": ["out-1"]}
+    new = {"id": "new-attempt", "fence": 2, "output_ids": ["out-1"]}
+    store.save_journal(
+        {
+            "claim_request_id": "old-claim",
+            "task_id": "task-1",
+            "attempt": old,
+            "pending_report": {"attempt_id": "old-attempt", "fence": 1, "event_id": "lost-terminal", "kind": "stopped"},
+        }
+    )
+    claims = []
+
+    async def gateway(request):
+        if request.method == "GET":
+            return httpx.Response(200, json={"id": "task-1", "status": "queued", "attempt": old})
+        assert request.url.path.endswith("/claim"), "obsolete attempt must never report"
+        claims.append(json.loads(request.content)["request_id"])
+        return httpx.Response(200, json={"task": {"id": "task-1", "status": "running", "attempt": new}, "attempt": new})
+
+    async with httpx.AsyncClient(base_url="https://example.test", transport=httpx.MockTransport(gateway)) as http:
+        task = await WorkerSession(store, http).claim()
+    assert task["attempt"]["id"] == "new-attempt"
+    assert len(claims) == 1 and claims[0] != "old-claim"
+    assert "pending_report" not in store.journal()

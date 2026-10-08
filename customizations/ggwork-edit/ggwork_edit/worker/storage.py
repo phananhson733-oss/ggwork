@@ -24,7 +24,7 @@ def digest(path):
 
 
 def private_json(path, value):
-    path = Path(path)
+    path = no_symlink(path)
     fd, temporary = tempfile.mkstemp(prefix=".write-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
