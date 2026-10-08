@@ -1,5 +1,81 @@
 # Completion package candidate — 2026-10-08
 
+## Final reviewed refresh and legacy-detail repair
+
+The final source includes reviewed fix `5519fdb7ce2aa11b28a8d9f1213357371520d285`.
+The official manager refreshed the independent final-package worktree; source,
+managed snapshot and physical noneditable installed package now share digest:
+
+`sha256:cd6ad51fd738ce52833ed94418e351bf951f0a2a68752fca5a4b678db1dc8f72`
+
+All478 tracked source-package files equal the managed snapshot, and all192
+runtime paths and per-file hashes match across the three layers. The additional
+runtime file relative to the earlier191-file package is `query_facts.py`.
+Package version remains0.3.0; backend dependency declarations and lock bytes are
+unchanged. The complete782-file host/API/app hash ledger and frontend tree are
+unchanged from reviewed source `60fb648261f45d57ae8fed257cb347d1f2a3df2f`.
+Private migration ancestry remains0001–0011, with installed initialization at0011.
+
+The full source run exposed a legacy-detail regression introduced by the
+optional historical-source supplement: deleting an old result's import-batch
+row caused the detail tool to replace otherwise readable frozen content with
+an error. The approved repair preserves the authorized frozen item and null
+provenance, adds an explicit historical-source-unavailable notice, and omits
+unsupported source facts. It does not replace the historical pin with current
+data or waive owner/item validation, deadlines or cancellation.
+
+The actual installed package reproduces this legacy-null scenario through the
+real detail tool and result/list HTTP routes: all three return null provenance,
+the stored item stays unchanged, no episode fact is emitted, and a wrong item
+is rejected. Its90 loaded extension modules resolve physically within the
+same site-packages root. Installed old/new query, plan, preview and immutable
+export operations pass, and frontend schemas decode a preserved legacy fixture
+plus five installed HTTP/runtime records together.
+
+Final validation is deliberately recorded as composite evidence:
+
+- Source broad run before the legacy repair:5380passed,29skipped,1failed.
+  The unchanged original failing module reproduced13passed/1failed under a
+  clean test environment. After the approved repair,11 affected full modules
+  covering legacy detail, historical pins, owner/reference rules, deadlines,
+  query consistency and managed parity passed173tests,0skipped.
+- Host broad run:18344passed,169skipped,3deselected,159failed. The test invocation
+  accidentally inherited the manager's dedicated configuration and extras;
+  failure traces show its PostgreSQL-without-DSN, pick-auth and sandbox settings
+  overriding unit fixtures. Removing those manager selectors in an isolated
+  test environment passed all17 affected whole modules,997tests. No host code
+  changed to repair the invocation. Original logs and failed-node lists remain.
+- Strict blocking-I/O149passed; frontend3101passed/52gatedskips; frontend lint,
+  typecheck and default Turbopack build passed; original projection benchmark
+  passed `--require-target`. These bytes are unchanged by the narrow repair.
+- The first broad runs began on60fb6482 with the generated snapshot, then a
+  snapshot-only commit advanced HEAD toed27a6db while they ran. Source, host and
+  installed bytes did not change. Post-repair affected checks ran on a stable
+  checkout; this is not presented as one pristine all-green broad invocation.
+
+The required new-digest installed browser rerun passed: checked chat through
+selection, revision-bound plan and CSV65.252s; published review and explicit manual
+association3.848s. Both Gateway starts verified the physicalcd6 package digest,
+79 initially loaded extension modules, default uvloop and CA-validating TLS.
+The782-file host manifest matched after the first start and in the post-run
+checkpoint observing the second start; these timing points are recorded rather
+than called atomic checks at process launch. The separate192-file runtime ledger
+proves whole-package assembly. The successful harness exited0 and cleaned its own
+processes, database and roles, retaining the shared test cluster. Models were
+scripted; no provider or Lark call occurred. Native VoiceOver is still unverified.
+
+The previous final-package digest `1ebd5924…` and its192 installed code files,
+package metadata and proof ledgers were archived before the official refresh.
+The original T10 checkout and `996ce8e9…` package below remain separate retained
+artifacts. Real-model acceptance used that original996 package: the40-attempt
+allowance was exhausted, and candidate publication results were17incomplete,
+2partial and1confirmed. Full semantic acceptance was not met. Those results
+are not relabeled as evaluation of this repaired package. Additional proposed
+model runs have no authorization yet. Native VoiceOver remains unverified.
+There is no production deployment or production migration in this record.
+
+## Original T10 artifact and retained evidence
+
 This is local package/assembly evidence. It does not record a deployment, a
 production migration, a live-provider acceptance run, or native screen-reader
 verification. Final browser harness review and whole-task model/accessibility

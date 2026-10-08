@@ -356,8 +356,13 @@ async def test_historical_detail_episode_sidecar_uses_exact_pin_without_changing
     finally:
         query_call_loop_deadline.reset(token)
     await conn.execute("UPDATE pick_mirror.versions SET status='dropped' WHERE id=$1", stored["mirror_version"])
-    unavailable = json.loads(await get_drama_detail_tool.coroutine(result_id=result["id"], item_id=item["item_id"], runtime=runtime))
-    assert unavailable["code"] == "version_gone" and "source_facts" not in unavailable
+    gone_runtime, gone_store = await runtime_for(host, envelope([result]), thread="historical")
+    unavailable = json.loads(await get_drama_detail_tool.coroutine(result_id=result["id"], item_id=item["item_id"], runtime=gone_runtime))
+    assert not any(atom.field_name == "episodes" for atom in gone_store.get(PickTask).answer_evidence.atoms)
+    assert unavailable.get("status") != "rejected" and "source_facts" not in unavailable
+    assert unavailable["item"]["identity"] == item["identity"]
+    assert unavailable["data_as_of"]["source_as_of"] == tool_detail["data_as_of"]["source_as_of"]
+    assert "历史来源补充暂不可核对；以下仅保留这份候选已保存的内容，不代表当前资料。" in unavailable["data_notices"]
 
 
 @pytest.mark.asyncio

@@ -869,3 +869,35 @@ PR #47 产品提交 `638f3ae18a44f2d9496234a689c380d9a95fc0b2` 已部署到gatew
 ## T7 draft API — local source implementation
 
 Private draft CRUD/version/idempotency/time handling is implemented under the existing authenticated Gateway. SQLite and disposable PostgreSQL tests cover frozen sources, conflicting writes, lost replies, restart, source disappearance,100-row bounds and private schema grants; a models-disabled loopback Gateway proves cookie/CSRF and owner isolation. This does not claim production rollout, preview/export (T8), or feedback linkage (T9). See [planning contract and boundaries](planning.md).
+
+
+## 2026-10-08 completion package — local final review
+
+The selection, checking, personal-list, draft/CSV and published-review implementation
+is assembled on `codex/pick-completion-20261008`; this entry records local package
+validation, not a release. The final official-manager snapshot includes the reviewed
+legacy-detail repair5519fdb7. Its192 runtime files match source, managed and physical
+noneditable installation at digest
+`sha256:cd6ad51fd738ce52833ed94418e351bf951f0a2a68752fca5a4b678db1dc8f72`;
+private migration head is0011, with no production migration performed.
+
+Source broad5380passed/29skipped exposed one legacy-detail regression; the reviewed
+repair passed173 affected tests including the original case. Host18344passed plus
+997 affected-module passes after correcting inherited manager configuration form
+explicit composite evidence; initial159 invocation failures remain recorded.
+Frontend3101passed/52skipped, lint/typecheck/build, blocking149 and original projection
+benchmark passed. Actual installed legacy-null detail, strict old/new DTO decoding
+and immutable export probes passed. See the [package verification record](releases/2026-10-08-completion-package.md)
+for exact artifact boundaries, historical failures and retained ledgers.
+
+The required finalcd6 installed browser rerun passed checked chat → saved selections
+→ revision-bound plan/CSV (65.252s) and actual published metrics → explicit manual
+link (3.848s). Both starts verified installed provenance, default uvloop and TLS;
+the host file manifest matched at the recorded start/post-run checkpoints. This
+scripted-model browser pass does not substitute for live-model or VoiceOver gates.
+
+T11 remains open: the original996 package consumed all40 baseline/candidate Agent
+attempts without full semantic acceptance; no additional model runs are authorized.
+The repairedcd6 package has local/offline validation, not a new real-model pass.
+T12 native VoiceOver remains unverified. Do not infer complete acceptance, deployment,
+automatic publication or external plan-ID propagation from these local checks.

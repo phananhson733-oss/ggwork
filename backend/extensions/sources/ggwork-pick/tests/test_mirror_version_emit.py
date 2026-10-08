@@ -83,6 +83,8 @@ async def _result_answers(client, service, record: dict) -> dict:
     runtime = await _turn(service, f"r-detail-{record['id']}", reference=record["id"], call_id="d1")
     item_id = record["ordered_items_json"][0]["item_id"]
     detail = json.loads(await get_drama_detail_tool.coroutine(result_id=record["id"], item_id=item_id, runtime=runtime))
+    assert detail.get("status") != "rejected", detail
+    assert detail["item"]["item_id"] == item_id
     return {
         "result": single["data_as_of"],
         "results": next(row for row in listed if row["id"] == record["id"])["data_as_of"],
@@ -186,3 +188,30 @@ async def test_a_result_with_no_data_as_of_answers_null_with_the_switch_on(world
     record = await _alice(service).result(card["id"])
     assert (record["data_as_of_json"], record["catalog_batch_id"], record[MIRROR_VERSION]) == (None, pair_a[0]["id"], version_a)
     assert await _result_answers(client, service, record) == dict.fromkeys(("result", "results", "detail"), None)
+
+    from ggwork_pick.context import task_from_runtime
+    from ggwork_pick.tools import get_drama_detail_tool
+
+    runtime = await _turn(service, "legacy-frozen-detail", reference=record["id"], call_id="legacy-detail")
+    item = record["ordered_items_json"][0]
+    detail = json.loads(await get_drama_detail_tool.coroutine(result_id=record["id"], item_id=item["item_id"], runtime=runtime))
+    assert detail["data_as_of"] is None
+    from ggwork_pick.selection import SelectionService
+
+    frozen_detail = await SelectionService(_alice(service), query_service=service.common_query(_alice(service))).detail(record["id"], item["item_id"])
+    assert frozen_detail["item"] == item
+    assert (await _alice(service).result(record["id"]))["ordered_items_json"] == record["ordered_items_json"]
+    assert detail["item"]["identity"] == item["identity"]
+    assert detail["historical_summary"]["matched_total"] == item["matched_total"]
+    assert "source_facts" not in detail
+    assert "历史来源补充暂不可核对；以下仅保留这份候选已保存的内容，不代表当前资料。" in detail["data_notices"]
+    assert not any(atom.field_name == "episodes" for atom in task_from_runtime(runtime).answer_evidence.atoms)
+    rejected = json.loads(await get_drama_detail_tool.coroutine(result_id=record["id"], item_id="wrong-item", runtime=runtime))
+    assert rejected["status"] == "rejected" and "item" not in rejected
+    foreign = await _turn(service, "legacy-foreign", reference=record["id"])
+    foreign.context["user_id"] = "bob"
+    with pytest.raises((ValueError, LookupError)):
+        await get_drama_detail_tool.coroutine(result_id=record["id"], item_id=item["item_id"], runtime=foreign)
+    missing = await _turn(service, "legacy-missing", reference="missing-result")
+    with pytest.raises((ValueError, LookupError)):
+        await get_drama_detail_tool.coroutine(result_id="missing-result", item_id=item["item_id"], runtime=missing)
