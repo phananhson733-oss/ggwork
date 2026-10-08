@@ -83,7 +83,8 @@ async def test_named_skills_require_owner_enabled_and_role_admission(skill_confi
 
 
 @pytest.mark.asyncio
-async def test_pick_model_gate_admits_registered_tools_without_catalog(api, skill_config, tmp_path):
+@pytest.mark.parametrize("command", ["/clip-hook make a cut", "$ggwork-edit/clip-hook make a cut"])
+async def test_pick_model_gate_admits_registered_tools_without_catalog(api, skill_config, tmp_path, command):
     from ggwork_pick.context import PickLifecycle
     from ggwork_pick.middleware import PickModelGate, PickToolGate
     from ggwork_pick.service import PickService
@@ -104,7 +105,7 @@ async def test_pick_model_gate_admits_registered_tools_without_catalog(api, skil
     request = ModelRequest(
         model=SimpleNamespace(),
         runtime=runtime,
-        messages=[HumanMessage(content="/clip-hook make a cut")],
+        messages=[HumanMessage(content=command)],
         tools=[clone, get_tool, {"name": "clip_submit"}, {"name": "bash"}],
     )
 

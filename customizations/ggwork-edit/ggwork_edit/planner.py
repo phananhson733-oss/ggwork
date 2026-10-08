@@ -1,7 +1,9 @@
 """Text-only cloud planning. Media and native paths never enter model inputs."""
 
+import asyncio
 import json
 from typing import Annotated, Literal
+from weakref import WeakValueDictionary
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import Field, model_validator
@@ -58,14 +60,23 @@ class TextPlanner:
     def __init__(self, model, *, model_name=None):
         self.model = model
         self.model_name = model_name
+        self._attempt_locks = WeakValueDictionary()
 
     async def plan(self, repo, device_id, task_id, payload):
+        key = (repo.owner, device_id, task_id, payload.attempt_id, payload.fence)
+        lock = self._attempt_locks.setdefault(key, asyncio.Lock())
+        # Coalesce concurrent requests in this Gateway process. No database
+        # transaction spans the provider call, so stop/heartbeat stay available.
+        async with lock:
+            return await self._plan_once(repo, device_id, task_id, payload)
+
+    async def _plan_once(self, repo, device_id, task_id, payload):
         task = await repo.get_worker_task(device_id, task_id)
         attempt = task.get("attempt")
         if not attempt or attempt["id"] != payload.attempt_id or attempt["fence"] != payload.fence or task["status"] not in ("running", "awaiting_plan"):
             raise ConflictError("Plan attempt is no longer active")
         capabilities = await repo.capabilities()
-        if not capabilities["skill_enabled"] or not repo.service.hook_available:
+        if not capabilities["skill_enabled"] or not any(p["id"] == task["requirements"]["profile"] and p["available"] for p in capabilities["profiles"]):
             raise ConflictError("Editing capability disabled")
         if task.get("plan") is not None:
             # store_plan rechecks the transaction fence, including a concurrent stop.

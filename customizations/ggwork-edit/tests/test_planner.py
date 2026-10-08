@@ -204,3 +204,101 @@ async def test_real_device_bearer_planning_rechecks_owner_skill_and_model(gatewa
     response = await client.post(path, headers=worker, json=body)
     assert response.status_code == 200, response.text
     assert response.json()["plan"] == valid_plan()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_attempt_planning_spends_once_and_returns_same_plan(api):
+    import asyncio
+
+    from ggwork_edit.planner import TextPlanner
+    from ggwork_edit.planner_routes import build_planner_router
+
+    class ConcurrentModel:
+        calls = 0
+
+        async def ainvoke(self, messages):
+            self.calls += 1
+            plan = valid_plan()
+            plan["outputs"][0]["segments"][0]["end"] = 31 - self.calls
+            await asyncio.sleep(0.1)
+            return AIMessage(content=json.dumps(plan))
+
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
+    model = ConcurrentModel()
+    api[2].include_router(build_planner_router(api[1], TextPlanner(model)))
+    path = f"/api/editing/worker/devices/{device}/tasks/{task['id']}/plan"
+    body = {
+        "attempt_id": attempt["id"],
+        "fence": attempt["fence"],
+        "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+    }
+    responses = await asyncio.gather(client.post(path, headers=worker, json=body), client.post(path, headers=worker, json=body))
+    assert [response.status_code for response in responses] == [200, 200]
+    assert responses[0].json()["plan"] == responses[1].json()["plan"]
+    assert model.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_live_profile_revocation_prevents_cloud_planning(api):
+    from ggwork_edit.planner import TextPlanner
+    from ggwork_edit.planner_routes import build_planner_router
+
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
+    model = Model(valid_plan())
+    api[2].include_router(build_planner_router(api[1], TextPlanner(model)))
+
+    async def revoked(owner):
+        return set()
+
+    api[1].execution_profiles = revoked
+    response = await client.post(
+        f"/api/editing/worker/devices/{device}/tasks/{task['id']}/plan",
+        headers=worker,
+        json={
+            "attempt_id": attempt["id"],
+            "fence": attempt["fence"],
+            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+        },
+    )
+    assert response.status_code == 409
+    assert model.messages == []
+
+
+@pytest.mark.asyncio
+async def test_stop_during_cloud_call_remains_responsive_and_fences_plan(api):
+    import asyncio
+
+    from ggwork_edit.planner import TextPlanner
+    from ggwork_edit.planner_routes import build_planner_router
+
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class WaitingModel:
+        async def ainvoke(self, messages):
+            entered.set()
+            await release.wait()
+            return AIMessage(content=json.dumps(valid_plan()))
+
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
+    api[2].include_router(build_planner_router(api[1], TextPlanner(WaitingModel())))
+    planning = asyncio.create_task(
+        client.post(
+            f"/api/editing/worker/devices/{device}/tasks/{task['id']}/plan",
+            headers=worker,
+            json={
+                "attempt_id": attempt["id"],
+                "fence": attempt["fence"],
+                "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+            },
+        )
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        stopped = await asyncio.wait_for(client.post(f"/api/editing/tasks/{task['id']}/stop", headers=OWNER, json={}), timeout=2)
+        assert stopped.status_code == 200
+        assert stopped.json()["status"] == "stopping"
+    finally:
+        release.set()
+    response = await asyncio.wait_for(planning, timeout=2)
+    assert response.status_code == 409
+    assert (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()["plan"] is None
