@@ -29,7 +29,7 @@ async def test_device_text_planning_returns_same_task_and_no_paths(api):
     from ggwork_edit.planner import TextPlanner
     from ggwork_edit.planner_routes import build_planner_router
 
-    client, task, device, worker, attempt = await ready_task(api)
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
     model = Model(valid_plan())
     api[2].include_router(build_planner_router(api[1], TextPlanner(model)))
     body = {
@@ -57,7 +57,7 @@ async def test_invalid_model_plan_is_rejected_without_persistence(api, mutation)
     from ggwork_edit.planner import TextPlanner
     from ggwork_edit.planner_routes import build_planner_router
 
-    client, task, device, worker, attempt = await ready_task(api)
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
     plan = valid_plan()
     segment = plan["outputs"][0]["segments"][0]
     if mutation == "unknown_source":
@@ -95,7 +95,7 @@ async def test_stopped_attempt_cannot_spend_model_or_store_plan(api):
     from ggwork_edit.planner import TextPlanner
     from ggwork_edit.planner_routes import build_planner_router
 
-    client, task, device, worker, attempt = await ready_task(api)
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
     model = Model(valid_plan())
     api[2].include_router(build_planner_router(api[1], TextPlanner(model)))
     await client.post(f"/api/editing/tasks/{task['id']}/stop", headers=OWNER, json={})
