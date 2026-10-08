@@ -1,7 +1,11 @@
 import { expect, it } from "@rstest/core";
 
+import { queryResponseSchema } from "@/core/pick/completion-types";
 import { parsePickRequest } from "@/core/pick-board/request";
-import { boardQuery } from "@/server/pick-board/common-loaders";
+import { boardQuery, catalogFacets } from "@/server/pick-board/common-loaders";
+import { MirrorMisconfigured } from "@/server/pick-board/errors";
+
+import fixture from "../../core/pick/fixtures/completion-v1.json";
 const pin = {
   catalog_batch_id: "catalog-historical",
   knowledge_batch_id: "knowledge-historical",
@@ -136,4 +140,14 @@ it("sends only supported rules controls and ignores inherited theater rank searc
       pin,
     ),
   ).toMatchObject({ query: null, rs_sort: "rr", rs_locale: null });
+});
+
+it("rejects parser-dropped or missing language counts rather than reading prototypes or inventing zero", () => {
+  for (const languages of [JSON.parse('{"__proto__":3}'), {}]) {
+    const response = queryResponseSchema.parse({
+      ...fixture.response,
+      facets: { languages, language_order: ["__proto__"] },
+    });
+    expect(() => catalogFacets(response)).toThrow(MirrorMisconfigured);
+  }
 });

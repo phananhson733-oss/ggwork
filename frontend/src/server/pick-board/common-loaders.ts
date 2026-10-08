@@ -319,7 +319,9 @@ export async function loadCommonPickRows(
   return catalogPage(await read(req));
 }
 export async function loadCommonFacets(req: PickRequest): Promise<PickFacets> {
-  const response = await read(req);
+  return catalogFacets(await read(req));
+}
+export function catalogFacets(response: QueryResponse): PickFacets {
   const facets = response.facets;
   if (!facets) throw new MirrorMisconfigured("control_shape");
   return {
@@ -328,10 +330,14 @@ export async function loadCommonFacets(req: PickRequest): Promise<PickFacets> {
         (PLATFORMS as readonly string[]).includes(key),
       ),
     ) as Partial<Record<Platform, number>>,
-    langs: facets.language_order.map((lang) => ({
-      lang,
-      n: facets.languages[lang] ?? 0,
-    })),
+    langs: facets.language_order.map((lang) => {
+      const n = Object.hasOwn(facets.languages, lang)
+        ? facets.languages[lang]
+        : undefined;
+      if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0)
+        throw new MirrorMisconfigured("control_shape");
+      return { lang, n };
+    }),
     bases: Object.fromEntries(
       Object.entries(facets.bases).filter(([key]) =>
         (BASES as readonly string[]).includes(key),
