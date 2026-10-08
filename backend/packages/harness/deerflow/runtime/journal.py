@@ -752,6 +752,8 @@ class RunJournal(BaseCallbackHandler):
     def _persist_tool_result_message(self, message: BaseMessage) -> None:
         if self.pick_publication is not None and self.pick_publication.active and isinstance(message, ToolMessage):
             self.pick_publication.record_tool_result(message.name, message.tool_call_id, message.content)
+            if self._current_run_tool_call_names.get(message.tool_call_id) == message.name == "ask_clarification":
+                self.pick_publication.record_human_input(message.model_dump())
         self._put(
             event_type=LLM_TOOL_RESULT_EVENT.event_type,
             category=LLM_TOOL_RESULT_EVENT.category,

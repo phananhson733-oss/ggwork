@@ -236,7 +236,12 @@ async def _checked_response(response, task, request, handler):
                 tools=[],
                 messages=[
                     *request.messages,
-                    HumanMessage(content="请仅从以下已核对事实中回答本次问题，保留引用，不补充其他断言：\n" + "\n".join(suggestions[:100])[:16000]),
+                    HumanMessage(
+                        content=(
+                            "请仅从以下已核对事实中选择与问题相关的原句，逐字保留事实及引用。"
+                            "每条原句独立一行，不改写、不加标题、列表标记、加粗或其他断言：\n" + "\n".join(suggestions[:100])[:16000]
+                        )
+                    ),
                 ],
             )
             async with asyncio.timeout(task.remaining()):

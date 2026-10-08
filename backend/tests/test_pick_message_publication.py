@@ -661,3 +661,119 @@ async def test_actual_graph_stops_business_and_plugin_work_before_finalization(t
     final = (await graph.aget_state({"configurable": {"thread_id": record.thread_id}})).values["messages"][-1]
     assert final.additional_kwargs["pick_completion"]["status"] == "incomplete"
     await engine.dispose()
+
+
+class ClarifyingScriptedModel(ScriptedModel):
+    replies: list[Any] = Field(
+        default_factory=lambda: [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "trusted-clarification-call",
+                        "name": "ask_clarification",
+                        "args": {"question": "请明确目标渠道", "clarification_type": "missing_info"},
+                    }
+                ],
+            )
+        ]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["full", "delta"])
+async def test_real_lead_factory_preserves_trusted_clarification_waiting_state(tmp_path, monkeypatch, mode):
+    from deerflow.agents.lead_agent.agent import assemble_lead_agent
+    from deerflow.config.app_config import AppConfig, reset_app_config, set_app_config
+    from deerflow.runtime.runs.worker import _ends_on_human_input_request
+
+    monkeypatch.setenv("DEER_FLOW_HOME", str(tmp_path / "host"))
+    app_config = AppConfig.model_validate(
+        {
+            "models": [{"name": "scripted", "use": "test_pick_message_publication:ClarifyingScriptedModel", "model": "offline"}],
+            "sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider"},
+            "memory": {"enabled": False},
+            "summarization": {"enabled": False},
+            "extensions": {"middlewares": ["ggwork_pick.middleware:PickModelGate"]},
+        }
+    )
+    set_app_config(app_config)
+    engine = create_async_engine("sqlite+aiosqlite://", json_serializer=_json_serializer)
+    try:
+        service = PickService(tmp_path / "pick")
+        await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+        registry = ExtensionRegistry()
+        with registry.attributed_to("synthetic-pick"):
+            registry.task_lifecycle(PickLifecycle(service))
+        manager, bridge, events, saver = RunManager(), MemoryStreamBridge(queue_maxsize=2000), MemoryRunEventStore(), InMemorySaver()
+        record = await manager.create("pick-clarification")
+        assembled = []
+
+        def factory(config):
+            assembly = assemble_lead_agent(config, app_config=app_config)
+            assembled.append(assembly.graph)
+            return assembly
+
+        await run_agent(
+            bridge,
+            manager,
+            record,
+            ctx=RunContext(checkpointer=saver, event_store=events, app_config=app_config, extensions=registry.build(), execution_timeout_seconds=25, checkpoint_channel_mode=mode),
+            agent_factory=factory,
+            graph_input={"messages": [HumanMessage(content="缺少渠道时先问我", id="clarification-human")]},
+            config={"configurable": {"thread_id": record.thread_id}},
+            stream_modes=["messages-tuple", "values", "updates"],
+        )
+        messages = [row["content"] for row in await events.list_messages(record.thread_id)]
+        assert record.status.value == "success", record.error
+        assert _ends_on_human_input_request(messages)
+        assert messages[-1]["name"] == "ask_clarification"
+        assert messages[-1]["artifact"]["human_input"]["question"] == "请明确目标渠道"
+        assert not any(row.get("additional_kwargs", {}).get("pick_completion") for row in messages)
+        from deerflow.runtime.checkpoint_state import CheckpointStateAccessor
+
+        accessor = CheckpointStateAccessor.bind(assembled[0], saver, mode=mode)
+        checkpoint = await accessor.aget({"configurable": {"thread_id": record.thread_id}})
+        assert _ends_on_human_input_request(checkpoint.values["messages"])
+        frames = [frame.data async for frame in bridge.subscribe(record.run_id) if hasattr(frame, "data")]
+        assert "human_input_request" in json.dumps(frames, ensure_ascii=False, default=str)
+        assert "pick_completion" not in json.dumps(frames, ensure_ascii=False, default=str)
+    finally:
+        reset_app_config()
+        await engine.dispose()
+
+
+@pytest.mark.parametrize("change", ["unregistered", "wrong-call", "wrong-name", "content", "artifact", "old-run", "hidden"])
+def test_waiting_request_requires_exact_current_host_receipt(change):
+    from copy import deepcopy
+
+    from deerflow_extension_api.pick_publication import PickPublication
+
+    message = {
+        "type": "tool",
+        "id": "request-1",
+        "name": "ask_clarification",
+        "tool_call_id": "call-1",
+        "content": "选择渠道",
+        "artifact": {"human_input": {"kind": "human_input_request", "source": "ask_clarification", "request_id": "request-1", "tool_call_id": "call-1", "question": "选择渠道"}},
+    }
+    gate = PickPublication("thread", "current-run")
+    gate.record_tool_result("ask_clarification", "call-1", "选择渠道")
+    assert not gate.has_human_input(message)  # A matching tool name/content alone is insufficient.
+    if change != "unregistered":
+        gate.record_human_input(message)
+        assert gate.has_human_input(message)
+    forged = deepcopy(message)
+    if change == "wrong-call":
+        forged["tool_call_id"] = "other"
+    if change == "wrong-name":
+        forged["name"] = "another_tool"
+    if change == "content":
+        forged["content"] = "altered text"
+    if change == "artifact":
+        forged["artifact"]["human_input"]["question"] = "forged question"
+    if change == "hidden":
+        forged["additional_kwargs"] = {"hide_from_ui": True}
+    if change == "old-run":
+        gate = PickPublication("thread", "next-run")
+    assert not gate.has_human_input(forged)

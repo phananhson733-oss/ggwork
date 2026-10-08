@@ -32,7 +32,7 @@ from contextvars import Context
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
-from typing import Any, Final, Literal, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.types import Overwrite
@@ -98,6 +98,9 @@ from deerflow.workspace_changes.types import WorkspaceSnapshot
 from .manager import RunManager, RunRecord, RunStartOutcome
 from .naming import resolve_root_run_name
 from .schemas import RunStatus
+
+if TYPE_CHECKING:
+    from deerflow_extension_api.pick_publication import PickPublication
 
 logger = logging.getLogger(__name__)
 
@@ -1581,13 +1584,14 @@ async def run_agent(
             if publication.active and not record.ownership_lost and not checkpoint_rollback_completed and accessor is not None:
 
                 async def persist_pick_final() -> None:
-                    payload = publication.incomplete()
                     state_config = {"configurable": {"thread_id": thread_id}}
                     async with _checkpoint_thread_lock(thread_id):
                         current = await accessor.aget(state_config)
                         current_messages = current.values.get("messages", []) if current else []
-                        appended = not any(getattr(message, "id", None) == payload["id"] for message in current_messages)
-                        if appended:
+                        awaiting_user = record.status == RunStatus.success and not record.abort_event.is_set() and not deadline_expired and not publication.has_final and _ends_on_trusted_pick_input(current_messages, publication)
+                        payload = None if awaiting_user else publication.incomplete()
+                        appended = payload is not None and not any(getattr(message, "id", None) == payload["id"] for message in current_messages)
+                        if appended and payload is not None:
                             mutation = build_state_mutation_graph("pick_final", ctx.checkpoint_channel_mode, graph_state_schema(agent))
                             final_accessor = CheckpointStateAccessor.bind(mutation, checkpointer, mode=ctx.checkpoint_channel_mode)
                             await final_accessor.aupdate(state_config, {"messages": [AIMessage(**payload)]}, as_node="pick_final")
@@ -1612,7 +1616,7 @@ async def run_agent(
                         if mode_name == "values" and seq_stamper is not None:
                             wire = await seq_stamper.stamp(wire)
                         await bridge.publish(run_id, _lg_mode_to_sse_event(mode_name), wire)
-                    if appended:
+                    if appended and payload is not None:
                         if "values" in requested_modes:
                             await bridge.publish(run_id, "values", serialize(current.values, mode="values"))
                         if "updates" in requested_modes:
@@ -1954,6 +1958,19 @@ def _has_durable_goal_turn_receipt(checkpoint_tuple: Any, messages: list[Any]) -
     if not visible_messages:
         return False
     return _message_type(visible_messages[-1]) == "ai"
+
+
+def _ends_on_trusted_pick_input(messages: list[Any], publication: PickPublication) -> bool:
+    """Preserve waiting only for the current host-receipted clarification artifact."""
+    from langchain_core.messages import ToolMessage
+
+    for message in reversed(messages):
+        if _message_type(message) != "tool":
+            return False
+        wire = message if isinstance(message, dict) else message.model_dump() if isinstance(message, ToolMessage) else None
+        if wire is not None and publication.has_human_input(wire):
+            return True
+    return False
 
 
 def _ends_on_human_input_request(messages: list[Any]) -> bool:

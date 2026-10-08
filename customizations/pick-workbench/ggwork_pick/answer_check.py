@@ -908,6 +908,28 @@ def check_answer(text: str, *, known_titles: set[str], posted_checked: bool, pos
 CHECKER_VERSION = "pick-facts-v1"
 
 
+def _balanced_strong(text: str) -> str:
+    """Remove only balanced nonempty Markdown strong spans; never escapes/code."""
+    if "\\" in text or "`" in text or "**" not in text or re.search(r"[a-z][a-z0-9+.-]*://|www\.", text, re.I):
+        return text
+    parts = text.split("**")
+    if len(parts) % 2 == 0 or any("*" in part for part in parts):
+        return text
+    if any(not part or part != part.strip() for part in parts[1::2]):
+        return text
+    return "".join(parts)
+
+
+def _claim_presentation(text: str) -> str:
+    """Remove a Markdown line marker and optional whole-line strong wrapper."""
+    text = re.sub(r"^(?:#{1,6}[ \t]+|[-+*][ \t]+|[0-9]{1,9}[.)][ \t]+)", "", text, count=1)
+    if text.startswith("**") and text.endswith("**") and text.count("**") == 2:
+        plain = _balanced_strong(text)
+        if plain != text:
+            return plain
+    return text
+
+
 def build_checked_publication(
     text: str,
     *,
@@ -935,8 +957,10 @@ def build_checked_publication(
     facts = []
     safe = []
     for claim in claims:
-        citation = re.search(r"\s+\[([^\[\]]+)\]$", claim)
-        assertion = claim[: citation.start()].rstrip() if citation else claim
+        presented = _claim_presentation(claim)
+        citation = re.search(r"\s+\[([^\[\]]+)\]$", presented)
+        assertion = _balanced_strong(presented[: citation.start()].rstrip() if citation else presented)
+        semantic_claim = assertion + (presented[citation.start() :] if citation else "")
         candidates = [
             atom
             for atom in evidence.atoms
@@ -953,9 +977,9 @@ def build_checked_publication(
         if status == "confirmed" and exact and all(atom.field_name == "posted_status" for atom in exact):
             # Exact owner-checked common-query scope facts already encode completeness.
             # Retain unknown-title/save checks; do not widen legacy free-prose absence rules.
-            notes = _title_and_write_notes(claim, titles)
+            notes = _title_and_write_notes(semantic_claim, titles)
         else:
-            notes = check_answer(claim, known_titles=titles, posted_checked=posted_checked, posted_seen=posted_seen)
+            notes = check_answer(semantic_claim, known_titles=titles, posted_checked=posted_checked, posted_seen=posted_seen)
         if notes:
             status = "unknown"
         if status == "confirmed":

@@ -325,3 +325,66 @@ def test_null_current_total_does_not_reuse_previous_count_and_fallback_never_exp
         assert checked(text, evidence).status == "incomplete"
     result = incomplete_publication(thread_id="thread", run_id="run", message_id="message", correction_count=1)
     assert result.status == "incomplete" and result.correction_count == 1 and result.facts == []
+
+
+@pytest.mark.parametrize("presentation", ["- {fact}", "1. {fact}", "### {fact}", "**{fact}**", "**{claim}** [item:1]", "《甲》共**80**集 [item:1]"])
+def test_balanced_presentation_keeps_exact_typed_fact_and_citation(presentation):
+    evidence = AnswerEvidence()
+    evidence.capture(
+        "pick_query_candidates",
+        "call",
+        {"id": "result", "items": [{"item_id": "item", "title": "甲", "evidence": [{"citation_id": "item:1", "kind": "episodes", "value": 80}]}]},
+    )
+    text = presentation.format(fact="《甲》共80集 [item:1]", claim="《甲》共80集")
+    result = checked(text, evidence)
+    assert result.status == "confirmed"
+    assert result.content == checked("《甲》共80集 [item:1]", evidence).content
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "- 《甲》的episodes为999 [item:1]",
+        "1. 《乙》的episodes为80 [item:1]",
+        "**《甲》的episodes为80** [forged]",
+        "《甲》的episodes为80 [item:**1**]",
+        "《甲》的episodes不是**80** [item:1]",
+        "**《甲》的episodes为80并保证盈利** [item:1]",
+        "**《甲》的episodes为80 [item:1]",
+        "\\**《甲》的episodes为80** [item:1]",
+        "《甲》的episodes为**999** [item:1]",
+    ],
+)
+def test_presentation_normalization_never_removes_semantic_or_reference_errors(text):
+    evidence = AnswerEvidence()
+    evidence.capture(
+        "pick_query_candidates",
+        "call",
+        {"id": "result", "items": [{"item_id": "item", "title": "甲", "evidence": [{"citation_id": "item:1", "kind": "episodes", "value": 80}]}]},
+    )
+    assert checked(text, evidence).status != "confirmed"
+
+
+def test_neutral_heading_still_counts_as_unknown_instead_of_disappearing():
+    evidence = AnswerEvidence()
+    evidence.capture("pick_count_candidates", "count", {"total": 1})
+    result = checked("### 候选汇总\n- 本次查询符合条件总数为1部", evidence)
+    assert result.status == "partial"
+    assert any(fact.status == "unknown" for fact in result.facts)
+
+
+@pytest.mark.parametrize("url", ["https://example.test/a", "https://example.test/**a**?q=_b_"])
+def test_literal_source_url_markers_are_never_normalized(url):
+    evidence = AnswerEvidence()
+    evidence.capture(
+        "pick_query_candidates",
+        "call",
+        {
+            "id": "result",
+            "items": [{"item_id": "item", "title": "甲", "evidence": [{"citation_id": "item:1", "kind": "episodes", "value": 80, "source_ref": url}]}],
+        },
+    )
+    assert checked(f"来源[item:1]为{url}", evidence).status == "confirmed"
+    wrong = "https://example.test/**a**" if url.endswith("/a") else "https://example.test/a?q=b"
+    assert checked(f"来源[item:1]为{wrong}", evidence).status != "confirmed"
+    assert checked(f"[来源[item:1]]({url})", evidence).status != "confirmed"
