@@ -93,6 +93,14 @@ UI link is `/workspace/editing/{task_id}`. Source thread identity comes from the
 host lifecycle rather than model arguments. Changed requirements create a linked
 new version and require fresh verification of selected source bytes.
 
+Online file delivery uses the [bounded transient relay](docs/relay.md). Browser
+uploads report progress only after the selected Mac acknowledges each chunk;
+received bytes still require native media verification. Completed outputs expose
+an authenticated same-origin streaming URL supporting a single HTTP byte Range,
+plus an access preflight to distinguish missing files from an offline Mac. Both
+sides must remain online. Deploy one Gateway process/replica; restart requires a
+fresh transfer. Media bytes are never written to Gateway storage.
+
 Native preparation failures are reported through the worker `preparation-error`
 endpoint using fixed safe codes, not paths or raw exception text. They persist on
 the waiting intent as `native_preparation_error` and a preparation reason. A

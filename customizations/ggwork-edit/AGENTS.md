@@ -12,3 +12,6 @@
 - Text planners use the configured host model factory and strict `planner.Plan`; transcript-only inputs exclude source paths and credentials. Never clamp ranges, skip unknown sources, or publish partially validated plans.
 - `ConfiguredPlanner` sets availability only after constructing the named provider; its owner policy intersects live host account role, model authorization and per-user Skill storage. Keep native bearer subjects narrow; any owner policy lookup is an additional check, not restored host authority.
 - Conversation tool source-thread provenance comes only from `EditingLifecycle` TaskInfo. Keep registered aliases tied to the shared slash resolver. Model/tool gates admit the actual registered callable identity, including host description clones, never a matching untrusted name.
+
+- Relay owns transient RAM only (`relay.py`, `relay_routes.py`): one outstanding <=1 MiB command per transfer, exact offsets and native ACK backpressure. Keep the one-Gateway-process/replica deployment restriction explicit; no fake restart resume or disk spool.
+- Relay byte endpoints resolve immutable task artifact/hash/size metadata, never a caller path. Native `worker/relay_client.py` runs authorized receive/read callbacks off its event loop; local grants/index/identity checks remain native responsibilities. Keep it independent of rendering/control polling.
