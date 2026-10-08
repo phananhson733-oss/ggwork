@@ -26,6 +26,8 @@ import {
 import type { BoardRules } from "@/core/pick-board/rules";
 import type { PickFacets } from "@/server/pick-board";
 
+import controls from "../pick/control-scope.module.css";
+
 /**
  * Tab 与筛选，全部走 URL 参数（筛选结果能发给同事、能加书签、刷新不丢）。
  * 站内跳转一律 next/link 的 Link（不预取：每个链接都是一次镜像库查询）；换筛选条件时回到第 1 页。
@@ -137,7 +139,7 @@ function TabLink({
         result: "",
       })}
       aria-current={active ? "page" : undefined}
-      className={`-mb-px border-b-2 px-3.5 py-2.5 text-[14px] whitespace-nowrap ${
+      className={`${controls.taskAction} -mb-px border-b-2 px-3.5 py-2.5 text-[14px] whitespace-nowrap ${
         active
           ? "border-link text-ink-1 font-semibold"
           : "text-helper hover:text-ink-1 border-transparent"
@@ -145,7 +147,7 @@ function TabLink({
     >
       {label}
       {count !== undefined ? (
-        <small className="text-ink-dim ml-1 text-[12px] font-normal tabular-nums">
+        <small className="text-helper ml-1 text-[12px] font-normal tabular-nums">
           {count.toLocaleString("en-US")}
         </small>
       ) : null}

@@ -24,7 +24,14 @@
 /* The existing translucent rings remain supplementary. This opaque outline
  * identifies keyboard focus against the surrounding light or dark surface.
  */
-.controls :is(input, select, textarea, button, a, summary):focus-visible {
+.controls :is(input, select, textarea, button, a, summary):focus-visible,
+.taskAction:focus-visible {
   outline: 2px solid var(--link);
   outline-offset: 3px;
+}
+
+/* Primary pick-workbench actions; ordinary shared chat controls opt out. */
+.taskAction {
+  min-width: 44px;
+  min-height: 44px;
 }

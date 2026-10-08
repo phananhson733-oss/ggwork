@@ -709,6 +709,11 @@ export default function ChatPage() {
                       canCreateRuns={canCreateRuns}
                       // The pick agent gets neither plan mode's todo tool nor subagents.
                       planModes={!pick}
+                      pickTask={thread.messages.some(
+                        (message) =>
+                          message.type === "ai" &&
+                          message.additional_kwargs?.pick_completion != null,
+                      )}
                     />
                   ) : (
                     <div
