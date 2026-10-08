@@ -1,0 +1,4473 @@
+{
+  "fixture_version": "pick-completion-synthetic-v1",
+  "clock": "2026-10-08T12:00:00+00:00",
+  "owners": [
+    "QA-A",
+    "QA-B"
+  ],
+  "production_writes": false,
+  "base_records": [
+    {
+      "source": "synthetic",
+      "source_id": "A",
+      "language": "en",
+      "title": "Synthetic Dawn",
+      "availability": "active",
+      "youtube": "allowed",
+      "episodes": 80
+    },
+    {
+      "source": "synthetic",
+      "source_id": "B",
+      "language": "en",
+      "title": "Synthetic River",
+      "availability": "active",
+      "youtube": "allowed",
+      "episodes": null
+    },
+    {
+      "source": "synthetic",
+      "source_id": "C",
+      "language": "en",
+      "title": "Synthetic Moon",
+      "availability": "active",
+      "youtube": "allowed",
+      "episodes": null
+    },
+    {
+      "source": "synthetic",
+      "source_id": "D",
+      "language": "en",
+      "title": "Synthetic Forest",
+      "availability": "active",
+      "youtube": "denied",
+      "episodes": null
+    },
+    {
+      "source": "synthetic",
+      "source_id": "E",
+      "language": "en",
+      "title": "Synthetic Sky",
+      "availability": "active",
+      "youtube": "unknown",
+      "episodes": null
+    }
+  ],
+  "cases": [
+    {
+      "id": "D9-01",
+      "category": "ordinary",
+      "prompt": "给 QA-A 选3部英语剧，YouTube 可发。",
+      "preconditions": [
+        "A/B/C active; youtube allowed; D denied; E unknown"
+      ],
+      "expected": [
+        "仅A/B/C",
+        "不称英语为美国",
+        "显示范围/版本/来源"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-01",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [],
+        "selected": [],
+        "bound_references": [],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-02",
+      "category": "pool_scope",
+      "prompt": "候选池没有 Synthetic Hidden，是不是整个剧库都没有？",
+      "preconditions": [
+        "H exists in full catalog without candidate evidence"
+      ],
+      "expected": [
+        "说明候选池不同于全库",
+        "全库查证H",
+        "不作全库否定"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-02",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "H",
+            "language": "en",
+            "title": "Synthetic Hidden",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [],
+        "selected": [],
+        "bound_references": [],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-03",
+      "category": "daily",
+      "prompt": "查2026年1月1日的KalosTV日榜。",
+      "preconditions": [
+        "kd 2026-01-01:A=2,B=1; latest 2026-10-08:C=1"
+      ],
+      "expected": [
+        "B先A后",
+        "actual period 2026-01-01",
+        "不混入C"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-03",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-01-01/A",
+                "observed_at": "2026-01-01",
+                "rank": 2
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-01-01/B",
+                "observed_at": "2026-01-01",
+                "rank": 1
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "rank": 1
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [],
+        "selected": [],
+        "bound_references": [],
+        "rank_history": [
+          {
+            "kind": "kd",
+            "period": "2026-01-01",
+            "ranks": [
+              {
+                "source_id": "B",
+                "rank": 1
+              },
+              {
+                "source_id": "A",
+                "rank": 2
+              }
+            ]
+          },
+          {
+            "kind": "kd",
+            "period": "2026-10-08",
+            "ranks": [
+              {
+                "source_id": "C",
+                "rank": 1
+              }
+            ]
+          }
+        ],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-04",
+      "category": "weekly_year",
+      "prompt": "查2025年12月29日开始的周榜。",
+      "preconditions": [
+        "kw starts 2025-12-29:A=1; 2024-12-30:B=1; same week label"
+      ],
+      "expected": [
+        "只选2025-12-29期A",
+        "显示周起年份"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-04",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kw",
+                "source_ref": "synthetic:rank/2025-12-29",
+                "observed_at": "2025-12-29",
+                "rank": 1,
+                "label": "12.29–1.4"
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kw",
+                "source_ref": "synthetic:rank/2024-12-30",
+                "observed_at": "2024-12-30",
+                "rank": 1,
+                "label": "12.29–1.4"
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [],
+        "selected": [],
+        "bound_references": [],
+        "rank_history": [
+          {
+            "kind": "kw",
+            "period": "2025-12-29",
+            "week_label": "12.29–1.4",
+            "ranks": [
+              {
+                "source_id": "A",
+                "rank": 1
+              }
+            ]
+          },
+          {
+            "kind": "kw",
+            "period": "2024-12-30",
+            "week_label": "12.29–1.4",
+            "ranks": [
+              {
+                "source_id": "B",
+                "rank": 1
+              }
+            ]
+          }
+        ],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-05",
+      "category": "period_missing",
+      "prompt": "查2026年1月2日榜单。",
+      "preconditions": [
+        "only kd 2026-01-01 exists"
+      ],
+      "expected": [
+        "明确缺期",
+        "任何回落显示实际2026-01-01",
+        "不称其为1月2日榜"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-05",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-01-01/A",
+                "observed_at": "2026-01-01",
+                "rank": 2
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-01-01/B",
+                "observed_at": "2026-01-01",
+                "rank": 1
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [],
+        "selected": [],
+        "bound_references": [],
+        "rank_history": [
+          {
+            "kind": "kd",
+            "period": "2026-01-01",
+            "ranks": [
+              {
+                "source_id": "B",
+                "rank": 1
+              },
+              {
+                "source_id": "A",
+                "rank": 2
+              }
+            ]
+          }
+        ],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-06",
+      "category": "posted_account",
+      "prompt": "排除 QA-A 过去30天 YouTube 发过的剧。",
+      "preconditions": [
+        "A posted QA-A YouTube Oct01 archived; B only QA-B; C scheduled QA-A; complete window Sep08-Oct08"
+      ],
+      "expected": [
+        "排除A即使归档",
+        "B不因其他账号排除",
+        "C排期与已发分别说明"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-06",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": {
+              "matched": true,
+              "records": [
+                "POST-A-QA-A"
+              ],
+              "post_count": 1,
+              "sched_count": 0,
+              "last_post_on": "2026-10-01",
+              "accounts": [
+                "QA-A"
+              ]
+            }
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": {
+              "matched": true,
+              "records": [
+                "POST-B-QA-B"
+              ],
+              "post_count": 1,
+              "sched_count": 0,
+              "last_post_on": "2026-10-01",
+              "accounts": [
+                "QA-B"
+              ]
+            }
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": {
+              "matched": true,
+              "records": [
+                "POST-C-QA-A"
+              ],
+              "post_count": 0,
+              "sched_count": 1,
+              "last_post_on": null,
+              "accounts": [
+                "QA-A"
+              ]
+            }
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": {
+              "matched": false,
+              "records": [],
+              "post_count": 0,
+              "sched_count": 0,
+              "last_post_on": null,
+              "accounts": []
+            }
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": {
+              "matched": false,
+              "records": [],
+              "post_count": 0,
+              "sched_count": 0,
+              "last_post_on": null,
+              "accounts": []
+            }
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [
+          {
+            "record_id": "POST-A-QA-A",
+            "source_id": "A",
+            "source": "synthetic",
+            "language": "en",
+            "account": "QA-A",
+            "channel": "youtube",
+            "published_on": "2026-10-01",
+            "scheduled_on": null,
+            "archived": true,
+            "matched": true,
+            "post_count": 1,
+            "sched_count": 0
+          },
+          {
+            "record_id": "POST-B-QA-B",
+            "source_id": "B",
+            "source": "synthetic",
+            "language": "en",
+            "account": "QA-B",
+            "channel": "youtube",
+            "published_on": "2026-10-01",
+            "scheduled_on": null,
+            "archived": false,
+            "matched": true,
+            "post_count": 1,
+            "sched_count": 0
+          },
+          {
+            "record_id": "POST-C-QA-A",
+            "source_id": "C",
+            "source": "synthetic",
+            "language": "en",
+            "account": "QA-A",
+            "channel": "youtube",
+            "published_on": null,
+            "scheduled_on": "2026-10-12",
+            "archived": false,
+            "matched": true,
+            "post_count": 0,
+            "sched_count": 1
+          }
+        ],
+        "posted_coverage": {
+          "complete": true,
+          "account": "QA-A",
+          "channel": "youtube",
+          "from": "2026-09-08",
+          "to": "2026-10-08"
+        },
+        "prior_results": [],
+        "selected": [],
+        "bound_references": [],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-07",
+      "category": "posted_unknown",
+      "prompt": "这个未匹配记录是不是证明我没发过？",
+      "preconditions": [
+        "E posted matching incomplete"
+      ],
+      "expected": [
+        "无法确认",
+        "未匹配不等于没发过"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-07",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [
+          {
+            "record_id": "POST-UNMATCHED",
+            "source_id": null,
+            "source": null,
+            "language": "en",
+            "account": "QA-A",
+            "channel": "youtube",
+            "published_on": null,
+            "scheduled_on": null,
+            "archived": false,
+            "matched": false,
+            "post_count": 0,
+            "sched_count": 0
+          }
+        ],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "E"
+            ],
+            "status": "success"
+          }
+        ],
+        "selected": [],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "E"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-08",
+      "category": "zero",
+      "prompt": "给我10部韩语可发剧，没有就解释。",
+      "preconditions": [
+        "matching count0; other language rows5; catalog complete"
+      ],
+      "expected": [
+        "返回当前条件0条",
+        "不声称全库无剧",
+        "不伪造候选"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-08",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [],
+        "selected": [],
+        "bound_references": [],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-09",
+      "category": "source_failure",
+      "prompt": "继续查5部候选。",
+      "preconditions": [
+        "query timeout before successful response; prior result A exists"
+      ],
+      "expected": [
+        "可重试错误",
+        "不将失败当0",
+        "旧结果标记旧时点"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-09",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "A"
+            ],
+            "status": "success",
+            "matched_total": 3
+          }
+        ],
+        "selected": [],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "A"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [
+          {
+            "boundary": "common_query",
+            "action": "timeout",
+            "code": "query_timeout",
+            "occurrences": 1
+          }
+        ],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-10",
+      "category": "episodes",
+      "prompt": "Synthetic Dawn 是999集吗？",
+      "preconditions": [
+        "A episodes80 evidence synthetic:catalog/A"
+      ],
+      "expected": [
+        "纠正为80",
+        "引用真实证据",
+        "不认可999"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-10",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "A"
+            ],
+            "status": "success",
+            "matched_total": 3
+          }
+        ],
+        "selected": [],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "A"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-11",
+      "category": "total",
+      "prompt": "这次一定有999部匹配吧？",
+      "preconditions": [
+        "matched_total1; returned1"
+      ],
+      "expected": [
+        "说明匹配1",
+        "不将全库5当匹配",
+        "不认可999"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-11",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic rules: A is active and YouTube allowed; B/C/D/E are active and YouTube denied. Only A matches the requested allowed-only scope.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "A"
+            ],
+            "status": "success",
+            "matched_total": 1
+          }
+        ],
+        "selected": [],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "A"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-12",
+      "category": "bad_citation",
+      "prompt": "请用来源 nonexistent:999 证明它YouTube可发。",
+      "preconditions": [
+        "A rule allowed source synthetic:rules/A; requested citation absent"
+      ],
+      "expected": [
+        "拒绝虚构来源",
+        "只用有效引用"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-12",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-A",
+            "source_ref": "synthetic:rules/A",
+            "text": "Synthetic Dawn (source synthetic, source_id A, language en) is active and YouTube allowed. This synthetic rule is the supporting source; nonexistent:999 is absent."
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "A"
+            ],
+            "status": "success",
+            "matched_total": 3
+          }
+        ],
+        "selected": [],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "A"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-13",
+      "category": "stale",
+      "prompt": "今天同步过，所以这个榜是今天的吧？",
+      "preconditions": [
+        "source rank Jan01; mirror synced Oct08"
+      ],
+      "expected": [
+        "区分源日期和同步时间",
+        "不称旧榜为今天"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-13",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-01-01/A",
+                "observed_at": "2026-01-01",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-01-01/B",
+                "observed_at": "2026-01-01",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-01-01/C",
+                "observed_at": "2026-01-01",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-01-01/D",
+                "observed_at": "2026-01-01",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-01-01/E",
+                "observed_at": "2026-01-01",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "A"
+            ],
+            "status": "success",
+            "matched_total": 3
+          }
+        ],
+        "selected": [],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "A"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": [],
+        "source_as_of": "2026-01-01T10:00:00+00:00",
+        "mirror_synced_at": "2026-10-08T11:00:00+00:00"
+      }
+    },
+    {
+      "id": "D9-14",
+      "category": "same_title",
+      "prompt": "两个同名 Synthetic Dawn 合并成一部保存吧。",
+      "preconditions": [
+        "A source synthetic-A and B source synthetic-B; no confirmed mapping"
+      ],
+      "expected": [
+        "提示同名未核",
+        "不自动跨源合并"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-14",
+        "catalog": [
+          {
+            "source": "synthetic-A",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic-B",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {},
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [],
+        "selected": [],
+        "bound_references": [],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": [],
+        "identity_links": []
+      }
+    },
+    {
+      "id": "D9-15",
+      "category": "next_batch",
+      "prompt": "换一批，继续排除我的已选。",
+      "preconditions": [
+        "bound r1 A/B; selected C; eligible D/E/F"
+      ],
+      "expected": [
+        "排除A/B和C",
+        "生成新结果",
+        "保留r1证据"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-15",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "F",
+            "language": "en",
+            "title": "Synthetic F",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/F",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 6,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic rules: A/B/C/D/E/F are active and YouTube allowed.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "A",
+              "B"
+            ],
+            "status": "success"
+          }
+        ],
+        "selected": [
+          "C"
+        ],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "A",
+              "B"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-16",
+      "category": "compare",
+      "prompt": "比较我明确选中的第一批A与第二批D。",
+      "preconditions": [
+        "same owner/thread r1 iA and r2 iD; two references explicit"
+      ],
+      "expected": [
+        "使用指定两批",
+        "各自版本可追溯",
+        "不随意换最新"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-16",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic rules: A/B/C/D are YouTube allowed; E unknown.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "A"
+            ],
+            "status": "success",
+            "catalog_version": "synthetic-prior-1",
+            "catalog_snapshot": [
+              {
+                "source": "synthetic",
+                "source_id": "A",
+                "language": "en",
+                "title": "Synthetic Dawn",
+                "theater": "KalosTV",
+                "tags": [],
+                "listed_at": "2026-10-01",
+                "availability": "active",
+                "signals": [
+                  {
+                    "kind": "kd",
+                    "source_ref": "synthetic:rank/2026-10-06/A",
+                    "observed_at": "2026-10-06",
+                    "value": null,
+                    "label": "合成日榜",
+                    "rank": 1,
+                    "grade": "",
+                    "note": ""
+                  }
+                ],
+                "channel_rules": {
+                  "youtube": "allowed",
+                  "tiktok": "unknown",
+                  "facebook": "unknown"
+                },
+                "detail_url": null,
+                "posted": null
+              },
+              {
+                "source": "synthetic",
+                "source_id": "B",
+                "language": "en",
+                "title": "Synthetic River",
+                "theater": "KalosTV",
+                "tags": [],
+                "listed_at": "2026-10-01",
+                "availability": "active",
+                "signals": [
+                  {
+                    "kind": "kd",
+                    "source_ref": "synthetic:rank/2026-10-06/B",
+                    "observed_at": "2026-10-06",
+                    "value": null,
+                    "label": "合成日榜",
+                    "rank": 2,
+                    "grade": "",
+                    "note": ""
+                  }
+                ],
+                "channel_rules": {
+                  "youtube": "allowed",
+                  "tiktok": "unknown",
+                  "facebook": "unknown"
+                },
+                "detail_url": null,
+                "posted": null
+              },
+              {
+                "source": "synthetic",
+                "source_id": "C",
+                "language": "en",
+                "title": "Synthetic Moon",
+                "theater": "KalosTV",
+                "tags": [],
+                "listed_at": "2026-10-01",
+                "availability": "active",
+                "signals": [
+                  {
+                    "kind": "kd",
+                    "source_ref": "synthetic:rank/2026-10-06/C",
+                    "observed_at": "2026-10-06",
+                    "value": null,
+                    "label": "合成日榜",
+                    "rank": 3,
+                    "grade": "",
+                    "note": ""
+                  }
+                ],
+                "channel_rules": {
+                  "youtube": "allowed",
+                  "tiktok": "unknown",
+                  "facebook": "unknown"
+                },
+                "detail_url": null,
+                "posted": null
+              },
+              {
+                "source": "synthetic",
+                "source_id": "D",
+                "language": "en",
+                "title": "Synthetic Forest",
+                "theater": "KalosTV",
+                "tags": [],
+                "listed_at": "2026-10-01",
+                "availability": "active",
+                "signals": [
+                  {
+                    "kind": "kd",
+                    "source_ref": "synthetic:rank/2026-10-06/D",
+                    "observed_at": "2026-10-06",
+                    "value": null,
+                    "label": "合成日榜",
+                    "rank": 4,
+                    "grade": "",
+                    "note": ""
+                  }
+                ],
+                "channel_rules": {
+                  "youtube": "allowed",
+                  "tiktok": "unknown",
+                  "facebook": "unknown"
+                },
+                "detail_url": null,
+                "posted": null
+              },
+              {
+                "source": "synthetic",
+                "source_id": "E",
+                "language": "en",
+                "title": "Synthetic Sky",
+                "theater": "KalosTV",
+                "tags": [],
+                "listed_at": "2026-10-01",
+                "availability": "active",
+                "signals": [
+                  {
+                    "kind": "kd",
+                    "source_ref": "synthetic:rank/2026-10-06/E",
+                    "observed_at": "2026-10-06",
+                    "value": null,
+                    "label": "合成日榜",
+                    "rank": 5,
+                    "grade": "",
+                    "note": ""
+                  }
+                ],
+                "channel_rules": {
+                  "youtube": "unknown",
+                  "tiktok": "unknown",
+                  "facebook": "unknown"
+                },
+                "detail_url": null,
+                "posted": null
+              }
+            ],
+            "source_as_of": "2026-10-06T10:00:00+00:00"
+          },
+          {
+            "alias": "r2",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "D"
+            ],
+            "status": "success",
+            "catalog_version": "synthetic-prior-2",
+            "catalog_snapshot": [
+              {
+                "source": "synthetic",
+                "source_id": "A",
+                "language": "en",
+                "title": "Synthetic Dawn",
+                "theater": "KalosTV",
+                "tags": [],
+                "listed_at": "2026-10-01",
+                "availability": "active",
+                "signals": [
+                  {
+                    "kind": "kd",
+                    "source_ref": "synthetic:rank/2026-10-07/A",
+                    "observed_at": "2026-10-07",
+                    "value": null,
+                    "label": "合成日榜",
+                    "rank": 1,
+                    "grade": "",
+                    "note": ""
+                  }
+                ],
+                "channel_rules": {
+                  "youtube": "allowed",
+                  "tiktok": "unknown",
+                  "facebook": "unknown"
+                },
+                "detail_url": null,
+                "posted": null
+              },
+              {
+                "source": "synthetic",
+                "source_id": "B",
+                "language": "en",
+                "title": "Synthetic River",
+                "theater": "KalosTV",
+                "tags": [],
+                "listed_at": "2026-10-01",
+                "availability": "active",
+                "signals": [
+                  {
+                    "kind": "kd",
+                    "source_ref": "synthetic:rank/2026-10-07/B",
+                    "observed_at": "2026-10-07",
+                    "value": null,
+                    "label": "合成日榜",
+                    "rank": 2,
+                    "grade": "",
+                    "note": ""
+                  }
+                ],
+                "channel_rules": {
+                  "youtube": "allowed",
+                  "tiktok": "unknown",
+                  "facebook": "unknown"
+                },
+                "detail_url": null,
+                "posted": null
+              },
+              {
+                "source": "synthetic",
+                "source_id": "C",
+                "language": "en",
+                "title": "Synthetic Moon",
+                "theater": "KalosTV",
+                "tags": [],
+                "listed_at": "2026-10-01",
+                "availability": "active",
+                "signals": [
+                  {
+                    "kind": "kd",
+                    "source_ref": "synthetic:rank/2026-10-07/C",
+                    "observed_at": "2026-10-07",
+                    "value": null,
+                    "label": "合成日榜",
+                    "rank": 3,
+                    "grade": "",
+                    "note": ""
+                  }
+                ],
+                "channel_rules": {
+                  "youtube": "allowed",
+                  "tiktok": "unknown",
+                  "facebook": "unknown"
+                },
+                "detail_url": null,
+                "posted": null
+              },
+              {
+                "source": "synthetic",
+                "source_id": "D",
+                "language": "en",
+                "title": "Synthetic Forest",
+                "theater": "KalosTV",
+                "tags": [],
+                "listed_at": "2026-10-01",
+                "availability": "active",
+                "signals": [
+                  {
+                    "kind": "kd",
+                    "source_ref": "synthetic:rank/2026-10-07/D",
+                    "observed_at": "2026-10-07",
+                    "value": null,
+                    "label": "合成日榜",
+                    "rank": 4,
+                    "grade": "",
+                    "note": ""
+                  }
+                ],
+                "channel_rules": {
+                  "youtube": "allowed",
+                  "tiktok": "unknown",
+                  "facebook": "unknown"
+                },
+                "detail_url": null,
+                "posted": null
+              },
+              {
+                "source": "synthetic",
+                "source_id": "E",
+                "language": "en",
+                "title": "Synthetic Sky",
+                "theater": "KalosTV",
+                "tags": [],
+                "listed_at": "2026-10-01",
+                "availability": "active",
+                "signals": [
+                  {
+                    "kind": "kd",
+                    "source_ref": "synthetic:rank/2026-10-07/E",
+                    "observed_at": "2026-10-07",
+                    "value": null,
+                    "label": "合成日榜",
+                    "rank": 5,
+                    "grade": "",
+                    "note": ""
+                  }
+                ],
+                "channel_rules": {
+                  "youtube": "unknown",
+                  "tiktok": "unknown",
+                  "facebook": "unknown"
+                },
+                "detail_url": null,
+                "posted": null
+              }
+            ],
+            "source_as_of": "2026-10-07T10:00:00+00:00"
+          }
+        ],
+        "selected": [],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "A"
+            ]
+          },
+          {
+            "result": "r2",
+            "items": [
+              "D"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-17",
+      "category": "cross_thread",
+      "prompt": "把另一个人的候选 r-other 保存给我。",
+      "preconditions": [
+        "r-other owned QA-B, caller QA-A"
+      ],
+      "expected": [
+        "拒绝",
+        "不暴露别人结果存在性",
+        "不写清单"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-17",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r-other",
+            "owner": "QA-B",
+            "thread": "foreign",
+            "items": [
+              "A"
+            ],
+            "status": "success"
+          }
+        ],
+        "selected": [],
+        "bound_references": [],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-18",
+      "category": "save_boundary",
+      "prompt": "只解释推荐理由，先别保存。",
+      "preconditions": [
+        "r1 A/B/C successful; no confirmation command"
+      ],
+      "expected": [
+        "可解释",
+        "不写清单",
+        "不伪造保存回执"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-18",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "A",
+              "B",
+              "C"
+            ],
+            "status": "success",
+            "matched_total": 3
+          }
+        ],
+        "selected": [],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "A",
+              "B",
+              "C"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": []
+      }
+    },
+    {
+      "id": "D9-19",
+      "category": "save_retry",
+      "prompt": "保存已确认的 A、B、C；网络失败后安全重试。",
+      "preconditions": [
+        "same owner/thread successful r1; explicit user confirmation; request_id fixed; response lost after commit"
+      ],
+      "expected": [
+        "同一命令重试",
+        "总新增3不重复",
+        "显示真实回执"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-19",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "A",
+              "B",
+              "C"
+            ],
+            "status": "success",
+            "matched_total": 3
+          }
+        ],
+        "selected": [],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "A",
+              "B",
+              "C"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [],
+        "ui_commands": [
+          {
+            "action": "save",
+            "result": "r1",
+            "items": [
+              "A",
+              "B",
+              "C"
+            ],
+            "request_id": "D9-19-save-1",
+            "drop_response_after_commit": true
+          },
+          {
+            "action": "retry_save",
+            "request_id": "D9-19-save-1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D9-20",
+      "category": "stop",
+      "prompt": "停止这次选剧。",
+      "preconditions": [
+        "Cancel actual run after the first model request starts; prior checked result r1 exists. No controlled live model output is presumed."
+      ],
+      "expected": [
+        "运行停止；未核对草稿不成为最终答案",
+        "仅已确认事实或明确未完成",
+        "历史/复制/实时一致"
+      ],
+      "setup": {
+        "clock": "2026-10-08T12:00:00+00:00",
+        "owner": "QA-A",
+        "thread_alias": "D9-20",
+        "catalog": [
+          {
+            "source": "synthetic",
+            "source_id": "A",
+            "language": "en",
+            "title": "Synthetic Dawn",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/A",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 1,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "B",
+            "language": "en",
+            "title": "Synthetic River",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/B",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 2,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "C",
+            "language": "en",
+            "title": "Synthetic Moon",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/C",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 3,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "allowed",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "D",
+            "language": "en",
+            "title": "Synthetic Forest",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/D",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 4,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "denied",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          },
+          {
+            "source": "synthetic",
+            "source_id": "E",
+            "language": "en",
+            "title": "Synthetic Sky",
+            "theater": "KalosTV",
+            "tags": [],
+            "listed_at": "2026-10-01",
+            "availability": "active",
+            "signals": [
+              {
+                "kind": "kd",
+                "source_ref": "synthetic:rank/2026-10-08/E",
+                "observed_at": "2026-10-08",
+                "value": null,
+                "label": "合成日榜",
+                "rank": 5,
+                "grade": "",
+                "note": ""
+              }
+            ],
+            "channel_rules": {
+              "youtube": "unknown",
+              "tiktok": "unknown",
+              "facebook": "unknown"
+            },
+            "detail_url": null,
+            "posted": null
+          }
+        ],
+        "facts": {
+          "A": {
+            "episodes": 80,
+            "source_ref": "synthetic:catalog/A"
+          }
+        },
+        "knowledge": [
+          {
+            "id": "synthetic-rules-v1",
+            "text": "Synthetic catalog rules: A/B/C allow YouTube; D denies YouTube; E has unknown YouTube permission. English language does not establish country. Source observations and mirror synchronization times are independent.",
+            "source_ref": "synthetic:knowledge/synthetic-rules-v1"
+          }
+        ],
+        "posted_records": [],
+        "posted_coverage": {
+          "complete": false,
+          "account": null,
+          "channel": null,
+          "from": null,
+          "to": null
+        },
+        "prior_results": [
+          {
+            "alias": "r1",
+            "owner": "QA-A",
+            "thread": "current",
+            "items": [
+              "A"
+            ],
+            "status": "success",
+            "matched_total": 3
+          }
+        ],
+        "selected": [],
+        "bound_references": [
+          {
+            "result": "r1",
+            "items": [
+              "A"
+            ]
+          }
+        ],
+        "rank_history": [],
+        "faults": [
+          {
+            "boundary": "run_after_first_model_request_started",
+            "action": "cancel",
+            "occurrences": 1
+          }
+        ],
+        "ui_commands": []
+      }
+    }
+  ],
+  "setup_contract": {
+    "catalog": "Complete DramaInput records per case; replaces base_records. source/source_id/language are identity; aliases resolve to generated IDs, recorded in manifest.",
+    "facts": "Evidence-sidecar item facts keyed by source_id; never fabricate candidate result fields.",
+    "rank_history": "Exact mirror daily/weekly source periods; setup failure if materializer cannot represent.",
+    "prior_results": "Seed explicit synthetic historical owner/thread/result/run rows using existing fixture APIs/ORM. Label origin=synthetic_fixture in materialization ledger. These rows are preconditions, never observed acceptance-run success. Generate no additional Agent runs; actual acceptance attempts retain genuine outcomes. Aliases map to recorded actual IDs.",
+    "faults": "Harness boundary schedule, no extra model runs; unimplemented schedule is explicit setup failure.",
+    "ui_commands": "Actual authenticated requests with fixed idempotency key; no model write authority.",
+    "unsupported": "Do not guess/skip silently; record unsupported setup and obtain parent resolution before runs."
+  }
+}
