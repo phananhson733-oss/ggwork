@@ -1,4 +1,18 @@
-# 当前发布状态（2026-10-07，PR #42 日级恢复）
+# 当前发布状态（PR #44 运营反馈代码发布）
+
+[PR #44](https://github.com/phananhson733-oss/ggwork/pull/44) 已合并并部署，产品提交 `3b55cefed66cf8436a69e74d09f6600c45ad26d7`；前端构建版本 `20261007-3b55cef`。最终 PR CI 成功，合并代码树与通过检查的 PR HEAD 相同。
+
+Gateway、Vercel 前端和已有 Trends 兼容镜像均发布成功，迁移到 `0008`。Gateway 实机源码、私有表权限、扩展加载及路由核对通过；正式前端域名已切换。反馈功能和每小时抓取仍关闭，没有写飞书或复制本机凭据。现有 collector 停止事实和计划保留，不将兼容镜像发布称为恢复采集。
+
+公开文档已去除内部业务数据，完整报告保留本地。验证细节、CI 测试时序修复及浏览器登录态限制见[发布记录](releases/2026-10-07-feishu-feedback.md)。本段是代码部署记录，不代表生产反馈已启用或真实数据刷新已验收。
+
+- `pick-deploy-guard target=gateway commit=3b55cefed66cf8436a69e74d09f6600c45ad26d7 prod_head=0007 chain_head=0008 at=2026-10-08T04:02:56Z`
+- `pick-deploy-guard target=frontend commit=3b55cefed66cf8436a69e74d09f6600c45ad26d7 at=2026-10-08T04:02:41Z`
+- `pick-deploy-guard target=cron:trends commit=3b55cefed66cf8436a69e74d09f6600c45ad26d7 prod_head=0008 chain_head=0008 at=2026-10-08T04:06:23Z`
+
+---
+
+# 历史发布状态（2026-10-07，PR #42 日级恢复）
 
 用户确认日级分阶段恢复后，PR [#42](https://github.com/phananhson733-oss/ggwork/pull/42) 已合并并发布。产品源码 `fef2b8910f019fe69be3cf5028fc1ef2005f6674`；前端版本 `20261007-fef2b89`。期间合入了主线 PR #41 的侧边栏改动，组合后的前端 check 与 2,949 项测试通过。最终 PR CI `37613904145` 和主线 CI `37616846801` 均 SUCCESS。
 
