@@ -4,7 +4,7 @@ _TEXT = frozenset({"text", "auto_number", "formula", "lookup"})
 _NUMBER = frozenset({"number", "formula", "lookup"})
 _DATE = frozenset({"datetime", "text", "formula", "lookup"})
 _LABEL = frozenset({"text", "select", "formula", "lookup"})
-REQUIRED_FIELDS = {
+REQUIRED_FIELDS_V1 = {
     "accounts": {"账号ID": _TEXT},
     "dramas": {"剧ID": _TEXT, "剧名": _TEXT, "语言": _LABEL, "剧分类": _LABEL},
     "observations": {"Post ID": _TEXT, "快照日期": _DATE, "播放量": _NUMBER},
@@ -22,7 +22,7 @@ REQUIRED_FIELDS = {
     "commission_rules": {"合作方": _LABEL, "剧场": _LABEL, "分成比例": _NUMBER, "生效日期": _DATE},
 }
 
-FIELD_NAMES = {
+FIELD_NAMES_V1 = {
     "accounts": frozenset(
         (
             "账号ID",
@@ -326,3 +326,26 @@ FIELD_NAMES = {
     ),
     "commission_rules": frozenset(("合作方", "剧场", "分成比例", "生效日期", "备注", "匹配键")),
 }
+
+
+# Reviewed feedback-v1 -> feedback-v2 additions. All are required in a new scan.
+V2_ADDITIONS = {
+    "dramas": {"选剧台剧集ID": frozenset({"text"}), "选剧台对应状态": frozenset({"select"})},
+    "cps_auto": {"关联剧集": frozenset({"link"})},
+    "cps_manual": {"关联剧集": frozenset({"link"}), "数据粒度": frozenset({"select"})},
+    "external_ids": {
+        "映射名称": frozenset({"text"}),
+        "关联剧集": frozenset({"link"}),
+        "来源系统": frozenset({"select"}),
+        "来源剧场": frozenset({"select"}),
+        "外部ID类型": frozenset({"select"}),
+        "外部ID": frozenset({"text"}),
+        "适用范围": frozenset({"text"}),
+        "确认状态": frozenset({"select"}),
+        "核对依据": frozenset({"text"}),
+        "确认人": frozenset({"user"}),
+        "确认时间": frozenset({"datetime"}),
+    },
+}
+REQUIRED_FIELDS = {key: {**REQUIRED_FIELDS_V1.get(key, {}), **V2_ADDITIONS.get(key, {})} for key in REQUIRED_FIELDS_V1 | V2_ADDITIONS}
+FIELD_NAMES = {key: FIELD_NAMES_V1.get(key, frozenset()).union(V2_ADDITIONS.get(key, {})) for key in FIELD_NAMES_V1 | V2_ADDITIONS}

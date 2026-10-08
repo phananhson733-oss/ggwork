@@ -31,8 +31,8 @@ async def test_refresh_pending_coalesces_and_can_resume_completed_job(pick_db_ur
     await PickService(tmp_path / "files").initialize(factory)
     constructions = []
 
-    def source_factory(owner, baseline):
-        constructions.append((owner, baseline))
+    def source_factory(owner, baseline, baseline_transform_version):
+        constructions.append((owner, baseline, baseline_transform_version))
         return Source()
 
     service = FeedbackSyncService(factory, owner_id="alice", enabled=True, source_factory=source_factory)
@@ -53,7 +53,9 @@ async def test_refresh_pending_coalesces_and_can_resume_completed_job(pick_db_ur
         assert len(constructions) == 1
         await service.refresh("alice", wait_seconds=2)
         assert len(constructions) == 2
-        assert len(constructions[1][1]) == 15
+        assert len(constructions[1][1]) == 16
+        assert constructions[1][2] == "feedback-v2"
+        assert constructions[0][2] is None
         with pytest.raises(PermissionError):
             await service.refresh("bob", resume_run_id=run_id)
     finally:
@@ -280,6 +282,7 @@ async def test_foreign_worker_receipt_and_expired_lease_remain_durable(blocked_s
         scan_started_at=now,
         scan_completed_at=now,
         consistency="bounded_scan",
+        transform_version="feedback-v2",
         tables=[dict(table_id=table.table_id, fields=[], records=[], complete=True, pages=1) for table in TABLES],
     )
     await repo.publish(run["id"], snapshot)

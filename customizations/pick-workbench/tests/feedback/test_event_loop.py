@@ -10,7 +10,8 @@ from engines import host_engine
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from ggwork_pick.feedback.contracts import TABLES, FeedbackSnapshot, SourceField, SourceRecord
+from ggwork_pick.feedback.contracts import TABLES_V1 as TABLES
+from ggwork_pick.feedback.contracts import FeedbackSnapshot, SourceField, SourceRecord
 from ggwork_pick.feedback.repository import FeedbackRepository, LostFeedbackLease
 from ggwork_pick.models import feedback_versions
 from ggwork_pick.service import PickService

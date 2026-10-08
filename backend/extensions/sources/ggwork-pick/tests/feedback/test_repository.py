@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 @pytest.fixture
 def payload():
-    from ggwork_pick.feedback.contracts import TABLES, FeedbackSnapshot
+    from ggwork_pick.feedback.contracts import TABLES_V1 as TABLES
+    from ggwork_pick.feedback.contracts import FeedbackSnapshot
 
     return FeedbackSnapshot.model_validate(
         {

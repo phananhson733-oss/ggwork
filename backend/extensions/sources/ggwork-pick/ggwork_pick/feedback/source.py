@@ -7,7 +7,7 @@ from typing import Protocol
 
 from pydantic import ValidationError
 
-from ggwork_pick.feedback.contracts import TABLES, FeedbackSnapshot, SourceField, SourcePage, SourceTable, TableSnapshot
+from ggwork_pick.feedback.contracts import TABLES, TRANSFORM_VERSION, FeedbackSnapshot, SourceField, SourcePage, SourceTable, TableSnapshotV2
 
 MAX_RECORDS = 50_000
 MAX_BYTES = 64 * 1024 * 1024
@@ -84,17 +84,19 @@ async def _scan(source: FeedbackSource) -> FeedbackSnapshot:
         if before_schema != after_schema:
             raise FeedbackSourceError("schema_changed")
         tables.append(
-            TableSnapshot(
+            TableSnapshotV2(
                 table_id=table.table_id,
                 fields=fields,
-                records=records,
+                records=[record.model_dump() for record in records],
                 complete=True,
                 pages=page_number,
                 revision=revision,
                 source_quality=_quality(fields, records),
             )
         )
-    return FeedbackSnapshot(scan_started_at=started, scan_completed_at=datetime.now(UTC), consistency="bounded_scan", tables=tables)
+    return FeedbackSnapshot(
+        scan_started_at=started, scan_completed_at=datetime.now(UTC), consistency="bounded_scan", tables=tables, transform_version=TRANSFORM_VERSION
+    )
 
 
 def _matching_snapshots(first: FeedbackSnapshot, second: FeedbackSnapshot) -> bool:

@@ -2,12 +2,14 @@
 
 import re
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from ggwork_pick.feedback.contracts import TABLE_BY_KEY, EvidenceRef, FeedbackSnapshot, PlaybackObservation, RevenueObservation
+from ggwork_pick.feedback.mapping import ExternalRegistry, RevenueResolution, canonical_identity, exact_text
 from ggwork_pick.repository import stamp
 
 SOURCE_ZONE = ZoneInfo("Asia/Shanghai")
@@ -109,6 +111,8 @@ class DramaFact:
     language: str | None
     theater: str | None
     tags: list[str]
+    catalog_identity: str | None = None
+    catalog_status: str | None = None
 
 
 class PostFact(PlaybackObservation):
@@ -123,16 +127,26 @@ class FeedbackDataset:
     revenue: list[RevenueObservation]
     evidence: dict[str, list[EvidenceRef]]
     warnings: list[str]
+    transform_version: str = "feedback-v1"
+    revenue_resolutions: dict[str, RevenueResolution] = dataclass_field(default_factory=dict)
 
 
 def normalize(snapshot: FeedbackSnapshot) -> FeedbackDataset:
+    v2 = snapshot.transform_version == "feedback-v2"
     dramas = {}
     for row in rows(snapshot, "dramas"):
         language = text_value(row.get("语言"))
         tags = row.get("剧分类")
         tags = [item for item in tags if isinstance(item, str)] if isinstance(tags, list) else [tags] if isinstance(tags, str) and tags else []
         dramas[row["record_id"]] = DramaFact(
-            row["record_id"], text_value(row.get("剧ID")), text_value(row.get("剧名")), LANGUAGES.get(language, language), text_value(row.get("平台")), tags
+            row["record_id"],
+            text_value(row.get("剧ID")),
+            text_value(row.get("剧名")),
+            LANGUAGES.get(language, language),
+            text_value(row.get("平台")),
+            tags,
+            exact_text(row.get("选剧台剧集ID")) if v2 else None,
+            text_value(row.get("选剧台对应状态")) if v2 else None,
         )
     grouped, by_release, external_ids, evidence, warnings = {}, {}, {}, {}, set()
     identities, observation_links, publication_links = {}, {}, {}
@@ -294,19 +308,35 @@ def normalize(snapshot: FeedbackSnapshot) -> FeedbackDataset:
             for metric_at, row in used_rows.values()
         )
     revenue = []
+    resolutions = {}
+    registry_rows = rows(snapshot, "external_ids") if v2 else []
+    registry = ExternalRegistry(registry_rows, dramas) if v2 else None
+    if v2:
+        for drama in dramas.values():
+            if canonical_identity(drama.catalog_identity) is None:
+                warnings.add("master_identity_invalid" if drama.catalog_identity else "master_identity_unconfirmed")
+            elif drama.catalog_status != "已确认":
+                warnings.add("master_identity_unconfirmed")
     for lane in ("cps_auto", "cps_manual"):
         for row in rows(snapshot, lane):
             grain = {"账号级": "account", "平台级": "platform", "平台合计": "platform", "剧目级": "drama", "单剧": "drama", "视频级": "post"}.get(
                 text_value(row.get("数据粒度")), "unknown"
             )
-            refs = set(links(row.get("剧名")))
-            external = text_value(row.get("来源剧目ID"))
-            theater = text_value(row.get("剧场"))
-            if external and theater:
-                refs |= external_ids.get(("RSBoost", theater.casefold(), external), set()) if text_value(row.get("合作方")) == "RSBoost" else set()
-            if len(refs) > 1 or not refs.issubset(dramas):
-                warnings.add("ambiguous_revenue_drama")
-            drama_id = next(iter(refs)) if len(refs) == 1 and refs.issubset(dramas) and grain == "drama" else None
+            if registry is not None:
+                resolution = registry.resolve(row, lane, grain)
+                resolutions[f"{lane}:{row['record_id']}"] = resolution
+                drama_id, attribution = resolution.drama_id, resolution.attribution
+                warnings.update(resolution.warnings)
+            else:
+                refs = set(links(row.get("剧名")))
+                external = text_value(row.get("来源剧目ID"))
+                theater = text_value(row.get("剧场"))
+                if external and theater:
+                    refs |= external_ids.get(("RSBoost", theater.casefold(), external), set()) if text_value(row.get("合作方")) == "RSBoost" else set()
+                if len(refs) > 1 or not refs.issubset(dramas):
+                    warnings.add("ambiguous_revenue_drama")
+                drama_id = next(iter(refs)) if len(refs) == 1 and refs.issubset(dramas) and grain == "drama" else None
+                attribution = "confirmed" if drama_id else "ambiguous" if refs else "unmatched"
             metric_at = moment(row.get("日期"))
             for metric, name in MONEY.items():
                 if metric == "orders" and lane == "cps_manual":
@@ -328,7 +358,7 @@ def normalize(snapshot: FeedbackSnapshot) -> FeedbackDataset:
                         drama_record_id=drama_id,
                         metric_on=metric_at.astimezone(SOURCE_ZONE).date() if metric_at else None,
                         amount_basis=text_value(row.get("订单金额口径")),
-                        attribution="confirmed" if drama_id else "ambiguous" if refs else "unmatched",
+                        attribution=attribution,
                     )
                 )
     for row in rows(snapshot, "posts"):
@@ -361,6 +391,16 @@ def normalize(snapshot: FeedbackSnapshot) -> FeedbackDataset:
                 metric_as_of=str(observation.metric_on) if observation.metric_on else None,
             )
         ]
+    if v2:
+        for key, resolution in resolutions.items():
+            if key not in evidence:
+                continue
+            evidence[key].extend(
+                EvidenceRef(table_id=TABLE_BY_KEY["external_ids"].table_id, record_id=record_id, source_lane="external_ids", attribution=resolution.attribution)
+                for record_id in resolution.mapping_ids
+            )
+            for drama_id in resolution.related_drama_ids:
+                evidence[key].extend(evidence[f"dramas:{drama_id}"])
     source_records = {(table.table_id, record.record_id): record for table in snapshot.tables for record in table.records}
     for refs in evidence.values():
         for ref in refs:
@@ -368,4 +408,4 @@ def normalize(snapshot: FeedbackSnapshot) -> FeedbackDataset:
     warnings.add("stop_refresh_after_30_days")
     if snapshot.source_quality != "complete":
         warnings.add(f"source_quality_{snapshot.source_quality}")
-    return FeedbackDataset(dramas, sorted(posts, key=lambda post: post.post_key), revenue, evidence, sorted(warnings))
+    return FeedbackDataset(dramas, sorted(posts, key=lambda post: post.post_key), revenue, evidence, sorted(warnings), snapshot.transform_version, resolutions)

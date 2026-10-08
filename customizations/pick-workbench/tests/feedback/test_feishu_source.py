@@ -68,7 +68,7 @@ def test_auth_error_has_safe_code_and_no_raw_cli_hint(stderr_only):
     assert "private" not in str(error.value)
 
 
-def test_field_allowlist_covers_all_fifteen_tables_without_credential_fields():
+def test_field_allowlist_covers_all_sixteen_tables_without_credential_fields():
     from ggwork_pick.feedback.contracts import TABLES
     from ggwork_pick.feedback.fields import FIELD_NAMES
 

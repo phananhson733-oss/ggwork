@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 
 def snapshot_payload():
-    from ggwork_pick.feedback.contracts import TABLES
+    from ggwork_pick.feedback.contracts import TABLES_V1 as TABLES
 
     return {
         "scan_started_at": "2026-10-07T12:00:00Z",
@@ -93,3 +93,17 @@ def test_output_requires_version_for_success_and_no_fake_freshness_on_pending():
         FeedbackReply(status="ok", notice="not actually versioned")
     with pytest.raises(ValidationError):
         FeedbackReply(status="ok", feedback_version_id="v1", freshness="fresh_scan", scan_started_at="2026-10-07T12:00:00Z", unknown="ignored?")
+
+
+def test_literal_historical_v1_snapshot_preserves_its_original_hash_and_shape():
+    import json
+    from pathlib import Path
+
+    from ggwork_pick.feedback.contracts import FeedbackSnapshot
+
+    payload = json.loads((Path(__file__).parent / "fixtures/snapshot_v1.json").read_text(encoding="utf-8"))
+    snapshot = FeedbackSnapshot.model_validate(payload)
+    assert snapshot.transform_version == "feedback-v1"
+    assert snapshot.content_hash() == "d73053f123e751adaab8fc92c89072a6aa2cb9ba8324a5f9a78a009a88322719"
+    assert set(snapshot.tables[0].fields[0].model_dump()) == {"field_id", "name", "field_type", "semantic_name", "properties"}
+    assert set(snapshot.tables[0].records[0].model_dump()) == {"record_id", "values"}

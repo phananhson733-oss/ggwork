@@ -20,10 +20,17 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   const credentials = JSON.parse(
     readFileSync(join(fixture!, "credentials.json"), "utf8"),
   ) as { email: string; password: string };
-  const state = (mode: string, views = 150) =>
+  const state = (
+    mode: string,
+    views = 150,
+    mapping_mode:
+      | "confirmed"
+      | "inactive_external"
+      | "pending_master" = "confirmed",
+  ) =>
     writeFileSync(
       join(fixture!, "state.json"),
-      JSON.stringify({ mode, views }),
+      JSON.stringify({ mode, views, mapping_mode }),
     );
   state("ok");
   await expect
@@ -54,12 +61,12 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   await panel.getByRole("button", { name: "刷新飞书反馈" }).click();
   await expect
     .poll(async () => (await status()).current?.tables.length)
-    .toBe(15);
-  await expect(panel).toContainText("15 / 15", { timeout: 20000 });
+    .toBe(16);
+  await expect(panel).toContainText("16 / 16", { timeout: 20000 });
   await panel.getByText("逐表状态", { exact: true }).click();
-  await expect(panel.getByRole("listitem")).toHaveCount(15);
+  await expect(panel.getByRole("listitem")).toHaveCount(16);
   await page.screenshot({
-    path: info.outputPath("feedback-15-tables.png"),
+    path: info.outputPath("feedback-16-tables.png"),
     fullPage: true,
   });
   const selectionsBefore = await (
@@ -81,7 +88,34 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   const originalResult = await (
     await context.request.get(`/api/pick/results/${first.id}`)
   ).json();
+  expect(frozen.feedback.contract_version).toBe("feedback-v1");
+  expect(frozen.feedback.items[0].evidence_kind).toBe("direct");
+  expect(frozen.feedback.items[0].metrics.identity_method).toBe(
+    "confirmed_master",
+  );
   expect(frozen.feedback.items[0].metrics.views_total).toBe("150");
+  expect(frozen.feedback.items[0].revenue).toEqual([
+    expect.objectContaining({
+      source_lane: "cps_auto",
+      grain: "drama",
+      currency: "USD",
+      metric: "commission",
+      amount: "12.34",
+    }),
+  ]);
+  expect(frozen.feedback.items[0].evidence_refs).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ source_lane: "dramas", record_id: "drama-a" }),
+      expect.objectContaining({
+        source_lane: "cps_auto",
+        record_id: "revenue-account",
+      }),
+      expect.objectContaining({
+        source_lane: "external_ids",
+        record_id: "synthetic-mapping-a",
+      }),
+    ]),
+  );
   expect(frozen.feedback.items[0].coverage.measured_posts).toBe(2);
   expect(frozen.feedback.items[0].coverage.missing_posts).toBe(1);
   expect((await context.request.get("/api/pick/selections")).ok()).toBeTruthy();
@@ -109,6 +143,9 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   const evidence = page.getByRole("region", { name: "运营反馈依据" }).last();
   await expect(evidence).toContainText("累计播放：150");
   await expect(evidence).toContainText("点赞：未知");
+  await expect(evidence).toContainText(
+    "CPS 自动明细 · 单剧 · 分成收益：12.34 USD",
+  );
   await expect(evidence).toContainText("已测播放 2 条 · 缺失 1 条");
   await expect(
     page.getByRole("region", { name: "运营反馈版本" }).last(),
@@ -145,6 +182,77 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   await expect(
     page.getByRole("region", { name: "运营反馈依据" }).last(),
   ).toContainText("累计播放：150");
+  state("ok", 900, "inactive_external");
+  const revokedResponse = await context.request.post(
+    "/api/pick/e2e/candidate",
+    { headers },
+  );
+  expect(revokedResponse.status()).toBe(200);
+  const revoked = await revokedResponse.json();
+  const revokedNotes = await notes(revoked.id);
+  expect(revokedNotes.feedback.feedback_version_id).not.toBe(
+    next.feedback.feedback_version_id,
+  );
+  expect(revokedNotes.feedback.items[0].metrics.identity_status).toBe(
+    "confirmed",
+  );
+  expect(revokedNotes.feedback.items[0].metrics.views_total).toBe("900");
+  expect(revokedNotes.feedback.items[0].revenue).toEqual([]);
+  expect(revokedNotes.feedback.items[0].warnings).toContain(
+    "external_mapping_inactive",
+  );
+  expect(revokedNotes.feedback.items[0].evidence_refs).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        source_lane: "external_ids",
+        record_id: "synthetic-mapping-a",
+        attribution: "ambiguous",
+      }),
+    ]),
+  );
+  expect((await notes(first.id)).feedback).toEqual(frozen.feedback);
+
+  state("ok", 900, "pending_master");
+  const unmatchedResponse = await context.request.post(
+    "/api/pick/e2e/candidate",
+    { headers },
+  );
+  expect(unmatchedResponse.status()).toBe(200);
+  const unmatched = await unmatchedResponse.json();
+  const unmatchedNotes = await notes(unmatched.id);
+  expect(unmatchedNotes.feedback.feedback_version_id).not.toBe(
+    revokedNotes.feedback.feedback_version_id,
+  );
+  expect(unmatchedNotes.feedback.items[0].evidence_kind).toBe("unknown");
+  expect(unmatchedNotes.feedback.items[0].metrics.identity_status).toBe(
+    "ambiguous",
+  );
+  expect(unmatchedNotes.feedback.items[0].metrics.views_total).toBeNull();
+  expect(unmatchedNotes.feedback.items[0].coverage.posts).toBe(0);
+  expect(unmatchedNotes.feedback.items[0].revenue).toEqual([]);
+  expect(unmatchedNotes.feedback.items[0].warnings).toContain(
+    "master_identity_unconfirmed",
+  );
+  expect((await notes(first.id)).feedback).toEqual(frozen.feedback);
+  const afterMappingChange = await (
+    await context.request.get(`/api/pick/results/${first.id}`)
+  ).json();
+  expect(afterMappingChange.items).toEqual(originalResult.items);
+  expect(afterMappingChange.conditions).toEqual(originalResult.conditions);
+  await page.reload();
+  await page.getByRole("button", { name: "查看来源候选" }).last().click();
+  const historicalEvidence = page
+    .getByRole("region", { name: "运营反馈依据" })
+    .last();
+  await expect(historicalEvidence).toContainText("累计播放：150");
+  await expect(historicalEvidence).toContainText(
+    "CPS 自动明细 · 单剧 · 分成收益：12.34 USD",
+  );
+  await page.screenshot({
+    path: info.outputPath("feedback-mapping-change-frozen.png"),
+    fullPage: true,
+  });
+
   state("partial", 900);
   await page.goto("/workspace/pick-data?tab=imports");
   await panel.getByRole("button", { name: "刷新飞书反馈" }).click();
