@@ -31,10 +31,11 @@ CHAIN_LIMIT = 100
 class CatalogRefusal(ValueError):
     """A business refusal, optionally scoped after the selected catalog was read."""
 
-    def __init__(self, message: str, *, catalog_batch_id: str | None = None, data_as_of: dict | None = None):
+    def __init__(self, message: str, *, catalog_batch_id: str | None = None, data_as_of: dict | None = None, query_failure: QueryFailure | None = None):
         super().__init__(message)
         self.catalog_batch_id = catalog_batch_id
         self.data_as_of = copy.deepcopy(data_as_of)
+        self.query_failure = query_failure
 
 
 class PostedDataUnavailable(CatalogRefusal):
@@ -454,7 +455,12 @@ class SelectionService:
             return matching_rows(rows, conditions, excluded)
         except ValueError as exc:
             refused = PostedDataUnavailable if isinstance(exc, PostedDataUnavailable) else CatalogRefusal
-            raise refused(str(exc), catalog_batch_id=pin.catalog_id, data_as_of=await self._pin_data_as_of(pin)) from exc
+            raise refused(
+                str(exc),
+                catalog_batch_id=pin.catalog_id,
+                data_as_of=await self._pin_data_as_of(pin),
+                query_failure=exc if isinstance(exc, QueryFailure) else None,
+            ) from exc
 
     async def query(
         self,
