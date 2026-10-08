@@ -54,3 +54,11 @@ real editing authenticator, exercising session/CSRF pairing and constrained toke
 use without injecting a synthetic principal. Include this checkout's `backend`,
 `backend/packages/harness`, and `backend/packages/extension-api` on `PYTHONPATH`
 when using another checkout's Python environment.
+
+Online file delivery uses the [bounded transient relay](docs/relay.md). Browser
+uploads report progress only after the selected Mac acknowledges each chunk;
+received bytes still require native media verification. Completed outputs expose
+an authenticated same-origin streaming URL supporting a single HTTP byte Range,
+plus an access preflight to distinguish missing files from an offline Mac. Both
+sides must remain online. Deploy one Gateway process/replica; restart requires a
+fresh transfer. Media bytes are never written to Gateway storage.

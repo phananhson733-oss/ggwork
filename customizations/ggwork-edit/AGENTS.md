@@ -9,3 +9,5 @@
 - Delivered result metadata is immutable. A stop fence blocks publication until a real stopped acknowledgment. Offline/expired lease alone never asserts process termination.
 - Native code may import lightweight contracts. Keep host imports inside extension install; native workers never receive host/model credentials.
 - Tests use real routes/services and disposable databases. Synthetic result reports prove protocol behavior, not decoding or native process exit. Real media/native acceptance remains a separate gate.
+- Relay owns transient RAM only (`relay.py`, `relay_routes.py`): one outstanding <=1 MiB command per transfer, exact offsets and native ACK backpressure. Keep the one-Gateway-process/replica deployment restriction explicit; no fake restart resume or disk spool.
+- Relay byte endpoints resolve immutable task artifact/hash/size metadata, never a caller path. Native `worker/relay_client.py` runs authorized receive/read callbacks off its event loop; local grants/index/identity checks remain native responsibilities. Keep it independent of rendering/control polling.
