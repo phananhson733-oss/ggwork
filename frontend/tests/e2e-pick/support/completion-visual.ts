@@ -11,12 +11,16 @@ import {
 } from "@playwright/test";
 
 /** Measured DOM colors, not an accessibility certification or screen-reader run. */
-export async function visualMeasurements(page: Page) {
-  return page.evaluate(() => {
+export async function visualMeasurements(
+  page: Page,
+  rootSelector: string | null = null,
+) {
+  return page.evaluate((selector) => {
     const heading = [...document.querySelectorAll("h1")].find(
       (h) => h.textContent === "排期草稿",
     );
     const root =
+      (selector ? document.querySelector(selector) : null) ??
       heading?.closest("section") ??
       document.querySelector("main") ??
       document.body;
@@ -71,6 +75,7 @@ export async function visualMeasurements(page: Page) {
       const style = getComputedStyle(element);
       if (
         !element.checkVisibility() ||
+        !!element.closest('[aria-hidden="true"]') ||
         !rect.width ||
         !rect.height ||
         style.visibility === "hidden" ||
@@ -105,8 +110,20 @@ export async function visualMeasurements(page: Page) {
           )
             .trim()
             .slice(0, 100),
-          width: +rect.width.toFixed(1),
-          height: +rect.height.toFixed(1),
+          width: +(
+            element.matches('input[type="checkbox"], input[type="radio"]')
+              ? ((
+                  element as HTMLInputElement
+                ).labels?.[0]?.getBoundingClientRect().width ?? rect.width)
+              : rect.width
+          ).toFixed(1),
+          height: +(
+            element.matches('input[type="checkbox"], input[type="radio"]')
+              ? ((
+                  element as HTMLInputElement
+                ).labels?.[0]?.getBoundingClientRect().height ?? rect.height)
+              : rect.height
+          ).toFixed(1),
           borderContrast:
             parseFloat(style.borderTopWidth) > 0
               ? +ratio(
@@ -116,19 +133,45 @@ export async function visualMeasurements(page: Page) {
               : null,
         });
     }
+    const focused = document.activeElement;
+    const focusedStyle = focused ? getComputedStyle(focused) : null;
+    const focus =
+      focused &&
+      focusedStyle &&
+      focused.matches("button,a,input,select,textarea")
+        ? {
+            tag: focused.tagName,
+            outlineStyle: focusedStyle.outlineStyle,
+            outlineWidth: focusedStyle.outlineWidth,
+            outlineOffset: focusedStyle.outlineOffset,
+            outlineColor: focusedStyle.outlineColor,
+            outlineContrast: +ratio(
+              over(
+                rgba(focusedStyle.outlineColor),
+                background(focused.parentElement ?? focused),
+              ),
+              background(focused.parentElement ?? focused),
+            ).toFixed(2),
+            borderContrast: +ratio(
+              over(rgba(focusedStyle.borderTopColor), background(focused)),
+              background(focused),
+            ).toFixed(2),
+          }
+        : null;
     return {
       innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
       devicePixelRatio,
       text,
       controls,
+      focus,
       limitations: [
         "Gradient/image backgrounds and opacity are not fully composited",
         "Border contrast does not establish complete control or focus contrast",
         "Accessibility tree is not a screen reader",
       ],
     };
-  });
+  }, rootSelector);
 }
 
 /** Native Chromium tab zoom, verified by chrome.tabs.getZoom and layout metrics.
@@ -216,9 +259,87 @@ export async function actualBrowserZoom(
       path: info.outputPath("plan-native-200-percent.png"),
       fullPage: true,
     });
-    return { zoom, before, after };
+    await page.getByRole("button", { name: /编辑 / }).first().focus();
+    await page.keyboard.press("Enter");
+    for (const label of [
+      "发布账号",
+      "发布渠道",
+      "当地发布时间",
+      "发布文案",
+      "个人备注",
+    ]) {
+      const control = page.getByLabel(label);
+      await control.scrollIntoViewIfNeeded();
+      await expect(control).toBeVisible();
+      const box = await control.boundingBox();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(after.innerWidth);
+    }
+    await page.screenshot({
+      path: info.outputPath("plan-native-200-percent-editor.png"),
+      fullPage: true,
+    });
+    return { zoom, before, after, all_row_fields_reachable: true };
   } finally {
     await context?.close();
     rmSync(extension, { recursive: true, force: true });
+  }
+}
+
+/** Bounded opt-in native VoiceOver observation, orchestrated through CUA.
+ * The test keeps ONLY its disposable headed browser and loopback servers alive.
+ */
+export async function voiceoverSession(
+  source: BrowserContext,
+  url: string,
+  info: TestInfo,
+) {
+  const { existsSync } = await import("node:fs");
+  const marker = join(
+    process.env.PICK_COMPLETION_OUTPUT!,
+    "voiceover-ready.json",
+  );
+  const done = join(process.env.PICK_COMPLETION_OUTPUT!, "voiceover-done");
+  const context = await chromium.launchPersistentContext("", {
+    headless: false,
+    executablePath: process.env.PICK_COMPLETION_CHROMIUM,
+    viewport: { width: 1280, height: 900 },
+    args: ["--window-position=30,30"],
+  });
+  try {
+    await context.route("**/*", (route) =>
+      new URL(route.request().url()).hostname === "127.0.0.1"
+        ? route.continue()
+        : route.abort(),
+    );
+    await context.addCookies(await source.cookies());
+    const page = context.pages()[0] ?? (await context.newPage());
+    await page.goto(url);
+    await expect(
+      page.getByRole("heading", { name: "排期草稿", exact: true }),
+    ).toBeVisible();
+    await page.bringToFront();
+    writeFileSync(
+      marker,
+      JSON.stringify({
+        url,
+        executable: process.env.PICK_COMPLETION_CHROMIUM,
+        stop_file: done,
+        maximum_hold_seconds: 300,
+      }),
+    );
+    const deadline = Date.now() + 300_000;
+    while (!existsSync(done) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    await page.screenshot({
+      path: info.outputPath("voiceover-page-final.png"),
+      fullPage: true,
+    });
+    expect(
+      existsSync(done),
+      "Native operator must restore VoiceOver OFF and write completion marker",
+    ).toBe(true);
+  } finally {
+    await context.close();
   }
 }

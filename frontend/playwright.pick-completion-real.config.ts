@@ -6,17 +6,21 @@ const fixture = JSON.parse(
   readFileSync(process.env.PICK_COMPLETION_FIXTURE!, "utf8"),
 );
 if (
-  fixture.mode !== "source" ||
+  !["source", "installed"].includes(fixture.mode) ||
   fixture.origin !== "synthetic_scripted" ||
   new URL(fixture.frontend_url).hostname !== "127.0.0.1"
 )
-  throw new Error("Isolated source harness required");
+  throw new Error("Isolated source/installed harness required");
 export default defineConfig({
   testDir: "./tests/e2e-pick",
-  testMatch: "completion-real.spec.ts",
+  testMatch:
+    process.env.PICK_COMPLETION_PHASE === "review"
+      ? "completion-review-real.spec.ts"
+      : "completion-real.spec.ts",
   workers: 1,
   retries: 0,
-  timeout: 240_000,
+  timeout: process.env.PICK_COMPLETION_VOICEOVER === "1" ? 420_000 : 240_000,
+  expect: { timeout: 15_000 },
   outputDir: `${process.env.PICK_COMPLETION_OUTPUT}/artifacts`,
   reporter: [
     ["list"],
@@ -38,11 +42,5 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     trace: "off",
     screenshot: "only-on-failure",
-  },
-  webServer: {
-    command: `pnpm exec next dev --webpack --hostname 127.0.0.1 --port ${process.env.PICK_COMPLETION_FRONTEND_PORT}`,
-    url: fixture.frontend_url,
-    reuseExistingServer: false,
-    timeout: 180_000,
   },
 });

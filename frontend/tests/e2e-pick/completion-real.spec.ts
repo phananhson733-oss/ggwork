@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Dialog } from "@playwright/test";
 import Papa from "papaparse";
 
 import type { PlanRow } from "@/core/pick/completion-types";
@@ -9,11 +9,12 @@ import type { PlanRow } from "@/core/pick/completion-types";
 import {
   actualBrowserZoom,
   visualMeasurements,
+  voiceoverSession,
 } from "./support/completion-visual";
 
 // Actual HTTP and ordinary cookies throughout. This is a scripted model run,
 // never a provider-model acceptance run and never a mocked Gateway response.
-test("source Gateway: checked chat to saved selections and revision-bound execution CSV", async ({
+test("real Gateway: checked chat to saved selections and revision-bound execution CSV", async ({
   page,
   context,
 }, info) => {
@@ -21,6 +22,41 @@ test("source Gateway: checked chat to saved selections and revision-bound execut
     readFileSync(process.env.PICK_COMPLETION_FIXTURE!, "utf8"),
   );
   expect(fixture.origin).toBe("synthetic_scripted");
+  const screenMeasurements: {
+    screen: string;
+    theme: string;
+    width: number;
+    scope: string;
+    measurement: Awaited<ReturnType<typeof visualMeasurements>>;
+  }[] = [];
+  const captureScreen = async (screen: string) => {
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((value) => {
+        localStorage.setItem("theme", value);
+        document.documentElement.classList.toggle("dark", value === "dark");
+      }, theme);
+      for (const width of [320, 768, 1280, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.screenshot({
+          path: info.outputPath(`${screen}-${theme}-${width}.png`),
+          fullPage: true,
+          animations: "disabled",
+        });
+        screenMeasurements.push({
+          screen,
+          theme,
+          width,
+          scope: "business main element; inherited controls included",
+          measurement: await visualMeasurements(page, "main"),
+        });
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.evaluate(() => {
+      localStorage.setItem("theme", "light");
+      document.documentElement.classList.remove("dark");
+    });
+  };
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const outside: string[] = [];
   await context.route("**/*", async (route) => {
@@ -38,6 +74,14 @@ test("source Gateway: checked chat to saved selections and revision-bound execut
   const me = await (await context.request.get("/api/v1/auth/me")).json();
   expect(me.system_role).toBe("user");
   expect(me.id).toBe(fixture.owner);
+  if (fixture.tls) {
+    await page.goto("/workspace/pick-data");
+    await expect(
+      page.getByRole("heading", { name: "选剧资料", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("board-header")).toContainText("镜像 v");
+    await captureScreen("data");
+  }
   const csrf = (await context.cookies()).find(
     (cookie) => cookie.name === "csrf_token",
   )!.value;
@@ -100,10 +144,7 @@ test("source Gateway: checked chat to saved selections and revision-bound execut
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
     final.content,
   );
-  await page.screenshot({
-    path: info.outputPath("chat-checked.png"),
-    fullPage: true,
-  });
+  await captureScreen("chat-checked");
   await page.reload();
   await expect(
     page.getByText("已核对：本次回答依据已确认。", { exact: true }),
@@ -120,6 +161,7 @@ test("source Gateway: checked chat to saved selections and revision-bound execut
   await expect(page).toHaveURL(/\/workspace\/picks$/);
   await page.reload();
   await expect(page.getByText("清单共 3 部", { exact: true })).toBeVisible();
+  await captureScreen("selections");
   for (const title of titles)
     await page
       .getByRole("checkbox", { name: `加入排期：${title}`, exact: true })
@@ -210,7 +252,6 @@ test("source Gateway: checked chat to saved selections and revision-bound execut
     .click();
   await page.getByRole("button", { name: "保存计划", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("已保存版本");
-  await page.getByRole("button", { name: "核对执行条件" }).click();
   // A current source change makes exactly one of the three complete rows unknown.
   const unknown = structuredClone(source);
   unknown[2]!.channel_rules.youtube = "unknown";
@@ -285,7 +326,16 @@ test("source Gateway: checked chat to saved selections and revision-bound execut
     expect(row.plan_version).toBe(String(receipt.plan_version));
     expect(row.timezone).toBe("America/Chicago");
   }
-  const measurements = [];
+  const measurements: {
+    theme: string;
+    width: number;
+    measurements: Awaited<ReturnType<typeof visualMeasurements>>;
+  }[] = [];
+  const focusMeasurements: {
+    theme: string;
+    label: string;
+    measurement: Awaited<ReturnType<typeof visualMeasurements>>["focus"];
+  }[] = [];
   for (const theme of ["light", "dark"]) {
     await page.evaluate((value) => {
       localStorage.setItem("theme", value);
@@ -331,7 +381,78 @@ test("source Gateway: checked chat to saved selections and revision-bound execut
         measurements: await visualMeasurements(page),
       });
     }
+    await page.setViewportSize({ width: 320, height: 900 });
+    const firstEdit = page.getByRole("button", { name: /编辑 / }).first();
+    await firstEdit.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByLabel("发布账号", { exact: true })).toBeFocused();
+    for (const label of [
+      "发布账号",
+      "发布渠道",
+      "当地发布时间",
+      "发布文案",
+      "个人备注",
+    ]) {
+      await page.getByLabel(label).focus();
+      await page.screenshot({
+        path: info.outputPath(`focus-${theme}-${label}.png`),
+        animations: "disabled",
+      });
+      focusMeasurements.push({
+        theme,
+        label,
+        measurement: (await visualMeasurements(page)).focus,
+      });
+    }
+    await page.keyboard.press("Escape");
+    await expect(firstEdit).toBeFocused();
+    await page.screenshot({ path: info.outputPath(`focus-${theme}-return-button.png`), animations: "disabled" });
+    focusMeasurements.push({
+      theme,
+      label: "row edit button",
+      measurement: (await visualMeasurements(page)).focus,
+    });
+    await page.getByLabel("计划名称", { exact: true }).focus();
+    await page.screenshot({ path: info.outputPath(`focus-${theme}-plan-title.png`), animations: "disabled" });
+    focusMeasurements.push({
+      theme,
+      label: "plan title",
+      measurement: (await visualMeasurements(page)).focus,
+    });
+    await firstEdit.focus();
+    await page.keyboard.press("Enter");
+    const localTime = page.getByLabel(/当地发布时间/);
+    await localTime.fill("2026-03-08T02:30");
+    await expect(localTime).toHaveAttribute("aria-invalid", "true");
+    await expect(
+      page.getByRole("button", { name: "保存计划", exact: true, includeHidden: true }),
+    ).toBeDisabled();
+    await localTime.focus();
+    await page.screenshot({
+      path: info.outputPath(`focus-${theme}-invalid-dst.png`),
+      animations: "disabled",
+    });
+    focusMeasurements.push({
+      theme,
+      label: "invalid DST native datetime",
+      measurement: (await visualMeasurements(page)).focus,
+    });
+    await page.keyboard.press("Escape");
+    const discard = async (dialog: Dialog) => {
+      expect(dialog.type()).toBe("beforeunload");
+      await dialog.accept();
+    };
+    page.on("dialog", discard);
+    await page.reload();
+    page.off("dialog", discard);
+    await expect(page.getByLabel("计划名称", { exact: true })).toHaveValue(
+      "保留本地修改的长计划名称 Synthetic conflict draft",
+    );
   }
+  writeFileSync(
+    info.outputPath("focus-measurements.json"),
+    JSON.stringify(focusMeasurements, null, 2),
+  );
   await page.setViewportSize({ width: 320, height: 900 });
   const editButton = page.getByRole("button", { name: /编辑 / }).first();
   await editButton.focus();
@@ -359,12 +480,39 @@ test("source Gateway: checked chat to saved selections and revision-bound execut
     info.outputPath("native-zoom.json"),
     JSON.stringify(zoom, null, 2),
   );
+  // Real saved draft read failure: no substituted JSON or fake success response.
+  const failedRead = await context.newPage();
+  let blockRead = true;
+  await failedRead.route(`**${planPath}`, (route) =>
+    blockRead && route.request().method() === "GET"
+      ? route.abort("failed")
+      : route.continue(),
+  );
+  await failedRead.goto(page.url());
+  await expect(
+    failedRead.getByText("排期读取失败或无权访问。", { exact: true }),
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(failedRead.getByText(/共 0 行/)).toHaveCount(0);
+  blockRead = false;
+  await failedRead
+    .getByRole("button", { name: "重新读取", exact: true })
+    .click();
+  await expect(failedRead.getByLabel("计划名称", { exact: true })).toHaveValue(
+    "保留本地修改的长计划名称 Synthetic conflict draft",
+  );
+  await failedRead.close();
+  if (process.env.PICK_COMPLETION_VOICEOVER === "1")
+    await voiceoverSession(context, page.url(), info);
+  writeFileSync(
+    info.outputPath("screen-measurements.json"),
+    JSON.stringify(screenMeasurements, null, 2),
+  );
   expect(outside).toEqual([]);
   writeFileSync(
-    info.outputPath("source-evidence.json"),
+    info.outputPath("journey-evidence.json"),
     JSON.stringify(
       {
-        mode: "source",
+        mode: fixture.mode,
         ordinary_user: true,
         real_gateway: true,
         postgres: true,
