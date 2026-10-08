@@ -864,3 +864,11 @@ PR #47 产品提交 `638f3ae18a44f2d9496234a689c380d9a95fc0b2` 已部署到gatew
 - `pick-deploy-guard target=frontend commit=638f3ae18a44f2d9496234a689c380d9a95fc0b2 at=2026-10-08T09:04:18Z`
 
 初始映射仍待确认，生产反馈及调度仍关闭；已登录页面确认关闭状态，未触发生产反馈或模型请求。原有RealShort feed 503另行记录，不将该来源宣称为健康。现有采集器、停止标记及计划保持，迁移仍为0008；本次没有cron兼容镜像更新。详见[发布记录](releases/2026-10-08-feedback-identity-mapping.md)及[映射维护说明](feedback-identity-mapping.md)。
+
+## 2026-10-08 飞书反馈生产启用
+
+用户明确授权后，已将生产反馈和小时调度启用并绑定现有已授权owner。仅变更三个反馈配置项，配置部署 `6bbb7959-91d6-44a2-9769-a6dcd87f0319` 成功；gateway源代码与此前映射发布一致，迁移仍为0008，未部署前端或修改采集器。
+
+- `pick-deploy-guard target=gateway commit=7f462e86f1ff4f4ace6f7cc8be05dcf96f55c7ef prod_head=0008 chain_head=0008 at=2026-10-08T09:51:21Z`
+
+首个真实scheduled任务于09:55:10 UTC启动、09:59:12 UTC成功，16表完整发布。生产反馈分析工具受控调用返回该版本的非空题材分析及来源证据，地区查询正确拒绝；授权owner状态接口200、其他账户403、未登录401，健康检查正常。来源质量partial和待确认映射继续如实保留。后续小时执行尚未观察，没有调用真实LLM或创建候选。详见[生产启用记录](releases/2026-10-08-feedback-production-activation.md)。
