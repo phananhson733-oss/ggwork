@@ -1,5 +1,6 @@
 """Authenticated UI operations. The Agent never receives this write authority."""
 
+import asyncio
 import csv
 import io
 import logging
@@ -168,9 +169,22 @@ def build_router(service):
 
     @router.post("/query", response_model=QueryResponse)
     async def common_query(body: CommonQuery, request: Request):
-        repo = repository(request)
+        loop = asyncio.get_running_loop()
+        started = getattr(request.state, "pick_query_started", loop.time())
+        deadline = min(getattr(request.state, "pick_query_deadline", started + 10), started + body.budget_ms / 1000)
+        request.state.pick_query_deadline = deadline
         try:
-            return await service.common_query(repo).query(body)
+            if loop.time() >= deadline:
+                raise TimeoutError
+            async with asyncio.timeout_at(deadline):
+                repo = repository(request)
+                result = await service.common_query(repo).query(body, deadline=deadline)
+                content = result.model_dump_json()
+                if loop.time() >= deadline:
+                    raise TimeoutError
+                return Response(content, media_type="application/json")
+        except TimeoutError:
+            raise HTTPException(504, CompletionError(code="query_timeout", message="查询超过时限，请缩小范围后重试", retryable=True).model_dump()) from None
         except QueryFailure as exc:
             status = {
                 "invalid_query": 422,

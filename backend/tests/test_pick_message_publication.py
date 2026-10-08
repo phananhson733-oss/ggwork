@@ -226,7 +226,7 @@ async def test_real_lead_factory_enforces_publication_boundary(tmp_path, monkeyp
         bridge,
         manager,
         record,
-        ctx=RunContext(checkpointer=saver, event_store=events, app_config=app_config, extensions=registry.build(), execution_timeout_seconds=5),
+        ctx=RunContext(checkpointer=saver, event_store=events, app_config=app_config, extensions=registry.build(), execution_timeout_seconds=25),
         agent_factory=lambda config: assemble_lead_agent(config, app_config=app_config),
         graph_input={"messages": [HumanMessage(content="数量", id="h")]},
         config={"configurable": {"thread_id": record.thread_id}},
@@ -513,3 +513,103 @@ async def test_replayed_provider_callbacks_preserve_usage_without_duplicate_fina
     assert journal.get_completion_data()["total_tokens"] == 13
     assert journal.get_completion_data()["last_ai_message"] == "尚未完成核对。"
     await journal.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("total", [0.5, 20.0, 20.08])
+async def test_short_or_exhausted_ordinary_phase_publishes_incomplete_without_leaking(tmp_path, total):
+    class CancellableModel(PausedModel):
+        stopped: Any = None
+
+        async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
+            try:
+                async for chunk in super()._astream(messages, stop, run_manager, **kwargs):
+                    yield chunk
+            finally:
+                self.stopped.set()
+
+    engine = create_async_engine("sqlite+aiosqlite://", json_serializer=_json_serializer)
+    service = PickService(tmp_path / "pick")
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    registry = ExtensionRegistry()
+    with registry.attributed_to("synthetic-pick"):
+        registry.task_lifecycle(SeededLifecycle(service))
+    model = CancellableModel(entered=asyncio.Event(), stopped=asyncio.Event())
+    saver = InMemorySaver()
+    graph = create_agent(model=model, tools=[], middleware=with_pick_publication_boundary([PickModelGate()]), checkpointer=saver)
+    manager, events, bridge = RunManager(), MemoryRunEventStore(), MemoryStreamBridge(queue_maxsize=2000)
+    record = await manager.create("reserve")
+    started = asyncio.get_running_loop().time()
+    await asyncio.wait_for(
+        run_agent(
+            bridge,
+            manager,
+            record,
+            ctx=RunContext(checkpointer=saver, event_store=events, extensions=registry.build(), execution_timeout_seconds=total),
+            agent_factory=lambda config: graph,
+            graph_input={"messages": [HumanMessage(content="数量")]},
+            config={"configurable": {"thread_id": record.thread_id}},
+            stream_modes=["messages-tuple", "values", "updates"],
+        ),
+        2,
+    )
+    assert asyncio.get_running_loop().time() - started < 1
+    assert model.entered.is_set() == (total > 20)
+    assert model.stopped.is_set() == (total > 20)
+    rows = await events.list_messages(record.thread_id)
+    frames = [frame async for frame in bridge.subscribe(record.run_id) if hasattr(frame, "data")]
+    final = (await graph.aget_state({"configurable": {"thread_id": record.thread_id}})).values["messages"][-1]
+    assert final.additional_kwargs["pick_completion"]["status"] == "incomplete"
+    assert "999部" not in str(rows) + str(frames) + str(final)
+    assert [row["content"]["content"] for row in rows if row["content"]["type"] == "ai"] == [final.content]
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["reserve", "expired"])
+async def test_one_correction_may_use_reserve_but_never_publish_after_total_deadline(tmp_path, monkeypatch, phase):
+    import time
+    from types import SimpleNamespace
+
+    task_seen = []
+    clock = [None]
+    monkeypatch.setattr("ggwork_pick.context.time", SimpleNamespace(monotonic=lambda: time.monotonic() if clock[0] is None else clock[0]))
+
+    class Lifecycle(SeededLifecycle):
+        async def on_task_start(self, app_store, task_store, info):
+            await super().on_task_start(app_store, task_store, info)
+            task_seen.append(task_store.get(PickTask))
+
+    class ExpiredCorrection(ScriptedModel):
+        async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
+            self.inputs.append(messages)
+            if len(self.inputs) == 2:
+                clock[0] = task_seen[0].deadline + (0.01 if phase == "expired" else -5)
+            yield ChatGenerationChunk(message=AIMessageChunk(content="本次查询符合条件总数为999部。" if len(self.inputs) == 1 else "本次查询符合条件总数为1部。"))
+
+    engine = create_async_engine("sqlite+aiosqlite://", json_serializer=_json_serializer)
+    service = PickService(tmp_path / "pick")
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    registry = ExtensionRegistry()
+    with registry.attributed_to("synthetic-pick"):
+        registry.task_lifecycle(Lifecycle(service))
+    model = ExpiredCorrection()
+    saver = InMemorySaver()
+    graph = create_agent(model=model, tools=[], middleware=with_pick_publication_boundary([PickModelGate()]), checkpointer=saver)
+    manager, events, bridge = RunManager(), MemoryRunEventStore(), MemoryStreamBridge(queue_maxsize=2000)
+    record = await manager.create("expired-correction")
+    await run_agent(
+        bridge,
+        manager,
+        record,
+        ctx=RunContext(checkpointer=saver, event_store=events, extensions=registry.build(), execution_timeout_seconds=21),
+        agent_factory=lambda config: graph,
+        graph_input={"messages": [HumanMessage(content="数量")]},
+        config={"configurable": {"thread_id": record.thread_id}},
+        stream_modes=["messages-tuple", "values"],
+    )
+    assert len(model.inputs) == 2
+    final = (await graph.aget_state({"configurable": {"thread_id": record.thread_id}})).values["messages"][-1]
+    assert final.additional_kwargs["pick_completion"]["status"] == ("incomplete" if phase == "expired" else "confirmed")
+    assert final.additional_kwargs["pick_completion"]["correction_count"] == 1
+    await engine.dispose()

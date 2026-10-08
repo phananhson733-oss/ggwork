@@ -79,6 +79,17 @@ class PickTask:
     def repin(self, pin: Pin) -> None:
         self.catalog_id, self.knowledge_id, self.mirror_version, self.data_as_of = pin
 
+    @property
+    def ordinary_deadline(self) -> float:
+        """Finalization owns the last twenty seconds inside the effective total."""
+        return self.deadline - 20.0
+
+    def ordinary_remaining(self):
+        remaining = self.ordinary_deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("本轮选剧已进入收尾阶段")
+        return remaining
+
     def remaining(self):
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
@@ -118,12 +129,12 @@ class PickTask:
             return repo
 
 
-def task_from_runtime(runtime):
+def task_from_runtime(runtime, *, ordinary=True):
     store = task_store_from_runtime(runtime)
     task = store.get(PickTask) if store is not None else None
     if task is None or task.info.kind != "lead":
         raise ValueError("选剧工具只能在受控的个人对话运行中调用")
-    task.remaining()
+    task.ordinary_remaining() if ordinary else task.remaining()
     return task
 
 
