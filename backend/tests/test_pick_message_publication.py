@@ -613,3 +613,51 @@ async def test_one_correction_may_use_reserve_but_never_publish_after_total_dead
     assert final.additional_kwargs["pick_completion"]["status"] == ("incomplete" if phase == "expired" else "confirmed")
     assert final.additional_kwargs["pick_completion"]["correction_count"] == 1
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["pick_query_data", "web_fetch"])
+async def test_actual_graph_stops_business_and_plugin_work_before_finalization(tmp_path, tool_name):
+    from ggwork_pick.middleware import PickToolGate
+    from langchain_core.tools import tool
+
+    entered, stopped = asyncio.Event(), asyncio.Event()
+
+    @tool(tool_name)
+    async def slow_read() -> str:
+        """A cancellable external read in the isolated test runtime."""
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+
+    engine = create_async_engine("sqlite+aiosqlite://", json_serializer=_json_serializer)
+    service = PickService(tmp_path / "pick")
+    await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
+    registry = ExtensionRegistry()
+    with registry.attributed_to("synthetic-pick"):
+        registry.task_lifecycle(SeededLifecycle(service))
+    model = ScriptedModel(replies=[AIMessage(content="", tool_calls=[{"id": "call-1", "name": tool_name, "args": {}}])])
+    saver = InMemorySaver()
+    graph = create_agent(model=model, tools=[slow_read], middleware=with_pick_publication_boundary([PickModelGate(), PickToolGate()]), checkpointer=saver)
+    manager, events, bridge = RunManager(), MemoryRunEventStore(), MemoryStreamBridge(queue_maxsize=2000)
+    record = await manager.create("ordinary-tool")
+    await asyncio.wait_for(
+        run_agent(
+            bridge,
+            manager,
+            record,
+            ctx=RunContext(checkpointer=saver, event_store=events, extensions=registry.build(), execution_timeout_seconds=20.3),
+            agent_factory=lambda config: graph,
+            graph_input={"messages": [HumanMessage(content="查询")]},
+            config={"configurable": {"thread_id": record.thread_id}},
+            stream_modes=["messages-tuple", "values"],
+        ),
+        2,
+    )
+    assert entered.is_set() and stopped.is_set()
+    assert len(model.inputs) == 1
+    final = (await graph.aget_state({"configurable": {"thread_id": record.thread_id}})).values["messages"][-1]
+    assert final.additional_kwargs["pick_completion"]["status"] == "incomplete"
+    await engine.dispose()
