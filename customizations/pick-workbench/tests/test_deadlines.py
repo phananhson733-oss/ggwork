@@ -106,7 +106,7 @@ async def test_agent_query_budget_includes_setup_and_rejects_late_success(monkey
     finally:
         offset[0] = 0
     # A subsequent call receives a fresh per-call budget, never a stale ContextVar.
-    assert task.query_deadline == task.ordinary_deadline
+    assert task.query_deadline - asyncio.get_running_loop().time() == pytest.approx(task.ordinary_remaining(), abs=0.01)
 
 
 @pytest.mark.asyncio

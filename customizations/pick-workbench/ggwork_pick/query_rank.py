@@ -81,7 +81,7 @@ class RankQueryResult:
 
 
 async def query_rank(conn: "asyncpg.Connection", request: CommonQuery, *, rules: dict, meta: dict, deadline: float | None = None) -> RankQueryResult:
-    """Read one rank page; deadline is the parent's absolute loop/monotonic time.
+    """Read one rank page; deadline is the parent's absolute event-loop time (never a time.monotonic epoch).
 
     Rank membership intentionally includes off-shelf rows and is independent of
     the current theater eligibility rules. ``rules`` keeps the common reader

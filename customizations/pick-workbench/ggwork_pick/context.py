@@ -19,7 +19,8 @@ from ggwork_pick.repository import PickRepository
 
 # A gateway started without PICK_RUN_TIMEOUT_SECONDS has no host watchdog; the turn still ends here.
 DEFAULT_RUN_SECONDS = 120.0
-query_call_deadline: ContextVar[float | None] = ContextVar("pick_query_call_deadline", default=None)
+# Event-loop absolute time only; never pass this value to a synchronous worker.
+query_call_loop_deadline: ContextVar[float | None] = ContextVar("pick_query_call_loop_deadline", default=None)
 
 
 def run_seconds() -> float:
@@ -40,6 +41,7 @@ def run_seconds() -> float:
 class PickTask:
     service: object
     info: TaskInfo
+    # Host publication and synchronous workers use time.monotonic(), not loop.time().
     deadline: float | None = None
     owner_id: str | None = None
     catalog_id: str | None = None
@@ -86,13 +88,21 @@ class PickTask:
 
     @property
     def ordinary_deadline(self) -> float:
-        """Finalization owns the last twenty seconds inside the effective total."""
+        """Monotonic-clock deadline; finalization owns the last twenty seconds."""
         return self.deadline - 20.0
 
     @property
+    def ordinary_loop_deadline(self) -> float:
+        """Translate remaining monotonic duration to the running loop's own epoch."""
+        # Sample loop time first so conversion overhead can only shorten the budget.
+        loop_now = asyncio.get_running_loop().time()
+        return loop_now + self.ordinary_remaining()
+
+    @property
     def query_deadline(self) -> float:
-        deadline = query_call_deadline.get()
-        return min(self.ordinary_deadline, deadline if deadline is not None else float("inf"))
+        """Event-loop deadline for query/SQL consumers, including the invocation cap."""
+        deadline = query_call_loop_deadline.get()
+        return min(self.ordinary_loop_deadline, deadline if deadline is not None else float("inf"))
 
     def ordinary_remaining(self):
         remaining = self.ordinary_deadline - time.monotonic()
