@@ -9,8 +9,14 @@ branch_labels = None
 depends_on = None
 
 
+def _create_table(name, *columns):
+    # Existing mirror migrations deliberately support stamp-repair startup paths.
+    if not sa.inspect(op.get_bind()).has_table(name):
+        op.create_table(name, *columns)
+
+
 def upgrade():
-    op.create_table(
+    _create_table(
         "ggwp_content_plans",
         sa.Column("id", sa.String(64), primary_key=True),
         sa.Column("owner_id", sa.String(128), nullable=False),
@@ -21,8 +27,8 @@ def upgrade():
         sa.Column("updated_at", sa.String(40), nullable=False),
         sa.CheckConstraint("version >= 1", name="ggwp_content_plan_version"),
     )
-    op.create_index("ggwp_content_plans_owner_updated", "ggwp_content_plans", ["owner_id", "updated_at", "id"])
-    op.create_table(
+    op.execute("CREATE INDEX IF NOT EXISTS ggwp_content_plans_owner_updated ON ggwp_content_plans (owner_id, updated_at, id)")
+    _create_table(
         "ggwp_content_plan_rows",
         sa.Column("plan_id", sa.String(64), primary_key=True),
         sa.Column("row_id", sa.String(64), primary_key=True),
@@ -33,7 +39,7 @@ def upgrade():
         sa.Column("scheduled_at", sa.String(40)),
         sa.CheckConstraint("position IS NULL OR position >= 0", name="ggwp_content_plan_row_position"),
     )
-    op.create_table(
+    _create_table(
         "ggwp_content_plan_commands",
         sa.Column("owner_id", sa.String(128), primary_key=True),
         sa.Column("request_id", sa.String(128), primary_key=True),

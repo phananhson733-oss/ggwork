@@ -169,3 +169,37 @@ async def test_invalid_calendar_zone_or_ambiguous_time_does_not_create_plan(app_
     assert result.status_code == 422, result.text
     assert result.json()["detail"]["code"] == "invalid_query"
     assert (await client.get("/api/pick/plans", headers={"test-owner": "alice"})).json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_keep_instant_validates_frontend_converted_payload_without_double_conversion(app_client):
+    client, service = app_client
+    body, _ = await draft_input(service, count=1)
+    body["timezone"] = "America/New_York"
+    body["rows"][0]["local_time"] = "2026-01-15T09:00"
+    headers = {"test-owner": "alice"}
+    created = (await client.post("/api/pick/plans", headers=headers, json=body)).json()
+    patch = {**editable(created), "request_id": "zone-keep", "expected_version": 1, "timezone_change": "keep_instant", "timezone": "America/Chicago"}
+    wrong = await client.patch("/api/pick/plans/" + created["id"], headers=headers, json=patch)
+    assert wrong.status_code == 422
+    assert (await client.get("/api/pick/plans/" + created["id"], headers=headers)).json() == created
+    patch["rows"][0]["local_time"] = "2026-01-15T08:00"  # actual T12 timezonePreview output
+    saved = await client.patch("/api/pick/plans/" + created["id"], headers=headers, json=patch)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["rows"][0]["scheduled_at"] == created["rows"][0]["scheduled_at"] == "2026-01-15T14:00:00.000000+00:00"
+
+
+@pytest.mark.asyncio
+async def test_timezone_change_requires_choice_and_keep_wall_time_changes_only_utc(app_client):
+    client, service = app_client
+    body, _ = await draft_input(service, count=1)
+    body["timezone"] = "America/New_York"
+    body["rows"][0]["local_time"] = "2026-01-15T09:00"
+    headers = {"test-owner": "alice"}
+    created = (await client.post("/api/pick/plans", headers=headers, json=body)).json()
+    patch = {**editable(created), "request_id": "zone-wall", "expected_version": 1, "timezone": "America/Chicago"}
+    assert (await client.patch("/api/pick/plans/" + created["id"], headers=headers, json=patch)).status_code == 422
+    saved = await client.patch("/api/pick/plans/" + created["id"], headers=headers, json={**patch, "timezone_change": "keep_local_time"})
+    assert saved.status_code == 200
+    assert saved.json()["rows"][0]["local_time"] == "2026-01-15T09:00"
+    assert saved.json()["rows"][0]["scheduled_at"] == "2026-01-15T15:00:00.000000+00:00"

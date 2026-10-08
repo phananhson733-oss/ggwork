@@ -211,13 +211,23 @@ class PlanningService:
             for position, row in enumerate(body.rows):
                 old = bindings.get(row.row_id)
                 editable = {key: getattr(row, key) for key in EDITABLE}
+                scheduled = scheduled_instant(row, zone, position)
+                if (
+                    body.timezone != current["timezone"]
+                    and body.timezone_change == "keep_instant"
+                    and old is not None
+                    and old["position"] is not None
+                    and old["scheduled_at"] is not None
+                    and scheduled != old["scheduled_at"]
+                ):
+                    raise QueryFailure("invalid_query", f"第{position + 1}行必须保持原定的同一时刻；请先保存时区转换，再修改当地时间")
                 if old is not None:
                     if any(old["source_json"][key] != getattr(row, key) for key in SOURCE):
                         raise QueryFailure("invalid_query", "已有计划行的来源不可更换，请为新的来源使用新行标识")
                     await session.execute(
                         update(content_plan_rows)
                         .where(content_plan_rows.c.plan_id == plan_id, content_plan_rows.c.row_id == row.row_id, content_plan_rows.c.owner_id == self.owner)
-                        .values(position=position, editable_json=editable, scheduled_at=scheduled_instant(row, zone, position))
+                        .values(position=position, editable_json=editable, scheduled_at=scheduled)
                     )
                 else:
                     source = sources[row.row_id]
@@ -229,7 +239,7 @@ class PlanningService:
                             position=position,
                             source_json=source,
                             editable_json=editable,
-                            scheduled_at=scheduled_instant(row, zone, position),
+                            scheduled_at=scheduled,
                         )
                     )
             await session.execute(
