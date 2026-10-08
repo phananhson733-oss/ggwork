@@ -92,3 +92,21 @@ a newly paired Mac without asking the user for an opaque device identifier. The 
 UI link is `/workspace/editing/{task_id}`. Source thread identity comes from the
 host lifecycle rather than model arguments. Changed requirements create a linked
 new version and require fresh verification of selected source bytes.
+
+Native preparation failures are reported through the worker `preparation-error`
+endpoint using fixed safe codes, not paths or raw exception text. They persist on
+the waiting intent as `native_preparation_error` and a preparation reason. A
+successful discovery/verification or explicit owner preparation clears the error
+without creating another request. Admitted and terminal tasks reject these reports.
+
+An output can publish only against its corresponding approved stored plan. The
+planner validates source ranges and requested duration; publication checks the
+encoded duration against that output's planned segment sum with a one-second
+mux tolerance. Rendering retries retain the existing approved plan; transcription
+or planning retries clear it and require a new current-attempt plan.
+
+The configured planner injects a live per-owner Skill/model profile policy through
+`service.execution_profiles`. Browser and worker execution paths both enforce it,
+including automatic admission and repeated claims. Policy lookup failure closes
+admission. Reading history, stopping, heartbeats and terminal failure acknowledgments
+remain available for safe cleanup when execution becomes unavailable.

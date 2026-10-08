@@ -88,17 +88,29 @@ def worker_identity(app, device):
     return {**OWNER, "test-device": device}
 
 
-async def ready_task(api):
+async def ready_task(api, *, request=None, store_plan=True):
     client, service, app = api
     device = (await client.post("/api/editing/devices", headers=OWNER, json={"name": "Mac"})).json()["device"]["id"]
     worker = worker_identity(app, device)
     await client.post(f"/api/editing/worker/devices/{device}/heartbeat", headers=worker, json=HEARTBEAT)
     manifest = {"version": 1, "grant_id": "grant-1", "files": [{"media_id": "m-1", "name": "Ep1", "episode": 1, "relative_path": "1.mp4", "size_bytes": 100}]}
-    task = (await client.post("/api/editing/tasks", headers=OWNER, json={**REQUEST, "device_id": device, "source_manifest": manifest})).json()
+    task = (await client.post("/api/editing/tasks", headers=OWNER, json={**(request or REQUEST), "device_id": device, "source_manifest": manifest})).json()
     manifest["files"][0].update(state="verified", sha256="a" * 64, duration_seconds=90)
     await client.post(f"/api/editing/worker/devices/{device}/tasks/{task['id']}/manifest", headers=worker, json={"source_manifest": manifest})
     claim = (await client.post(f"/api/editing/worker/devices/{device}/claim", headers=worker, json={"request_id": "claim-1"})).json()
+    if store_plan:
+        await service.repository("alice").store_plan(device, task["id"], claim["attempt"]["id"], claim["attempt"]["fence"], valid_plan(task))
     return client, task, device, worker, claim["attempt"]
+
+
+def valid_plan(task, *, duration=None):
+    req = task["requirements"]
+    return {
+        "profile": req["profile"],
+        "aspect_ratio": req["aspect_ratio"],
+        "language": req["language"],
+        "outputs": [{"output_id": o["id"], "segments": [{"media_id": "m-1", "start": 0, "end": duration or req["duration_seconds"]}]} for o in task["outputs"]],
+    }
 
 
 RESULT = {
@@ -178,14 +190,14 @@ async def test_directory_discovery_and_plan_confirmation_share_task(api):
     attempt = (await client.post(base + "/claim", headers=worker, json={"request_id": "claim-plan"})).json()["attempt"]
     # Planner owns validation of its strict domain plan; the repository owns durable attempt fencing.
     repo = service.repository("alice")
-    stored = await repo.store_plan(device, task["id"], attempt["id"], attempt["fence"], {"outputs": [{"id": "out-1"}]})
+    stored = await repo.store_plan(device, task["id"], attempt["id"], attempt["fence"], valid_plan(task))
     assert stored["status"] == "awaiting_plan"
     assert stored["plan_confirmed"] is False
     confirmed = await client.post(f"/api/editing/tasks/{task['id']}/confirm-plan", headers=OWNER, json={})
     assert confirmed.json()["plan_confirmed"] is True
     assert confirmed.json()["attempt"]["id"] == attempt["id"]
     current = await client.get(base + f"/tasks/{task['id']}", headers=worker)
-    assert current.json()["plan"] == {"outputs": [{"id": "out-1"}]}
+    assert current.json()["plan"] == valid_plan(task)
 
 
 @pytest.mark.asyncio
@@ -277,7 +289,7 @@ async def test_plan_confirmation_cannot_authorize_new_planning_attempt(api):
     selected["files"][0].update(state="verified", sha256="a" * 64, duration_seconds=90)
     await repo.verify_manifest(device, revised["id"], Manifest.model_validate(selected))
     current = (await repo.claim(device, "review-claim"))["attempt"]
-    await repo.store_plan(device, revised["id"], current["id"], current["fence"], {"outputs": []})
+    await repo.store_plan(device, revised["id"], current["id"], current["fence"], valid_plan(revised))
     await repo.confirm_plan(revised["id"])
     path = f"/api/editing/worker/devices/{device}/tasks/{revised['id']}/report"
     base = {"attempt_id": current["id"], "fence": current["fence"]}
@@ -343,3 +355,193 @@ async def test_stopped_unprepared_intent_does_not_advertise_impossible_retry(api
     stopped = (await client.post(f"/api/editing/tasks/{task['id']}/stop", headers=OWNER)).json()
     assert stopped["status"] == "stopped"
     assert "retry" not in stopped["available_actions"]
+
+
+@pytest.mark.asyncio
+async def test_native_preparation_error_is_private_scoped_and_clearable(api):
+    client, _, app = api
+    device = (await client.post("/api/editing/devices", headers=OWNER, json={"name": "Mac"})).json()["device"]["id"]
+    manifest = {"version": 1, "grant_id": "grant-1", "files": [{"media_id": "m-1", "name": "Ep1", "episode": 1, "relative_path": "1.mp4", "size_bytes": 100}]}
+    task = (await client.post("/api/editing/tasks", headers=OWNER, json={**REQUEST, "device_id": device, "source_manifest": manifest})).json()
+    worker = worker_identity(app, device)
+    path = f"/api/editing/worker/devices/{device}/tasks/{task['id']}/preparation-error"
+    body = {"error": "source_changed"}
+    assert (await client.post(path, headers=OWNER, json=body)).status_code == 403
+    assert (await client.post(path, headers={**worker, "test-owner": "bob"}, json=body)).status_code == 404
+    assert (await client.post(path.replace(device, "other-device"), headers=worker, json=body)).status_code == 403
+    assert (await client.post(path, headers=worker, json={"error": "/Users/private/media.mp4 failed"})).status_code == 422
+    failed = await client.post(path, headers=worker, json=body)
+    assert failed.status_code == 200
+    assert failed.json()["native_preparation_error"] == "source_changed"
+    assert "source_changed" in failed.json()["preparation_reasons"]
+    assert failed.json()["id"] == task["id"] and failed.json()["status"] == "waiting"
+    cleared = await client.post(f"/api/editing/tasks/{task['id']}/prepare", headers=OWNER, json={"device_id": device})
+    assert cleared.json()["native_preparation_error"] is None
+    await client.post(path, headers=worker, json=body)
+    manifest["files"][0].update(state="verified", sha256="a" * 64, duration_seconds=90)
+    verified = await client.post(path.replace("/preparation-error", "/manifest"), headers=worker, json={"source_manifest": manifest})
+    assert verified.json()["native_preparation_error"] is None
+    await client.post(f"/api/editing/worker/devices/{device}/heartbeat", headers=worker, json=HEARTBEAT)
+    assert (await client.post(path, headers=worker, json=body)).status_code == 409
+    assert (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_successful_discovery_clears_preparation_error_without_new_intent(api):
+    client, _, app = api
+    device = (await client.post("/api/editing/devices", headers=OWNER, json={"name": "Mac"})).json()["device"]["id"]
+    task = (
+        await client.post(
+            "/api/editing/tasks", headers=OWNER, json={**REQUEST, "device_id": device, "source_directory": {"grant_id": "grant-1", "relative_path": "drama"}}
+        )
+    ).json()
+    worker = worker_identity(app, device)
+    base = f"/api/editing/worker/devices/{device}/tasks/{task['id']}"
+    failed = await client.post(base + "/preparation-error", headers=worker, json={"error": "source_directory_empty"})
+    assert failed.json()["native_preparation_error"] == "source_directory_empty"
+    manifest = {
+        "version": 1,
+        "grant_id": "grant-1",
+        "files": [{"media_id": "m-1", "name": "Ep1", "episode": 1, "relative_path": "drama/1.mp4", "size_bytes": 100}],
+    }
+    for _ in range(2):
+        discovered = await client.post(base + "/discovery", headers=worker, json={"source_manifest": manifest})
+        assert discovered.json()["native_preparation_error"] is None
+        assert discovered.json()["id"] == task["id"]
+        assert "source_directory_empty" not in discovered.json()["preparation_reasons"]
+        await client.post(base + "/preparation-error", headers=worker, json={"error": "source_directory_empty"})
+
+
+@pytest.mark.asyncio
+async def test_publication_requires_plan_and_matches_its_output_duration(api):
+    request = {**REQUEST, "requirements": {**REQUEST["requirements"], "duration_seconds": 8}}
+    client, task, device, worker, attempt = await ready_task(api, request=request, store_plan=False)
+    path = f"/api/editing/worker/devices/{device}/tasks/{task['id']}/report"
+    base = {"attempt_id": attempt["id"], "fence": attempt["fence"], "kind": "output", "output_id": "out-1"}
+    missing = await client.post(path, headers=worker, json={**base, "event_id": "no-plan", "result": {**RESULT, "duration_seconds": 8}})
+    assert missing.status_code == 409
+    plan = valid_plan(task, duration=7)
+    await api[1].repository("alice").store_plan(device, task["id"], attempt["id"], attempt["fence"], plan)
+    wrong = await client.post(path, headers=worker, json={**base, "event_id": "wrong-duration", "result": {**RESULT, "duration_seconds": 8.5}})
+    assert wrong.status_code == 409
+    delivered = await client.post(path, headers=worker, json={**base, "event_id": "planned-duration", "result": {**RESULT, "duration_seconds": 7}})
+    assert delivered.status_code == 200
+    assert delivered.json()["task"]["outputs"][0]["result"]["duration_seconds"] == 7
+
+
+@pytest.mark.asyncio
+async def test_owner_profile_policy_cannot_be_bypassed_by_http_or_worker(api):
+    client, service, app = api
+    allowed = {"highlight"}
+
+    async def profiles(owner):
+        return allowed if owner == "alice" else set()
+
+    service.execution_profiles = profiles
+    caps = (await client.get("/api/editing/capabilities", headers=OWNER)).json()
+    assert {p["id"] for p in caps["profiles"] if p["available"]} == {"highlight"}
+    assert (await client.post("/api/editing/tasks", headers=OWNER, json=REQUEST)).status_code == 409
+    allowed.add("hook")
+    client, task, device, worker, attempt = await ready_task(api)
+    allowed.remove("hook")
+    path = f"/api/editing/worker/devices/{device}/tasks/{task['id']}/report"
+    refusal = await client.post(
+        path,
+        headers=worker,
+        json={"attempt_id": attempt["id"], "fence": attempt["fence"], "event_id": "not-admitted", "kind": "output", "output_id": "out-1", "result": RESULT},
+    )
+    assert refusal.status_code == 409
+    assert (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_render_only_retry_retains_approved_plan_without_new_confirmation(api):
+    request = {**REQUEST, "requirements": {**REQUEST["requirements"], "review_plan": True}}
+    client, task, device, worker, attempt = await ready_task(api, request=request)
+    repo = api[1].repository("alice")
+    await client.post(f"/api/editing/tasks/{task['id']}/confirm-plan", headers=OWNER)
+    path = f"/api/editing/worker/devices/{device}/tasks/{task['id']}/report"
+    await client.post(
+        path, headers=worker, json={"attempt_id": attempt["id"], "fence": attempt["fence"], "event_id": "fail", "kind": "failure", "error": "render_failed"}
+    )
+    await client.post(f"/api/editing/tasks/{task['id']}/retry", headers=OWNER, json={"request_id": "render-retry", "output_ids": ["out-1"]})
+    retry = (await client.post(f"/api/editing/worker/devices/{device}/claim", headers=worker, json={"request_id": "retry-claim"})).json()["attempt"]
+    stored = await repo.store_plan(device, task["id"], retry["id"], retry["fence"], valid_plan(task))
+    assert stored["plan_confirmed"] is True and stored["status"] == "running"
+    assert stored["plan_attempt_id"] == attempt["id"]
+    delivered = await client.post(
+        path,
+        headers=worker,
+        json={"attempt_id": retry["id"], "fence": retry["fence"], "event_id": "delivered", "kind": "output", "output_id": "out-1", "result": RESULT},
+    )
+    assert delivered.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_publication_rejects_unplanned_output_and_policy_failure_closes_admission(api):
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
+    plan = valid_plan(task)
+    plan["outputs"] = plan["outputs"][1:]
+    # Trusted storage does not duplicate the planner validator; report still cannot publish an unplanned output.
+    await api[1].repository("alice").store_plan(device, task["id"], attempt["id"], attempt["fence"], plan)
+    path = f"/api/editing/worker/devices/{device}/tasks/{task['id']}/report"
+    denied = await client.post(
+        path,
+        headers=worker,
+        json={"attempt_id": attempt["id"], "fence": attempt["fence"], "event_id": "unplanned", "kind": "output", "output_id": "out-1", "result": RESULT},
+    )
+    assert denied.status_code == 409
+
+    async def unavailable(owner):
+        raise RuntimeError("policy unavailable")
+
+    api[1].execution_profiles = unavailable
+    caps = (await client.get("/api/editing/capabilities", headers=OWNER)).json()
+    assert all(not profile["available"] for profile in caps["profiles"])
+    assert (await client.post("/api/editing/tasks", headers=OWNER, json={**REQUEST, "request_id": "new"})).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_live_profile_policy_gates_prepare_admission_and_claim(api):
+    client, service, app = api
+    allowed = {"hook"}
+
+    async def profiles(owner):
+        return allowed
+
+    service.execution_profiles = profiles
+    device = (await client.post("/api/editing/devices", headers=OWNER, json={"name": "Mac"})).json()["device"]["id"]
+    manifest = {"version": 1, "grant_id": "grant-1", "files": [{"media_id": "m-1", "name": "Ep1", "episode": 1, "relative_path": "1.mp4", "size_bytes": 100}]}
+    task = (await client.post("/api/editing/tasks", headers=OWNER, json={**REQUEST, "device_id": device, "source_manifest": manifest})).json()
+    worker = worker_identity(app, device)
+    base = f"/api/editing/worker/devices/{device}"
+    await client.post(base + "/heartbeat", headers=worker, json=HEARTBEAT)
+    allowed.clear()
+    assert (await client.post(f"/api/editing/tasks/{task['id']}/prepare", headers=OWNER, json={"device_id": device})).status_code == 409
+    manifest["files"][0].update(state="verified", sha256="a" * 64, duration_seconds=90)
+    verified = await client.post(base + f"/tasks/{task['id']}/manifest", headers=worker, json={"source_manifest": manifest})
+    assert verified.json()["status"] == "waiting"
+    assert "profile_unavailable" in verified.json()["preparation_reasons"]
+    allowed.add("hook")
+    await client.post(base + "/heartbeat", headers=worker, json=HEARTBEAT)
+    assert (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()["status"] == "queued"
+    allowed.clear()
+    assert (await client.post(base + "/claim", headers=worker, json={"request_id": "blocked"})).json()["task"] is None
+    allowed.add("hook")
+    claim = (await client.post(base + "/claim", headers=worker, json={"request_id": "allowed"})).json()
+    assert claim["task"]["id"] == task["id"]
+    allowed.clear()
+    assert (await client.post(base + "/claim", headers=worker, json={"request_id": "allowed"})).json()["task"] is None
+    # Terminal failure reporting carries no new execution authority and remains available for cleanup.
+    stopped = await client.post(
+        base + f"/tasks/{task['id']}/report",
+        headers=worker,
+        json={
+            "attempt_id": claim["attempt"]["id"],
+            "fence": claim["attempt"]["fence"],
+            "event_id": "policy-failure",
+            "kind": "failure",
+            "error": "profile_unavailable",
+        },
+    )
+    assert stopped.json()["task"]["status"] == "failed"

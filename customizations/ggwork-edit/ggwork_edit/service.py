@@ -18,6 +18,19 @@ class EditingService:
     def __init__(self, *, hook_available=False):
         self.session_factory = None
         self.hook_available = hook_available
+        self.execution_profiles = None
+
+    async def profile_allowed(self, owner, profile):
+        """Live owner policy injected by the configured planner; failures close admission."""
+        if not self.hook_available or profile not in ("highlight", "hook"):
+            return False
+        if self.execution_profiles is None:
+            return True
+        try:
+            profiles = await self.execution_profiles(owner)
+        except Exception:
+            return False
+        return isinstance(profiles, (set, frozenset)) and profile in profiles
 
     async def initialize(self, session_factory):
         engine = session_factory.kw.get("bind")

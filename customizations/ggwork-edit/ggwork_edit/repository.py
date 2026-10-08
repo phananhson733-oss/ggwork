@@ -8,6 +8,7 @@ together, so stop/publication and competing retries have one database order.
 import copy
 import hashlib
 import json
+import math
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -80,6 +81,7 @@ class EditingRepository:
             receipt = await self.receipt(session, "create:" + digest(payload.request_id), data)
             if receipt:
                 return await self.view(session, await self.read(session, "task", receipt["task_id"]))
+            await self.require_profile(session, payload.requirements.profile)
             if payload.parent_task_id:
                 await self.read(session, "task", payload.parent_task_id)
             if payload.device_id:
@@ -99,6 +101,7 @@ class EditingRepository:
                 "stage": "preparing",
                 "result": "pending",
                 "source_manifest": data["source_manifest"],
+                "native_preparation_error": None,
                 "manifest_frozen": False,
                 "attempt": None,
                 "fence": 0,
@@ -119,6 +122,7 @@ class EditingRepository:
     async def view(self, session, task):
         result = copy.deepcopy(task)
         result.pop("fence", None)
+        result.setdefault("native_preparation_error", None)
         result["requested_count"] = task["requirements"]["output_count"]
         result["completed_count"] = sum(o["status"] == "completed" for o in task["outputs"])
         result["preparation_reasons"] = await self.preparation_reasons(session, task) if task["status"] == "waiting" else []
@@ -232,9 +236,14 @@ class EditingRepository:
     async def capabilities(self):
         async with self.transaction(write=False) as session:
             enabled = await self.enabled(session)
-            reasons = ([] if self.service.hook_available else ["planner_unavailable"]) + ([] if enabled else ["skill_disabled"])
+            profiles = []
+            for profile in ("highlight", "hook"):
+                reasons = [] if await self.service.profile_allowed(self.owner, profile) else ["profile_unavailable"]
+                if not enabled:
+                    reasons.append("skill_disabled")
+                profiles.append({"id": profile, "available": not reasons, "reasons": reasons})
             return {
-                "profiles": [{"id": p, "available": not reasons, "reasons": reasons} for p in ("highlight", "hook")],
+                "profiles": profiles,
                 "skill_enabled": enabled,
                 "limits": {
                     "max_sources": 500,
@@ -252,10 +261,14 @@ class EditingRepository:
             await self.save(session, "settings", "owner", {"skill_enabled": enabled}, new=old is None)
         return await self.capabilities()
 
+    async def require_profile(self, session, profile):
+        if not await self.service.profile_allowed(self.owner, profile) or not await self.enabled(session):
+            raise ConflictError("Editing profile is unavailable for this owner")
+
     async def preparation_reasons(self, session, task):
-        reasons = []
-        if not self.service.hook_available:
-            reasons.append("planner_unavailable")
+        reasons = [task["native_preparation_error"]] if task.get("native_preparation_error") else []
+        if not await self.service.profile_allowed(self.owner, task["requirements"]["profile"]):
+            reasons.append("profile_unavailable")
         if not await self.enabled(session):
             reasons.append("skill_disabled")
         if not task["device_id"]:
@@ -289,6 +302,7 @@ class EditingRepository:
             if task["manifest_frozen"] or task["status"] != "waiting":
                 raise ConflictError("Source manifest is frozen")
             await self.live_device(session, payload.device_id)
+            await self.require_profile(session, task["requirements"]["profile"])
             if manifest and task["source_manifest"] and manifest["version"] <= task["source_manifest"]["version"]:
                 raise ConflictError("Selection revision must increase")
             if task["device_id"] and task["device_id"] != payload.device_id and task["source_manifest"]:
@@ -301,7 +315,7 @@ class EditingRepository:
                 directory = payload.source_directory.model_dump(mode="json")
                 if directory != task.get("source_directory"):
                     task.update(source_directory=directory, source_manifest=None)
-            task.update(device_id=payload.device_id, updated_at=stamp())
+            task.update(device_id=payload.device_id, native_preparation_error=None, updated_at=stamp())
             await self.save(session, "task", task_id, task)
             return await self.view(session, task)
 
@@ -330,7 +344,7 @@ class EditingRepository:
             for before, after in zip(old["files"], incoming["files"], strict=True):
                 if before["state"] == "verified" and before != after:
                     raise ConflictError("Verified source changed; explicitly revise selection")
-            task.update(source_manifest=incoming, updated_at=stamp())
+            task.update(source_manifest=incoming, native_preparation_error=None, updated_at=stamp())
             await self.admit(session, task)
             await self.save(session, "task", task_id, task)
             return await self.view(session, task)
@@ -341,6 +355,8 @@ class EditingRepository:
             receipt = await self.receipt(session, "claim:" + digest(request_id), {"device_id": device_id})
             if receipt:
                 task = await self.read(session, "task", receipt["task_id"])
+                if not await self.service.profile_allowed(self.owner, task["requirements"]["profile"]) or not await self.enabled(session):
+                    return {"task": None, "attempt": None}
                 if task["attempt"]["id"] != receipt["attempt_id"] or task["status"] not in ("running", "awaiting_plan", "stopping"):
                     return {"task": None, "attempt": None}
                 return {"task": await self.view(session, task), "attempt": task["attempt"]}
@@ -357,6 +373,7 @@ class EditingRepository:
                         "fence": task["fence"],
                         "output_ids": [o["id"] for o in task["outputs"] if o["status"] == "pending"],
                         "stage": task.get("retry_stage", "transcribing"),
+                        "plan_attempt_id": task.get("plan_attempt_id") if task.get("retry_stage") == "rendering" and task.get("plan_confirmed") else None,
                         "lease_expires_at": (datetime.now(UTC) + timedelta(seconds=90)).isoformat(),
                     }
                     task.update(status="running", stage=attempt["stage"], attempt=attempt, updated_at=stamp())
@@ -385,6 +402,28 @@ class EditingRepository:
             raise ConflictError("Stale execution attempt")
         return attempt
 
+    @staticmethod
+    def require_plan(task, output_id=None):
+        plan = task.get("plan")
+        attempt = task.get("attempt")
+        if (
+            not plan
+            or not task.get("plan_confirmed")
+            or not attempt
+            or not task.get("plan_attempt_id")
+            or attempt.get("plan_attempt_id") != task["plan_attempt_id"]
+        ):
+            raise ConflictError("Approved plan for this execution attempt required")
+        outputs = plan.get("outputs", [])
+        if not outputs:
+            raise ConflictError("Usable validated plan required")
+        if output_id is not None:
+            planned = next((output for output in outputs if output.get("output_id") == output_id), None)
+            if planned is None or not planned.get("segments"):
+                raise ConflictError("Output is not in the validated plan")
+            return planned
+        return None
+
     async def report(self, device_id, task_id, payload):
         data = payload.model_dump(mode="json")
         key = "event:" + digest([task_id, payload.attempt_id, payload.event_id])
@@ -411,8 +450,8 @@ class EditingRepository:
             else:
                 if datetime.fromisoformat(attempt["lease_expires_at"]) <= datetime.now(UTC):
                     raise ConflictError("Lease expired; heartbeat before reporting")
-                if not self.service.hook_available or not await self.enabled(session):
-                    raise ConflictError("Editing capability disabled")
+                if payload.kind != "failure":
+                    await self.require_profile(session, task["requirements"]["profile"])
                 if payload.kind == "stage":
                     if payload.stage is None:
                         raise ConflictError("Stage required")
@@ -420,8 +459,8 @@ class EditingRepository:
                         raise ConflictError("Plan already confirmed")
                     if payload.stage == "awaiting_plan" and not task.get("plan"):
                         raise ConflictError("No stored plan")
-                    if task["requirements"]["review_plan"] and payload.stage in ("rendering", "verifying") and not task.get("plan_confirmed", False):
-                        raise ConflictError("Plan confirmation required")
+                    if payload.stage in ("rendering", "verifying"):
+                        self.require_plan(task)
                     task["stage"] = payload.stage
                     attempt["stage"] = payload.stage
                     task["status"] = "awaiting_plan" if payload.stage == "awaiting_plan" else "running"
@@ -443,14 +482,14 @@ class EditingRepository:
                         if payload.kind == "output":
                             if payload.result is None:
                                 raise ConflictError("Verified result required")
-                            if task["requirements"]["review_plan"] and not task.get("plan_confirmed", False):
-                                raise ConflictError("Plan confirmation required")
+                            planned_output = self.require_plan(task, payload.output_id)
                             result = payload.result.model_dump(mode="json")
                             width, height = (int(x) for x in task["requirements"]["aspect_ratio"].split(":"))
                             if abs(result["width"] / result["height"] - width / height) > 0.02:
                                 raise ConflictError("Output aspect does not match request")
-                            if abs(result["duration_seconds"] - task["requirements"]["duration_seconds"]) > 1:
-                                raise ConflictError("Output duration does not match request")
+                            duration = math.fsum(segment["end"] - segment["start"] for segment in planned_output["segments"])
+                            if abs(result["duration_seconds"] - duration) > 1:
+                                raise ConflictError("Output duration does not match validated plan")
                             if any(o["result"] and o["result"]["artifact_id"] == result["artifact_id"] for o in task["outputs"]):
                                 raise ConflictError("Artifact identity already delivered")
                             output.update(status="completed", result=result, error=None)
@@ -492,6 +531,7 @@ class EditingRepository:
             task = await self.read(session, "task", task_id)
             if await self.receipt(session, key, data):
                 return await self.view(session, task)
+            await self.require_profile(session, task["requirements"]["profile"])
             if task["status"] not in ("failed", "partial", "stopped"):
                 raise ConflictError("Retry requires a terminal failed or stopped scope")
             if not task["manifest_frozen"]:
@@ -538,8 +578,18 @@ class EditingRepository:
                 if task["source_manifest"] != incoming:
                     raise ConflictError("Discovered selection already fixed; explicitly revise selection")
             else:
-                task.update(source_manifest=incoming, updated_at=stamp())
-                await self.save(session, "task", task_id, task)
+                task["source_manifest"] = incoming
+            task.update(native_preparation_error=None, updated_at=stamp())
+            await self.save(session, "task", task_id, task)
+            return await self.view(session, task)
+
+    async def preparation_error(self, device_id, task_id, payload):
+        async with self.transaction() as session:
+            task = await self.worker_task(session, device_id, task_id)
+            if task["status"] != "waiting" or task["manifest_frozen"]:
+                raise ConflictError("Preparation is already admitted or terminal")
+            task.update(native_preparation_error=payload.error, updated_at=stamp())
+            await self.save(session, "task", task_id, task)
             return await self.view(session, task)
 
     async def get_worker_task(self, device_id, task_id):
@@ -558,13 +608,15 @@ class EditingRepository:
             self.check_attempt(task, attempt_id, fence)
             if task["status"] not in ("running", "awaiting_plan") or task["fence"] != fence:
                 raise ConflictError("Plan attempt is no longer active")
-            if not self.service.hook_available or not await self.enabled(session):
-                raise ConflictError("Editing capability disabled")
-            if task.get("plan") is not None and task.get("plan_attempt_id") == attempt_id:
+            await self.require_profile(session, task["requirements"]["profile"])
+            if task.get("plan") is not None and (
+                task.get("plan_attempt_id") == attempt_id or task["attempt"].get("plan_attempt_id") == task.get("plan_attempt_id")
+            ):
                 if task["plan"] != plan:
                     raise ConflictError("Attempt plan is immutable")
                 return await self.view(session, task)
             task.update(plan=copy.deepcopy(plan), plan_attempt_id=attempt_id, plan_confirmed=not task["requirements"]["review_plan"], updated_at=stamp())
+            task["attempt"]["plan_attempt_id"] = attempt_id
             if task["requirements"]["review_plan"]:
                 task.update(status="awaiting_plan", stage="awaiting_plan")
             await self.save(session, "task", task_id, task)
@@ -577,8 +629,7 @@ class EditingRepository:
                 return await self.view(session, task)
             if task["status"] != "awaiting_plan" or not task.get("plan"):
                 raise ConflictError("No pending plan")
-            if not self.service.hook_available or not await self.enabled(session):
-                raise ConflictError("Editing capability disabled")
+            await self.require_profile(session, task["requirements"]["profile"])
             task.update(plan_confirmed=True, status="running", stage="rendering", updated_at=stamp())
             await self.save(session, "task", task_id, task)
             return await self.view(session, task)

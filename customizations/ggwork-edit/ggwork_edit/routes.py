@@ -4,7 +4,18 @@ from deerflow_extension_api.auth import resolve_principal
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.routing import APIRoute
 
-from ggwork_edit.contracts import Claim, CreateTask, DeviceHeartbeat, PrepareTask, RegisterDevice, RetryTask, Settings, VerifyManifest, WorkerReport
+from ggwork_edit.contracts import (
+    Claim,
+    CreateTask,
+    DeviceHeartbeat,
+    PreparationError,
+    PrepareTask,
+    RegisterDevice,
+    RetryTask,
+    Settings,
+    VerifyManifest,
+    WorkerReport,
+)
 from ggwork_edit.repository import ConflictError
 
 
@@ -91,6 +102,10 @@ def build_router(service):
 
 def build_worker_router(service):
     router = APIRouter(prefix="/api/editing/worker", route_class=EditingRoute)
+
+    @router.post("/devices/{device_id}/tasks/{task_id}/preparation-error")
+    async def preparation_error(device_id: str, task_id: str, payload: PreparationError, request: Request):
+        return await service.repository(owner(request, device_id=device_id)).preparation_error(device_id, task_id, payload)
 
     @router.get("/devices/{device_id}/preparations")
     async def preparations(device_id: str, request: Request):
