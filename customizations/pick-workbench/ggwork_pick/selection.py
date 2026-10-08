@@ -660,7 +660,15 @@ class SelectionService:
                 summary = HistoricalResultSummary(
                     result_id=result_id, matched_total=_matched_total(record), conditions=record["conditions_json"], reference=f"result:{result_id}"
                 )
-                supplement = await self._historical_source_facts(record, item)
+                try:
+                    supplement = await self._historical_source_facts(record, item)
+                except QueryFailure as exc:
+                    if exc.code not in {"not_found", "version_gone", "source_unavailable", "version_conflict"}:
+                        raise
+                    # The authorized frozen item remains readable when its optional
+                    # historical source is unavailable; never substitute a current pin.
+                    supplement = None
+                    notices = [*notices, "历史来源补充暂不可核对；以下仅保留这份候选已保存的内容，不代表当前资料。"]
                 return {
                     "result_id": result_id,
                     "catalog_batch_id": record["catalog_batch_id"],
