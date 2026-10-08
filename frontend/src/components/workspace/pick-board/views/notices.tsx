@@ -3,7 +3,13 @@
 import Link from "next/link";
 
 import { pickHref } from "@/components/workspace/pick-board/toolbar";
-import type { PickRequest } from "@/core/pick-board/request";
+import { buildLoginUrl } from "@/core/auth/types";
+import {
+  RANKS,
+  RANK_LABELS,
+  type PickRequest,
+} from "@/core/pick-board/request";
+import { cn } from "@/lib/utils";
 import type {
   BoardNoticeReason,
   MisconfiguredReason,
@@ -35,7 +41,9 @@ export type MirrorNoticeKind =
   | Readonly<{ kind: "empty" }>
   | Readonly<{ kind: "misconfigured"; reason: MisconfiguredReason }>
   | Readonly<{ kind: "busy" }>
-  | Readonly<{ kind: "gone" }>;
+  | Readonly<{ kind: "gone" }>
+  | Readonly<{ kind: "period-missing" }>
+  | Readonly<{ kind: "session-required" }>;
 
 function misconfiguredText(reason: MisconfiguredReason): string {
   switch (reason) {
@@ -65,6 +73,10 @@ function noticeText(notice: MirrorNoticeKind): string {
       return "镜像库繁忙，请稍后刷新。";
     case "gone":
       return "该版本刚被清理。";
+    case "session-required":
+      return "登录验证需要更新，请重新登录后重试。";
+    case "period-missing":
+      return "当前资料中没有可读取的期次。";
   }
 }
 
@@ -76,6 +88,66 @@ export function MirrorNotice({
   notice: MirrorNoticeKind;
   req: PickRequest;
 }) {
+  if (notice.kind === "session-required")
+    return (
+      <p role="alert" className={cn(BOX, "text-base")}>
+        {noticeText(notice)}
+        <Link
+          prefetch={false}
+          className={`${LINK} inline-flex min-h-11 items-center`}
+          href={buildLoginUrl(pickHref(req, { page: req.page }))}
+        >
+          重新登录
+        </Link>
+      </p>
+    );
+  if (notice.kind === "period-missing") {
+    const params = new URL(pickHref(req, {}), "http://board.invalid")
+      .searchParams;
+    return (
+      <section role="alert" className={cn(BOX, "text-base")}>
+        <p>当前资料中没有可读取的期次。</p>
+        <form
+          action="/workspace/pick-data"
+          method="get"
+          className="my-3 flex flex-wrap items-center gap-3"
+        >
+          {[...params]
+            .filter(([key]) => key !== "rk")
+            .map(([key, value]) => (
+              <input key={key} type="hidden" name={key} value={value} />
+            ))}
+          <label>
+            更换榜单
+            <select
+              name="rk"
+              defaultValue={req.rank}
+              className="bg-surface text-ink-1 ml-2 min-h-11 rounded border p-2"
+            >
+              {RANKS.map((rank) => (
+                <option key={rank} value={rank}>
+                  {RANK_LABELS[rank]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="submit"
+            className="text-link min-h-11 rounded border px-3"
+          >
+            查看所选榜单
+          </button>
+        </form>
+        <Link
+          prefetch={false}
+          href={pickHref(req, { tab: "imports" })}
+          className={`${LINK} inline-flex min-h-11 items-center`}
+        >
+          查看同步状态
+        </Link>
+      </section>
+    );
+  }
   const link =
     notice.kind === "gone" ? (
       <Link prefetch={false} href={pickHref(req, { v: null })} className={LINK}>

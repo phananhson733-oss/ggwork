@@ -7,7 +7,7 @@ import {
 
 import { gatewayQuery, type GatewayResult } from "./gateway";
 
-/** Injectable parity seam. Existing domain readers stay active until per-view parity is proven. */
+/** Authenticated query boundary used by common-loaders; direct SQL modules remain the differential oracle. */
 export type CommonBoardReader = (
   input: unknown,
   signal?: AbortSignal,

@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { useArtifacts } from "../artifacts";
 import { useMaybeBrowserView } from "../browser-view";
 import { FlipDisplay } from "../flip-display";
+import { CommonQueryCard } from "../pick/common-query-card";
 import { PickToolCard } from "../pick/pick-tool-card";
 import { Tooltip } from "../tooltip";
 
@@ -607,12 +608,14 @@ function browserToolLabel(
 function isAlwaysVisibleStep(step: CoTStep) {
   return (
     step.type === "assistantText" ||
-    (step.type === "toolCall" && getToolCallKind(step.name) === "pick")
+    (step.type === "toolCall" &&
+      ["pick", "common-pick"].includes(getToolCallKind(step.name)))
   );
 }
 
 // Shared routing for result conversion and specialized rendering.
 function getToolCallKind(name: string) {
+  if (name === "pick_query_data") return "common-pick";
   if (name === "pick_query_candidates" || name === "pick_prepare_selection")
     return "pick";
   if (name.startsWith("browser_")) return "browser";
@@ -982,6 +985,8 @@ function ToolCall({
         )}
       </ChainOfThoughtStep>
     );
+  } else if (kind === "common-pick") {
+    return <CommonQueryCard result={result} isLoading={isLoading} />;
   } else if (kind === "pick") {
     return (
       <PickToolCard result={result} threadId={threadId} isLoading={isLoading} />

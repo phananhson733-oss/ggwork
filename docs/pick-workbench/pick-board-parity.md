@@ -233,3 +233,41 @@ git -C "$RS_REPO" status --short     # 空
 
 P4-3 实现时在 fixture 的 v3 上这样跑过：73 个用例，没有白名单外差异；改动镜像里一个剧名后退出 1；换成 v2 时退出 3。这些文件都不进仓库。
 假 RealShort 检出还要有 `src/lib/pick/export-v2-map.ts`，导出 `scrubPanText(text) → {text, hits}`。
+
+## Gateway common-query cutover (T4-ui)
+
+The app-facing exports in `frontend/src/server/pick-board/index.ts` route the five
+declared candidate/catalog/rank/posted/rules domains through `common-loaders.ts`
+and authenticated `POST /api/pick/query`. The original `queries*.ts` / `rs-queries.ts`
+SQL remains readable as the differential oracle, not an automatic fallback after
+query failure. Specialized row/detail, authenticated result replay and Trends
+retain their dedicated contracts. Historical replay without its original mirror
+cannot substitute current rows; users explicitly start a newest-data query.
+
+The adapter preserves old board defaults, filtering, complete counts and facets,
+ordered page rows, per-date rank signals (including multiple signals for one row),
+legacy growth top50 and ledger200 limits, full-text single-RS decorations, source
+states and immutable version pairing. `language_order` retains PostgreSQL ordering
+of language facets even for numeric strings. A completely absent period renders
+an explicit source notice rather than a configuration error or fabricated zero;
+missing/ambiguous requested periods with available alternatives keep their actual
+period and resolution. Invalid legacy calendar bookmarks use the old missing-period
+fallback while continuing to display that the requested period was missing.
+
+Run `frontend/scripts/pick-common-query-parity.py` using the repository's Python
+runtime, with `--cluster-file` pointing to metadata for an explicitly marked
+loopback throwaway PostgreSQL cluster and `--output` pointing to a private evidence
+directory. It publishes synthetic versions through the production writer, launches
+the actual Gateway with no models, creates real local sessions, checks CSRF and
+owner isolation, and runs the original TypeScript SQL alongside index-exported
+common-query readers against the same database. The default gate requires real
+query traffic for all five domains. `--candidate-adapters` is only the pre-cutover
+gate; `--gateway-root` supports development against a separate service checkout,
+while final acceptance uses the assembled checkout.
+
+The fixture covers two historical versions,230 extra source rows, real pagination,
+unknown/numeric languages, tied order keys, archived posts, cross-year weekly labels,
+all21 ranking types and version/authentication failures. Credentials remain in0600 local files;
+the harness removes its generated database/reader role and stops its own Gateway.
+No production database, source provider, or model call is used. These tests do not
+establish deployment or production source freshness.

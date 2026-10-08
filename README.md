@@ -1985,7 +1985,7 @@ Deleting a project moves its entire shelf to trash in the same step.
 
 In this GGWork customization, the pick workspace has direct entries for conversation, personal selections, plan drafts, publication review, and source data. Personal selections can create a private draft; plan edits are explicitly saved, execution export requires a version-bound source check, and download retries use the same immutable receipt. Publication review reads actual posts and requires explicit two-sided confirmation for manual plan links. Two explicitly chosen batches can be compared without silently changing chat references. Scheduled tasks remains temporarily unavailable.
 
-The completion frontend has deterministic mocked-HTTP component/browser coverage; actual plan/export/feedback persistence and host final-publication acceptance require the assembled backend. The existing data-board readers remain active until common-query parity passes. See [the frozen completion contract](docs/pick-workbench/completion-contract.md).
+The completion frontend has deterministic mocked-HTTP component/browser coverage; actual plan/export/feedback persistence and host final-publication acceptance require the assembled backend. The declared data-board candidate/catalog/rank/posted/rules readers now use the authenticated common-query endpoint after same-version PostgreSQL/Gateway differential verification; specialized detail, replay and Trends paths remain version-pinned. See [the frozen completion contract](docs/pick-workbench/completion-contract.md).
 
 DeerFlow now includes a first-class scheduled-task MVP in the workspace.
 

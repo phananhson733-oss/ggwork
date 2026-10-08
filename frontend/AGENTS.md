@@ -314,8 +314,7 @@ Gateway boundary. Plans and actual-post review live at `/workspace/pick-plans` a
 retain immutable receipts for download retry. `PlanDraftProvider` keeps edits and base
 versions in owner-keyed workspace memory only. Time editing uses the plan timezone,
 explicit DST folds, and an explicit timezone-change preview. The SSR common-query seam
-forwards both visitor access and CSRF cookies; existing board readers remain until
-per-view common-query parity is proven.
+forwards both visitor access and CSRF cookies; the declared candidate/catalog/rank/posted/rules entrypoint readers use common-query adapters after real same-version PostgreSQL/Gateway parity. Direct query modules remain the oracle and specialized row/detail/replay/Trends readers retain their fixed-version paths.
 
 Two-batch comparison requires two explicit current-thread results and one selected
 source per stable identity; batch saves have independent real receipts. Visual comparison
@@ -326,3 +325,14 @@ only `additional_kwargs.pick_completion`; raw internal checked facts never rende
 frontend-only mocked-HTTP browser suite with no model calls. It is not evidence of real
 Gateway persistence, owner authorization, runtime final publication, source freshness,
 or production delivery. Completion requires the separate assembled backend acceptance.
+
+
+The read-only `pick/common-query-card.tsx` consumes the closed bounded
+`queryModelProjectionSchema` for `pick_query_data`; the HTTP board adapters still
+consume full `QueryResponse`. Keep original requested limits, actual query limits,
+complete match counts and projection omissions distinct. Unknown-language raw records
+have no candidate identity/eligibility and no save controls. Selected RS comparator
+values retain their source units and rolling-window scope; platform metrics without
+verified evidence are unknown, while a verified decimal string0 remains measured0.
+Message-group renders this card outside collapsed generic steps without exposing raw
+query proof/audit payloads.
