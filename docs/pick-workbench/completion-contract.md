@@ -110,3 +110,20 @@ numeric and JavaScript would reorder object keys. `row_keys` is the ordered
 identity page (posted domain uses ledger record `sd`); ledger rank may decorate
 multiple bills with the same canonical drama, so its returned count is the
 number of bill records, not the number of unique drama keys.
+
+New mirrored candidate cards record `ranking_version=mirror-board-v1`, and their
+existing `/api/pick/replay` route reuses the common reader and frozen exclusions.
+Older cards keep their original ranking versions and replay implementation.
+This avoids describing the new PostgreSQL ordering as the old identity ordering.
+Unsupported domain/filter combinations fail explicitly. A published-date window
+requires canonical source dates and complete attributable publication details;
+missing details or account mapping returns an unavailable error rather than a
+successful zero. Account/state facets each compute their own status predicate.
+
+Checked common-query facts use hashed, bracket-free `tool:<call>:row:<digest>`
+references; they never manufacture saved result IDs. Only typed scalar/enum/date
+facts become assertion templates. Source identifiers and language codes are
+constrained, display labels remain quoted, duplicate titles remain ambiguous,
+and exact scoped publication assertions require complete matching for a negative
+claim. Failed reads invalidate all uncited “current query” count/period/pin/scope
+claims; an explicit reference to a prior receipt remains historical evidence.

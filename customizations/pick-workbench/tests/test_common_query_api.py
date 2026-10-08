@@ -321,3 +321,15 @@ def test_noncanonical_publication_dates_remain_unknown(value):
 
     request = CommonQuery(domain="catalog", scope="full_catalog", account="A", published_from="2026-09-01", published_to="2026-09-30")
     assert publication_truth([{"post_count": 1, "sched_count": 0, "posts": [{"st": "已公开", "acct": "A", "d": value}]}], request) == ("unknown", False)
+
+
+@pytest.mark.parametrize("account", [None, True, ["A"], {"name": "A"}, " "])
+def test_unknown_account_mapping_never_proves_scoped_absence(account):
+    from ggwork_pick.completion_contracts import CommonQuery
+    from ggwork_pick.query_posted import publication_truth
+
+    request = CommonQuery(domain="catalog", scope="full_catalog", account="A", published_from="2026-09-01")
+    assert publication_truth([{"post_count": 1, "sched_count": 0, "posts": [{"st": "已公开", "acct": account, "d": "2026-09-02"}]}], request) == (
+        "unknown",
+        False,
+    )

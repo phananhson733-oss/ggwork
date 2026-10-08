@@ -272,6 +272,9 @@ async def test_scoped_scheduled_account_and_checked_absence_use_actual_posts(com
         repo = PickRepository(service.session_factory, "alice")
         posted = await service.common_query(repo).query(CommonQuery(domain="posted", scope="full_catalog", account="Account A", posted_state="sched"))
         assert [p.sd for p in posted.board.posted] == ["SD-2"]
+        pub_page = await service.common_query(repo).query(CommonQuery(domain="posted", scope="full_catalog", account="Account A", posted_state="pub"))
+        assert pub_page.facets.posted_states == posted.facets.posted_states
+        assert pub_page.counts.matched == 0
         store = ExtensionData("posted-tool")
         await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("posted-tool", "r", "t", "lead"))
         runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="scoped")
@@ -302,6 +305,12 @@ async def test_scoped_scheduled_account_and_checked_absence_use_actual_posts(com
         with pytest.raises(QueryFailure) as error:
             await service.common_query(repo).query(CommonQuery(domain="posted", scope="full_catalog", account="Account A", published_from="2026-09-01"))
         assert error.value.code == "source_unavailable"
+        for posts, accounts in (([{"st": "已公开", "d": "2026-09-02"}], ["Account A"]), ([], [])):
+            async with engine.begin() as conn:
+                await conn.execute(update, {"posts": json.dumps(posts), "keys": ["c-2"], "pub": 1, "sched": 0, "accounts": accounts})
+            with pytest.raises(QueryFailure) as error:
+                await service.common_query(repo).query(CommonQuery(domain="posted", scope="full_catalog", account="Account A", published_from="2026-09-01"))
+            assert error.value.code == "source_unavailable"
     finally:
         async with engine.begin() as conn:
             await conn.execute(
@@ -315,4 +324,27 @@ async def test_scoped_scheduled_account_and_checked_absence_use_actual_posts(com
                 },
             )
         await service.stop()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_common_candidate_snapshot_replays_same_order_and_rank_facts(common_board, pg_cluster):
+    from ggwork_pick.query_reader import QueryReader
+    from ggwork_pick.query_service import CommonQueryService
+    from ggwork_pick.repository import PickRepository
+    from ggwork_pick.selection import SelectionService
+
+    engine = host_engine(pg_cluster.async_url(common_board["info"]["database"]))
+    reader = QueryReader(common_board["reader"], ssl=False)
+    repo = PickRepository(async_sessionmaker(engine), "replay-owner")
+    selection = SelectionService(repo, query_service=CommonQueryService(repo, reader))
+    try:
+        card = await selection.query({"signal_kind": "kd", "sort": "rank", "limit": 2}, thread_id="replay-thread", run_id="replay-run", call_id="replay-call")
+        replay = await selection.replay(card["id"])
+        assert card["ranking_version"] == "mirror-board-v1"
+        assert replay["ranking_reproducible"]
+        assert replay["shown"] == [item["identity"] for item in card["items"]]
+        assert replay["total"] == card["matched_total"]
+    finally:
+        await reader.close()
         await engine.dispose()

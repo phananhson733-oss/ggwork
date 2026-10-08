@@ -11,6 +11,7 @@ from ggwork_pick.contracts import PickConditions
 from ggwork_pick.freshness import RANK_KINDS, data_notices, parse_timestamp
 from ggwork_pick.item_facts import facts_by_item, with_facts
 from ggwork_pick.pin import Pin, as_pin
+from ggwork_pick.query_reader import QueryFailure
 from ggwork_pick.references import check_posted_account, check_references, hot_scope, is_hot_kind, names_account
 from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of, with_mirror_version
 
@@ -19,7 +20,8 @@ RANKING_VERSION = "evidence-date-v1"
 RANK_RANKING_VERSION = "signal-rank-v1"
 # hot_only by date: the newest hot evidence, not the newest signal (clk is dated today on almost every ReelShort row).
 HOT_RANKING_VERSION = "hot-evidence-date-v1"
-RANKING_VERSIONS = frozenset({RANKING_VERSION, RANK_RANKING_VERSION, HOT_RANKING_VERSION})
+COMMON_RANKING_VERSION = "mirror-board-v1"
+RANKING_VERSIONS = frozenset({RANKING_VERSION, RANK_RANKING_VERSION, HOT_RANKING_VERSION, COMMON_RANKING_VERSION})
 # The replay's ordered identity list stops here; total and truncated say how many there were (plan:1620).
 REPLAY_LIMIT = 2000
 # 换一批 walks its chain of parents no further than this; a conversation never gets near it.
@@ -262,7 +264,7 @@ def unmappable_conditions(conditions: PickConditions) -> list[str]:
     return [name for name, active in present if active]
 
 
-def replay_view(record: dict, rows) -> dict:
+def replay_view(record: dict, rows, *, matches=None, ranking_version=None) -> dict:
     """The stored result re-run on its own batch rows with the identities it excluded (plan 2.5 item 4).
 
     Rule or ranking versions other than this code's are flagged, not refused (U36). Raises ValidationError or
@@ -270,7 +272,8 @@ def replay_view(record: dict, rows) -> dict:
     """
     conditions = PickConditions.model_validate(record["conditions_json"])
     excluded = record.get("excluded_json")
-    identities = [row["identity"] for row in matching_rows(rows, conditions, frozenset(excluded or ()), check=False)]
+    matches = matching_rows(rows, conditions, frozenset(excluded or ()), check=False) if matches is None else matches
+    identities = [row["identity"] for row in matches]
     return {
         "result_id": record["id"],
         "catalog_batch_id": record["catalog_batch_id"],
@@ -284,7 +287,7 @@ def replay_view(record: dict, rows) -> dict:
         "shown": identities[: conditions.limit],
         # Results from before P2 recorded no exclusions: exclude_selected and 换一批 cannot be redone for them.
         "excluded_reproducible": excluded is not None,
-        "ranking_reproducible": record["rule_version"] == RULE_VERSION and record["ranking_version"] == ranking_version_for(conditions),
+        "ranking_reproducible": record["rule_version"] == RULE_VERSION and record["ranking_version"] == (ranking_version or ranking_version_for(conditions)),
         "unmappable": unmappable_conditions(conditions),
     }
 
@@ -512,7 +515,11 @@ class SelectionService:
             catalog_batch_id=pin.catalog_id,
             knowledge_batch_id=pin.knowledge_id,
             rule_version=RULE_VERSION,
-            ranking_version=ranking_version_for(effective),
+            ranking_version=(
+                COMMON_RANKING_VERSION
+                if self.query_service is not None and pin.mirror_version is not None and not (effective.signal_kind or "").startswith("obs_")
+                else ranking_version_for(effective)
+            ),
             conditions_json=effective.model_dump(),
             ordered_items_json=items,
             created_at=stamp(),
@@ -611,7 +618,21 @@ class SelectionService:
         except LookupError:
             raise ReplayGone("这份候选用的剧库批次已过保留期被清理，无法回放") from None
         try:
-            view = await asyncio.to_thread(replay_view, record, rows)
+            if record["ranking_version"] == COMMON_RANKING_VERSION:
+                if self.query_service is None:
+                    raise ReplayUnrunnable("此候选需要公共查询服务才能按原顺序回放")
+                conditions = PickConditions.model_validate(record["conditions_json"])
+                pin = Pin(record["catalog_batch_id"], record["knowledge_batch_id"], record.get("mirror_version"), stored_data_as_of(record))
+                matches = await self.query_service.candidate_matches(
+                    rows, conditions, frozenset(record.get("excluded_json") or ()), pin, deadline=self.deadline
+                )
+                view = replay_view(record, rows, matches=matches, ranking_version=COMMON_RANKING_VERSION)
+            else:
+                view = await asyncio.to_thread(replay_view, record, rows)
+        except QueryFailure as exc:
+            if exc.code == "version_gone":
+                raise ReplayGone("这份候选的镜像版本已过保留期，无法回放") from None
+            raise
         except ValueError:
             # Pydantic's ValidationError included; only the re-run's refusals are a 409, not a ValueError anywhere.
             raise ReplayUnrunnable("这份候选的条件已不能按当前规则重跑，无法回放") from None

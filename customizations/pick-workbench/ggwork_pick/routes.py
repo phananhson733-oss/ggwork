@@ -297,7 +297,9 @@ def build_router(service):
         """The owner's result re-run on its own batch, for the data page's replay view (plan 2.5 item 4)."""
         repo = repository(request)
         try:
-            return await SelectionService(repo).replay(result_id)
+            return await SelectionService(repo, query_service=service.common_query(repo)).replay(result_id)
+        except QueryFailure as exc:
+            raise HTTPException(504 if exc.code == "query_timeout" else 503, str(exc)) from None
         except ReplayGone as exc:
             raise HTTPException(410, str(exc)) from None
         except ReplayUnrunnable as exc:

@@ -32,22 +32,27 @@ async def posted_page(conn, req, rules):
         scoped.append(f"e->>'d' >= {bind(req.published_from)}")
     if req.published_to:
         scoped.append(f"e->>'d' <= {bind(req.published_to)}")
-    if scoped:
-        public = "e->>'st' IN ('已回填','已公开')"
-        state = public if req.published_from or req.published_to or req.posted_state == "pub" else "true"
-        if req.posted_state == "sched" and not (req.published_from or req.published_to):
-            state = "COALESCE(e->>'st','') NOT IN ('已回填','已公开')"
-        clauses.append("EXISTS (SELECT 1 FROM jsonb_array_elements(posts) e WHERE " + state + " AND " + " AND ".join(scoped) + ")")
     if req.language is not None:
         clauses.append(f"lang = {bind(req.language)}")
     if req.theater:
         clauses.append(f"platform = {bind(req.theater)}")
-    where = " WHERE " + " AND ".join(clauses) if clauses else ""
-    facets = {key: await conn.fetchval(f"SELECT count(*) FILTER(WHERE {state}) FROM catalog_posted{where}", *args) for key, state in STATES.items()}
+
+    def where_for(state_filter):
+        selected = list(clauses)
+        if scoped:
+            public = "e->>'st' IN ('已回填','已公开')"
+            status = public if req.published_from or req.published_to or state_filter == "pub" else "true"
+            if state_filter == "sched" and not (req.published_from or req.published_to):
+                status = "COALESCE(e->>'st','') NOT IN ('已回填','已公开')"
+            selected.append("EXISTS (SELECT 1 FROM jsonb_array_elements(posts) e WHERE " + status + " AND " + " AND ".join(scoped) + ")")
+        if state_filter:
+            selected.append(STATES[state_filter])
+        return " WHERE " + " AND ".join(selected) if selected else ""
+
+    facets = {key: await conn.fetchval("SELECT count(*) FROM catalog_posted" + where_for(key), *args) for key in STATES}
     total = await conn.fetchval("SELECT count(*) FROM catalog_posted")
-    matched = facets[req.posted_state] if req.posted_state else await conn.fetchval(f"SELECT count(*) FROM catalog_posted{where}", *args)
-    if req.posted_state:
-        where += (" AND " if clauses else " WHERE ") + STATES[req.posted_state]
+    where = where_for(req.posted_state)
+    matched = facets[req.posted_state] if req.posted_state else await conn.fetchval("SELECT count(*) FROM catalog_posted" + where, *args)
     rows = [
         wire(dict(r))
         for r in await conn.fetch(
@@ -84,7 +89,7 @@ def publication_truth(records, req):
         if len(published) != record["post_count"] or len(posts) != record["post_count"] + record["sched_count"]:
             complete = False
         for post in published:
-            if req.account and not post.get("acct"):
+            if req.account and (not isinstance(post.get("acct"), str) or not post["acct"].strip()):
                 complete = False
                 continue
             if req.account and post["acct"] != req.account:
@@ -109,20 +114,13 @@ async def validate_publication_window(conn, req):
     """Text dates cannot prove a bounded window when source details are incomplete."""
     from ggwork_pick.query_reader import QueryFailure
 
-    records = await conn.fetch("SELECT post_count,posts,accounts FROM catalog_posted")
+    records = await conn.fetch("SELECT post_count,sched_count,posts,accounts FROM catalog_posted")
     for record in records:
-        posts = record["posts"]
-        published = [p for p in posts if p.get("st") in {"已回填", "已公开"}]
+        published = [p for p in record["posts"] if p.get("st") in {"已回填", "已公开"}]
         if req.account and req.account not in record["accounts"] and not any(p.get("acct") == req.account for p in published):
-            continue
-        if len(published) != record["post_count"]:
-            raise QueryFailure("source_unavailable", "来源缺少完整发布明细，无法核对日期范围")
-        for post in published:
-            if req.account and post.get("acct") != req.account:
+            # A missing attribution can still belong to the requested account.
+            if len(published) == record["post_count"] and all(isinstance(p.get("acct"), str) and p["acct"].strip() for p in published):
                 continue
-            try:
-                value = post.get("d")
-                if date.fromisoformat(value).isoformat() != value:
-                    raise ValueError("noncanonical source date")
-            except (ValueError, TypeError):
-                raise QueryFailure("source_unavailable", "来源发布日期未知，无法核对日期范围") from None
+        _, complete = publication_truth([record], req)
+        if not complete:
+            raise QueryFailure("source_unavailable", "来源发布明细或日期归属不完整，无法核对日期范围")
