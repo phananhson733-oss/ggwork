@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import insert, select, text, update
+from sqlalchemy import func, insert, select, text, update
 
 from ggwork_edit.models import records
 
@@ -139,12 +139,24 @@ class EditingRepository:
             return await self.view(session, await self.read(session, "task", task_id))
 
     async def list_tasks(self, *, limit=100, offset=0):
+        return (await self.list_tasks_page(limit=limit, offset=offset))["items"]
+
+    async def list_tasks_page(self, *, limit=100, offset=0):
         if not 1 <= limit <= 100 or offset < 0:
             raise ValueError("Invalid pagination")
         async with self.transaction(write=False) as session:
-            query = select(records.c.data).where(records.c.owner_id == self.owner, records.c.kind == "task")
+            conditions = (records.c.owner_id == self.owner, records.c.kind == "task")
+            total = (await session.execute(select(func.count()).select_from(records).where(*conditions))).scalar_one()
+            query = select(records.c.data).where(*conditions)
             query = query.order_by(records.c.data["created_at"].as_string().desc(), records.c.id).limit(limit).offset(offset)
-            return [await self.view(session, task) for task in (await session.execute(query)).scalars().all()]
+            items = [await self.view(session, task) for task in (await session.execute(query)).scalars().all()]
+            return {
+                "items": items,
+                "limit": limit,
+                "offset": offset,
+                "total": total,
+                "next_offset": offset + len(items) if offset + len(items) < total else None,
+            }
 
     async def register_device(self, name):
         import secrets
@@ -390,6 +402,8 @@ class EditingRepository:
                 if payload.kind == "stage":
                     if payload.stage is None:
                         raise ConflictError("Stage required")
+                    if payload.stage == "awaiting_plan" and task.get("plan_confirmed"):
+                        raise ConflictError("Plan already confirmed")
                     if payload.stage == "awaiting_plan" and not task.get("plan"):
                         raise ConflictError("No stored plan")
                     if task["requirements"]["review_plan"] and payload.stage in ("rendering", "verifying") and not task.get("plan_confirmed", False):

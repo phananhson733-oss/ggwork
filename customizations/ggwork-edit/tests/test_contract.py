@@ -246,3 +246,74 @@ async def test_output_validation_event_receipts_and_completed_first(api):
     stopped = await client.post(f"/api/editing/tasks/{task['id']}/stop", headers=OWNER, json={})
     assert stopped.json()["status"] == "completed"
     assert stopped.json()["completed_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_plan_confirmation_cannot_authorize_new_planning_attempt(api):
+    from ggwork_edit.contracts import CreateTask, RetryTask, WorkerReport
+
+    client, task, device, worker, attempt = await ready_task(api)
+    repo = api[1].repository("alice")
+    # A new revision requests review before render, preserving its source task.
+    detail = await repo.get_task(task["id"])
+    request = CreateTask.model_validate(
+        {
+            **REQUEST,
+            "request_id": "review-revision",
+            "parent_task_id": task["id"],
+            "device_id": device,
+            "requirements": {**REQUEST["requirements"], "review_plan": True},
+        }
+    )
+    revised = await repo.create_task(request)
+    # Stop existing running attempt honestly before the next device claim.
+    await repo.stop_task(task["id"])
+    await repo.report(device, task["id"], WorkerReport(attempt_id=attempt["id"], fence=attempt["fence"], event_id="ack", kind="stopped"))
+    from ggwork_edit.contracts import Manifest, PrepareTask
+
+    selected = detail["source_manifest"]
+    selected["files"][0].update(state="selected", sha256=None, duration_seconds=None)
+    await repo.prepare(revised["id"], PrepareTask(device_id=device, source_manifest=selected))
+    selected["files"][0].update(state="verified", sha256="a" * 64, duration_seconds=90)
+    await repo.verify_manifest(device, revised["id"], Manifest.model_validate(selected))
+    current = (await repo.claim(device, "review-claim"))["attempt"]
+    await repo.store_plan(device, revised["id"], current["id"], current["fence"], {"outputs": []})
+    await repo.confirm_plan(revised["id"])
+    path = f"/api/editing/worker/devices/{device}/tasks/{revised['id']}/report"
+    base = {"attempt_id": current["id"], "fence": current["fence"]}
+    replay = await client.post(path, headers=worker, json={**base, "event_id": "regress", "kind": "stage", "stage": "awaiting_plan"})
+    assert replay.status_code == 409
+    assert (await repo.get_task(revised["id"]))["status"] == "running"
+    await repo.report(device, revised["id"], WorkerReport(**base, event_id="failed", kind="failure", error="render unavailable"))
+    await repo.retry(revised["id"], RetryTask(request_id="new-plan", stage="planning"))
+    current = (await repo.claim(device, "second-review-claim"))["attempt"]
+    base = {"attempt_id": current["id"], "fence": current["fence"]}
+    premature = await client.post(path, headers=worker, json={**base, "event_id": "render", "kind": "stage", "stage": "rendering"})
+    assert premature.status_code == 409
+    assert (await repo.get_task(revised["id"]))["plan_confirmed"] is False
+
+
+@pytest.mark.asyncio
+async def test_history_pagination_and_revision_preserve_original(api):
+    client, service, _ = api
+    first = (await client.post("/api/editing/tasks", headers=OWNER, json=REQUEST)).json()
+    second = (
+        await client.post(
+            "/api/editing/tasks",
+            headers=OWNER,
+            json={
+                **REQUEST,
+                "request_id": "revision",
+                "parent_task_id": first["id"],
+                "requirements": {**REQUEST["requirements"], "instructions": "A different story"},
+            },
+        )
+    ).json()
+    page = (await client.get("/api/editing/tasks?limit=1", headers=OWNER)).json()
+    assert page["total"] == 2 and page["next_offset"] == 1
+    assert page["items"][0]["id"] == second["id"]
+    older = (await client.get("/api/editing/tasks?limit=1&offset=1", headers=OWNER)).json()
+    assert older["next_offset"] is None
+    assert older["items"][0]["requirements"]["instructions"] == "A dialogue hook"
+    assert second["parent_task_id"] == first["id"]
+    assert (await client.post("/api/editing/tasks", headers={"test-owner": "bob"}, json={**REQUEST, "parent_task_id": first["id"]})).status_code == 404

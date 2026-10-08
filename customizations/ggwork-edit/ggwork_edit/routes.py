@@ -44,7 +44,7 @@ def build_router(service):
 
     @router.get("/tasks")
     async def listing(request: Request, limit: int = Query(default=100, ge=1, le=100), offset: int = Query(default=0, ge=0)):
-        return {"items": await service.repository(owner(request)).list_tasks(limit=limit, offset=offset)}
+        return await service.repository(owner(request)).list_tasks_page(limit=limit, offset=offset)
 
     @router.get("/tasks/{task_id}")
     async def detail(task_id: str, request: Request):
