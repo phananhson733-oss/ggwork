@@ -1,0 +1,322 @@
+{
+  "scan_started_at": "2026-10-07T12:00:00Z",
+  "scan_completed_at": "2026-10-07T12:00:08Z",
+  "consistency": "bounded_scan",
+  "tables": [
+    {
+      "table_id": "tblHeWrgRPNshRdE",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-accounts",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tbl4efRfwhJRqryA",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-dramas",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tblNTly7d7tV1jG5",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-observations",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tbl5Kzrhuz9B7LTE",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-posts",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tblRLIXEFxLFkmt9",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-daily",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tblFQYFDWi7mDNYr",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-account_daily",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tblMelhKOBsexG6S",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-drama_totals",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tblggih9cjCArHy6",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-release_daily",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tbl2DP9zxoJCtrLY",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-first_release_daily",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tbl16HKB8myAqlvJ",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-cps_auto",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tbl2ZkOYGw7BVhaE",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-cps_manual",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tbl3dOSgrF0UeeQI",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-theater_revenue",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tbl3BJlPKayLxSV9",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-revenue_totals",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tblYCdQgOk5c1QWH",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-operator_daily",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    },
+    {
+      "table_id": "tblTDKF4IpJdKYkW",
+      "fields": [
+        {
+          "field_id": "fldSynthetic",
+          "name": "合成字段",
+          "field_type": "text"
+        }
+      ],
+      "records": [
+        {
+          "record_id": "synthetic-commission_rules",
+          "values": {
+            "fldSynthetic": "synthetic"
+          }
+        }
+      ],
+      "complete": true,
+      "pages": 1,
+      "source_quality": "unknown"
+    }
+  ]
+}

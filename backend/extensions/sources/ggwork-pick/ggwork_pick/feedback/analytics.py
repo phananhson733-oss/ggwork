@@ -25,9 +25,16 @@ def coverage(posts):
 def _item(data, key, posts, drama_ids, now, *, kind="cohort", include_revenue=True):
     metrics = {}
     warnings = set(data.warnings)
+    if data.transform_version == "feedback-v2":
+        warnings = {warning for warning in warnings if not _mapping_warning(warning)}
     evidence = [ref for post in posts for ref in data.evidence[post.post_key]]
     for drama_id in sorted(drama_ids):
         evidence.extend(data.evidence.get(f"dramas:{drama_id}", []))
+    if data.transform_version == "feedback-v2":
+        for source_key, resolution in data.revenue_resolutions.items():
+            if drama_ids.intersection(resolution.related_drama_ids):
+                warnings.update(resolution.warnings)
+                evidence.extend(data.evidence.get(source_key, []))
     for metric in METRICS:
         values = [Decimal(getattr(post, metric)) for post in posts if getattr(post, metric) is not None]
         metrics[f"{metric}_total"] = str(sum(values)) if values else None
@@ -171,6 +178,8 @@ def analyze_feedback(snapshot, query: FeedbackAnalysisQuery, version_id: str, *,
         "unknown_identity_exclusion_scope": "source_snapshot_all_publications",
         "unattributed_revenue_observations_excluded": sum(row.attribution != "confirmed" for row in data.revenue),
     }
+    if data.transform_version == "feedback-v2":
+        scope.update(_mapping_scope(data))
     warnings = sorted(set(data.warnings) | {"genre_groups_non_additive", "missing_is_not_zero", "no_fixed_age_or_conversion_claim"})
     if not include_revenue:
         warnings.append("revenue_scope_unavailable")
@@ -204,11 +213,23 @@ def drama_feedback(
         posts = [post for post in data.posts if post.drama_record_id in drama_ids and post.channel != "unknown"]
         selected.update({post.post_key: post for post in posts})
         item = _item(data, identity, posts, drama_ids, now, kind="direct" if binding.status == "confirmed" else "unknown")
+        if data.transform_version == "feedback-v2":
+            item.warnings = sorted(set(item.warnings) | set(binding.warnings))
+            known_refs = {(ref.table_id, ref.record_id) for ref in item.evidence_refs}
+            for drama_id in binding.evidence_drama_ids:
+                item.evidence_refs.extend(ref for ref in data.evidence[f"dramas:{drama_id}"] if (ref.table_id, ref.record_id) not in known_refs)
         item.metrics["identity_method"] = binding.method
         item.metrics["identity_status"] = binding.status
         if binding.status != "confirmed":
             item.warnings.append("no_confirmed_match")
         items.append(item)
+    mapping_scope = {}
+    warnings = set(data.warnings)
+    if data.transform_version == "feedback-v2":
+        mapping_scope = _mapping_scope(data)
+        mapping_scope["catalog_binding_counts"] = dict(Counter(binding.status for binding in bindings.values()))
+        mapping_scope["catalog_binding_scope"] = "catalog_population_before_candidate_filter"
+        warnings.update(warning for binding in bindings.values() for warning in binding.warnings)
     return _reply(
         snapshot,
         version_id,
@@ -217,10 +238,28 @@ def drama_feedback(
         items=items,
         coverage=coverage(list(selected.values())),
         query_scope={
+            **mapping_scope,
             "population": "all_publications_of_confirmed_catalog_identities",
             "unknown_identity_publications_excluded": sum(p.channel == "unknown" for p in data.posts),
             "unknown_identity_exclusion_scope": "source_snapshot_all_publications",
         },
-        warnings=data.warnings,
+        warnings=sorted(warnings),
         total_groups=len(items),
     )
+
+
+def _mapping_warning(warning):
+    return warning.startswith(("master_identity_", "external_mapping_", "revenue_direct_link_", "revenue_grain_"))
+
+
+def _mapping_scope(data):
+    records = {(row.source_lane, row.record_id) for row in data.revenue}
+    excluded = {(row.source_lane, row.record_id) for row in data.revenue if row.attribution != "confirmed"}
+    return {
+        "mapping_diagnostics_scope": "source_snapshot",
+        "revenue_records": len(records),
+        "attributed_revenue_records": len(records - excluded),
+        "unattributed_revenue_records_excluded": len(excluded),
+        "revenue_record_exclusion_scope": "source_snapshot_all_revenue_lanes",
+        "unattributed_revenue_observations_excluded": sum(row.attribution != "confirmed" for row in data.revenue),
+    }

@@ -7,6 +7,19 @@ import {
 import { day, evidenceDate } from "@/core/pick/format";
 
 const warningLabels: Record<string, string> = {
+  master_identity_invalid: "部分主表剧集的选剧台身份格式无效，未用于候选匹配",
+  master_identity_unconfirmed: "部分主表剧集的选剧台对应关系尚未确认",
+  master_identity_conflict: "部分主表剧集的选剧台对应关系存在重复或冲突",
+  master_identity_incompatible: "部分主表对应关系的剧场或语言不一致",
+  external_mapping_scope_unknown: "部分外部 ID 的适用范围不明，相关收益未归因",
+  external_mapping_unconfirmed: "部分外部 ID 映射尚未确认，相关收益未归因",
+  external_mapping_inactive: "部分外部 ID 映射已停用，相关收益未归因",
+  external_mapping_conflict:
+    "部分外部 ID 映射重复、范围重叠或关联冲突，相关收益未归因",
+  external_mapping_target_invalid:
+    "部分外部 ID 映射未唯一关联有效且剧场一致的剧集",
+  revenue_direct_link_invalid: "部分收益记录未唯一关联有效且剧场一致的剧集",
+  revenue_grain_unconfirmed: "部分收益记录未明确为单剧粒度，未分配到剧集",
   revenue_scope_unavailable: "当前筛选条件无法准确归因收益",
   revenue_amount_basis_or_currency_unknown: "部分收益币种或金额口径待确认",
   no_measured_playback: "尚无有效播放观测",

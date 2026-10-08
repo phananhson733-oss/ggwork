@@ -28,8 +28,8 @@ class RefreshOutcome:
     error_code: str | None = None
 
 
-def _source(owner, baseline):
-    return FeishuFeedbackSource(owner, baseline=baseline)
+def _source(owner, baseline, baseline_transform_version):
+    return FeishuFeedbackSource(owner, baseline=baseline, baseline_transform_version=baseline_transform_version)
 
 
 class FeedbackSyncService:
@@ -72,7 +72,8 @@ class FeedbackSyncService:
                     table["table_id"]: [SourceField.model_validate(field) for field in table["fields"]]
                     for table in (current["manifest_json"]["tables"] if current else [])
                 }
-                snapshot = await read_snapshot(self.source_factory(repo.owner_id, baseline))
+                baseline_transform_version = current["manifest_json"].get("transform_version", "feedback-v1") if current else None
+                snapshot = await read_snapshot(self.source_factory(repo.owner_id, baseline, baseline_transform_version))
                 await repo.publish(run_id, snapshot)
         except asyncio.CancelledError:
             await repo.fail(run_id, "cancelled")

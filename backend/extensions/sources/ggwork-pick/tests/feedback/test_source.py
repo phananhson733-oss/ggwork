@@ -17,7 +17,7 @@ class FakeSource:
         from ggwork_pick.feedback.contracts import SourcePage, SourceRecord
 
         self.calls += 1
-        if self.mode == "failure" and self.calls == 15:
+        if self.mode == "failure" and self.calls == 16:
             raise RuntimeError("synthetic source interruption")
         changing = str(self.calls) if self.mode == "changing" else "unchanged"
         records = [SourceRecord(record_id=f"rec-{table.key}-{offset}", values={"fldSynthetic": changing})]
@@ -35,11 +35,12 @@ async def test_complete_scan_reads_all_pages_twice_and_keeps_field_ids():
 
     source = FakeSource("pages")
     snap = await read_snapshot(source)
-    assert source.calls == 60
-    assert len(snap.tables) == 15
+    assert source.calls == 64
+    assert len(snap.tables) == 16
     assert all(len(table.records) == 2 for table in snap.tables)
     assert snap.tables[0].records[0].values == {"fldSynthetic": "unchanged"}
     assert snap.consistency == "bounded_scan"
+    assert snap.transform_version == "feedback-v2"
 
 
 @pytest.mark.asyncio
@@ -62,7 +63,7 @@ async def test_continuously_changing_source_has_only_one_retry():
     with pytest.raises(FeedbackSourceError) as error:
         await read_snapshot(source)
     assert error.value.code == "source_changed"
-    assert source.calls == 60
+    assert source.calls == 64
 
 
 @pytest.mark.asyncio

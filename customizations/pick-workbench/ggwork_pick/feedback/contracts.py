@@ -7,12 +7,13 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, Field, JsonValue, StrictBool, StrictInt, model_validator
+from pydantic import AwareDatetime, ConfigDict, Field, JsonValue, StrictBool, StrictInt, StringConstraints, model_validator
 
 from ggwork_pick.contracts import StrictInput
 
 BASE_TOKEN = "OtnsbnRnwaLmnVsJByscTkFMntd"
 CONTRACT_VERSION = "feedback-v1"
+TRANSFORM_VERSION = "feedback-v2"
 
 
 @dataclass(frozen=True)
@@ -22,7 +23,7 @@ class SourceTable:
     name: str
 
 
-TABLES = (
+TABLES_V1 = (
     SourceTable("accounts", "tblHeWrgRPNshRdE", "账号台账"),
     SourceTable("dramas", "tbl4efRfwhJRqryA", "选剧池"),
     SourceTable("observations", "tblNTly7d7tV1jG5", "采集数据"),
@@ -39,6 +40,7 @@ TABLES = (
     SourceTable("operator_daily", "tblYCdQgOk5c1QWH", "运营日报汇总"),
     SourceTable("commission_rules", "tblTDKF4IpJdKYkW", "分成比例配置"),
 )
+TABLES = (*TABLES_V1, SourceTable("external_ids", "tblEuEDLaqrcu5Ym", "外部剧集ID映射"))
 TABLE_BY_ID = {table.table_id: table for table in TABLES}
 TABLE_BY_KEY = {table.key: table for table in TABLES}
 
@@ -122,6 +124,12 @@ class SourceRecord(StrictInput):
     values: dict[str, JsonValue]
 
 
+class SourceRecordV2(SourceRecord):
+    # V1 keeps its historical normalization; v2 external IDs and scopes are exact source strings.
+    model_config = ConfigDict(str_strip_whitespace=False)
+    record_id: Annotated[Identifier, StringConstraints(strip_whitespace=True)]
+
+
 class SourcePage(StrictInput):
     table_id: Identifier
     records: list[SourceRecord]
@@ -135,6 +143,10 @@ class SourcePage(StrictInput):
         if self.table_id not in TABLE_BY_ID or (self.has_more and self.next_offset is None):
             raise ValueError("来源表或分页坐标无效")
         return self
+
+
+class SourcePageV2(SourcePage):
+    records: list[SourceRecordV2]
 
 
 class TableSnapshot(StrictInput):
@@ -158,17 +170,34 @@ class TableSnapshot(StrictInput):
         return self
 
 
+class TableSnapshotV2(TableSnapshot):
+    records: list[SourceRecordV2]
+
+
 class FeedbackSnapshot(StrictInput):
     scan_started_at: AwareDatetime
     scan_completed_at: AwareDatetime
     consistency: Literal["bounded_scan"]
     tables: list[TableSnapshot]
-    transform_version: Literal["feedback-v1"] = CONTRACT_VERSION
+    transform_version: Literal["feedback-v1", "feedback-v2"] = CONTRACT_VERSION
+
+    @model_validator(mode="before")
+    @classmethod
+    def versioned_records(cls, data):
+        # Parse v2 before the legacy table annotation can normalize nested JSON strings.
+        # This also covers publication revalidation and reconstruction from stored manifests.
+        if isinstance(data, dict) and data.get("transform_version") == "feedback-v2" and isinstance(data.get("tables"), list):
+            return {
+                **data,
+                "tables": [TableSnapshotV2.model_validate(table.model_dump() if isinstance(table, TableSnapshot) else table) for table in data["tables"]],
+            }
+        return data
 
     @model_validator(mode="after")
     def complete_scan(self):
-        if len(self.tables) != len(TABLES) or {table.table_id for table in self.tables} != set(TABLE_BY_ID):
-            raise ValueError("反馈必须包含15张完整数据表")
+        expected = TABLES_V1 if self.transform_version == "feedback-v1" else TABLES
+        if len(self.tables) != len(expected) or {table.table_id for table in self.tables} != {table.table_id for table in expected}:
+            raise ValueError(f"反馈必须包含{len(expected)}张完整数据表")
         if self.scan_completed_at < self.scan_started_at:
             raise ValueError("扫描时间倒置")
         return self

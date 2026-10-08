@@ -759,3 +759,41 @@ it("retains a just-returned authorization failure through an old status snapshot
   expect(screen.getByText("需要连接飞书")).toBeTruthy();
   expect(state.get).toHaveBeenCalledTimes(2);
 });
+
+it("renders mapping diagnostics as safe Chinese text at the supplied scope", () => {
+  const data = reply();
+  data.warnings = [
+    "master_identity_invalid",
+    "master_identity_unconfirmed",
+    "master_identity_conflict",
+    "master_identity_incompatible",
+    "external_mapping_scope_unknown",
+    "external_mapping_unconfirmed",
+    "external_mapping_inactive",
+    "external_mapping_conflict",
+    "external_mapping_target_invalid",
+    "revenue_direct_link_invalid",
+    "revenue_grain_unconfirmed",
+  ];
+  data.items[0]!.warnings = ["external_mapping_conflict"];
+  const view = render(
+    <>
+      <FeedbackSummary feedback={data} />
+      <FeedbackEvidence item={data.items[0]} />
+    </>,
+  );
+  expect(
+    screen.getAllByText(
+      "部分外部 ID 映射重复、范围重叠或关联冲突，相关收益未归因",
+    ),
+  ).toHaveLength(2);
+  expect(
+    screen.getAllByText("部分外部 ID 的适用范围不明，相关收益未归因"),
+  ).toHaveLength(1);
+  expect(
+    screen.getByText("部分收益记录未明确为单剧粒度，未分配到剧集"),
+  ).toBeTruthy();
+  for (const code of data.warnings)
+    expect(view.container.textContent).not.toContain(code);
+  expect(view.container.querySelectorAll("a, script")).toHaveLength(0);
+});

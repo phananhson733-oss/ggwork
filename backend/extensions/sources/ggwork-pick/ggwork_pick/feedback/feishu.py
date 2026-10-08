@@ -5,8 +5,20 @@ import json
 from pydantic import ValidationError
 
 from ggwork_pick import lark_runner
-from ggwork_pick.feedback.contracts import BASE_TOKEN, SourceField, SourcePage, SourceRecord, SourceTable
-from ggwork_pick.feedback.fields import FIELD_NAMES, REQUIRED_FIELDS
+from ggwork_pick.feedback.contracts import (
+    BASE_TOKEN,
+    TABLE_BY_KEY,
+    TABLES,
+    TABLES_V1,
+    TRANSFORM_VERSION,
+    SourceField,
+    SourcePage,
+    SourcePageV2,
+    SourceRecord,
+    SourceRecordV2,
+    SourceTable,
+)
+from ggwork_pick.feedback.fields import FIELD_NAMES, REQUIRED_FIELDS, V2_ADDITIONS
 from ggwork_pick.feedback.source import FeedbackSourceError
 
 
@@ -26,8 +38,12 @@ def envelope(completed: lark_runner.Completed) -> dict:
     return value
 
 
-def parse_export(table: SourceTable, fields: list[SourceField], ndjson: str, manifest: dict) -> SourcePage:
+def parse_export(table: SourceTable, fields: list[SourceField], ndjson: str, manifest: dict, *, transform_version: str = "feedback-v1") -> SourcePage:
     try:
+        if transform_version not in {"feedback-v1", "feedback-v2"}:
+            raise FeedbackSourceError("incomplete")
+        record_type = SourceRecordV2 if transform_version == "feedback-v2" else SourceRecord
+        page_type = SourcePageV2 if transform_version == "feedback-v2" else SourcePage
         if manifest.get("base_token") != BASE_TOKEN or manifest.get("table_id") != table.table_id:
             raise FeedbackSourceError("incomplete")
         context = manifest.get("query_context", {})
@@ -50,12 +66,12 @@ def parse_export(table: SourceTable, fields: list[SourceField], ndjson: str, man
             row = json.loads(line)
             if not isinstance(row, dict) or not set(row).issubset({"record_id", *names}):
                 raise FeedbackSourceError("incomplete")
-            result.append(SourceRecord(record_id=row.get("record_id"), values={field.field_id: row.get(name) for name, field in names.items()}))
+            result.append(record_type(record_id=row.get("record_id"), values={field.field_id: row.get(name) for name, field in names.items()}))
         count = manifest.get("records_count")
         if type(count) is not int or count != len(result):
             raise FeedbackSourceError("incomplete")
         revision = manifest.get("rev")
-        return SourcePage(
+        return page_type(
             table_id=table.table_id,
             records=result,
             has_more=manifest.get("has_more"),
@@ -69,10 +85,15 @@ def parse_export(table: SourceTable, fields: list[SourceField], ndjson: str, man
 
 
 class FeishuFeedbackSource:
-    def __init__(self, owner_id: str, *, baseline: dict[str, list[SourceField]] | None = None):
+    def __init__(self, owner_id: str, *, baseline: dict[str, list[SourceField]] | None = None, baseline_transform_version: str | None = None):
         if not owner_id or owner_id in ("default", "system:shared"):
             raise ValueError("缺少反馈用户身份")
+        if baseline_transform_version is not None:
+            expected = {table.table_id for table in (TABLES_V1 if baseline_transform_version == "feedback-v1" else TABLES)}
+            if baseline_transform_version not in {"feedback-v1", "feedback-v2"} or set(baseline or {}) != expected:
+                raise FeedbackSourceError("schema_changed")
         self.owner_id = owner_id
+        self.transition_tables = set(baseline or {}) if baseline_transform_version == "feedback-v1" else set()
         # Only server-loaded last-published schema supplies the baseline, never model parameters.
         self.bound_fields = {table_id: {field.field_id: field for field in fields} for table_id, fields in (baseline or {}).items()}
 
@@ -152,16 +173,14 @@ class FeishuFeedbackSource:
         else:
             raise FeedbackSourceError("capacity")
         bound = self.bound_fields.get(table.table_id)
+        transition = table.table_id in self.transition_tables
         if bound is None:
-            selected = [field for field in all_fields if field.name in FIELD_NAMES[table.key]]
-            by_name = {field.name: field for field in selected}
-            required = REQUIRED_FIELDS[table.key]
-            if len(by_name) != len(selected) or any(name not in by_name or by_name[name].field_type not in types for name, types in required.items()):
-                raise FeedbackSourceError("schema_changed")
-            selected = [field.model_copy(update={"semantic_name": field.name}) for field in selected]
-            self.bound_fields[table.table_id] = {field.field_id: field for field in selected}
+            selected = [field.model_copy(update={"semantic_name": field.name}) for field in all_fields if field.name in FIELD_NAMES[table.key]]
+            self._validate_required(table, selected)
         else:
-            if any(field.field_id not in bound and field.name in FIELD_NAMES[table.key] for field in all_fields):
+            additions = [field for field in all_fields if field.field_id not in bound and field.name in FIELD_NAMES[table.key]]
+            approved = V2_ADDITIONS.get(table.key, {}) if transition else {}
+            if any(field.name not in approved for field in additions):
                 raise FeedbackSourceError("schema_changed")
             selected = [field for field in all_fields if field.field_id in bound]
             if len(selected) != len(bound) or any(
@@ -169,7 +188,24 @@ class FeishuFeedbackSource:
             ):
                 raise FeedbackSourceError("schema_changed")
             selected = [field.model_copy(update={"semantic_name": bound[field.field_id].semantic_name or bound[field.field_id].name}) for field in selected]
+            selected.extend(field.model_copy(update={"semantic_name": field.name}) for field in additions)
+            if transition:
+                self._validate_required(table, selected)
+        if len({field.name for field in selected}) != len(selected) or len({field.semantic_name for field in selected}) != len(selected):
+            raise FeedbackSourceError("schema_changed")
+        # Only bind after every schema check. Later reads in this same scan are strict too.
+        self.bound_fields[table.table_id] = {field.field_id: field for field in selected}
+        self.transition_tables.discard(table.table_id)
         return selected
+
+    @staticmethod
+    def _validate_required(table: SourceTable, selected: list[SourceField]):
+        by_name = {field.semantic_name: field for field in selected}
+        if any(name not in by_name or by_name[name].field_type not in types for name, types in REQUIRED_FIELDS[table.key].items()):
+            raise FeedbackSourceError("schema_changed")
+        if "关联剧集" in V2_ADDITIONS.get(table.key, {}):
+            if by_name["关联剧集"].properties.get("link_table") != TABLE_BY_KEY["dramas"].table_id:
+                raise FeedbackSourceError("schema_changed")
 
     async def page(self, table: SourceTable, fields: list[SourceField], offset: int) -> SourcePage:
         try:
@@ -194,7 +230,7 @@ class FeishuFeedbackSource:
                 stdout.get(key) != manifest.get(key) for key in ("base_token", "table_id", "rev", "query_context", "records_count", "has_more", "next_offset")
             ):
                 raise FeedbackSourceError("incomplete")
-            return parse_export(table, fields, result.records, manifest)
+            return parse_export(table, fields, result.records, manifest, transform_version=TRANSFORM_VERSION)
         except (lark_runner.LarkUnavailable, TimeoutError):
             raise FeedbackSourceError("unavailable") from None
         except (ValueError, TypeError) as exc:

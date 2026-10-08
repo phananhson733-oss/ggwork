@@ -11,8 +11,8 @@ def test_feedback_source_inventory_is_exact_and_has_no_workflow():
     from ggwork_pick.feedback.contracts import BASE_TOKEN, TABLES
 
     assert BASE_TOKEN == "OtnsbnRnwaLmnVsJByscTkFMntd"
-    assert len(TABLES) == 15
-    assert len({table.table_id for table in TABLES}) == 15
+    assert len(TABLES) == 16
+    assert len({table.table_id for table in TABLES}) == 16
     assert {table.key for table in TABLES} >= {"dramas", "posts", "observations", "cps_auto", "cps_manual", "commission_rules"}
     assert all(table.table_id.startswith("tbl") for table in TABLES)
 

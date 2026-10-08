@@ -1,11 +1,11 @@
 """Synthetic-only feedback source builders. Never capture production data into fixtures."""
 
-from ggwork_pick.feedback.contracts import TABLES, FeedbackSnapshot
+from ggwork_pick.feedback.contracts import TABLES, TABLES_V1, FeedbackSnapshot
 
 
-def snapshot_from_rows(rows):
+def snapshot_from_rows(rows, *, transform_version="feedback-v1"):
     tables = []
-    for table in TABLES:
+    for table in TABLES_V1 if transform_version == "feedback-v1" else TABLES:
         records = rows.get(table.key, [])
         names = sorted({name for record in records for name in record if name != "record_id"})
         ids = {name: f"fldSynthetic{index}" for index, name in enumerate(names)}
@@ -22,7 +22,13 @@ def snapshot_from_rows(rows):
             }
         )
     return FeedbackSnapshot.model_validate(
-        {"scan_started_at": "2026-10-07T12:00:00Z", "scan_completed_at": "2026-10-07T12:00:08Z", "consistency": "bounded_scan", "tables": tables}
+        {
+            "scan_started_at": "2026-10-07T12:00:00Z",
+            "scan_completed_at": "2026-10-07T12:00:08Z",
+            "consistency": "bounded_scan",
+            "tables": tables,
+            "transform_version": transform_version,
+        }
     )
 
 

@@ -28,7 +28,7 @@ async def test_candidate_feedback_is_frozen_and_shared_by_tools_in_one_run(pick_
 
     class Source:
         def __init__(self):
-            self.tables = {table.table_id: table for table in snapshot_from_rows(source_rows).tables}
+            self.tables = {table.table_id: table for table in snapshot_from_rows(source_rows, transform_version="feedback-v2").tables}
             constructions.append(self)
 
         async def fields(self, table):
