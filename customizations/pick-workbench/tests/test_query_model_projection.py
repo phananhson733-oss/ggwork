@@ -130,7 +130,7 @@ def test_shared_projection_examples_round_trip_with_closed_contract():
 
     path = Path(__file__).resolve().parents[3] / "frontend/tests/unit/core/pick/fixtures/query-model-v1.json"
     for payload in json.loads(path.read_text(encoding="utf-8")).values():
-        assert QueryModelProjection.model_validate(payload).model_dump(mode="json") == payload
+        assert QueryModelProjection.model_validate(payload).model_dump(mode="json", exclude_unset=True) == payload
 
 
 def test_malformed_source_projection_fails_with_bounded_safe_message():
@@ -220,3 +220,32 @@ def test_selected_growth_metric_preserves_decimal_operands_and_measured_zero():
     assert zero["value"] == "0" and zero["verified"] is True
     unknown = selected_metric({"rr": 0, "metrics_valid": None}, "rr", "tool:unknown")
     assert unknown["value"] is None and unknown["verified"] is None
+
+
+@pytest.mark.parametrize("value", [None, 0, 80, True, -1, "80"])
+def test_episode_projection_and_checker_preserve_unknown_zero_and_reject_malformed(value):
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.answer_evidence import AnswerEvidence
+    from ggwork_pick.query_model_projection import model_projection
+    from ggwork_pick.query_reader import QueryFailure
+
+    payload = payload_for([drama(1)])
+    payload["pin"].update(mirror_version=1, rule_version="mirror-rules-v1")
+    row = payload["rows"][0]
+    from ggwork_pick.query_evidence import source_key
+
+    key = source_key(row)
+    payload["board"] = {"row_keys": [key], "catalog_rows": [{"row_key": key, "lang": "en", "episodes": value}]}
+    if type(value) not in (int, type(None)) or type(value) is int and value < 0:
+        with pytest.raises(QueryFailure) as error:
+            model_projection(payload, call_id="episodes", requested_limit=20)
+        assert error.value.code == "source_unavailable"
+        return
+    projected = model_projection(payload, call_id="episodes", requested_limit=20)
+    assert projected["rows"][0]["episodes"] == value
+    assert len(json.dumps(projected, ensure_ascii=False).encode()) <= 48000
+    evidence = AnswerEvidence()
+    evidence.capture("pick_query_data", "episodes", payload)
+    claim = f"《{row['drama']['title']}》共{value if value is not None else 0}集 [{projected['rows'][0]['reference']}]"
+    checked = build_checked_publication(claim, evidence=evidence, thread_id="t", run_id="r", message_id="m")
+    assert (checked.status == "confirmed") is (value is not None)

@@ -123,7 +123,13 @@ def _rows(payload, call_id):
         result = []
         for key in board["row_keys"]:
             if key in facts and not (key in records and not records[key][1]["lang"]):
-                result.append(_drama(facts[key], call_id, request))
+                from ggwork_pick.query_facts import episode_fact
+
+                projected = _drama(facts[key], call_id, request)
+                fact = episode_fact(payload, facts[key])
+                if fact is not None:
+                    projected.update(episodes=fact.episodes, episodes_source_ref=fact.source_ref)
+                result.append(projected)
             elif key in records:
                 table, row = records[key]
                 result.append(

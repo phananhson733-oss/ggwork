@@ -128,6 +128,22 @@ class AnswerEvidence:
                     display_prefix="本次查询共",
                 )
             )
+        if tool == "pick_get_drama_detail" and success and payload.get("historical_summary"):
+            from ggwork_pick.query_facts import HistoricalResultSummary
+
+            summary = HistoricalResultSummary.model_validate(payload["historical_summary"])
+            if summary.result_id == payload.get("result_id") and summary.reference == f"result:{summary.result_id}":
+                self.atoms.append(
+                    EvidenceAtom(
+                        "该历史候选结果当时符合条件总数为",
+                        str(summary.matched_total) if summary.matched_total is not None else None,
+                        "部",
+                        summary.reference,
+                        summary.result_id,
+                        "historical.matched_total",
+                        "部",
+                    )
+                )
         for item in items:
             self.titles.add(item["title"])
             if not _label(item["title"]):
@@ -135,6 +151,23 @@ class AnswerEvidence:
             title = f"《{item['title']}》"
             subject = item.get("identity", item["item_id"])
             item_ref = f"result:{payload.get('id', payload.get('result_id', call_id))}:{item['item_id']}"
+            if tool == "pick_get_drama_detail" and payload.get("source_facts"):
+                from ggwork_pick.query_facts import HistoricalItemFacts
+
+                fact = HistoricalItemFacts.model_validate(payload["source_facts"])
+                if fact.identity == subject and fact.reference == item_ref and fact.pin.catalog_batch_id == payload.get("catalog_batch_id"):
+                    self.atoms.append(
+                        EvidenceAtom(
+                            f"{title}共",
+                            str(fact.episodes) if fact.episodes is not None else None,
+                            "集",
+                            item_ref,
+                            subject,
+                            "episodes",
+                            "集",
+                            source_ref=fact.source_ref,
+                        )
+                    )
             listed = _date(item.get("listed_at"))
             if listed:
                 self.atoms.append(EvidenceAtom(f"{title}的上架日期为", listed, "", item_ref, subject, "listed_at"))

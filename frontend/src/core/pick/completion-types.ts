@@ -1364,6 +1364,8 @@ const modelRankMetricSchema = z
 const modelDramaRowSchema = z
   .object({
     kind: z.literal("drama"),
+    episodes: z.number().int().min(0).nullable().optional(),
+    episodes_source_ref: z.string().max(1024).nullable().optional(),
     rank_metric: modelRankMetricSchema.nullable().default(null),
     identity: z.string().min(1).max(512),
     reference: modelReference,

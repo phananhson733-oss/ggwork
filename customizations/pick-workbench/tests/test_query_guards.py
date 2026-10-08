@@ -738,3 +738,15 @@ def test_region_hints_point_at_languages_the_feed_uses():
     assert set(REGION_LANGUAGES.values()) <= {"en", "ko", "ja", "es", "pt", "id", "th", "fr", "de", "zh-hant", "ar"}
     assert all(key == key.strip().casefold() for key in REGION_LANGUAGES)
     assert region_language(" USA ") == region_language("美国") == "en" and region_language("ReelShort") is None
+
+
+@pytest.mark.asyncio
+async def test_supported_absent_language_is_scoped_zero_not_an_invalid_filter(repo):
+    result = await query(repo, {"language": "JA", "exclude_selected": False})
+    assert result["matched_total"] == 0 and result["items"] == []
+    assert result["conditions"]["language"] == "JA"
+    from ggwork_pick.selection import SelectionService
+
+    counted = await SelectionService(repo).count({"language": "JA", "exclude_selected": False})
+    assert counted["total"] == 0 and counted["zero_diagnosis"]
+    assert counted["conditions"]["language"] == "JA"

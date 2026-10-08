@@ -77,8 +77,8 @@ async def test_inflight_ordinary_tool_is_cancelled_at_reserve():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("budget_ms", [100, 10000])
-async def test_agent_query_budget_includes_setup_and_rejects_late_success(monkeypatch, budget_ms):
+@pytest.mark.parametrize("name,budget_ms", [("pick_query_data", 100), ("pick_query_data", 10000), ("pick_get_drama_detail", 10000)])
+async def test_agent_query_budget_includes_setup_and_rejects_late_success(monkeypatch, name, budget_ms):
     from ggwork_pick.context import PickTask
     from ggwork_pick.middleware import PickToolGate
 
@@ -87,7 +87,7 @@ async def test_agent_query_budget_includes_setup_and_rejects_late_success(monkey
     store.set(task)
     request = SimpleNamespace(
         runtime=SimpleNamespace(context={EXTENSION_TASK_STORE_KEY: store}),
-        tool_call={"name": "pick_query_data", "args": {"query": {"domain": "catalog", "budget_ms": budget_ms}}},
+        tool_call={"name": name, "args": {"query": {"domain": "catalog", "budget_ms": budget_ms}}},
     )
     loop = asyncio.get_running_loop()
     real_time = loop.time
