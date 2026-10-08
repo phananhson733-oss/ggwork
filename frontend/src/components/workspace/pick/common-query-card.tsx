@@ -161,23 +161,32 @@ export function CommonQueryCard({
       aria-label="共用资料查询结果"
     >
       <h3 className="text-lg font-semibold">
-        {domains[request.domain]} ·{" "}
-        {request.scope === "candidate_pool" ? "候选池范围" : "全库范围"}
+        {domains[request.domain]}
+        {request.domain !== "rules" &&
+          ` · ${request.scope === "candidate_pool" ? "候选池范围" : "全库范围"}`}
       </h3>
       <p>{conditions.length ? conditions.join("；") : "本次没有附加筛选"}</p>
-      <p>
-        排序：
-        {data.effective_sort
-          ? Object.hasOwn(metricLabels, data.effective_sort)
-            ? metricLabels[data.effective_sort as keyof typeof metricLabels]
-            : "来源排序"
-          : ordering[request.order]}
-        （不代表收益预测）
-      </p>
-      <p>
-        原请求上限 {data.projection.requested_limit} 条 · 本次查询页上限{" "}
-        {request.limit} 条
-      </p>
+      {request.domain !== "rules" && (
+        <>
+          <p>
+            排序：
+            {data.effective_sort
+              ? Object.hasOwn(metricLabels, data.effective_sort)
+                ? metricLabels[data.effective_sort as keyof typeof metricLabels]
+                : "来源排序"
+              : request.domain === "rankings"
+                ? "来源榜单顺序"
+                : request.domain === "posted"
+                  ? "发布时间"
+                  : ordering[request.order]}
+            （不代表收益预测）
+          </p>
+          <p>
+            原请求上限 {data.projection.requested_limit} 条 · 本次查询页上限{" "}
+            {request.limit} 条
+          </p>
+        </>
+      )}
       {request.domain === "rules" ? (
         <p>
           本次规则资料 {data.projection.available_count} 项 · 卡片展示{" "}

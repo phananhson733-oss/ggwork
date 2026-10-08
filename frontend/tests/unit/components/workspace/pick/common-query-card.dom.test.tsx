@@ -64,6 +64,8 @@ it("does not describe rules with source-count zero as missing rules", () => {
   render(<CommonQueryCard result={fixture.rule} />);
   expect(screen.getByText("Synthetic theater")).toBeTruthy();
   expect(screen.queryByText(/没有匹配记录/)).toBeNull();
+  expect(screen.queryByText(/查询页上限/)).toBeNull();
+  expect(screen.queryByText(/排序：/)).toBeNull();
 });
 it("does not turn unfinished or malformed output into zero, or expose raw audits", () => {
   const mounted = render(
@@ -152,6 +154,7 @@ it("labels posted cumulative source counts separately from the requested account
 it("keeps bill promotion type visible as part of the source record identity", () => {
   render(<CommonQueryCard result={fixture.bill} />);
   expect(screen.getByText(/推广类型：cps/)).toBeTruthy();
+  expect(screen.getByText(/排序：来源榜单顺序/)).toBeTruthy();
   expect(screen.getByText(/本次仅查询资料，未执行保存或发布/)).toBeTruthy();
 });
 it("does not invent row omissions for query pagination or apply ignored eligibility defaults", () => {
