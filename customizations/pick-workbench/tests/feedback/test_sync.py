@@ -147,12 +147,38 @@ async def blocked_sync(pick_db_url, tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("disconnect", [False, True], ids=["timeout", "disconnect"])
-async def test_finished_callers_stop_receipt_queries_without_cancelling_worker(blocked_sync, disconnect):
+@pytest.mark.parametrize("slow_lookup", [False, True], ids=["unblocked-lookup", "slow-lookup"])
+async def test_finished_callers_stop_receipt_queries_without_cancelling_worker(blocked_sync, monkeypatch, disconnect, slow_lookup):
     from sqlalchemy import event
+
+    from ggwork_pick.feedback.repository import FeedbackRepository
 
     service, engine, started, release = blocked_sync
     run = await service.trigger("alice")
     await asyncio.wait_for(started.wait(), 2)
+    entered, polling, finish_lookup = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    waiters = set()
+    polled = set()
+    original_run = FeedbackRepository.run
+    original_status = FeedbackRepository.status
+
+    async def observed_run(repo, run_id):
+        waiters.add(asyncio.current_task())
+        if len(waiters) == 3:
+            entered.set()
+        if slow_lookup:
+            await finish_lookup.wait()
+        return await original_run(repo, run_id)
+
+    async def observed_status(repo):
+        status = await original_status(repo)
+        polled.add(asyncio.current_task())
+        if len(polled) == 3:
+            polling.set()
+        return status
+
+    monkeypatch.setattr(FeedbackRepository, "run", observed_run)
+    monkeypatch.setattr(FeedbackRepository, "status", observed_status)
     selects = []
 
     def count_selects(_conn, _cursor, statement, *_args):
@@ -162,15 +188,25 @@ async def test_finished_callers_stop_receipt_queries_without_cancelling_worker(b
     event.listen(engine.sync_engine, "before_cursor_execute", count_selects)
     callers = [asyncio.create_task(service.refresh("alice", resume_run_id=run["id"], wait_seconds=2 if disconnect else 0.05)) for _ in range(3)]
     try:
+        await asyncio.wait_for(entered.wait(), 2)
         if disconnect:
-            await asyncio.sleep(0.15)
+            if not slow_lookup:
+                await asyncio.wait_for(polling.wait(), 2)
             for caller in callers:
                 caller.cancel()
         outcomes = await asyncio.gather(*callers, return_exceptions=True)
         if disconnect:
             assert all(isinstance(outcome, asyncio.CancelledError) for outcome in outcomes)
         else:
-            assert all(outcome.status == "refresh_pending" and outcome.run_id == run["id"] for outcome in outcomes)
+            # The receipt ID is known only after the owned-run lookup returns.
+            assert all(outcome.status == "refresh_pending" and outcome.run_id in (None, run["id"]) for outcome in outcomes)
+            if slow_lookup:
+                assert all(outcome.run_id is None for outcome in outcomes)
+        finish_lookup.set()
+        # Returning callers do not await database rollback; let cancelled waiters drain.
+        done, pending = await asyncio.wait(waiters, timeout=2)
+        assert not pending, "receipt pollers must stop after their callers leave"
+        assert all(waiter.cancelled() for waiter in done)
         # Source is still blocked: any SELECT here comes from an orphaned receipt poller.
         selects.clear()
         await asyncio.sleep(0.35)
@@ -179,6 +215,7 @@ async def test_finished_callers_stop_receipt_queries_without_cancelling_worker(b
         release.set()
         assert (await service.refresh("alice", resume_run_id=run["id"], wait_seconds=2)).status == "ok"
     finally:
+        finish_lookup.set()
         for caller in callers:
             caller.cancel()
         await asyncio.gather(*callers, return_exceptions=True)
