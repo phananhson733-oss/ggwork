@@ -259,15 +259,28 @@ describe("component imports", () => {
     expect(clientFiles.sort()).toEqual([
       `${COMPONENTS_DIR}/glossary.tsx`,
       `${COMPONENTS_DIR}/queyu-button.tsx`,
+      `${COMPONENTS_DIR}/trends-table-explorer.tsx`,
     ]);
     const allowed = new Set([
       "react",
       "@/core/pick-board/glossary",
       "@/core/pick-board/queyu",
     ]);
+    const explorerImports = new Set([
+      "react",
+      "@/components/ui/button",
+      "@/core/pick/trends-table-export",
+      "./views/trends-table-parts",
+      "./views/trends-table-row",
+    ]);
     for (const file of clientFiles)
       for (const { spec } of moduleSpecifiers(sourceFile(file)))
-        expect(allowed.has(spec)).toBe(true);
+        expect(
+          (file.endsWith("trends-table-explorer.tsx")
+            ? explorerImports
+            : allowed
+          ).has(spec),
+        ).toBe(true);
   });
 });
 

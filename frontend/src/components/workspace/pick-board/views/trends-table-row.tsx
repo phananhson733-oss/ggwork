@@ -1,7 +1,5 @@
-// 工作台新建（简化版趋势雷达，2026-09-30）：趋势表的一行。列与顺序见简化范围第 2 节：剧、入选依据、走势、近 7 日
-// 与前 7 日均值、变化、标签、采集结果、提示、链接。均值、变化与标签只在「有数据」的行上算（trends-table.ts；全是 0 的曲线
-// 也算有数据，它是 Google 的相对指数，不是搜索量为 0）；
-// 别的行这几列写「—」，走势写采集结果，不拿别的夜晚的曲线顶替。同步、纯展示。
+// Native Trends evidence row: production basis, same-batch curve, comparison, result and verification guidance.
+// Missing/partial observations keep their existing semantics; no imported pilot scores or fallback curves.
 import {
   SHORT_TERM_HINT,
   TREND_LABEL_TEXT,
@@ -31,7 +29,6 @@ export type TableLine = Readonly<{
   stats: TrendStats | null;
 }>;
 
-const NUMBER = `${TD} text-right tabular-nums`;
 const LABEL_TONE: Readonly<Record<TrendStats["label"], string>> = {
   rising: "text-success-ink font-semibold",
   new: "text-success-ink font-semibold",
@@ -46,6 +43,7 @@ function Drama({ row }: { row: TrendsTableRow }) {
     <td className={TD}>
       <div className="text-ink-1 font-semibold">{row.title}</div>
       {meta ? <div className={MUTED}>{meta}</div> : null}
+      <div className="text-helper mt-1 text-xs">市场：{row.geo || "全球"}</div>
       {row.term !== row.title ? (
         <div className={MUTED}>查询词：{row.term}</div>
       ) : null}
@@ -59,7 +57,21 @@ function Basis({ row }: { row: TrendsTableRow }) {
       {row.basis.length === 0 ? (
         <span className={MUTED}>—</span>
       ) : (
-        row.basis.map((b, i) => <div key={i}>{basisText(b)}</div>)
+        <>
+          <div>{basisText(row.basis[0]!)}</div>
+          {row.basis.length > 1 ? (
+            <details className="mt-1">
+              <summary className={`${LINK} cursor-pointer text-xs`}>
+                另 {row.basis.length - 1} 条来源
+              </summary>
+              {row.basis.slice(1).map((b, i) => (
+                <div key={i} className={MUTED}>
+                  {basisText(b)}
+                </div>
+              ))}
+            </details>
+          ) : null}
+        </>
       )}
     </td>
   );
@@ -87,42 +99,72 @@ export function TrendsTableRowView({
     <tr data-trends-row={row.order}>
       <Drama row={row} />
       <Basis row={row} />
-      <td className={TD}>
+      <td className={`${TD} min-w-40`}>
         {stats && row.series ? (
-          <TrendsSpark
-            points={sparkPoints(row.series, lastComplete)}
-            title={`${row.term} 的近 30 天走势`}
-          />
+          <>
+            <TrendsSpark
+              points={sparkPoints(row.series, lastComplete)}
+              title={`${row.term} 的近 30 天走势`}
+            />
+            <div className="text-helper mt-1 text-xs">
+              完整日截至 {lastComplete}
+            </div>
+            <div className="text-helper mt-1 text-xs">
+              近 7 日返回 {stats.recentDays}/7 天 · 非零 {stats.nonZeroRecent}{" "}
+              天
+            </div>
+          </>
         ) : (
           <span className={MUTED}>—</span>
         )}
       </td>
-      <td className={NUMBER}>{formatMean(stats?.recentMean ?? null)}</td>
-      <td className={NUMBER}>{formatMean(stats?.priorMean ?? null)}</td>
-      <td className={NUMBER}>{formatChange(stats?.changeTenths ?? null)}</td>
-      <td className={TD} data-trends-label={stats?.label ?? ""}>
-        {stats ? (
-          <span className={LABEL_TONE[stats.label]}>
-            {TREND_LABEL_TEXT[stats.label]}
-          </span>
-        ) : (
-          <span className={MUTED}>—</span>
-        )}
+      <td className={`${TD} tabular-nums`}>
+        <div className="text-ink-1 font-semibold" data-trends-change="true">
+          {formatChange(stats?.changeTenths ?? null)}
+        </div>
+        <div data-trends-label={stats?.label ?? ""} className="mt-1">
+          {stats ? (
+            <span className={LABEL_TONE[stats.label]}>
+              {TREND_LABEL_TEXT[stats.label]}
+            </span>
+          ) : (
+            <span className={MUTED}>—</span>
+          )}
+        </div>
+        <details className="mt-1 text-xs">
+          <summary className={`${LINK} cursor-pointer`}>两段均值</summary>
+          <div>近 7 日均值：{formatMean(stats?.recentMean ?? null)}</div>
+          <div>前 7 日均值：{formatMean(stats?.priorMean ?? null)}</div>
+          {stats ? (
+            <div className={MUTED}>
+              实际返回 {stats.recentDays} / {stats.priorDays}{" "}
+              个完整日；缺失日不补零。
+            </div>
+          ) : null}
+        </details>
       </td>
       <Result row={row} />
-      <td className={TD}>
+      <td className={`${TD} min-w-32`}>
+        <p className="text-helper mb-2 text-xs" data-trends-advice="true">
+          {row.result !== "data"
+            ? "先核对采集状态，暂不据此判断趋势。"
+            : stats?.label === "too_little"
+              ? "有效观测不足，先核对查询词与日期。"
+              : "先核对同名剧与窗口，再作为选剧参考。"}
+        </p>
         {isShortTerm(row.term) ? (
           <span className="text-warning-ink">{SHORT_TERM_HINT}</span>
         ) : null}
-      </td>
-      <td className={TD}>
-        <ExternalLink
-          href={trendsExploreUrl(row.term, row.geo, row.time_range)}
-          className={LINK}
-          rel="noopener noreferrer"
-        >
-          在 Google Trends 打开
-        </ExternalLink>
+
+        <div className="mt-2">
+          <ExternalLink
+            href={trendsExploreUrl(row.term, row.geo, row.time_range)}
+            className={LINK}
+            rel="noopener noreferrer"
+          >
+            在 Google Trends 打开
+          </ExternalLink>
+        </div>
       </td>
     </tr>
   );
