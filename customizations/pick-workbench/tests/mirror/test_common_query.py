@@ -92,3 +92,42 @@ async def test_posted_archive_states_and_rules_use_same_version(common_board, pg
     finally:
         await reader.close()
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_common_historical_rank_and_rule_pin_never_substitute_latest(common_board, pg_cluster):
+    from ggwork_pick.completion_contracts import CommonQuery, QueryPin, QueryPeriod
+    from ggwork_pick.query_reader import QueryFailure, QueryReader
+    from ggwork_pick.query_service import CommonQueryService
+    from ggwork_pick.repository import PickRepository
+
+    board = common_board
+    engine = host_engine(pg_cluster.async_url(board["info"]["database"]))
+    reader = QueryReader(board["reader"], ssl=False)
+    service = CommonQueryService(PickRepository(async_sessionmaker(engine), "alice"), reader)
+    try:
+        latest = await service.query(CommonQuery(domain="catalog", scope="full_catalog"))
+        async with reader.connection(deadline=asyncio.get_running_loop().time() + 3) as conn:
+            old = await conn.fetchrow(
+                "SELECT agent_catalog_batch_id,agent_knowledge_batch_id FROM pick_mirror.versions WHERE id=$1", board["info"]["versions"]["v1"]
+            )
+        pin = QueryPin(
+            catalog_batch_id=old["agent_catalog_batch_id"],
+            knowledge_batch_id=old["agent_knowledge_batch_id"],
+            mirror_version=board["info"]["versions"]["v1"],
+            rule_version="mirror-rules-v2",
+        )
+        ranked = await service.query(
+            CommonQuery(domain="rankings", scope="full_catalog", rank="kd", period=QueryPeriod(kind="daily", value="2026-09-02"), pin=pin)
+        )
+        assert ranked.actual_period.value == "2026-09-02"
+        assert ranked.pin == pin and ranked.pin != latest.pin
+        assert ranked.board.rank_rows[0].day_rank == 1
+        old_rules = await service.query(CommonQuery(domain="rules", scope="full_catalog", pin=pin))
+        assert old_rules.board.rules.platformRules["shortmax"].yt != latest.board.rules.platformRules["shortmax"].yt
+        with pytest.raises(QueryFailure) as caught:
+            await service.query(CommonQuery(domain="catalog", scope="full_catalog", pin=pin.model_copy(update={"rule_version": latest.pin.rule_version})))
+        assert caught.value.code == "version_conflict"
+    finally:
+        await reader.close()
+        await engine.dispose()

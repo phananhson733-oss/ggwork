@@ -127,3 +127,60 @@ def test_common_query_evidence_uses_tool_receipt_without_inventing_saved_results
     assert len(evidence.reads) == 1
     assert evidence.reads[0].result_id is None
     assert any(a.value == "2" and a.reference == "tool:read1" for a in evidence.atoms)
+
+
+def test_common_failure_invalidates_older_count_evidence():
+    from ggwork_pick.answer_evidence import AnswerEvidence
+
+    evidence = AnswerEvidence()
+    evidence.capture("pick_query_data", "read1", {"counts": {"matched": 4}, "request": {"domain": "catalog"}, "pin": {"catalog_batch_id": "b"}, "rows": []})
+    evidence.capture("pick_query_data", "read2", {"status": "unavailable"})
+    assert evidence.atoms[-1].field_name == "matched_total"
+    assert evidence.atoms[-1].value is None
+
+
+@pytest.mark.asyncio
+async def test_private_query_honors_off_signal_and_posted_filters(app_client):
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+
+    client, service = app_client
+    common = {"source": "synthetic", "language": "en", "theater": "Example"}
+    rows = [
+        {
+            **common,
+            "source_id": "off",
+            "title": "Off",
+            "availability": "delisted",
+            "signals": [{"kind": "kd", "source_ref": "fixture:off", "observed_at": "2026-09-01"}],
+        },
+        {**common, "source_id": "plain", "title": "Plain", "availability": "active", "posted": {"matched": True, "post_count": 1}},
+        {**common, "source_id": "none", "title": "None", "availability": "active", "posted": {"matched": True, "post_count": 0}},
+    ]
+    await Importer(PickRepository(service.session_factory, "alice"), service.data_dir).catalog(json.dumps(rows).encode(), "json")
+    base = {"domain": "catalog", "scope": "full_catalog"}
+
+    async def read(**changes):
+        response = await client.post("/api/pick/query", headers={"test-owner": "alice"}, json={**base, **changes})
+        assert response.status_code == 200, response.text
+        return [r["drama"]["source_id"] for r in response.json()["rows"]]
+
+    assert set(await read(with_off=True)) == {"off", "plain", "none"}
+    assert await read(signal_only=True, with_off=True) == ["off"]
+    assert await read(posted_filter="yes") == ["plain"]
+    assert await read(posted_filter="no") == ["none"]
+
+
+@pytest.mark.asyncio
+async def test_private_pin_rejects_fabricated_knowledge(app_client):
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+
+    client, service = app_client
+    await Importer(PickRepository(service.session_factory, "alice"), service.data_dir).catalog(
+        b'[{"source":"synthetic","source_id":"1","language":"en","title":"Example"}]', "json"
+    )
+    body = {"domain": "catalog", "scope": "full_catalog"}
+    reply = (await client.post("/api/pick/query", headers={"test-owner": "alice"}, json=body)).json()
+    response = await client.post("/api/pick/query", headers={"test-owner": "alice"}, json={**body, "pin": {**reply["pin"], "knowledge_batch_id": "invented"}})
+    assert response.status_code == 404

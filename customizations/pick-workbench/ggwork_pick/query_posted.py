@@ -21,16 +21,19 @@ async def posted_page(conn, req, rules):
         value = bind("%" + req.query + "%")
         fields = ["title", "sd", "why", "note", "platform", "lang", "life", *[f"array_to_string({k},' ')" for k in ("sources", "accounts", "cats", "who")]]
         clauses.append("(" + " OR ".join(f"{field} ILIKE {value}" for field in fields) + ")")
+    scoped = []
     if req.account:
-        clauses.append(f"{bind(req.account)} = ANY(accounts)")
+        scoped.append(f"e->>'acct' = {bind(req.account)}")
+    if req.published_from:
+        scoped.append(f"e->>'d' >= {bind(req.published_from)}")
+    if req.published_to:
+        scoped.append(f"e->>'d' <= {bind(req.published_to)}")
+    if scoped:
+        clauses.append("EXISTS (SELECT 1 FROM jsonb_array_elements(posts) e WHERE e->>'st' IN ('已回填','已公开') AND " + " AND ".join(scoped) + ")")
     if req.language is not None:
         clauses.append(f"lang = {bind(req.language)}")
     if req.theater:
         clauses.append(f"platform = {bind(req.theater)}")
-    if req.published_from:
-        clauses.append(f"last_post_on >= {bind(req.published_from)}")
-    if req.published_to:
-        clauses.append(f"first_post_on <= {bind(req.published_to)}")
     where = " WHERE " + " AND ".join(clauses) if clauses else ""
     facets = {key: await conn.fetchval(f"SELECT count(*) FILTER(WHERE {state}) FROM catalog_posted{where}", *args) for key, state in STATES.items()}
     total = await conn.fetchval("SELECT count(*) FROM catalog_posted")

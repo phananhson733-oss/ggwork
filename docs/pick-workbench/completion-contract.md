@@ -79,3 +79,34 @@ Existing feedback observation/revenue DTOs remain authoritative. Null, measured0
 `completion/model-config-fingerprint.json` defines the required config fingerprint format. It is intentionally a template: T11 must resolve real provider/model/parameters/effective limits and baseline/candidate SHAs, hash actual prompt/tool schemas and seeded QA data, then freeze the filled record before the first run. No secret values or production credentials belong in it. Fingerprint SHA-256 is over UTF-8 JSON with sorted keys, compact separators and no ASCII escaping; absent provider options are null and explicitly marked unsupported in the run ledger. Baseline/candidate intentional code/prompt/schema differences are recorded, all execution settings stay fixed.
 
 Run ledger: `{case_id, phase:baseline|candidate, attempt:1, thread_id, run_id, started_at, finished_at, status, model_call_count, fingerprint_sha256, artifact_paths, expected_checks:[{expectation,passed,evidence}], failure}`. Failures/cancellation/timeouts still consume one of20 runs per phase. Total cap40 **Agent runs**, not API requests. No automatic extra attempts; no production writes. T1 executes zero product-model calls and does not claim model acceptance.
+
+## Shared query reader (T4)
+
+The Gateway now owns a separate `QueryReader` for `/api/pick/query` and the model's
+`pick_query_data`. Configure **Gateway** `PICK_MIRROR_READER_URL` with the existing
+restricted mirror reader role and `PICK_MIRROR_CA_PEM` with its validating CA.
+These variables are independent of the host/writer `PICK_DATABASE_URL`; the
+service never substitutes writer credentials. The URL accepts only PostgreSQL
+and no query parameters. A missing reader is a typed `source_unavailable` error
+for a paired mirror, while imported private catalogs continue on their own
+provenance. The pool holds at most three connections, with five-second connect
+and eight-second command backstops, no cached prepared statements, and every
+request uses a read-only transaction with an absolute deadline. Only tests
+construct the reader with TLS disabled against a disposable loopback cluster.
+
+`rule_version=mirror-rules-v<N>` binds the immutable rules in mirror version N;
+the server also verifies the exact catalog/knowledge batch pair. Private imported
+catalogs keep `pick-rules-v1`. The original candidate tools explicitly preserve
+`exclude_selected=true` and persisted card/notes shapes. The common tool is
+read-only and creates no saved candidate reference. Observation-specific filters
+remain on their existing candidate path.
+
+Board domain projections additionally expose typed `rs_ids`, `rank_rows`,
+`bill_rows`, `bill_totals`, `effective_sort`, `legacy_total`, `rank_limit`,
+`rs_counts`, `growth_baseline`, `sources`, and `posted_stats`. These preserve
+legacy linked-row, historical-rank, capped-growth and ledger semantics.
+`facets.language_order` retains PostgreSQL order even when a language label is
+numeric and JavaScript would reorder object keys. `row_keys` is the ordered
+identity page (posted domain uses ledger record `sd`); ledger rank may decorate
+multiple bills with the same canonical drama, so its returned count is the
+number of bill records, not the number of unique drama keys.

@@ -111,8 +111,8 @@ def _posted_excluded(row, conditions: PickConditions) -> bool:
     return False
 
 
-def _row_matches(row, conditions: PickConditions, excluded: set[str]) -> bool:
-    if row["availability"] == "delisted" or row["identity"] in excluded:
+def _row_matches(row, conditions: PickConditions, excluded: set[str], *, with_off: bool = False) -> bool:
+    if (row["availability"] == "delisted" and not with_off) or row["identity"] in excluded:
         return False
     if conditions.theater and row["theater"].casefold() != conditions.theater.casefold():
         return False
@@ -135,9 +135,9 @@ def _row_matches(row, conditions: PickConditions, excluded: set[str]) -> bool:
     return True
 
 
-def _filtered(rows, conditions: PickConditions, excluded) -> list:
+def _filtered(rows, conditions: PickConditions, excluded, *, with_off: bool = False) -> list:
     """The rows the conditions keep, unordered: the row filter, then with sort=rank the kind's latest board only."""
-    matches = [row for row in rows if _row_matches(row, conditions, excluded)]
+    matches = [row for row in rows if _row_matches(row, conditions, excluded, with_off=with_off)]
     if conditions.sort == "rank":
         # One board at a time, like RealShort's rank tab: ranks from different days are not comparable.
         kind_signals = [s for row in rows for s in row["signals"] if s["kind"] == conditions.signal_kind]
@@ -149,14 +149,14 @@ def _filtered(rows, conditions: PickConditions, excluded) -> list:
     return matches
 
 
-def matching_rows(rows, conditions: PickConditions, excluded: set[str], *, check: bool = True):
+def matching_rows(rows, conditions: PickConditions, excluded: set[str], *, check: bool = True, with_off: bool = False):
     """The ordered matches. check=False only replays a stored result on its own batch: the values it names passed
     the reference checks of their day there, and a check added later must not turn its replay into a refusal."""
     if conditions.sort == "rank" and not conditions.signal_kind:
         raise ValueError("按名次排序必须指定 signal_kind（同一类榜单内才能比较名次）")
     if check:
         _check_references(rows, conditions)
-    matches = _filtered(rows, conditions, excluded)
+    matches = _filtered(rows, conditions, excluded, with_off=with_off)
     matches.sort(key=lambda row: row["identity"])
     if conditions.sort == "rank":
 

@@ -363,7 +363,7 @@ async def query_data_tool(query: CommonQuery, runtime: Runtime) -> str:
 
         request = CommonQuery.model_validate(query)
         if task.catalog_id is None:
-            return _catalog_unavailable()
+            return json.dumps(_capture(task, runtime, "pick_query_data", json.loads(_catalog_unavailable())), ensure_ascii=False)
         pin = QueryPin(
             catalog_batch_id=task.catalog_id,
             knowledge_batch_id=task.knowledge_id,

@@ -8,6 +8,8 @@ from datetime import date, datetime
 from ggwork_pick.completion_contracts import CommonQuery, QueryPin, QueryResponse
 from ggwork_pick.contracts import DramaInput
 from ggwork_pick.mirror.versions import check_schema_name
+from ggwork_pick.mirror.contracts import Rules
+from pydantic import ValidationError
 from ggwork_pick.query_catalog import catalog_page
 from ggwork_pick.query_reader import QueryFailure
 
@@ -135,7 +137,7 @@ class CommonQueryService:
             # Resolving a replay reference always crosses the owner boundary first.
             await self.repository.result(req.result_id)
             raise QueryFailure("invalid_query", "候选回放请使用原候选的回放入口")
-        current = await self.repository.current_pin() if req.pin is None else None
+        current = await self.repository.current_pin()
         catalog_id = req.pin.catalog_batch_id if req.pin else current.catalog_id
         if catalog_id is None:
             raise QueryFailure("source_unavailable", "尚未导入剧库")
@@ -144,12 +146,31 @@ class CommonQueryService:
             raise QueryFailure("not_found", "查询版本不存在")
         if info["status"] != "published":
             raise QueryFailure("version_gone", "查询版本已过保留期")
+        if req.pin and req.pin.feedback_version_id:
+            raise QueryFailure("invalid_query", "公共镜像查询不接受运营反馈版本")
+        knowledge_id = req.pin.knowledge_batch_id if req.pin else current.knowledge_id
+        if knowledge_id is not None:
+            await self.repository.knowledge_documents(knowledge_id)
         mirror_version = req.pin.mirror_version if req.pin else current.mirror_version
         if mirror_version is None:
+            if req.pin and info["shared"]:
+                if current.catalog_id == catalog_id and current.mirror_version is not None:
+                    raise QueryFailure("version_conflict", "此剧库批次必须保留原镜像版本")
+                if self.reader is not None:
+                    async with self.reader.connection(deadline=deadline) as conn:
+                        paired = await conn.fetchval(
+                            "SELECT id FROM pick_mirror.versions WHERE agent_catalog_batch_id=$1 AND agent_knowledge_batch_id IS NOT DISTINCT FROM $2 ORDER BY id DESC LIMIT 1",
+                            catalog_id,
+                            knowledge_id,
+                        )
+                    if paired is not None:
+                        raise QueryFailure("version_conflict", "此剧库批次必须保留原镜像版本")
+                elif current.catalog_id != catalog_id:
+                    raise QueryFailure("source_unavailable", "无法核对历史镜像版本", retryable=True)
             return await self._private(req, catalog_id, info, current)
         if self.reader is None:
             raise QueryFailure("source_unavailable", "公共查询只读连接尚未配置", retryable=True)
-        if req.channel and req.channel != "youtube":
+        if req.channel and (req.channel != "youtube" or req.exclude_posted or req.account or req.published_from or req.published_to):
             raise QueryFailure("source_unavailable", "镜像尚未提供该渠道的完整规则与发布范围")
         async with self.reader.connection(deadline=deadline) as conn:
             version = await conn.fetchrow("SELECT * FROM pick_mirror.versions WHERE id=$1", mirror_version)
@@ -161,7 +182,10 @@ class CommonQueryService:
             schema = check_schema_name(version["schema_name"])
             await conn.execute(f"SET LOCAL search_path = {schema},pick_mirror")
             meta = {r["key"]: r["value"] for r in await conn.fetch("SELECT key,value FROM meta")}
-            rules = meta["rules"]
+            try:
+                rules = Rules.model_validate(meta.get("rules")).model_dump(mode="json", by_alias=True, exclude_unset=True)
+            except ValidationError:
+                raise QueryFailure("source_unavailable", "镜像规则暂时不可读取", retryable=True) from None
             pin = QueryPin(catalog_batch_id=catalog_id, knowledge_batch_id=knowledge_id, mirror_version=mirror_version, rule_version=rule_id(mirror_version))
             if req.pin and req.pin.rule_version != pin.rule_version:
                 raise QueryFailure("version_conflict", "规则与镜像版本不一致")
@@ -175,7 +199,19 @@ class CommonQueryService:
                     except (ValueError, UnicodeError):
                         pass
             board = None
-            if req.domain == "posted":
+            rank_result = None
+            if req.domain == "rankings":
+                from ggwork_pick.query_rank import query_rank
+
+                self._validate_rank(req)
+                try:
+                    rank_result = await query_rank(conn, req, rules=query_rules(rules), meta={**meta, "as_of": wire(version["as_of"])}, deadline=deadline)
+                except ValueError:
+                    raise QueryFailure("invalid_query", "榜单条件不符合来源约定") from None
+                if rank_result.actual_period is None:
+                    raise QueryFailure("period_missing", "这张榜单没有可读取的期次")
+                keys, total, matched, facets = rank_result.row_keys, rank_result.total, rank_result.matched, rank_result.facets
+            elif req.domain == "posted":
                 from ggwork_pick.query_posted import posted_page
 
                 board, total, matched, facets = await posted_page(conn, req, rules)
@@ -187,6 +223,9 @@ class CommonQueryService:
             else:
                 raise QueryFailure("invalid_query", "该查询域尚未就绪")
             board = board if board is not None else await board_data(conn, keys, rules)
+            if rank_result is not None:
+                for field in ("rank_rows", "bill_rows", "bill_totals", "effective_sort", "legacy_total", "rank_limit"):
+                    board[field] = wire(getattr(rank_result, field))
             board.update(
                 rs_counts=meta.get("rsCounts"),
                 growth_baseline={k: v for k, v in meta.get("growthBaseline", {}).items() if v is not None},
@@ -195,21 +234,57 @@ class CommonQueryService:
             )
             imported = await self.repository.catalog_rows(catalog_id)
             rows = fact_rows(board, imported, req)
-            returned = len(keys)
+            returned = len(rank_result.bill_rows) if rank_result is not None and req.rank == "rs_ledger" else len(keys)
+            next_offset = req.offset + returned if req.offset + returned < matched else None
+            if rank_result is not None and not rank_result.has_more:
+                next_offset = None
             return QueryResponse(
                 request=req,
                 pin=pin,
-                actual_period=None,
+                actual_period=rank_result.actual_period if rank_result else None,
+                period_options=rank_result.period_options if rank_result else None,
                 order_version=ORDER_VERSION,
                 counts={"total": total, "matched": matched, "returned": returned},
                 truncated=req.offset + returned < matched,
-                next_offset=req.offset + returned if req.offset + returned < matched else None,
+                next_offset=next_offset,
                 rows=rows,
                 board=board,
                 facets=facets,
                 source_as_of=wire(version["as_of"]),
                 mirror_synced_at=wire(version["published_at"]),
             )
+
+    @staticmethod
+    def _validate_rank(req):
+        unsupported = (
+            req.source
+            or req.source_id
+            or req.language is not None
+            or req.theater
+            or req.channel
+            or req.account
+            or req.published_from
+            or req.published_to
+            or req.exclude_posted
+            or req.exclude_selected
+            or req.tags
+            or req.hot_only
+            or req.posted_filter
+            or req.posted_state
+            or req.signal_only
+            or req.youtube_ok
+            or req.dated_only
+            or req.in_use_only
+        )
+        if unsupported or req.scope != "full_catalog":
+            raise QueryFailure("invalid_query", "榜单仅支持来源定义的期次、等级、搜索、语种和上架时长条件；请用完整剧库范围")
+        kind = req.rank or req.signal_kind or "kd"
+        if req.period.kind == "daily" and kind not in {"kd", "qc", "qr"} or req.period.kind == "weekly" and kind != "kw":
+            raise QueryFailure("invalid_query", "期次类型与榜单不一致")
+        if not kind.startswith("rs_") and (req.query or req.rs_locale or req.rs_bucket or req.rs_sort != "rr"):
+            raise QueryFailure("invalid_query", "剧场榜单不支持 ReelShort 的搜索和指标条件")
+        if kind == "rs_ledger" and (req.query or req.rs_locale or req.rs_bucket or req.grade or req.rs_sort != "rr"):
+            raise QueryFailure("invalid_query", "订单台账不支持该筛选条件")
 
     async def _private(self, req, catalog_id, info, current):
         from ggwork_pick.query_private import query_private

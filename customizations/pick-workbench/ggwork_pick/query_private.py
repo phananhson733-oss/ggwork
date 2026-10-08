@@ -14,7 +14,21 @@ def private_matches(rows, req, excluded):
     }
     # Search extends the candidate title/tag behavior to exact source identifiers.
     conditions = PickConditions(**fields, sort="rank" if req.order == "rank" else "evidence_date", posted_account=req.account)
-    matches = matching_rows(rows, conditions, excluded)
+    matches = matching_rows(rows, conditions, excluded, with_off=req.with_off)
+    if req.language is not None:
+        matches = [r for r in matches if r["language"].casefold() == req.language.casefold()]
+    if req.signal_only:
+        matches = [r for r in matches if r["signals"]]
+    if req.dated_only:
+        matches = [r for r in matches if any(s.get("observed_at") for s in r["signals"])]
+    if req.youtube_ok:
+        matches = [r for r in matches if r["channel_rules"].get("youtube") == "allowed"]
+    if req.posted_filter:
+        matches = [
+            r
+            for r in matches
+            if (r.get("posted") or {}).get("matched") and (req.posted_filter == "pool" or ((r["posted"]["post_count"] > 0) == (req.posted_filter == "yes")))
+        ]
     if req.source:
         matches = [r for r in matches if r["source"] == req.source]
     if req.source_id:
@@ -32,6 +46,8 @@ def private_matches(rows, req, excluded):
 async def query_private(repository, req, catalog_id, info, current):
     if req.domain not in {"candidates", "catalog"} or req.period.kind != "latest":
         raise QueryFailure("source_unavailable", "此版本没有完整镜像，无法查询历史榜单、规则或发布台账")
+    if req.in_use_only or req.rank or req.grade or req.rs_locale or req.rs_bucket or req.rs_sort != "rr" or req.posted_state or req.legacy_week_label:
+        raise QueryFailure("invalid_query", "此导入版本不支持该镜像筛选条件")
     if req.account or req.published_from or req.published_to:
         raise QueryFailure("source_unavailable", "此版本没有完整账号与时间范围的发布记录")
     if req.exclude_previous:

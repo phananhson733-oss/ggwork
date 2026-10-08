@@ -111,7 +111,9 @@ class AnswerEvidence:
             )
             # Common rows are read receipts, never saved candidate references. Counts for
             # ledger/posted records have different units and cannot certify drama counts.
-            if payload.get("request", {}).get("domain") in {"catalog", "candidates", "rankings"} and payload.get("request", {}).get("rank") != "rs_ledger":
+            if not success or (
+                payload.get("request", {}).get("domain") in {"catalog", "candidates", "rankings"} and payload.get("request", {}).get("rank") != "rs_ledger"
+            ):
                 total = payload.get("counts", {}).get("matched") if success else None
                 self.atoms.append(
                     EvidenceAtom(
