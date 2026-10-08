@@ -6,6 +6,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -67,7 +68,7 @@ async def test_expired_ordinary_await_kills_process_group_cleans_scratch_and_reu
     lark_runner._BINARY_CACHE.clear()
     runtime = _runtime()
     task = runtime.context[EXTENSION_TASK_STORE_KEY].get(PickTask)
-    task.deadline = asyncio.get_running_loop().time() + 22
+    task.deadline = time.monotonic() + 22
     request = SimpleNamespace(
         runtime=runtime, tool=lark_tool.lark_cli_tool, tool_call={"id": "synthetic", "name": "lark_cli", "args": {"argv": ["skills", "read", "lark-doc"]}}
     )
@@ -147,7 +148,7 @@ async def test_cancelled_cold_probe_uses_remaining_deadline_and_never_starts_com
     lark_runner._BINARY_CACHE.clear()
     runtime = _runtime()
     task = runtime.context[EXTENSION_TASK_STORE_KEY].get(PickTask)
-    task.deadline = asyncio.get_running_loop().time() + 22
+    task.deadline = time.monotonic() + 22
     pending = asyncio.create_task(lark_tool.lark_cli_tool.coroutine(argv=["skills", "list"], runtime=runtime))
     pid = child_pid = None
     try:
@@ -168,7 +169,7 @@ async def test_cancelled_cold_probe_uses_remaining_deadline_and_never_starts_com
                 except ProcessLookupError:
                     break
                 await asyncio.sleep(0.01)
-        remaining = max(0.0, task.ordinary_deadline - asyncio.get_running_loop().time())
+        remaining = max(0.0, task.ordinary_deadline - time.monotonic())
         assert await asyncio.to_thread(worker_finished.wait, remaining + 1), "probe worker is still waiting on descendant pipes"
         assert 18 < task.remaining() <= 20
         assert not command.exists()

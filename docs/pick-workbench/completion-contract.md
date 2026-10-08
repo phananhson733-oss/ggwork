@@ -188,3 +188,12 @@ Frontend comparison has separate read-only chat-reference checkboxes for each sn
 Gateway forwarding copies identifiers only to runtime context, never checkpoint configurable state. Human-message metadata stores the exact versioned envelope and original thread. Sending freezes the selection before async work; regenerate/edit restore that turn's references, while a cross-thread branch remains unbound. The existing edit-prepare endpoint's attachment-only metadata behavior is retained: the frontend explicitly reapplies the original pick metadata and runtime context for edit replay. CheckedPublication's internal references come only from server-validated groups; public checked-message metadata keeps its original four fields.
 
 Deterministic coverage: `test_plural_references.py`, `test_plural_mirror_references.py`, authenticated HTTP/real-factory `test_pick_plural_runtime.py`, frontend reference/replay/context tests, and `pnpm exec playwright test --config playwright.pick-references.config.ts`. That browser suite uses synthetic HTTP responses and zero provider calls; it complements the separate real Gateway/runtime/PostgreSQL tests and is not production or live-model evidence.
+
+
+### Deadline clock domains
+
+Host `PickPublication.deadline`, `PickTask.deadline` / `ordinary_deadline`, and Lark worker deadlines are absolute `time.monotonic()` values. Model/correction `asyncio.timeout()` calls receive remaining durations, so they do not assume a clock epoch.
+
+`PickTask.ordinary_loop_deadline` translates the current remaining monotonic duration into the running event loop's `loop.time()` domain. It samples loop time first so conversion work can only shorten the budget. `PickToolGate` and `query_call_loop_deadline` carry this loop-domain deadline through the invocation; `task.query_deadline` returns the earlier loop-domain ordinary/caller limit. QueryService, QueryReader, rankings, HTTP/ASGI request budgets and plan-export SQL checks consume only loop-domain deadlines. No consumer may compare a host/worker monotonic timestamp directly with `loop.time()` or pass it to `asyncio.timeout_at()`.
+
+These epochs differ on supported uvloop installations. The explicit conversion preserves the original host total, finalization reserve and per-call limits without changing the configured event-loop implementation. Tests cover positive/negative synthetic offsets, actual asyncio and uvloop Agent→PostgreSQL queries, and actual HTTP disconnect/SQL cancellation/reuse.
