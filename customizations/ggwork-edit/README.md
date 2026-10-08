@@ -54,3 +54,9 @@ real editing authenticator, exercising session/CSRF pairing and constrained toke
 use without injecting a synthetic principal. Include this checkout's `backend`,
 `backend/packages/harness`, and `backend/packages/extension-api` on `PYTHONPATH`
 when using another checkout's Python environment.
+
+Native preparation failures are reported through the worker `preparation-error`
+endpoint using fixed safe codes, not paths or raw exception text. They persist on
+the waiting intent as `native_preparation_error` and a preparation reason. A
+successful discovery/verification or explicit owner preparation clears the error
+without creating another request. Admitted and terminal tasks reject these reports.
