@@ -1,3 +1,5 @@
+> **GGWork project: `ggwork-deerflow`** — [business repository](https://github.com/phananhson733-oss/ggwork-deerflow) · [website](https://ggwork-deerflow.vercel.app/workspace/chats/new) · [local / GitHub / deployment mapping](docs/project-identity.md). The DeerFlow documentation below describes the upstream foundation.
+
 # 🦌 DeerFlow - 2.0
 
 English | [中文](./README_zh.md) | [日本語](./README_ja.md) | [Français](./README_fr.md) | [Русский](./README_ru.md)

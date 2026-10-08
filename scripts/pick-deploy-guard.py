@@ -59,7 +59,7 @@ EXIT_OK, EXIT_FAILED, EXIT_REFUSED, EXIT_INTERRUPTED = 0, 1, 2, 130
 DEFAULT_REPO = Path(__file__).resolve().parents[1]
 DEFAULT_REMOTE = "ggwork"
 # progress.md: the code lives in this repository's main. Only its path is compared.
-SHARED_REPOSITORY = ("phananhson733-oss", "ggwork")
+SHARED_REPOSITORY = ("phananhson733-oss", "ggwork-deerflow")
 BRANCH = "main"
 CRON_SERVICES = ("trends", "gsc")
 TARGETS = ("gateway", "frontend", *(f"cron:{service}" for service in CRON_SERVICES))

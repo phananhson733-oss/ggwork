@@ -98,11 +98,11 @@ def test_remote_is_configurable(tmp_path, dsn_env):
 @pytest.mark.parametrize(
     "url",
     [
-        "https://github.com/phananhson733-oss/ggwork.git",
-        "https://github.com/phananhson733-oss/ggwork",
-        f"https://x-access-token:{TOKEN}@github.com/phananhson733-oss/ggwork.git",
-        "git@github.com:phananhson733-oss/ggwork.git",
-        "ssh://git@github.com/Phananhson733-OSS/GGWork.git/",
+        "https://github.com/phananhson733-oss/ggwork-deerflow.git",
+        "https://github.com/phananhson733-oss/ggwork-deerflow",
+        f"https://x-access-token:{TOKEN}@github.com/phananhson733-oss/ggwork-deerflow.git",
+        "git@github.com:phananhson733-oss/ggwork-deerflow.git",
+        "ssh://git@github.com/Phananhson733-OSS/GGWork-DeerFlow.git/",
     ],
 )
 def test_accepts_the_shared_repository_in_any_url_form(tmp_path, dsn_env, url):
@@ -113,7 +113,9 @@ def test_accepts_the_shared_repository_in_any_url_form(tmp_path, dsn_env, url):
 @pytest.mark.parametrize(
     "url",
     [
-        f"https://{TOKEN}@github.com/someone/ggwork.git",  # a personal fork
+        f"https://{TOKEN}@github.com/someone/ggwork-deerflow.git",  # a personal fork
+        "https://github.com/phananhson733-oss/ggwork.git",  # the retired name
+        "https://github.com/phananhson733-oss/pick-workbench.git",  # the legacy implementation
         "git@github.com:phananhson733-oss/ggwork-fork.git",
         "https://github.com/phananhson733-oss.git",
         "/srv/mirrors/ggwork.git",
@@ -123,7 +125,7 @@ def test_refuses_a_remote_that_is_not_the_shared_repository(tmp_path, dsn_env, u
     """--remote may name any remote; only the shared repository's main is deployed from. The URL is never printed."""
     repo, db = FakeRepo(make_root(tmp_path), url=url), FakeDb()
     code, out, err = run_guard(["gateway", "--first-record"], repo, db=db, env=dsn_env)
-    assert code == 2 and out == "" and "phananhson733-oss/ggwork" in err and db.calls == []
+    assert code == 2 and out == "" and "phananhson733-oss/ggwork-deerflow" in err and db.calls == []
     assert not [call for call in repo.calls if call[0] == "fetch"]
     for part in (TOKEN, "someone", "ggwork-fork", "/srv/mirrors"):
         assert part not in err
