@@ -164,6 +164,10 @@ def build_router(service):
 
     register_feedback_routes(router, service, repository)
 
+    from ggwork_pick.radar.routes import register_radar_routes
+
+    register_radar_routes(router, service, repository)
+
     @router.get("/sync")
     async def sync_status(request: Request):
         repo = repository(request)

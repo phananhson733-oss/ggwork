@@ -2177,3 +2177,7 @@ This checkout adds a personal drama-selection workspace on the pinned DeerFlow b
 The follow-up adds [callback usage observations](docs/pick-workbench/usage-observation.md), including known partial usage on cancellation and explicit missing-data reasons, and a [read-only canary facts report](docs/pick-workbench/observe-runbook/canary-report.md). Deployment and live verification are recorded in progress. The [team workflow](docs/plans/2026-10-06-pick-team-workflow-spec.md) and [confirmed external writes](docs/plans/2026-10-06-pick-external-write-spec.md) documents specify later implementation; those features are not implemented by this follow-up.
 
 The Google Trends tab uses an evidence-first table in the shared GGWork theme, with same-batch search/platform/result filters and CSV export. Expand batch details to inspect collection sources and recovery status. Historical pilot data and experimental grades are not mixed into production observations.
+
+### Historical Trends radar
+
+The Google Trends tab now opens the complete historical DramaRadar view: source/coverage cards, comprehensive and historical-signal lists, platform/experimental-grade/status/date/search/sort filters, pagination, evidence details and CSV of all matches. It uses an authenticated, sealed US snapshot with per-drama dates and unverified-source labels. Worldwide daily collection remains available through “日级采集记录与状态”; collector stop facts are preserved. See [integration and operation](docs/plans/2026-10-08-radar-integration.md).
