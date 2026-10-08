@@ -20,11 +20,10 @@ import {
   PickProvider,
   usePickContext,
 } from "@/components/workspace/pick/pick-context";
+import { PickReferenceNotice } from "@/components/workspace/pick/pick-reference-notice";
 import { fetch as fetcher } from "@/core/api/fetcher";
 import { type SaveCommand } from "@/core/pick/api";
 import { pickResultSchema } from "@/core/pick/types";
-
-import { PickReferenceNotice } from "@/components/workspace/pick/pick-reference-notice";
 
 import payload from "../../../core/pick/fixtures/backend-result.json";
 

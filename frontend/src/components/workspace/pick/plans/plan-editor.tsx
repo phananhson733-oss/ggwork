@@ -536,6 +536,8 @@ export function PlanEditor({ initial }: { initial: Plan }) {
                       <Button
                         variant="outline"
                         className="min-h-11"
+                        aria-label={`编辑 ${source?.title ?? "计划行"}`}
+                        title={`编辑 ${source?.title ?? "计划行"}`}
                         onClick={(event) => {
                           editorTrigger.current = event.currentTarget;
                           setEditing(
@@ -543,7 +545,7 @@ export function PlanEditor({ initial }: { initial: Plan }) {
                           );
                         }}
                       >
-                        编辑 {source?.title ?? "计划行"}
+                        编辑
                       </Button>
                       <Button
                         variant="ghost"

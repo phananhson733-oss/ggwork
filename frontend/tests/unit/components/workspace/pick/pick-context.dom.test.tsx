@@ -298,3 +298,10 @@ it("blocks dispatch during plural restore and cancellation fences a late respons
   fireEvent.click(screen.getByText("Dispatch restore"));
   expect(document.title).toBe("unbound");
 });
+
+it("renders no reference controls outside the pick provider", async () => {
+  const { PickReferenceNotice } =
+    await import("@/components/workspace/pick/pick-reference-notice");
+  const view = render(<PickReferenceNotice threadId="no-provider" />);
+  expect(view.container.textContent).toBe("");
+});

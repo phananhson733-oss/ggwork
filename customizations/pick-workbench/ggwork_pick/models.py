@@ -673,3 +673,24 @@ content_plan_exports = Table(
     Column("created_at", String(40), nullable=False),
     CheckConstraint("plan_version >= 1", name="ggwp_content_export_version"),
 )
+
+feedback_plan_links = Table(
+    "ggwp_feedback_plan_links",
+    metadata,
+    Column("owner_id", String(128), primary_key=True),
+    Column("post_key", String(512), primary_key=True),
+    Column("plan_id", String(64), nullable=False),
+    Column("row_id", String(64), nullable=False),
+    Column("receipt_json", JSON, nullable=False),
+    Column("basis_json", JSON, nullable=False),
+)
+feedback_plan_link_commands = Table(
+    "ggwp_feedback_plan_link_commands",
+    metadata,
+    Column("owner_id", String(128), primary_key=True),
+    Column("request_id", String(128), primary_key=True),
+    Column("payload_hash", String(64), nullable=False),
+    Column("receipt_json", JSON, nullable=False),
+    Column("basis_json", JSON, nullable=False),
+    Column("created_at", String(40), nullable=False),
+)

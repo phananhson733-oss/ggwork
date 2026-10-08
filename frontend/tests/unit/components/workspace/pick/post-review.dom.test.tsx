@@ -43,7 +43,9 @@ it("shows measured zero and absent metrics separately with incomplete observatio
   );
   await screen.findByText("播放：0");
   expect(screen.getByText("点赞：未提供/未更新")).toBeTruthy();
-  expect(screen.getByText("已观察 3 天 / 目标 7 天（窗口不足）")).toBeTruthy();
+  expect(
+    screen.getByText("已观察 3 天 / 目标 7 天（观察时长或指标不足）"),
+  ).toBeTruthy();
   expect(screen.getByText("未关联计划")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "人工关联计划行" }));
   expect(
@@ -57,7 +59,13 @@ it("starts a distinct current query from the post while preserving historical fe
     Response.json(
       typeof url === "string" && url.endsWith("/query")
         ? fixture.response
-        : fixture.review,
+        : {
+            ...fixture.review,
+            items: fixture.review.items.map((post) => ({
+              ...post,
+              account_id: null,
+            })),
+          },
     ),
   );
   const client = new QueryClient({
@@ -81,6 +89,7 @@ it("starts a distinct current query from the post while preserving historical fe
   expect(JSON.parse(call?.[1]?.body as string)).toMatchObject({
     domain: "candidates",
     scope: "candidate_pool",
+    account: null,
     pin: null,
     exclude_selected: true,
   });
@@ -92,7 +101,13 @@ it("retains the selected post's original feedback version when the surrounding l
     Response.json(
       typeof url === "string" && url.endsWith("/query")
         ? fixture.response
-        : fixture.review,
+        : {
+            ...fixture.review,
+            items: fixture.review.items.map((post) => ({
+              ...post,
+              account_id: null,
+            })),
+          },
     ),
   );
   const client = new QueryClient({
@@ -123,4 +138,28 @@ it("retains the selected post's original feedback version when the surrounding l
       ),
   ).toHaveLength(1);
   client.clear();
+});
+
+it("does not send a feedback account record ID as a mirror account filter", async () => {
+  rs.mocked(fetcher).mockResolvedValue(Response.json(fixture.review));
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <OwnedPostReview ownerId="owner-a" />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "继续选剧（发起新查询）" }),
+  );
+  await screen.findByText(/尚无已验证的账号对应关系/);
+  expect(
+    rs
+      .mocked(fetcher)
+      .mock.calls.filter(
+        ([url]) => typeof url === "string" && url.endsWith("/query"),
+      ),
+  ).toHaveLength(0);
 });
