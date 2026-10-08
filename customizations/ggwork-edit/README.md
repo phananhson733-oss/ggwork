@@ -55,6 +55,44 @@ use without injecting a synthetic principal. Include this checkout's `backend`,
 `backend/packages/harness`, and `backend/packages/extension-api` on `PYTHONPATH`
 when using another checkout's Python environment.
 
+Text planning is configured through the `ggwork-edit` plugin's `planner_model`
+setting (for example `azure-pick` in `config.pick.example.yaml`). It uses the host's
+`deerflow.models.create_chat_model` provider. Missing or invalid provider config
+keeps planning unavailable while task history remains readable. No model
+credentials are passed to the worker. Only requirements, stable output/media IDs,
+and transcript timestamps/text are sent to the model; filenames and grant paths
+are excluded. The provider must return strict JSON; invalid source references,
+nonfinite/out-of-range times, mismatched profiles and omitted output IDs fail
+without clamping or skipping. Output duration policy is within the larger of one
+second or ten percent of the requested duration. This policy is not a quality
+or throughput benchmark.
+
+The worker sends `{attempt_id,fence,transcripts:[{media_id,segments:[{start,end,text}]}]}`
+to `POST /api/editing/worker/devices/{device_id}/tasks/{task_id}/plan` using its
+existing bearer token. The returned task includes
+`plan:{profile,aspect_ratio,language,outputs:[{output_id,segments:[{media_id,start,end}]}]}`.
+Segments are in playback order. Explicit `review_plan=true` waits for the shared
+confirm-plan operation; other valid requests continue automatically. Continue
+heartbeats during planning and plan review.
+
+Original built-in `/clip-highlight` and `/clip-hook` Skills and the registered
+aliases `$ggwork-edit/clip-highlight` and `$ggwork-edit/clip-hook` use the same
+owner-scoped task operations. Per-owner Skill enabled state and current role
+Skill/model authorization are checked in addition to the editing owner setting.
+`POST /api/editing/skills/{name}` with `{skill_enabled:boolean}` stores the
+owner's switch in the existing host Skill storage. Unknown aliases and paths do
+not become commands. No source-archive scripts, fonts or licensed resources are
+bundled.
+
+Conversation tools are `clip_submit`, `clip_get`, `clip_prepare`, `clip_stop`,
+`clip_retry`, `clip_confirm_plan`, and `clip_change_version`. Single-task responses
+are `{task:Task}`; `clip_get` without a task ID returns
+`{items:Task[],devices:Device[],capabilities:object}` so a waiting intent can bind
+a newly paired Mac without asking the user for an opaque device identifier. The stable
+UI link is `/workspace/editing/{task_id}`. Source thread identity comes from the
+host lifecycle rather than model arguments. Changed requirements create a linked
+new version and require fresh verification of selected source bytes.
+
 Online file delivery uses the [bounded transient relay](docs/relay.md). Browser
 uploads report progress only after the selected Mac acknowledges each chunk;
 received bytes still require native media verification. Completed outputs expose

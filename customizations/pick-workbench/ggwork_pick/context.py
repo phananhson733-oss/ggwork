@@ -81,7 +81,7 @@ class PickTask:
             raise TimeoutError(f"本轮选剧已达到{self.budget:g}秒执行上限")
         return remaining
 
-    async def repository(self, runtime):
+    async def repository(self, runtime, *, initialize=True):
         owner = resolve_runtime_user_id(runtime)
         if not owner or owner == "default":
             raise ValueError("运行缺少已认证身份")
@@ -92,7 +92,7 @@ class PickTask:
                 raise ValueError("运行身份发生变化")
             self.owner_id = owner
             repo = PickRepository(self.service.session_factory, owner)
-            if not self.initialized:
+            if initialize and not self.initialized:
                 reference = runtime.context.get("pick_reference")
                 if reference is not None:
                     if not isinstance(reference, dict) or not isinstance(reference.get("result_id"), str):
