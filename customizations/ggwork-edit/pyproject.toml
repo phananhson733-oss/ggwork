@@ -5,6 +5,9 @@ description = "Owner-scoped native editing tasks for DeerFlow"
 requires-python = ">=3.12"
 dependencies = ["deerflow-extension-api==0.2.1", "pydantic>=2,<3", "httpx>=0.28,<1"]
 
+[project.scripts]
+ggwork-edit-worker = "ggwork_edit.worker.cli:main"
+
 [project.optional-dependencies]
 gateway = ["fastapi>=0.115,<1", "sqlalchemy[asyncio]>=2.0,<2.1", "alembic>=1.14,<2"]
 

@@ -1,0 +1,17 @@
+# Native worker boundary
+
+- Standard library plus httpx only. Never import Gateway, FastAPI, SQLAlchemy,
+  harness, or planner/provider credentials in native modules. relay_client.py is
+  the bounded transport adapter; filesystem policy stays in native/transfer/storage.
+- Test through CLI, NativeWorker real native workflow, and WorkerSession HTTP
+  protocol. Native tests require explicitly supplied real-weight synthetic assets.
+- All subprocesses use argv, new process groups and inherited instance-lock FD.
+  A stop acknowledgment follows real exit, never timeout/offline inference.
+- State/journals are atomic 0600 JSON under 0700 home. Claim identity is journaled
+  before network IO. Renew lease before replaying immutable event IDs on restart.
+- Never overwrite originals, delivered MP4s or indexes. Gateway media IDs resolve
+  only through frozen manifests and local explicit grants; reject symlinks/traversal.
+- Report only stable safe error codes. Local subprocess logs are never gateway
+  error text. No token arguments, redirect following, or environment proxy trust.
+- Update this README with distribution/CLI behavior. No signed-app, automatic
+  installation, daemon, multilingual, or quality claims without corresponding proof.
