@@ -864,3 +864,8 @@ PR #47 产品提交 `638f3ae18a44f2d9496234a689c380d9a95fc0b2` 已部署到gatew
 - `pick-deploy-guard target=frontend commit=638f3ae18a44f2d9496234a689c380d9a95fc0b2 at=2026-10-08T09:04:18Z`
 
 初始映射仍待确认，生产反馈及调度仍关闭；已登录页面确认关闭状态，未触发生产反馈或模型请求。原有RealShort feed 503另行记录，不将该来源宣称为健康。现有采集器、停止标记及计划保持，迁移仍为0008；本次没有cron兼容镜像更新。详见[发布记录](releases/2026-10-08-feedback-identity-mapping.md)及[映射维护说明](feedback-identity-mapping.md)。
+
+
+## T7 draft API — local source implementation
+
+Private draft CRUD/version/idempotency/time handling is implemented under the existing authenticated Gateway. SQLite and disposable PostgreSQL tests cover frozen sources, conflicting writes, lost replies, restart, source disappearance,100-row bounds and private schema grants; a models-disabled loopback Gateway proves cookie/CSRF and owner isolation. This does not claim production rollout, preview/export (T8), or feedback linkage (T9). See [planning contract and boundaries](planning.md).
