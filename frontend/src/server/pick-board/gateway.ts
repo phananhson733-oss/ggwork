@@ -60,9 +60,12 @@ function checkedPath(path: string): CheckedPath {
   return { pathname: url.pathname, target: `${url.pathname}${url.search}` };
 }
 
-export async function gatewayGet<T>(
+async function gatewayRead<T>(
   path: string,
   schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  body?: unknown,
+  signal?: AbortSignal,
+  budgetMs = AUTH_REQUEST_TIMEOUT_MS,
 ): Promise<GatewayResult<T>> {
   const { pathname, target } = checkedPath(path);
   let base: string;
@@ -71,15 +74,31 @@ export async function gatewayGet<T>(
   } catch {
     return UNAVAILABLE;
   }
-  const session = (await cookies()).get("access_token");
+  const jar = await cookies();
+  const session = jar.get("access_token");
+  const csrf = body === undefined ? undefined : jar.get("csrf_token");
   if (!session) return { ok: false, status: 401 };
+  if (body !== undefined && !csrf) return { ok: false, status: 403 };
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    Math.min(AUTH_REQUEST_TIMEOUT_MS, budgetMs),
+  );
   try {
     const response = await fetch(`${base}${target}`, {
-      headers: { Cookie: `access_token=${session.value}` },
+      method: body === undefined ? "GET" : "POST",
+      headers: csrf
+        ? {
+            Cookie: `access_token=${session.value}; csrf_token=${csrf.value}`,
+            "X-CSRF-Token": csrf.value,
+            "Content-Type": "application/json",
+          }
+        : { Cookie: `access_token=${session.value}` },
+      body: body === undefined ? undefined : JSON.stringify(body),
       cache: "no-store",
-      signal: controller.signal,
+      signal: signal
+        ? AbortSignal.any([signal, controller.signal])
+        : controller.signal,
     });
     if (!response.ok) return { ok: false, status: response.status };
     const parsed = schema.safeParse(await response.json());
@@ -94,6 +113,24 @@ export async function gatewayGet<T>(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export function gatewayGet<T>(
+  path: string,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+): Promise<GatewayResult<T>> {
+  return gatewayRead(path, schema);
+}
+
+/** Authenticated POST read: the visitor's CSRF cookie/header, never internal impersonation. */
+export function gatewayQuery<T>(
+  path: string,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  body: unknown,
+  signal?: AbortSignal,
+  budgetMs?: number,
+): Promise<GatewayResult<T>> {
+  return gatewayRead(path, schema, body, signal, budgetMs);
 }
 
 /** Field paths of a failed parse, through both branches of a union. */

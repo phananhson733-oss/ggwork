@@ -20,7 +20,7 @@ import { CandidateView } from "./candidate-view";
 import { useSelectionDrafts } from "./selection-drafts";
 import { useResultNotes } from "./use-result-notes";
 
-function SourceResult({ id }: { id: string }) {
+export function SourceResult({ id }: { id: string }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const query = useQuery({
@@ -304,6 +304,10 @@ function OwnedSelections({ ownerId }: { ownerId: string }) {
   const draftRows = Object.fromEntries(
     Object.entries(recovery.drafts).map(([id, draft]) => [id, draft.base]),
   );
+  const [selectedForPlan, setSelectedForPlan] = useState<string[]>([]);
+  const selectedPlanRows = (query.data ?? []).filter((row) =>
+    selectedForPlan.includes(row.id),
+  );
   const [exportError, setExportError] = useState("");
   const [exportStatus, setExportStatus] = useState("");
   const [exportBusy, setExportBusy] = useState(false);
@@ -451,6 +455,19 @@ function OwnedSelections({ ownerId }: { ownerId: string }) {
             : ""}
         </p>
       )}
+      {query.data && (
+        <section className="space-y-2" aria-label="生成排期草稿">
+          <p>已选 {selectedPlanRows.length} 部用于排期</p>
+          {selectedPlanRows.length > 0 && (
+            <Link
+              className="text-link inline-flex min-h-11 items-center underline"
+              href={`/workspace/pick-plans?selection=${encodeURIComponent(selectedPlanRows.map((row) => row.id).join(","))}`}
+            >
+              用所选剧目创建排期草稿
+            </Link>
+          )}
+        </section>
+      )}
       {rows.length > 0 && (
         <section role="list" aria-label="个人选剧清单" className="border-t">
           <div
@@ -462,25 +479,46 @@ function OwnedSelections({ ownerId }: { ownerId: string }) {
             <span>操作</span>
           </div>
           {rows.map((row) => (
-            <SavedRow
-              key={row.id}
-              row={row}
-              missing={
-                !!query.data && !query.data.some((item) => item.id === row.id)
-              }
-              onUpdated={(updated) => {
-                client.setQueryData<SavedPick[]>(key, (current) =>
-                  current?.flatMap((item) =>
-                    item.id !== updated.id
-                      ? [item]
-                      : updated.state === "removed"
-                        ? []
-                        : [updated],
-                  ),
-                );
-                void client.invalidateQueries({ queryKey: key });
-              }}
-            />
+            <div key={row.id}>
+              <label className="flex min-h-11 items-center gap-3">
+                <input
+                  type="checkbox"
+                  disabled={
+                    !query.data?.some((item) => item.id === row.id) ||
+                    (!selectedForPlan.includes(row.id) &&
+                      selectedPlanRows.length >= 100)
+                  }
+                  checked={selectedPlanRows.some((item) => item.id === row.id)}
+                  onChange={(event) =>
+                    setSelectedForPlan(
+                      event.target.checked
+                        ? [...selectedForPlan, row.id]
+                        : selectedForPlan.filter((id) => id !== row.id),
+                    )
+                  }
+                />
+                加入排期：{row.snapshot_json.title}
+              </label>
+              <SavedRow
+                key={row.id}
+                row={row}
+                missing={
+                  !!query.data && !query.data.some((item) => item.id === row.id)
+                }
+                onUpdated={(updated) => {
+                  client.setQueryData<SavedPick[]>(key, (current) =>
+                    current?.flatMap((item) =>
+                      item.id !== updated.id
+                        ? [item]
+                        : updated.state === "removed"
+                          ? []
+                          : [updated],
+                    ),
+                  );
+                  void client.invalidateQueries({ queryKey: key });
+                }}
+              />
+            </div>
           ))}
         </section>
       )}

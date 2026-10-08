@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { CommandPalette } from "@/components/workspace/command-palette";
 import { GatewayOfflineBanner } from "@/components/workspace/gateway-offline-banner";
 import { ModelLoadErrorBanner } from "@/components/workspace/model-load-error-banner";
+import { PlanDraftProvider } from "@/components/workspace/pick/plans/plan-drafts";
 import { SelectionDraftProvider } from "@/components/workspace/pick/selection-drafts";
 import { SettingsDialogHost } from "@/components/workspace/settings";
 import { WorkspaceSettingsDeepLink } from "@/components/workspace/workspace-settings-deep-link";
@@ -35,23 +36,25 @@ export async function WorkspaceContent({
   return (
     <QueryClientProvider>
       <SelectionDraftProvider>
-        <UserPreferencesBoundary>
-          <SidebarProvider
-            className="h-screen"
-            defaultOpen={initialSidebarOpen}
-          >
-            <WorkspaceSidebar />
-            <SidebarInset className="min-w-0">
-              <GatewayOfflineBanner gatewayUnavailable={gatewayUnavailable} />
-              <ModelLoadErrorBanner gatewayUnavailable={gatewayUnavailable} />
-              {children}
-            </SidebarInset>
-          </SidebarProvider>
-          <CommandPalette />
-          <SettingsDialogHost />
-          <WorkspaceSettingsDeepLink />
-          <Toaster position="top-center" />
-        </UserPreferencesBoundary>
+        <PlanDraftProvider>
+          <UserPreferencesBoundary>
+            <SidebarProvider
+              className="h-screen"
+              defaultOpen={initialSidebarOpen}
+            >
+              <WorkspaceSidebar />
+              <SidebarInset className="min-w-0">
+                <GatewayOfflineBanner gatewayUnavailable={gatewayUnavailable} />
+                <ModelLoadErrorBanner gatewayUnavailable={gatewayUnavailable} />
+                {children}
+              </SidebarInset>
+            </SidebarProvider>
+            <CommandPalette />
+            <SettingsDialogHost />
+            <WorkspaceSettingsDeepLink />
+            <Toaster position="top-center" />
+          </UserPreferencesBoundary>
+        </PlanDraftProvider>
       </SelectionDraftProvider>
     </QueryClientProvider>
   );

@@ -100,12 +100,12 @@ const metrics: Record<string, string> = {
   views_mean: "单帖平均播放",
   views_median: "单帖播放中位数",
 };
-const lanes = {
+export const lanes = {
   cps_auto: "CPS 自动明细",
   cps_manual: "CPS 手动明细",
   post_rs: "发布记录 RS",
 };
-const money = {
+export const money = {
   order_amount: "用户订单金额",
   refund: "退款",
   commission: "分成收益",
@@ -114,7 +114,7 @@ const money = {
   bonus: "奖金",
   orders: "订单数",
 };
-const grains = {
+export const grains = {
   drama: "单剧",
   post: "帖子",
   account: "账号",

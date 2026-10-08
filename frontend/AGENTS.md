@@ -305,3 +305,24 @@ labelled a reference list and keeps its original fields.
 `PICK_SELECTION_FIXTURE` for a private dedicated synthetic prior result/account and
 `PICK_E2E_URL` for a loopback frontend connected to an isolated real Gateway. It
 makes no model runs. Keep it separate from `personal-selection.spec.ts`, which does.
+
+### Completion frontend
+
+`core/pick/completion-api.ts` validates the frozen completion DTOs at the authenticated
+Gateway boundary. Plans and actual-post review live at `/workspace/pick-plans` and
+`/workspace/pick-review`. Commands retain IDs after unknown outcomes; execution exports
+retain immutable receipts for download retry. `PlanDraftProvider` keeps edits and base
+versions in owner-keyed workspace memory only. Time editing uses the plan timezone,
+explicit DST folds, and an explicit timezone-change preview. The SSR common-query seam
+forwards both visitor access and CSRF cookies; existing board readers remain until
+per-view common-query parity is proven.
+
+Two-batch comparison requires two explicit current-thread results and one selected
+source per stable identity; batch saves have independent real receipts. Visual comparison
+does not automatically become plural chat context. Trusted checked-message status reads
+only `additional_kwargs.pick_completion`; raw internal checked facts never render.
+
+`pnpm exec playwright test --config playwright.pick-completion-mock.config.ts` is a
+frontend-only mocked-HTTP browser suite with no model calls. It is not evidence of real
+Gateway persistence, owner authorization, runtime final publication, source freshness,
+or production delivery. Completion requires the separate assembled backend acceptance.
