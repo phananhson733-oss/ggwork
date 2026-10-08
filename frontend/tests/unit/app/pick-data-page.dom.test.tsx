@@ -293,14 +293,22 @@ describe("each tab takes its branch", () => {
 });
 
 describe("the resolved version", () => {
-  it("every internal link and form carries the resolved v", async () => {
+  it("evidence links and forms carry the resolved v; current resources are explicit", async () => {
     const root = await renderPage({ tab: "pick" });
     const internal = Array.from(root.querySelectorAll("a"))
       .map((a) => a.getAttribute("href") ?? "")
-      .filter((h) => h.startsWith("/"));
+      .filter((h) => h.startsWith("/workspace/pick-data"));
     expect(internal.length).toBeGreaterThan(5);
     for (const href of internal)
       expect(href).toMatch(/^\/workspace\/pick-data\?(?:.*&)?v=7(?:&|$)/);
+    const resources = root.querySelectorAll(
+      'a[href^="/workspace/pick-resources?"]',
+    );
+    expect(resources.length).toBeGreaterThan(0);
+    for (const link of resources) {
+      expect(link.textContent).toMatch(/当前(?:资源|取货资料)/);
+      expect(link.getAttribute("href")).not.toContain("v=");
+    }
     const forms = Array.from(root.querySelectorAll("form"));
     expect(forms.length).toBeGreaterThan(0);
     for (const form of forms)
@@ -372,10 +380,12 @@ describe("the resolved version", () => {
     ]);
   });
 
-  it("the footer: sources and the differences from RealShort", async () => {
+  it("the footer explains owner-only resources and the retired website", async () => {
     await renderPage();
-    expect(screen.getByText("与 RealShort 选剧台的差异")).toBeTruthy();
-    expect(screen.getByText(/网盘只显示有没有/)).toBeTruthy();
+    expect(
+      screen.getByText(/网盘与官方取货链接按资料所有者权限读取/),
+    ).toBeTruthy();
+    expect(screen.getByText(/原公开网站已停止服务/)).toBeTruthy();
   });
 
   it("the trimmed-curve note reaches the ReelShort evidence page", async () => {

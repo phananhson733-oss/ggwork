@@ -1,0 +1,1066 @@
+[
+  {
+    "table_name": "catalog_accounts",
+    "column_name": "id",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_accounts",
+    "column_name": "name",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_accounts",
+    "column_name": "url",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_accounts",
+    "column_name": "grp",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_accounts",
+    "column_name": "form",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_accounts",
+    "column_name": "niche",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_accounts",
+    "column_name": "status",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_accounts",
+    "column_name": "fans",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_accounts",
+    "column_name": "as_of",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_accounts",
+    "column_name": "imported_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "sd",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "feishu_record",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "title",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "title_key",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "lang",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "platform",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "life",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "scheduled",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "online_on",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "why",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "note",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "archived",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "post_count",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "last_post_on",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "views_total",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "posts",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "row_keys",
+    "data_type": "ARRAY",
+    "udt_name": "_text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "drama_ids",
+    "data_type": "ARRAY",
+    "udt_name": "_text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "imported_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "sources",
+    "data_type": "ARRAY",
+    "udt_name": "_text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "cats",
+    "data_type": "ARRAY",
+    "udt_name": "_text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "who",
+    "data_type": "ARRAY",
+    "udt_name": "_text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "accounts",
+    "data_type": "ARRAY",
+    "udt_name": "_text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "created_on",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "updated_on",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "first_post_on",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "metric_at",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "sched_count",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_posted",
+    "column_name": "views_count",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "row_key",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "platform",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "source_table",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "title",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "title_cn",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "creator",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "lang",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "kind",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "origin",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "tags",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "listed_on",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "pan_url",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "pan_pw",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "episodes",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "pay_start",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "youtube",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "merged_rows",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "off_on",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "reoff_note",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "title_key",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "in_site_ids",
+    "data_type": "ARRAY",
+    "udt_name": "_text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "legacy_only",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "site_other",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "has_signal",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "latest_evidence_on",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_rows",
+    "column_name": "imported_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_signals",
+    "column_name": "row_key",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_signals",
+    "column_name": "kind",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_signals",
+    "column_name": "ord",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_signals",
+    "column_name": "evidence_on",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_signals",
+    "column_name": "rank",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "catalog_signals",
+    "column_name": "grade",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_signals",
+    "column_name": "note",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "catalog_signals",
+    "column_name": "payload",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "chapters",
+    "column_name": "id",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "chapters",
+    "column_name": "drama_id",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "chapters",
+    "column_name": "serial",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "chapters",
+    "column_name": "video_pic",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "chapters",
+    "column_name": "iframe_src",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "chapters",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "chapters",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "cps_bill_daily",
+    "column_name": "bill_date",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "cps_bill_daily",
+    "column_name": "book_id",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "cps_bill_daily",
+    "column_name": "promotion_type",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "cps_bill_daily",
+    "column_name": "promotion_value",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "cps_bill_daily",
+    "column_name": "book_title",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "cps_bill_daily",
+    "column_name": "order_cnt",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "cps_bill_daily",
+    "column_name": "revenue_usd",
+    "data_type": "numeric",
+    "udt_name": "numeric",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "cps_bill_daily",
+    "column_name": "fetched_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "drama_observations",
+    "column_name": "observed_on",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "drama_observations",
+    "column_name": "drama_id",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "drama_observations",
+    "column_name": "recent_revenue_cents",
+    "data_type": "numeric",
+    "udt_name": "numeric",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "drama_observations",
+    "column_name": "promoters_cnt",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "drama_observations",
+    "column_name": "chapter_count",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "drama_observations",
+    "column_name": "pay_start",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "drama_observations",
+    "column_name": "captured_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "drama_observations",
+    "column_name": "metrics_valid",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "id",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "slug",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "locale",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "lang_cn",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "title",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "description",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "cover_url",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "book_type",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "is_dub",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "is_valid",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "pay_start",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "chapter_count",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "tags",
+    "data_type": "ARRAY",
+    "udt_name": "_text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "publish_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "promoters_cnt",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "recent_revenue_cents",
+    "data_type": "numeric",
+    "udt_name": "numeric",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "book_promotion_link",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "app_promotion_link",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "promotion_code",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "group_key",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "detail_synced_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "synced_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "title_key",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "search_impressions",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "search_data_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "dramas",
+    "column_name": "metrics_valid",
+    "data_type": "boolean",
+    "udt_name": "bool",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "legacy_urls",
+    "column_name": "legacy_id",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "legacy_urls",
+    "column_name": "locale",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "legacy_urls",
+    "column_name": "title_key",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "legacy_urls",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "observe_sources",
+    "column_name": "source",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "observe_sources",
+    "column_name": "status",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "observe_sources",
+    "column_name": "attempted_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "observe_sources",
+    "column_name": "attempt_id",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "observe_sources",
+    "column_name": "completed_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "observe_sources",
+    "column_name": "details",
+    "data_type": "jsonb",
+    "udt_name": "jsonb",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "outbound_clicks",
+    "column_name": "id",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "outbound_clicks",
+    "column_name": "drama_id",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "outbound_clicks",
+    "column_name": "locale",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "outbound_clicks",
+    "column_name": "serial",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "outbound_clicks",
+    "column_name": "target",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "outbound_clicks",
+    "column_name": "placement",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "outbound_clicks",
+    "column_name": "referer",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "outbound_clicks",
+    "column_name": "user_agent",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "outbound_clicks",
+    "column_name": "country",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "outbound_clicks",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "sync_runs",
+    "column_name": "id",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "sync_runs",
+    "column_name": "started_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "sync_runs",
+    "column_name": "finished_at",
+    "data_type": "timestamp with time zone",
+    "udt_name": "timestamptz",
+    "is_nullable": "YES"
+  },
+  {
+    "table_name": "sync_runs",
+    "column_name": "status",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "sync_runs",
+    "column_name": "dramas_upserted",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "sync_runs",
+    "column_name": "chapters_upserted",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "sync_runs",
+    "column_name": "skipped_unknown_lang",
+    "data_type": "integer",
+    "udt_name": "int4",
+    "is_nullable": "NO"
+  },
+  {
+    "table_name": "sync_runs",
+    "column_name": "error",
+    "data_type": "text",
+    "udt_name": "text",
+    "is_nullable": "YES"
+  }
+]
