@@ -129,9 +129,9 @@ async def test_public_tools_selection_exclusion_and_timeout_keep_semantics(canon
     assert another["matched_total"] == 7
     assert first["items"][0]["identity"] not in {row["identity"] for row in another["items"]}
 
-    from ggwork_pick.context import query_call_deadline
+    from ggwork_pick.context import query_call_loop_deadline
 
-    token = query_call_deadline.set(asyncio.get_running_loop().time() - 1)
+    token = query_call_loop_deadline.set(asyncio.get_running_loop().time() - 1)
     try:
         for tool, args in [
             (query_data_tool, {"query": body}),
@@ -145,7 +145,7 @@ async def test_public_tools_selection_exclusion_and_timeout_keep_semantics(canon
             assert failed["retryable"] is True
             assert "id" not in failed and "items" not in failed
     finally:
-        query_call_deadline.reset(token)
+        query_call_loop_deadline.reset(token)
 
 
 @pytest.mark.asyncio
