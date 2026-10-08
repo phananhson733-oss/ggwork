@@ -113,10 +113,7 @@ export function RowsTable({
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr
-              key={r.rowKey}
-              className={`${TR} ${r.offOn ? "opacity-60" : ""}`}
-            >
+            <tr key={r.rowKey} className={TR}>
               <TitleCell row={r} req={req} />
               <SignalCell row={r} rules={rules} />
               <LangCell row={r} />

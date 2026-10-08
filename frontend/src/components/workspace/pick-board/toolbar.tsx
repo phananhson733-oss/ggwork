@@ -676,14 +676,14 @@ function PagerSummary({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <span className="text-ink-dim text-[12px]">
+      <span className="text-helper text-[12px]">
         第 {req.page}
         {pages === null ? "" : ` / ${pages.toLocaleString("en-US")}`} 页 · 本页{" "}
         {count} 行
         {total === null ? "" : ` · 共 ${total.toLocaleString("en-US")} 条`}
       </span>
       <div className="flex-1" />
-      <span className="text-ink-dim text-[12px]">每页</span>
+      <span className="text-helper text-[12px]">每页</span>
       <PageSizes req={req} />
     </div>
   );

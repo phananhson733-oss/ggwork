@@ -39,7 +39,7 @@ import { rowHref } from "./toolbar";
 type Labels = Pick<BoardRules, "basisLabels" | "basisDateLabels">;
 
 export function Dim({ children }: { children?: ReactNode }) {
-  return <span className="text-ink-dim">{children ?? "—"}</span>;
+  return <span className="text-helper">{children ?? "—"}</span>;
 }
 
 /** 文字为空（null / undefined / 空串）时显示「—」 */
@@ -342,7 +342,7 @@ export function evidencesOf(row: PickRow, labels: Labels): Evidence[] {
 /** 最近一条证据与它自己的日期口径；没有日期的写「日期未知」 */
 export function EvidenceLine({ row, rules }: { row: PickRow; rules: Labels }) {
   const latest = evidencesOf(row, rules)[0];
-  const line = "mt-1 font-mono text-[11px] text-ink-dim";
+  const line = "mt-1 font-mono text-[11px] text-helper";
   if (latest === undefined) {
     if (row.platform === "reelshort")
       return (
@@ -369,7 +369,7 @@ const TAG_TONE: Record<TagTone, string> = {
   warn: "border-transparent bg-warning-surface text-warning-ink",
   bad: "border-transparent bg-danger-surface text-danger-ink",
   neutral: "border-transparent bg-raised text-helper",
-  dimmed: "border-line text-ink-dim",
+  dimmed: "border-line text-helper",
 };
 
 export function Tag({
@@ -515,7 +515,7 @@ export function KindCell({ row }: { row: PickRow }) {
   return (
     <td className={`${TD} text-ink-2 max-w-[200px] text-[12px]`}>
       {text || (
-        <span className="text-ink-dim cursor-help" title={why}>
+        <span className="text-helper cursor-help" title={why}>
           —
         </span>
       )}
@@ -535,7 +535,7 @@ export function EpisodesCell({ row }: { row: PickRow }) {
         <>
           {row.episodes}
           {row.payStart !== null ? (
-            <span className="text-ink-dim"> · 第 {row.payStart} 集起</span>
+            <span className="text-helper"> · 第 {row.payStart} 集起</span>
           ) : null}
         </>
       )}
@@ -580,7 +580,7 @@ export function PickupCell({ row, req }: { row: PickRow; req: PickRequest }) {
         </>
       ) : (
         <span
-          className="text-ink-dim ml-1"
+          className="text-helper ml-1"
           title={`book_id ${reelshortId(row.rowKey)}`}
         >
           指标未取到
