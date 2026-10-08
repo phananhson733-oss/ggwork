@@ -44,7 +44,9 @@ COPY --from=uv-source /uv /uvx /usr/local/bin/
 COPY --from=pick-source /usr/local/bin/node /usr/local/bin/node
 COPY --from=pick-source /source /app/customizations/pick-source
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN /app/customizations/pick-source/node_modules/.bin/playwright install --with-deps chromium
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 ca-certificates \
+    && /app/customizations/pick-source/node_modules/.bin/playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=lark-cli /usr/local/bin/lark-cli /usr/local/bin/lark-cli
 RUN useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin larkrun
 ENV DEER_FLOW_LARK_CLI_PINNED_VERSION=${LARK_CLI_VERSION} DEER_FLOW_LARK_CLI_RUN_AS=larkrun

@@ -12,7 +12,12 @@ export function sourcePool(
 ) {
   if (!connectionString)
     throw new Error("PICK_SOURCE_DATABASE_URL is required");
-  const url = new URL(connectionString);
+  let url: URL;
+  try {
+    url = new URL(connectionString);
+  } catch {
+    throw new Error("Invalid source database configuration");
+  }
   if (!["postgres:", "postgresql:"].includes(url.protocol))
     throw new Error("PostgreSQL source URL is required");
   const local = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);

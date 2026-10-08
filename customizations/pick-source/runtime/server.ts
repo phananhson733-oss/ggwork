@@ -9,7 +9,14 @@ import { stopCollections } from "./refresh";
 
 if (!process.env.PICK_FEED_TOKEN || !process.env.PICK_EXPORT_TOKEN)
   throw new Error("Source read tokens are required");
-await getPool().query("SELECT 1 FROM pick_source.observe_sources LIMIT 1");
+try {
+  await getPool().query("SELECT 1 FROM pick_source.observe_sources LIMIT 1");
+} catch {
+  console.error(
+    "Native source cannot access its schema; check database configuration",
+  );
+  process.exit(1);
+}
 const stopSchedule =
   process.env.PICK_SOURCE_SCHEDULE_ENABLED === "1" ? startSchedule() : () => {};
 async function collecting() {
