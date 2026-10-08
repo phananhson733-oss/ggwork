@@ -12,6 +12,15 @@
   border-color: var(--helper);
 }
 
+/* Native fields do not carry the shared Input primitive's invalid styles. */
+.controls
+  :is(
+    input:not([data-slot="input"]):not([type="checkbox"]):not([type="radio"]),
+    select
+  )[aria-invalid="true"] {
+  border-color: var(--destructive);
+}
+
 /* The existing translucent rings remain supplementary. This opaque outline
  * identifies keyboard focus against the surrounding light or dark surface.
  */
