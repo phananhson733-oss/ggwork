@@ -91,14 +91,13 @@ describe("PickNav", () => {
     expect(isCurrent("选剧资料")).toBe(true);
   });
 
-  it("does not mark the unavailable 我的选剧 entry current", () => {
+  it("opens 我的选剧 and marks its route current", () => {
     nav.pathname = "/workspace/picks";
     renderNav();
     expect(
-      screen
-        .getByRole("button", { name: "我的选剧" })
-        .getAttribute("data-active"),
-    ).toBe("false");
+      screen.getByRole("link", { name: "我的选剧" }).getAttribute("href"),
+    ).toBe("/workspace/picks");
+    expect(isCurrent("我的选剧")).toBe(true);
     expect(isCurrent("选剧资料")).toBe(false);
   });
 
@@ -120,7 +119,7 @@ describe("PickNav", () => {
     expect(link("选剧资料").getAttribute("href")).toBe("/workspace/pick-data");
   });
 
-  it.each(["我的选剧", "定时任务"])(
+  it.each(["定时任务"])(
     "%s shows 暂未开放 without providing a destination",
     (name) => {
       renderNav();
