@@ -96,7 +96,7 @@ async def test_posted_archive_states_and_rules_use_same_version(common_board, pg
 
 @pytest.mark.asyncio
 async def test_common_historical_rank_and_rule_pin_never_substitute_latest(common_board, pg_cluster):
-    from ggwork_pick.completion_contracts import CommonQuery, QueryPin, QueryPeriod
+    from ggwork_pick.completion_contracts import CommonQuery, QueryPeriod, QueryPin
     from ggwork_pick.query_reader import QueryFailure, QueryReader
     from ggwork_pick.query_service import CommonQueryService
     from ggwork_pick.repository import PickRepository
@@ -130,4 +130,105 @@ async def test_common_historical_rank_and_rule_pin_never_substitute_latest(commo
         assert caught.value.code == "version_conflict"
     finally:
         await reader.close()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_mirrored_candidate_adapter_uses_latest_rank_not_evidence_order(common_board, pg_cluster):
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.query_reader import QueryReader
+    from ggwork_pick.query_service import CommonQueryService
+    from ggwork_pick.repository import PickRepository
+
+    board = common_board
+    engine = host_engine(pg_cluster.async_url(board["info"]["database"]))
+    reader = QueryReader(board["reader"], ssl=False)
+    repo = PickRepository(async_sessionmaker(engine), "alice")
+    service = CommonQueryService(repo, reader)
+    try:
+        pin = await repo.current_pin()
+        imported = await repo.catalog_rows(pin.catalog_id)
+        matched = await service.candidate_matches(imported, PickConditions(signal_kind="kd", sort="rank", exclude_selected=False), set(), pin)
+        assert len(matched) > 0
+        ranks = [next(s["rank"] for s in row["signals"] if s["kind"] == "kd") for row in matched]
+        dates = {next(s["observed_at"] for s in row["signals"] if s["kind"] == "kd") for row in matched}
+        assert ranks == sorted(ranks)
+        assert dates == {"2026-09-02"}
+        absent = await service.candidate_matches(
+            imported, PickConditions(signal_kind="kd", sort="rank", query="no-such-title", exclude_selected=False), set(), pin
+        )
+        assert absent == []
+    finally:
+        await reader.close()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_legacy_candidate_rank_refuses_week_membership_without_numeric_rank(common_board, pg_cluster):
+    from ggwork_pick.contracts import PickConditions
+    from ggwork_pick.query_reader import QueryReader
+    from ggwork_pick.query_service import CommonQueryService
+    from ggwork_pick.repository import PickRepository
+
+    engine = host_engine(pg_cluster.async_url(common_board["info"]["database"]))
+    reader = QueryReader(common_board["reader"], ssl=False)
+    repo = PickRepository(async_sessionmaker(engine), "alice")
+    try:
+        pin = await repo.current_pin()
+        with pytest.raises(ValueError, match="名次"):
+            await CommonQueryService(repo, reader).candidate_matches(
+                await repo.catalog_rows(pin.catalog_id), PickConditions(signal_kind="kw", sort="rank"), set(), pin
+            )
+    finally:
+        await reader.close()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_query_tool_historical_facts_reach_checker_with_actual_data(common_board, pg_cluster):
+    import json
+    from types import SimpleNamespace
+
+    from deerflow_extension_api import ExtensionData, TaskInfo
+    from deerflow_extension_api.runtime_bridge import EXTENSION_TASK_STORE_KEY
+
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.context import PickLifecycle, task_from_runtime
+    from ggwork_pick.query_reader import QueryReader
+    from ggwork_pick.service import PickService
+    from ggwork_pick.tools import query_data_tool
+
+    engine = host_engine(pg_cluster.async_url(common_board["info"]["database"]))
+    service = PickService(common_board["data_dir"])
+    await service.initialize(async_sessionmaker(engine))
+    service.query_reader = QueryReader(common_board["reader"], ssl=False)
+    store = ExtensionData("common-tool-task")
+    await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("common-tool-task", "run", "thread", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store}, tool_call_id="history")
+    try:
+        payload = json.loads(
+            await query_data_tool.coroutine(
+                query={"domain": "rankings", "scope": "full_catalog", "rank": "kd", "period": {"kind": "daily", "value": "2026-09-02"}}, runtime=runtime
+            )
+        )
+        evidence = task_from_runtime(runtime).answer_evidence
+
+        def check(text):
+            return build_checked_publication(text, evidence=evidence, thread_id="thread", run_id="run", message_id="message")
+
+        rank = next(atom for atom in evidence.atoms if atom.field_name == "kd.rank" and atom.value is not None)
+        assert payload["actual_period"]["value"] == "2026-09-02"
+        assert check(rank.claim + "。").status == "confirmed"
+        assert "[" not in rank.reference and "]" not in rank.reference
+        assert check(rank.claim + " [" + rank.reference + "]。").status == "confirmed"
+        assert check("本次榜单期次为2026-09-01。").status == "incomplete"
+        title = payload["rows"][0]["drama"]["title"]
+        assert check(f"《{title}》的来源为wrong-source。").status == "incomplete"
+        assert check(f"《{title}》在账号“other”范围内的发布状态为未发布。").status == "incomplete"
+        assert check("整个剧库没有发布记录。").status == "incomplete"
+        assert check("剧场“ShortMax”的youtube规则为禁止。").status == "confirmed"
+        assert check("剧场“ShortMax”的youtube规则为允许。").status == "incomplete"
+        assert all(read.result_id is None for read in evidence.reads)
+    finally:
+        await service.stop()
         await engine.dispose()

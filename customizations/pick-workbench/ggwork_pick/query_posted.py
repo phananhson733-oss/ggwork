@@ -1,5 +1,7 @@
 """Posted-ledger rows keep publication, schedule and unmatched states distinct."""
 
+from datetime import date
+
 from ggwork_pick.query_service import wire
 
 STATES = {
@@ -17,6 +19,8 @@ async def posted_page(conn, req, rules):
         args.append(value)
         return f"${len(args)}"
 
+    if req.source_id:
+        clauses.append(f"sd = {bind(req.source_id)}")
     if req.query:
         value = bind("%" + req.query + "%")
         fields = ["title", "sd", "why", "note", "platform", "lang", "life", *[f"array_to_string({k},' ')" for k in ("sources", "accounts", "cats", "who")]]
@@ -81,9 +85,12 @@ def publication_truth(records, req):
                 continue
             if req.account and post["acct"] != req.account:
                 continue
-            if (req.published_from or req.published_to) and not post.get("d"):
-                complete = False
-                continue
+            if req.published_from or req.published_to:
+                try:
+                    date.fromisoformat(post.get("d", ""))
+                except (ValueError, TypeError):
+                    complete = False
+                    continue
             if req.published_from and post["d"] < req.published_from:
                 continue
             if req.published_to and post["d"] > req.published_to:

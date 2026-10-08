@@ -45,6 +45,11 @@ class QueryReader:
                     await conn.set_type_codec("json", schema="pg_catalog", encoder=json.dumps, decoder=json.loads)
                     await conn.set_type_codec("jsonb", schema="pg_catalog", encoder=json.dumps, decoder=json.loads)
 
+                async def reset(_conn):
+                    # asyncpg still cancels/rolls back before this callback. Only SET LOCAL
+                    # and SELECT run here; skip session RESET ALL behind transaction pools.
+                    pass
+
                 self.pool = await asyncpg.create_pool(
                     self._dsn,
                     ssl=self._ssl,
@@ -55,6 +60,7 @@ class QueryReader:
                     statement_cache_size=0,
                     max_inactive_connection_lifetime=5,
                     init=init,
+                    reset=reset,
                     server_settings={"application_name": "ggwp-common-query"},
                 )
             return self.pool

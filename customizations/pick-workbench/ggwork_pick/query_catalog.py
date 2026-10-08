@@ -80,13 +80,16 @@ def predicates(req, rules, *, skip=None, excluded_keys=()):
             )
         else:
             clauses.append(POSTED["no"])
-    if req.youtube_ok or req.channel == "youtube":
+    if req.youtube_ok:
         clauses.append(
             f"(rows.platform <> ALL({bind(rules['ytBlocked'])}::text[]) AND (rows.platform <> ALL({bind(rules['ytListOnly'])}::text[]) OR rows.youtube))"
         )
-        if req.channel and req.confirmed_eligible_only:
-            allowed = [k for k, v in rules["platformRules"].items() if v["yt"] in {"ok", "only"}]
-            clauses.append(f"rows.platform = ANY({bind(allowed)}::text[])")
+    if req.channel == "youtube":
+        clauses.append(f"rows.platform <> ALL({bind(rules['ytBlocked'])}::text[])")
+        if req.confirmed_eligible_only:
+            # The source feed never certifies active status or allowance; rule eligibility
+            # is an explicit board filter (youtube_ok), not a confirmed candidate fact.
+            clauses.append("false")
     if req.dated_only:
         clauses.append("rows.latest_evidence_on IS NOT NULL")
     if excluded_keys:

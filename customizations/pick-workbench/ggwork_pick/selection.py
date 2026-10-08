@@ -313,6 +313,8 @@ def candidate_item(row, conditions, matched_total: int | None = None):
     elif any(s["observed_at"] is None for s in row["signals"]):
         warnings.append("部分依据日期未知")
     warnings.extend(_posted_warnings(row, conditions))
+    if row.get("_common_posted_unknown"):
+        warnings.append("该账号或时间范围的发布记录不完整，不能确认从未发布")
     reason = f"符合本次筛选条件；有{len(row['signals'])}条来源信号。"
     if conditions.hot_only:
         hot = sum(1 for s in row["signals"] if is_hot_kind(s["kind"]))

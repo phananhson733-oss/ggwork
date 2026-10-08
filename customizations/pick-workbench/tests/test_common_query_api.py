@@ -184,3 +184,103 @@ async def test_private_pin_rejects_fabricated_knowledge(app_client):
     reply = (await client.post("/api/pick/query", headers={"test-owner": "alice"}, json=body)).json()
     response = await client.post("/api/pick/query", headers={"test-owner": "alice"}, json={**body, "pin": {**reply["pin"], "knowledge_batch_id": "invented"}})
     assert response.status_code == 404
+
+
+def test_query_calendar_and_source_publication_unknown_dates():
+    from pydantic import ValidationError
+
+    from ggwork_pick.completion_contracts import CommonQuery
+    from ggwork_pick.query_posted import publication_truth
+
+    with pytest.raises(ValidationError):
+        CommonQuery(domain="posted", scope="full_catalog", published_from="2026-02-30")
+    request = CommonQuery(domain="catalog", scope="full_catalog", published_from="2026-09-01")
+    record = {"post_count": 1, "sched_count": 0, "posts": [{"st": "已公开", "acct": "A", "d": "TBD"}]}
+    assert publication_truth([record], request) == ("unknown", False)
+
+
+def test_common_rank_evidence_uses_actual_period_and_tool_citation():
+    from ggwork_pick.answer_evidence import AnswerEvidence
+
+    evidence = AnswerEvidence()
+    evidence.capture(
+        "pick_query_data",
+        "read-rank",
+        {
+            "counts": {"matched": 1},
+            "request": {"domain": "rankings", "rank": "kd"},
+            "pin": {"catalog_batch_id": "b"},
+            "rows": [
+                {
+                    "identity": "synthetic-1",
+                    "drama": {"title": "Synthetic", "signals": [{"kind": "kd", "observed_at": "2026-09-02", "rank": 3, "source_ref": "mirror:1:kd"}]},
+                }
+            ],
+        },
+    )
+    rank = next(a for a in evidence.atoms if a.field_name == "kd.rank")
+    assert rank.value == "3" and rank.observed_at == "2026-09-02"
+    assert rank.reference.startswith("tool:read-rank:")
+    assert all(r.result_id is None for r in evidence.reads)
+
+
+def test_common_evidence_duplicate_title_requires_encoded_explicit_source():
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.answer_evidence import AnswerEvidence
+    from ggwork_pick.contracts import DramaInput
+
+    evidence = AnswerEvidence()
+    rows = []
+    for source_id in ("one", "two"):
+        drama = DramaInput(
+            source="synthetic",
+            source_id=source_id,
+            language="en",
+            title="Same",
+            signals=[{"kind": "kd", "rank": 3, "observed_at": "2026-09-02", "source_ref": "https://example.test/" + source_id}],
+        )
+        rows.append({"identity": drama.identity, "drama": drama.model_dump(mode="json")})
+    evidence.capture("pick_query_data", "r", {"counts": {"matched": 2}, "request": {"domain": "rankings"}, "pin": {"catalog_batch_id": "b"}, "rows": rows})
+
+    def check(text):
+        return build_checked_publication(text, evidence=evidence, thread_id="t", run_id="r", message_id="m")
+
+    assert check("《Same》的kd名次为3。").status == "incomplete"
+    atom = next(a for a in evidence.atoms if a.field_name == "kd.rank")
+    assert check(f"{atom.claim} [{atom.reference}]。").status == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_private_unknown_filter_is_safe_invalid_query(app_client):
+    from ggwork_pick.imports import Importer
+    from ggwork_pick.repository import PickRepository
+
+    client, service = app_client
+    await Importer(PickRepository(service.session_factory, "alice"), service.data_dir).catalog(
+        b'[{"source":"synthetic","source_id":"1","language":"en","title":"Example"}]', "json"
+    )
+    response = await client.post("/api/pick/query", headers={"test-owner": "alice"}, json={"domain": "catalog", "scope": "full_catalog", "theater": "not-real"})
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "invalid_query"
+
+
+@pytest.mark.parametrize("field,label", [("source", "来源"), ("source_id", "来源编号"), ("language", "语种"), ("theater", "剧场")])
+def test_common_evidence_does_not_certify_prose_inside_source_fields(field, label):
+    from ggwork_pick.answer_check import build_checked_publication
+    from ggwork_pick.answer_evidence import AnswerEvidence
+    from ggwork_pick.contracts import DramaInput
+
+    drama = DramaInput(**{"source": "synthetic", "source_id": "id", "language": "en", "title": "甲", field: "X 保证盈利"})
+    evidence = AnswerEvidence()
+    evidence.capture(
+        "pick_query_data",
+        "c",
+        {
+            "counts": {"matched": 1},
+            "request": {"domain": "catalog"},
+            "pin": {"catalog_batch_id": "b"},
+            "rows": [{"identity": drama.identity, "drama": drama.model_dump(mode="json")}],
+        },
+    )
+    result = build_checked_publication(f"《甲》的{label}为X 保证盈利。", evidence=evidence, thread_id="t", run_id="r", message_id="m")
+    assert result.status == "incomplete"

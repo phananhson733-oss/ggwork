@@ -6,7 +6,7 @@ See docs/pick-workbench/completion-contract.md for routes and service invariants
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import Field, StrictBool, StrictInt, model_validator
+from pydantic import Field, StrictBool, StrictInt, field_serializer, model_validator
 
 from ggwork_pick.contracts import DramaInput, StrictInput
 from ggwork_pick.feedback.contracts import RevenueObservation
@@ -107,6 +107,15 @@ class CommonQuery(StrictInput):
     legacy_week_label: Annotated[str, Field(max_length=40)] | None = None
     result_id: Identifier | None = None
 
+    @model_validator(mode="after")
+    def publication_dates(self):
+        for value in (self.published_from, self.published_to):
+            if value is not None:
+                date.fromisoformat(value)
+        if self.published_from and self.published_to and self.published_from > self.published_to:
+            raise ValueError("发布起始日期不能晚于结束日期")
+        return self
+
 
 class QueryCounts(StrictInput):
     total: Count
@@ -181,6 +190,20 @@ class QueryBoardData(StrictInput):
     effective_sort: str | None = None
     legacy_total: Count | None = None
     rank_limit: Count | None = None
+
+    @field_serializer("catalog_rows", "signals", "posted", "accounts", "rs_rows", "rs_ids", "bill_orders", "rank_rows")
+    def source_rows_wire(self, values):
+        # Source JSON distinguishes absent optional fields from explicit null.
+        return [value.model_dump(mode="json", by_alias=True, exclude_unset=True) for value in values]
+
+    @field_serializer("rules", "rs_counts", "posted_stats")
+    def source_meta_wire(self, value):
+        return value.model_dump(mode="json", by_alias=True, exclude_unset=True) if value is not None else None
+
+    @field_serializer("sources", "growth_baseline")
+    def source_map_wire(self, values):
+        return {key: value.model_dump(mode="json", by_alias=True, exclude_unset=True) for key, value in values.items()}
+
     # Ordered page identities; decoration arrays above are not independent pages.
     row_keys: list[Identity] = Field(default_factory=list, max_length=200)
 

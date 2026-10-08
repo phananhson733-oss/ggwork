@@ -94,38 +94,9 @@ class AnswerEvidence:
 
     def capture(self, tool: str, call_id: str, payload: dict) -> None:
         if tool == "pick_query_data":
-            success = payload.get("status") in (None, "ok") and "counts" in payload
-            self.reads.append(
-                EvidenceRead(
-                    tool,
-                    call_id,
-                    "success" if success else "unavailable",
-                    payload.get("pin", {}).get("catalog_batch_id"),
-                    None,
-                    (),
-                    json.dumps(payload.get("request"), ensure_ascii=False, sort_keys=True),
-                    json.dumps(
-                        {"source_as_of": payload.get("source_as_of"), "mirror_synced_at": payload.get("mirror_synced_at")}, ensure_ascii=False, sort_keys=True
-                    ),
-                )
-            )
-            # Common rows are read receipts, never saved candidate references. Counts for
-            # ledger/posted records have different units and cannot certify drama counts.
-            if not success or (
-                payload.get("request", {}).get("domain") in {"catalog", "candidates", "rankings"} and payload.get("request", {}).get("rank") != "rs_ledger"
-            ):
-                total = payload.get("counts", {}).get("matched") if success else None
-                self.atoms.append(
-                    EvidenceAtom(
-                        "本次查询符合条件总数为",
-                        str(total) if type(total) is int else None,
-                        "部",
-                        f"tool:{call_id}",
-                        field_name="matched_total",
-                        unit="部",
-                        display_prefix="本次查询共",
-                    )
-                )
+            from ggwork_pick.query_evidence import capture_common
+
+            capture_common(self, call_id, payload)
             return
         if tool not in {"pick_query_candidates", "pick_count_candidates", "pick_get_drama_detail"}:
             return

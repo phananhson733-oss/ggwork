@@ -5,11 +5,12 @@ import base64
 import json
 from datetime import date, datetime
 
+from pydantic import ValidationError
+
 from ggwork_pick.completion_contracts import CommonQuery, QueryPin, QueryResponse
 from ggwork_pick.contracts import DramaInput
-from ggwork_pick.mirror.versions import check_schema_name
 from ggwork_pick.mirror.contracts import Rules
-from pydantic import ValidationError
+from ggwork_pick.mirror.versions import check_schema_name
 from ggwork_pick.query_catalog import catalog_page
 from ggwork_pick.query_reader import QueryFailure
 
@@ -60,7 +61,7 @@ async def board_data(conn, keys, rules):
     return data
 
 
-def fact_rows(board, imported, request):
+def fact_rows(board, imported, request, *, actual_period=None):
     """Keep imported identity and evidence when present. Board-only records retain raw unknown language."""
     by_key = {}
     for row in imported:
@@ -88,6 +89,23 @@ def fact_rows(board, imported, request):
                 "availability": "delisted" if source["off_on"] else "unknown",
             }
         drama = DramaInput.model_validate({k: v for k, v in row.items() if k in DramaInput.model_fields})
+        for ranked in board.get("rank_rows", []):
+            if ranked["row_key"] != key:
+                continue
+            signal = ranked["signal"]
+            prior = next((entry for entry in drama.signals if entry.kind == signal["kind"]), None)
+            facts = {
+                "kind": signal["kind"],
+                "source_ref": prior.source_ref if prior else f"mirror:{key}:{signal['kind']}:{signal['ord']}",
+                "observed_at": actual_period.value if actual_period and actual_period.value else signal["evidence_on"],
+                "rank": ranked["day_rank"] if ranked["day_rank"] is not None else signal["rank"],
+                "grade": signal["grade"],
+                "note": ranked["day_note"] or signal["note"],
+                "label": prior.label if prior else signal["kind"],
+            }
+            from ggwork_pick.contracts import SignalInput
+
+            drama = drama.model_copy(update={"signals": [entry for entry in drama.signals if entry.kind != signal["kind"]] + [SignalInput(**facts)]})
         posted = [p for p in board["posted"] if key in p["row_keys"] or key.removeprefix("reelshort-") in p["drama_ids"]]
         from ggwork_pick.query_posted import publication_truth
 
@@ -129,6 +147,7 @@ class CommonQueryService:
             raise
 
     async def _query(self, req, *, deadline):
+        self._validate_domain(req)
         if req.published_from and req.published_to and req.published_from > req.published_to:
             raise QueryFailure("invalid_query", "发布起始日期不能晚于结束日期")
         if req.exclude_previous:
@@ -159,9 +178,8 @@ class CommonQueryService:
                 if self.reader is not None:
                     async with self.reader.connection(deadline=deadline) as conn:
                         paired = await conn.fetchval(
-                            "SELECT id FROM pick_mirror.versions WHERE agent_catalog_batch_id=$1 AND agent_knowledge_batch_id IS NOT DISTINCT FROM $2 ORDER BY id DESC LIMIT 1",
+                            "SELECT id FROM pick_mirror.versions WHERE agent_catalog_batch_id=$1 ORDER BY id DESC LIMIT 1",
                             catalog_id,
-                            knowledge_id,
                         )
                     if paired is not None:
                         raise QueryFailure("version_conflict", "此剧库批次必须保留原镜像版本")
@@ -189,6 +207,19 @@ class CommonQueryService:
             pin = QueryPin(catalog_batch_id=catalog_id, knowledge_batch_id=knowledge_id, mirror_version=mirror_version, rule_version=rule_id(mirror_version))
             if req.pin and req.pin.rule_version != pin.rule_version:
                 raise QueryFailure("version_conflict", "规则与镜像版本不一致")
+            effective_request = req
+            if req.domain in {"catalog", "candidates"}:
+                updates = {}
+                if req.theater:
+                    updates["theater"] = next(
+                        (key for key, value in rules["platformRules"].items() if req.theater.casefold() in {key.casefold(), str(value["name"]).casefold()}),
+                        req.theater,
+                    )
+                if req.language and not await conn.fetchval(
+                    "SELECT EXISTS(SELECT 1 FROM catalog_rows WHERE lang=$1 UNION ALL SELECT 1 FROM rs_rows WHERE lang=$1)", req.language
+                ):
+                    updates["language"] = next((key for key, value in rules["langLoc"].items() if value == req.language), req.language)
+                effective_request = req.model_copy(update=updates)
             selected = await self.repository.selections() if req.exclude_selected else []
             excluded_keys = []
             for selection in selected:
@@ -219,7 +250,7 @@ class CommonQueryService:
             elif req.domain == "rules":
                 keys, total, matched, facets = [], 0, 0, {}
             elif req.domain in {"catalog", "candidates"}:
-                keys, total, matched, facets = await catalog_page(conn, req, query_rules(rules), excluded_keys=excluded_keys)
+                keys, total, matched, facets = await catalog_page(conn, effective_request, query_rules(rules), excluded_keys=excluded_keys)
             else:
                 raise QueryFailure("invalid_query", "该查询域尚未就绪")
             board = board if board is not None else await board_data(conn, keys, rules)
@@ -233,7 +264,7 @@ class CommonQueryService:
                 posted_stats=meta.get("control", {}).get("postedStats"),
             )
             imported = await self.repository.catalog_rows(catalog_id)
-            rows = fact_rows(board, imported, req)
+            rows = fact_rows(board, imported, req, actual_period=rank_result.actual_period if rank_result else None)
             returned = len(rank_result.bill_rows) if rank_result is not None and req.rank == "rs_ledger" else len(keys)
             next_offset = req.offset + returned if req.offset + returned < matched else None
             if rank_result is not None and not rank_result.has_more:
@@ -253,6 +284,40 @@ class CommonQueryService:
                 source_as_of=wire(version["as_of"]),
                 mirror_synced_at=wire(version["published_at"]),
             )
+
+    @staticmethod
+    def _validate_domain(req):
+        rank_fields = req.rank or req.grade or req.rs_locale or req.rs_bucket or req.rs_sort != "rr" or req.legacy_week_label
+        if req.domain in {"catalog", "candidates"} and (
+            rank_fields or req.period.kind != "latest" or req.posted_state or req.order in {"rank", "published_at"}
+        ):
+            raise QueryFailure("invalid_query", "请使用榜单查询域指定期次和名次，或使用剧库支持的排序")
+        if req.domain == "posted":
+            if req.channel:
+                raise QueryFailure("source_unavailable", "发布台账缺少完整的渠道范围")
+            if (
+                req.scope != "full_catalog"
+                or rank_fields
+                or req.period.kind != "latest"
+                or req.source
+                or req.exclude_posted
+                or req.exclude_selected
+                or req.tags
+                or req.signal_kind
+                or req.hot_only
+                or req.posted_filter
+                or req.signal_only
+                or req.youtube_ok
+                or req.dated_only
+                or req.in_use_only
+                or req.order not in {"evidence_date", "published_at"}
+            ):
+                raise QueryFailure("invalid_query", "发布台账仅支持搜索、账号、日期、剧场、语种和发布状态条件")
+        if req.domain == "rules":
+            defaults = CommonQuery(domain="rules", scope=req.scope)
+            supported = {"domain", "scope", "pin", "budget_ms", "limit", "offset"}
+            if any(getattr(req, key) != getattr(defaults, key) for key in CommonQuery.model_fields if key not in supported):
+                raise QueryFailure("invalid_query", "规则查询不支持剧集筛选条件")
 
     @staticmethod
     def _validate_rank(req):
@@ -289,7 +354,12 @@ class CommonQueryService:
     async def _private(self, req, catalog_id, info, current):
         from ggwork_pick.query_private import query_private
 
-        return await query_private(self.repository, req, catalog_id, info, current)
+        try:
+            return await query_private(self.repository, req, catalog_id, info, current)
+        except QueryFailure:
+            raise
+        except ValueError as exc:
+            raise QueryFailure("invalid_query", str(exc)) from None
 
     async def candidate_matches(self, rows, conditions, excluded, pin, *, deadline=None):
         """Legacy cards keep storage/notes; their read goes through the common domain engine."""
@@ -327,6 +397,11 @@ class CommonQueryService:
             }
         )
         deadline = min(deadline if deadline is not None else float("inf"), asyncio.get_running_loop().time() + 10)
+        if conditions.sort == "rank":
+            signals = [s for row in rows for s in row["signals"] if s["kind"] == conditions.signal_kind]
+            if conditions.signal_kind not in {"kd", "qc", "qr"} and all(s.get("rank") is None for s in signals):
+                raise ValueError("这类信号没有名次，不能按名次排序；请使用榜单查询查看来源等级或周次")
+            req = CommonQuery(domain="rankings", scope="full_catalog", rank=conditions.signal_kind, order="rank", pin=req.pin, limit=200)
         found = []
         while True:
             response = await self.query(req, deadline=deadline)
@@ -335,10 +410,44 @@ class CommonQueryService:
                 row["identity"] = fact.identity
                 from ggwork_pick.selection import _row_matches
 
-                checked = conditions.model_copy(update={"query": None, "posted_account": None, "exclude_posted": False})
+                checked = (
+                    conditions.model_copy(update={"query": None})
+                    if conditions.sort == "rank"
+                    else conditions.model_copy(update={"query": None, "posted_account": None, "exclude_posted": False})
+                )
+                if conditions.filters_posted and response.board is not None:
+                    from ggwork_pick.query_posted import publication_truth
+
+                    key = row["source_id"]
+                    if row["source"] == "realshort-pick":
+                        key = base64.urlsafe_b64decode(key + "=" * (-len(key) % 4)).decode()
+                    records = [
+                        p.model_dump(mode="json", exclude_unset=True)
+                        for p in response.board.posted
+                        if key in p.row_keys or key.removeprefix("reelshort-") in p.drama_ids
+                    ]
+                    scope = CommonQuery(domain="catalog", scope="full_catalog", account=conditions.posted_account)
+                    status, complete = publication_truth(records, scope)
+                    if status == "posted":
+                        continue
+                    row["_common_posted_unknown"] = status == "unknown" or not complete
+                    checked = checked.model_copy(update={"posted_account": None, "exclude_posted": False})
+                if conditions.sort == "rank" and conditions.query:
+                    query = conditions.query.casefold()
+                    if row["source_id"] != conditions.query and query not in (row["title"] + " " + " ".join(row["tags"])).casefold():
+                        continue
                 if _row_matches(row, checked, excluded):
                     found.append(row)
             if response.next_offset is None:
                 break
             req = req.model_copy(update={"offset": response.next_offset})
+        if conditions.sort == "rank" and conditions.signal_kind not in {"kd", "qc", "qr"}:
+            newest = max((s["observed_at"] for row in rows for s in row["signals"] if s["kind"] == conditions.signal_kind and s["observed_at"]), default=None)
+
+            def ranked_signal(row):
+                return next(s for s in row["signals"] if s["kind"] == conditions.signal_kind)
+
+            if newest:
+                found = [row for row in found if ranked_signal(row)["observed_at"] == newest]
+            found.sort(key=lambda row: (ranked_signal(row)["rank"] is None, ranked_signal(row)["rank"] or 0, row["identity"]))
         return found
