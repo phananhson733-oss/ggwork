@@ -7,6 +7,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { EditingEntry } from "@/components/workspace/editing/editing-entry";
 import { youtubeStatus, type PlatformRule } from "@/core/pick-board/platforms";
 import {
   PLATFORM_LABELS,
@@ -115,6 +116,7 @@ function DetailHead({
           <FactTags row={row} rules={rules} />
         </div>
         <div className="flex flex-col items-end gap-2">
+          <EditingEntry title={row.title} />
           <QueyuButton title={row.title} off={Boolean(row.offOn)} />
           <Link
             prefetch={false}
