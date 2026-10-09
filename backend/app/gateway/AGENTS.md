@@ -51,14 +51,7 @@ Browser auth sessions are owned by `app.gateway.auth.session_cookie`. Login acce
 
 Personal Access Tokens (`app.gateway.auth.pat`, `Authorization: Bearer dfp_...`) run as their owning user: an invalid Bearer is a hard 401 with no cookie fallback, which keeps `CSRFMiddleware`'s Bearer skip safe (origin checks still run). Scopes narrow within the allowlisted threads/runs/projects routes (including `POST /api/threads/{id}/move`); every other authenticated route 403s PAT callers (admin included). PAT management and `/change-password` require session auth; only SHA-256 digests are stored (`0017`).
 
-Trusted extensions can register `bearer_routers` through the public extension registry.
-`AuthMiddleware` checks the actual first full route/method dispatch before host auth,
-requires the extension bearer even when a valid session/internal credential is present,
-and verifies its owner through the host user provider. The `extension` auth source
-has zero host permissions and is never admin; neutral `ExtensionPrincipal.subject_id`
-identifies the credential subject. Callback/store failures fail closed without exposing
-tokens. Host cancellation still propagates. Ordinary browser routes and CSRF exemptions
-are unchanged. See the extension module guide and `test_extension_bearer_auth.py`.
+Extension bearer routers follow the extension module guide's auth contract.
 
 Thread/project membership changes only at `POST /api/threads` (validated project_id),
 branch creation (inherit source; archived/deleted project → unassigned branch), or

@@ -42,6 +42,10 @@ EXPECTED_GUIDANCE_PATHS = {
     # 选剧工作台扩展：源目录与 deerflow extensions 安装出的托管副本逐字节相同
     "customizations/pick-workbench/AGENTS.md",
     "backend/extensions/sources/ggwork-pick/AGENTS.md",
+    "customizations/ggwork-edit/AGENTS.md",
+    "customizations/ggwork-edit/ggwork_edit/worker/AGENTS.md",
+    "backend/extensions/sources/ggwork-edit/AGENTS.md",
+    "backend/extensions/sources/ggwork-edit/ggwork_edit/worker/AGENTS.md",
 }
 
 

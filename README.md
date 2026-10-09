@@ -6,6 +6,16 @@ English | [中文](./README_zh.md) | [日本語](./README_ja.md) | [Français](.
 
 **GGWork customization:** the pick workbench includes optional, owner-scoped Feishu operational feedback. It reads 15 business tables into versioned private storage, exposes evidence to the Agent and preserves historical candidate decisions. It is disabled by default, does not write to Feishu, and does not introduce a new ranking score. See the [feedback runbook](docs/pick-workbench/feedback-runbook.md) and [verification status](docs/pick-workbench/feedback-progress.md) before enabling it.
 
+The editing workspace at `/workspace/editing` shares owner-scoped tasks with the
+`clip-highlight` and `clip-hook` conversation Skills. A paired Apple Silicon Mac
+runs local transcription and FFmpeg against explicitly granted media; cloud
+planning receives transcript text, while browser upload, preview and download
+use a transient bounded relay. Keep one Gateway process and replica. The native
+worker is an unsigned development CLI distributed with its matching extension
+API wheel. See [setup and acceptance](docs/editing/acceptance.md) and the
+[delivery ledger](docs/editing/delivery-ledger.md) for tested and outstanding gates;
+source availability does not establish production deployment or model quality.
+
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](./backend/pyproject.toml)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](./Makefile)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
