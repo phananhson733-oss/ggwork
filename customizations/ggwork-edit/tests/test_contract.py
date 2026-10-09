@@ -294,7 +294,8 @@ async def test_plan_confirmation_cannot_authorize_new_planning_attempt(api):
     path = f"/api/editing/worker/devices/{device}/tasks/{revised['id']}/report"
     base = {"attempt_id": current["id"], "fence": current["fence"]}
     replay = await client.post(path, headers=worker, json={**base, "event_id": "regress", "kind": "stage", "stage": "awaiting_plan"})
-    assert replay.status_code == 409
+    assert replay.status_code == 200
+    assert replay.json()["task"]["plan_confirmed"] is True
     assert (await repo.get_task(revised["id"]))["status"] == "running"
     await repo.report(device, revised["id"], WorkerReport(**base, event_id="failed", kind="failure", error="render unavailable"))
     await repo.retry(revised["id"], RetryTask(request_id="new-plan", stage="planning"))

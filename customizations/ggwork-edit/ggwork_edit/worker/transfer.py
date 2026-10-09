@@ -6,7 +6,7 @@ import json
 import os
 
 from .native import NativeWorker
-from .storage import WorkerError, confined, digest, identifier, no_symlink, private_json
+from .storage import WorkerError, confined, digest, identifier, no_symlink, private_json, selected_identity
 
 
 class Receiver:
@@ -30,7 +30,7 @@ class Receiver:
         records = self.store.home / "transfers"
         records.mkdir(mode=0o700, exist_ok=True)
         record = no_symlink(records / (transfer_id + ".json"))
-        identity = hashlib.sha256(json.dumps([command["task_id"], manifest, source], sort_keys=True).encode()).hexdigest()
+        identity = hashlib.sha256(json.dumps([command["task_id"], selected_identity(grant_id, source)], sort_keys=True).encode()).hexdigest()
         offset = command["offset"]
         if not record.exists():
             if offset != 0:
@@ -59,3 +59,4 @@ class Receiver:
             os.link(stage, target)  # exclusive, same filesystem, no source overwrite
             stage.unlink()
             private_json(record, {"identity": identity, "offset": end, "received_sha256": sha})
+            self.store.record_received(command["task_id"], grant_id, source, sha)

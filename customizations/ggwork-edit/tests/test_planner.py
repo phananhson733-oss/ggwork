@@ -425,24 +425,94 @@ async def test_plan_committed_after_recovery_read_wins_ambiguous_failure_report(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("barrier", ["stop", "stale"])
-async def test_winning_plan_does_not_bypass_failure_report_fences(api, barrier):
+@pytest.mark.parametrize("barrier", ["stop", "stale", "terminal"])
+@pytest.mark.parametrize("report_type", ["failure", "transcribing", "planning", "awaiting_plan"])
+async def test_winning_plan_does_not_bypass_report_fences(api, barrier, report_type):
     client, task, device, worker, attempt = await ready_task(api)
     if barrier == "stop":
         stopped = await client.post(f"/api/editing/tasks/{task['id']}/stop", headers=OWNER, json={})
         assert stopped.json()["status"] == "stopping"
+    if barrier == "terminal":
+        from test_contract import RESULT
+
+        report_path = f"/api/editing/worker/devices/{device}/tasks/{task['id']}/report"
+        report_base = {"attempt_id": attempt["id"], "fence": attempt["fence"]}
+        for index in range(1, 4):
+            output = await client.post(
+                report_path,
+                headers=worker,
+                json={
+                    **report_base,
+                    "event_id": f"output-{index}",
+                    "kind": "output",
+                    "output_id": f"out-{index}",
+                    "result": {**RESULT, "artifact_id": f"artifact-{index}"},
+                },
+            )
+            assert output.status_code == 200
+        completed = await client.post(report_path, headers=worker, json={**report_base, "event_id": "finish", "kind": "complete"})
+        assert completed.json()["task"]["status"] == "completed"
     response = await client.post(
         f"/api/editing/worker/devices/{device}/tasks/{task['id']}/report",
         headers=worker,
         json={
             "attempt_id": attempt["id"],
             "fence": attempt["fence"] + (barrier == "stale"),
-            "event_id": "fenced-planning-failure",
-            "kind": "failure",
-            "error": "planner_outcome_unknown",
+            "event_id": "fenced-planning-report",
+            **({"kind": "failure", "error": "planner_outcome_unknown"} if report_type == "failure" else {"kind": "stage", "stage": report_type}),
         },
     )
     assert response.status_code == 409
     current = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
-    assert current["status"] == ("stopping" if barrier == "stop" else "running")
+    assert current["status"] == {"stop": "stopping", "stale": "running", "terminal": "completed"}[barrier]
     assert current["plan"] == valid_plan()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plan_state", ["automatic", "awaiting_review", "review_confirmed", "retained"])
+@pytest.mark.parametrize("late_stage", ["transcribing", "planning", "awaiting_plan"])
+async def test_committed_plan_is_a_barrier_to_preplan_stage_replays(api, plan_state, late_stage):
+    from test_contract import REQUEST
+
+    request = {**REQUEST, "requirements": {**REQUEST["requirements"], "review_plan": plan_state in ("awaiting_review", "review_confirmed")}}
+    client, task, device, worker, attempt = await ready_task(api, request=request)
+    base = f"/api/editing/worker/devices/{device}/tasks/{task['id']}"
+    if plan_state == "review_confirmed":
+        assert (await client.post(f"/api/editing/tasks/{task['id']}/confirm-plan", headers=OWNER, json={})).status_code == 200
+    if plan_state == "retained":
+        failed = await client.post(
+            base + "/report",
+            headers=worker,
+            json={"attempt_id": attempt["id"], "fence": attempt["fence"], "event_id": "render-failed", "kind": "failure", "error": "render_failed"},
+        )
+        assert failed.status_code == 200
+        retried = await client.post(f"/api/editing/tasks/{task['id']}/retry", headers=OWNER, json={"request_id": "render-retry", "output_ids": ["out-1"]})
+        assert retried.status_code == 200
+        attempt = (await client.post(f"/api/editing/worker/devices/{device}/claim", headers=worker, json={"request_id": "retained-plan-attempt"})).json()[
+            "attempt"
+        ]
+    if plan_state in ("automatic", "retained"):
+        assert (
+            await client.post(
+                base + "/report",
+                headers=worker,
+                json={"attempt_id": attempt["id"], "fence": attempt["fence"], "event_id": "render-start", "kind": "stage", "stage": "rendering"},
+            )
+        ).status_code == 200
+    before = (await client.get(base, headers=worker)).json()
+    replay = {"attempt_id": attempt["id"], "fence": attempt["fence"], "event_id": "late-preplan-stage", "kind": "stage", "stage": late_stage}
+    response = await client.post(base + "/report", headers=worker, json=replay)
+    assert response.status_code == 200, response.text
+    after = response.json()["task"]
+    for key in ("status", "stage", "plan", "plan_confirmed", "attempt", "outputs"):
+        assert after[key] == before[key]
+    assert (await client.post(base + "/report", headers=worker, json=replay)).json() == response.json()
+    changed = await client.post(base + "/report", headers=worker, json={**replay, "stage": "verifying"})
+    assert changed.status_code == 409
+    if plan_state == "awaiting_review":
+        for next_stage in ("rendering", "verifying"):
+            premature = await client.post(base + "/report", headers=worker, json={**replay, "event_id": "premature-" + next_stage, "stage": next_stage})
+            assert premature.status_code == 409
+        confirmed = await client.post(f"/api/editing/tasks/{task['id']}/confirm-plan", headers=OWNER, json={})
+        assert confirmed.status_code == 200
+        assert confirmed.json()["plan_confirmed"] is True
