@@ -72,6 +72,8 @@ class PickTask:
     lark_calls: int = 0
     # Set once a read-only plugin brought outside content into this run; see PickToolGate.
     plugin_read: bool = False
+    # Call id -> whether it failed, for each registered editing tool PickToolGate ran; see _editing_reply.
+    editing_calls: dict[str, bool] = field(default_factory=dict)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     budget: float = field(default_factory=run_seconds)
     publication: PickPublication | None = None
@@ -116,7 +118,7 @@ class PickTask:
             raise TimeoutError(f"本轮选剧已达到{self.budget:g}秒执行上限")
         return remaining
 
-    async def repository(self, runtime):
+    async def repository(self, runtime, *, initialize=True):
         owner = resolve_runtime_user_id(runtime)
         if not owner or owner == "default":
             raise ValueError("运行缺少已认证身份")
@@ -127,7 +129,7 @@ class PickTask:
                 raise ValueError("运行身份发生变化")
             self.owner_id = owner
             repo = PickRepository(self.service.session_factory, owner)
-            if not self.initialized:
+            if initialize and not self.initialized:
                 current_pin = await repo.current_pin()
                 reference = runtime.context.get("pick_reference")
                 if "pick_references" in runtime.context:

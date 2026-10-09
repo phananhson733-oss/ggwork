@@ -1,0 +1,21 @@
+# Editing extension
+
+- Business source lives here, independent of the pick mirror. Never edit a managed installed snapshot.
+- Host `session_factory` supplies persistence. `ggwe_` tables and `ggwe_alembic_version` are private; never attach them to host metadata/migrations.
+- Public HTTP and owner-scoped repository methods are the shared page/tool/worker seam. Owner comes from the host principal/runtime context, never a model/body field.
+- Browser routes reject device subjects. Worker routes require the host's exact bearer-router admission plus matching owner/device subject; credentials are digest-only and rechecked after revocation.
+- Every owner mutation uses database serialization (SQLite writer transaction or PostgreSQL transaction advisory lock), including idempotency receipts. Keep stop, publication and retry within that transaction.
+- Source paths are native grant-relative data. Gateway never reads them. Only authenticated devices verify exact selected manifests; source sets freeze on admission.
+- Waiting directory selections retain native provenance only for exact identity subsets on the same device/grant. Added/retargeted sources require discovery or upload receipts. Output-only retry requires a confirmed reusable plan; otherwise expose planning-stage recovery.
+- Delivered result metadata is immutable. A stop fence blocks publication until a real stopped acknowledgment. Offline/expired lease alone never asserts process termination.
+- Native code may import lightweight contracts. Keep host imports inside extension install; native workers never receive host/model credentials.
+- Tests use real routes/services and disposable databases. Synthetic result reports prove protocol behavior, not decoding or native process exit. Real media/native acceptance remains a separate gate.
+- Text planners use the configured host model factory and strict `planner.Plan`; transcript-only inputs exclude source paths and credentials. Never clamp ranges, skip unknown sources, or publish partially validated plans.
+- Planner admission counts the complete UTF-8 role/content messages against 32,000 bytes before provider invocation; exceeding the bound durably fails with a new-selection recovery. It is a conservative policy, not a model-capacity measurement. Cuts preserve punctuation-joined ASR units and cannot overlap within one output; whole-unit narrative reordering and reuse across distinct outputs remain allowed.
+- Conversation results are bounded task receipts; cards fetch the full shared HTTP task. `clip_get` pages history, plan cuts and device grants with limit 1–5. Never return full manifests or unbounded instructions/diagnostics into host tool context, and never exempt editing tools from the host output budget.
+- `ConfiguredPlanner` sets availability only after constructing the named provider; its owner policy intersects live host account role, model authorization and per-user Skill storage. Keep native bearer subjects narrow; any owner policy lookup is an additional check, not restored host authority.
+- Conversation tool source-thread provenance comes only from `EditingLifecycle` TaskInfo. Keep registered aliases tied to the shared slash resolver. Model/tool gates admit the actual registered callable identity, including host description clones, never a matching untrusted name.
+- The pick publication gate confirms catalog facts only, so prose about a task is withheld there. `tools.receipt_reply` is the fixed reply for a run's editing results: server-set task id, state, counts and known preparation codes. Never add title, instructions, output errors or tool error text to it; those are model- or worker-written. Editing results do not end the turn: `clip_get` often precedes a mutation.
+
+- Relay owns transient RAM only (`relay.py`, `relay_routes.py`): one outstanding <=1 MiB command per transfer, exact offsets and native ACK backpressure. Keep the one-Gateway-process/replica deployment restriction explicit; no fake restart resume or disk spool.
+- Relay byte endpoints resolve immutable task artifact/hash/size metadata, never a caller path. Native `worker/relay_client.py` runs authorized receive/read callbacks off its event loop; local grants/index/identity checks remain native responsibilities. Keep it independent of rendering/control polling.

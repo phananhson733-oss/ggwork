@@ -41,6 +41,13 @@ sandbox:
   use: deerflow.sandbox.local:LocalSandboxProvider
   allow_host_bash: false
 tools:
+  - {name: clip_submit, group: editing, use: 'ggwork_edit.tools:submit_tool'}
+  - {name: clip_get, group: editing, use: 'ggwork_edit.tools:get_tool'}
+  - {name: clip_stop, group: editing, use: 'ggwork_edit.tools:stop_tool'}
+  - {name: clip_prepare, group: editing, use: 'ggwork_edit.tools:prepare_tool'}
+  - {name: clip_retry, group: editing, use: 'ggwork_edit.tools:retry_tool'}
+  - {name: clip_confirm_plan, group: editing, use: 'ggwork_edit.tools:confirm_tool'}
+  - {name: clip_change_version, group: editing, use: 'ggwork_edit.tools:change_version_tool'}
   - {name: pick_search_knowledge, group: pick, use: 'ggwork_pick.tools:search_knowledge_tool'}
   - {name: pick_query_candidates, group: pick, use: 'ggwork_pick.tools:query_candidates_tool'}
   - {name: pick_query_data, group: pick, use: 'ggwork_pick.tools:query_data_tool'}
@@ -56,6 +63,7 @@ tools:
   # PickModelGate offers it only to a user who connected Feishu in the capability center; PickToolGate budgets it apart.
   - {name: lark_cli, group: lark, use: 'ggwork_pick.lark_tool:lark_cli_tool'}
 tool_groups:
+  - {name: editing}
   - {name: pick}
   - {name: web}
   - {name: lark}
@@ -66,6 +74,12 @@ tool_output:
   # the host default and stays exempt too. pick_query_data has its own closed20-row/48KB projection.
   exempt_tools: [read_file, read_file_tool, pick_query_candidates, pick_query_data, pick_count_candidates, pick_get_drama_detail, pick_prepare_selection, pick_search_knowledge, pick_get_feedback, pick_analyze_feedback]
 plugins:
+  - name: ggwork-edit
+    use: ggwork_edit:install
+    required: true
+    enabled: true
+    table_prefix: ggwe_
+    config: {planner_model: azure-pick}
   - name: ggwork-pick
     use: 'ggwork_pick:install'
     required: true
@@ -110,7 +124,7 @@ authorization:
           routes: {allow: '*'}
           models: {allow: [azure-pick]}
           sandbox: {allow: false}
-          skills: {allow: [pick-drama]}
+          skills: {allow: [pick-drama, clip-highlight, clip-hook]}
         user:
           # MCP tool names come from the servers an admin enables in the capability center, so they cannot be
           # listed here; the pick middleware admits pick tools, web_search/web_fetch, lark_cli and enabled MCP tools only.
@@ -120,7 +134,7 @@ authorization:
           routes: {allow: '*'}
           models: {allow: [azure-pick]}
           sandbox: {allow: false}
-          skills: {allow: [pick-drama]}
+          skills: {allow: [pick-drama, clip-highlight, clip-hook]}
 
 extensions:
   middlewares:

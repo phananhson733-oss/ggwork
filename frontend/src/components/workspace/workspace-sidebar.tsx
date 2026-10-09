@@ -6,6 +6,7 @@ import {
   CalendarDaysIcon,
   ChartNoAxesCombinedIcon,
   MessageSquareIcon,
+  ScissorsIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -48,6 +49,12 @@ export function PickNav() {
   const pathname = usePathname();
   const labelId = useId();
   const links = [
+    {
+      href: "/workspace/editing",
+      label: "剪辑",
+      icon: ScissorsIcon,
+      current: isUnder(pathname, "/workspace/editing"),
+    },
     {
       href: "/workspace/chats/new",
       label: "选剧对话",

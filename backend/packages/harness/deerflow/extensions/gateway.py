@@ -3,7 +3,8 @@
 Every contributed router mounted here runs behind the host's ``AuthMiddleware``
 (added earlier in ``create_app()``) and cannot enter a host-reserved or
 auth-exempt prefix, so every request reaching a contributed route is already
-session-authenticated. "Logged in" and "administrator" are still different
+authenticated by a session or an explicitly bound extension credential.
+"Logged in" and "administrator" are still different
 questions, though, and a contributed route asks the second one through
 ``deerflow_extension_api.auth``: ``resolve_principal(request)`` /
 ``require_admin(request)`` read a resolver the host installs on ``app.state``,
@@ -19,11 +20,11 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from deerflow_extension_api import ExtensionRuntimeDeps
+from deerflow_extension_api import ExtensionBearerAuthenticator, ExtensionRuntimeDeps
 
 from deerflow.extensions.loader import Diagnostic
 from deerflow.extensions.policy import project_host_policy
-from deerflow.extensions.registry import LoadedExtensions
+from deerflow.extensions.registry import BearerRouter, LoadedExtensions
 
 logger = logging.getLogger(__name__)
 
@@ -523,6 +524,22 @@ def _find_route_clash(
     return None
 
 
+def resolve_bearer_authenticator(request: Any) -> ExtensionBearerAuthenticator | None:
+    """Follow Starlette's first full dispatch match, including method/root_path.
+
+    An earlier host route or Mount wins even when a later contributed matcher
+    overlaps it. PARTIAL (wrong-method) matches do not dispatch while a FULL
+    match exists. No prefix or redirect inference grants credential authority.
+    """
+    from starlette.routing import Match
+
+    for route in request.app.routes:
+        match, _ = route.matches(request.scope)
+        if match == Match.FULL:
+            return getattr(route, "_extension_bearer_authenticator", None)
+    return None
+
+
 def include_contributed_routers(app: Any, extensions: LoadedExtensions) -> list[Diagnostic]:
     """Mount reachable routers in order and reject definite shadows atomically."""
     diagnostics: list[Diagnostic] = []
@@ -537,7 +554,13 @@ def include_contributed_routers(app: Any, extensions: LoadedExtensions) -> list[
             owners.append((claim, "host"))
 
     for source, router in extensions.routers:
+        authenticator = None
         try:
+            if isinstance(router, BearerRouter):
+                authenticator = router.authenticator
+                if not callable(getattr(authenticator, "authenticate", None)):
+                    raise TypeError("bearer routers require an authenticator with an authenticate method")
+                router = router.router
             routes = _router_routes(router)
             if not routes:
                 raise TypeError(f"contributed router exposes no routes: {router!r}")
@@ -552,6 +575,9 @@ def include_contributed_routers(app: Any, extensions: LoadedExtensions) -> list[
             route_mark = len(app_routes) if isinstance(app_routes, list) else None
             try:
                 app.include_router(router)
+                if authenticator is not None:
+                    for mounted_route in app_routes[route_mark:]:
+                        mounted_route._extension_bearer_authenticator = authenticator
             except BaseException:
                 # FastAPI copies one route at a time. If a later copy fails,
                 # remove every route added by this attempt before either

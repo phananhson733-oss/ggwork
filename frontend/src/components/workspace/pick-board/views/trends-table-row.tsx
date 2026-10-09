@@ -2,6 +2,7 @@
 // Missing/partial observations keep their existing semantics; no imported pilot scores or fallback curves.
 import { TrendingDown } from "lucide-react";
 
+import { EditingEntry } from "@/components/workspace/editing/editing-entry";
 import { TrendBadge, toneText } from "@/components/workspace/radar/semantic";
 import {
   SHORT_TERM_HINT,
@@ -50,6 +51,7 @@ function Drama({ row }: { row: TrendsTableRow }) {
   return (
     <td className={TD}>
       <div className="text-ink-1 font-semibold">{row.title}</div>
+      <EditingEntry title={row.title} />
       {meta ? <div className={MUTED}>{meta}</div> : null}
       <div className="text-helper mt-1 text-xs">市场：{row.geo || "全球"}</div>
       {row.query_group && row.comparison_terms ? (

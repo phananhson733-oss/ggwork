@@ -214,7 +214,9 @@ cd frontend && pnpm rstest run <pattern>     # e.g. pnpm rstest run my-component
 
 ## Where to Go Next
 
-- Personal drama-selection customization → **[customizations/pick-workbench/AGENTS.md](customizations/pick-workbench/AGENTS.md)**; implementation status and local run instructions are under `docs/pick-workbench/`. Business data uses a private migration chain, while identity and conversations remain host-owned.
+- Editing and issue workflow → [agent workflow](docs/agents/overview.md).
+
+- Pick customization → [guide](customizations/pick-workbench/AGENTS.md), status/runbook in `docs/pick-workbench/`. Business migrations are private; identity and conversations are host-owned.
 
 - Backend work → **[backend/AGENTS.md](backend/AGENTS.md)**
 - Frontend work → **[frontend/AGENTS.md](frontend/AGENTS.md)**

@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils";
 
 import { useArtifacts } from "../artifacts";
 import { useMaybeBrowserView } from "../browser-view";
+import { EditingToolCard } from "../editing/editing-task";
 import { FlipDisplay } from "../flip-display";
 import { CommonQueryCard } from "../pick/common-query-card";
 import { PickToolCard } from "../pick/pick-tool-card";
@@ -609,12 +610,24 @@ function isAlwaysVisibleStep(step: CoTStep) {
   return (
     step.type === "assistantText" ||
     (step.type === "toolCall" &&
-      ["pick", "common-pick"].includes(getToolCallKind(step.name)))
+      ["pick", "common-pick", "editing"].includes(getToolCallKind(step.name)))
   );
 }
 
 // Shared routing for result conversion and specialized rendering.
 function getToolCallKind(name: string) {
+  if (
+    [
+      "clip_submit",
+      "clip_get",
+      "clip_stop",
+      "clip_retry",
+      "clip_prepare",
+      "clip_confirm_plan",
+      "clip_change_version",
+    ].includes(name)
+  )
+    return "editing";
   if (name === "pick_query_data") return "common-pick";
   if (name === "pick_query_candidates" || name === "pick_prepare_selection")
     return "pick";
@@ -985,6 +998,8 @@ function ToolCall({
         )}
       </ChainOfThoughtStep>
     );
+  } else if (kind === "editing") {
+    return <EditingToolCard result={result} isLoading={isLoading} />;
   } else if (kind === "common-pick") {
     return <CommonQueryCard result={result} isLoading={isLoading} />;
   } else if (kind === "pick") {

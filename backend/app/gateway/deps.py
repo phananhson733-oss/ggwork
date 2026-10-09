@@ -823,13 +823,14 @@ async def get_current_user_from_request(request: Request):
     """
     state = getattr(request, "state", None)
     state_user = getattr(state, "user", None)
-    from app.gateway.auth_disabled import AUTH_SOURCE_AUTH_DISABLED, AUTH_SOURCE_INTERNAL, AUTH_SOURCE_PAT, AUTH_SOURCE_SESSION
+    from app.gateway.auth_disabled import AUTH_SOURCE_AUTH_DISABLED, AUTH_SOURCE_EXTENSION, AUTH_SOURCE_INTERNAL, AUTH_SOURCE_PAT, AUTH_SOURCE_SESSION
 
     if state_user is not None and getattr(state, "auth_source", None) in {
         AUTH_SOURCE_SESSION,
         AUTH_SOURCE_AUTH_DISABLED,
         AUTH_SOURCE_INTERNAL,
         AUTH_SOURCE_PAT,
+        AUTH_SOURCE_EXTENSION,
     }:
         return state_user
 
@@ -885,9 +886,9 @@ async def is_admin_user(request: Request) -> bool:
     # PAT credentials never carry admin capability: no scope in the PAT
     # universe grants it, so an admin's automation token must not unlock
     # admin-only routes (skill installs, integration credentials, MCP config).
-    from app.gateway.auth_disabled import AUTH_SOURCE_PAT
+    from app.gateway.auth_disabled import AUTH_SOURCE_EXTENSION, AUTH_SOURCE_PAT
 
-    if getattr(request.state, "auth_source", None) == AUTH_SOURCE_PAT:
+    if getattr(request.state, "auth_source", None) in {AUTH_SOURCE_PAT, AUTH_SOURCE_EXTENSION}:
         return False
     user = getattr(request.state, "user", None)
     if user is None:

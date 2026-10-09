@@ -28,6 +28,11 @@ import { parsePickRequest } from "@/core/pick-board/request";
 
 import fixture from "../../../../core/pick/fixtures/backend-trends-table.json";
 
+rs.mock("next/navigation", () => ({
+  usePathname: () => "/workspace/pick-data",
+  useSearchParams: () => new URLSearchParams("v=7&tab=rows"),
+}));
+
 rs.mock("next/link", () => ({
   default: ({
     href,

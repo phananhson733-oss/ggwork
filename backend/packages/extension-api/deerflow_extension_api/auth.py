@@ -12,10 +12,25 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
 EXTENSION_PRINCIPAL_RESOLVER_KEY = "deerflow_extension_principal_resolver"
+
+
+@dataclass(frozen=True)
+class ExtensionCredential:
+    """Extension-verified owner and subject; conveys no host capabilities."""
+
+    user_id: str
+    subject_id: str
+
+
+class ExtensionBearerAuthenticator(Protocol):
+    async def authenticate(self, token: str) -> ExtensionCredential | None:
+        """Resolve an opaque bearer token, or reject it without raising."""
+        return None
 
 
 @dataclass(frozen=True)
@@ -24,6 +39,7 @@ class ExtensionPrincipal:
     is_admin: bool = False
     is_internal: bool = False
     roles: tuple[str, ...] = field(default_factory=tuple)
+    subject_id: str | None = None
 
 
 def resolve_principal(request: object) -> ExtensionPrincipal | None:

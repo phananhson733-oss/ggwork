@@ -14,6 +14,25 @@ GGWork uses a conservative [completion fact checker and publication gate](docs/p
 
 The personal pick workbench supports explicitly referencing selected items from two historical candidate batches in one chat. Each batch keeps its own source snapshot; comparison alone does not bind chat context. See [the reference contract](docs/pick-workbench/completion-contract.md#explicit-plural-chat-references).
 
+The editing workspace at `/workspace/editing` shares owner-scoped tasks with the
+`clip-highlight` and `clip-hook` conversation Skills. A paired Apple Silicon Mac
+runs local transcription and FFmpeg against explicitly granted media; cloud
+planning receives transcript text, while browser upload, preview and download
+use a transient bounded relay. Keep one Gateway process and replica. The native
+worker is an unsigned development CLI distributed with its matching extension
+API wheel. See [setup and acceptance](docs/editing/acceptance.md) and the
+[delivery ledger](docs/editing/delivery-ledger.md) for tested and outstanding gates;
+source availability does not establish production deployment or model quality.
+Plans preserve punctuation-joined ASR dialogue units and reject repeated ranges
+within a clip. Oversized dialogue selections are refused before cloud planning;
+create a new task with fewer episodes instead of silently dropping selected sources.
+The [fixed quality cases](docs/editing/quality-cases.md) distinguish these checks
+from narrative judgment and record the limitations of earlier real outputs.
+The [review repair record](docs/editing/review-repairs.md) covers sequential stop
+recovery, reduced directory selections, unconfirmed-plan retries and multiline
+Skill aliases. Existing native installations require the paired-wheel upgrade
+procedure in the [native guide](customizations/ggwork-edit/ggwork_edit/worker/README.md).
+
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](./backend/pyproject.toml)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](./Makefile)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
@@ -1302,14 +1321,22 @@ least-accidental-privilege boundary, not a sandbox for untrusted Python packages
 routers are mounted after every host route; definite shadows and routes entering the
 host's authentication- or CSRF-exempt paths are rejected with attributed diagnostics,
 while unrelated routers continue to load. Because the host's public paths are a reserved
-prefix list that extensions cannot enter, **every contributed endpoint requires an
-authenticated session** — there is currently no way for an extension to expose an
-unauthenticated route, so inbound provider webhooks and public status endpoints are out of
-scope for this release. Within that, an extension distinguishes an ordinary user from an
+prefix list that extensions cannot enter, **every contributed endpoint requires
+authentication**. Ordinary `registry.routers(...)` routes use host authentication.
+Trusted extensions can register dedicated worker operations with
+`registry.bearer_routers((router,), authenticator)`: async `authenticate(token)` returns
+an immutable `ExtensionCredential(user_id, subject_id)` or `None`. These operations require
+their own bearer credential and an existing host owner, carry no host permissions or admin
+privileges, and never fall back to browser sessions or internal credentials. The binding
+covers only the accepted route and HTTP methods. Keep pairing and credential management
+on ordinary CSRF-protected browser routes; extensions own credential expiry, revocation,
+and subject/task ownership checks. Unauthenticated extension routes, inbound provider
+webhooks, and public status endpoints remain out of scope.
+Within ordinary host authentication, an extension distinguishes an ordinary user from an
 administrator through `deerflow_extension_api.auth`: `resolve_principal(request)` returns
 the caller, `require_admin(request)` raises `PermissionError` for anyone else and fails
 closed when identity cannot be determined. Extensions receive a projection — user id, admin
-flag, internal flag, roles — never the host's auth context. Router startup/shutdown hooks,
+flag, internal flag, roles, and optional credential subject id — never the host's auth context. Router startup/shutdown hooks,
 custom lifespans, Mounts, and WebSocket routes are not accepted; lifetime resources belong in
 `ExtensionService`, and WebSocket contributions require a future host-owned
 authentication/Origin wrapper. Lifecycle and system-model callbacks use the Gateway's
