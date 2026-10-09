@@ -45,6 +45,13 @@ class WorkerSession:
     def save(self):
         self.store.save_journal(self.state)
 
+    def finish_attempt(self):
+        """Release attempt cancellation only after native exit and authoritative completion."""
+        self.state = {}
+        self.save()
+        if not self.shutdown.is_set() and not self.authorization_lost:
+            self.stop.clear()
+
     async def claim(self):
         if self.state.get("task_id"):
             task = await self.request("GET", "/tasks/" + self.state["task_id"])
@@ -52,8 +59,7 @@ class WorkerSession:
             if task["status"] == "queued" or current_attempt is None or current_attempt["id"] != self.state["attempt"]["id"]:
                 # Owner retry/supersession is authoritative. A lost terminal ACK
                 # must not cause replay against a newly queued or different attempt.
-                self.state = {}
-                self.save()
+                self.finish_attempt()
             else:
                 return task
         if "claim_request_id" not in self.state:
@@ -296,11 +302,10 @@ class WorkerSession:
             self.save()
 
     async def execute(self, task):
-        if self.shutdown.is_set():
+        if self.shutdown.is_set() or self.authorization_lost:
             return
         if task["status"] in TERMINAL:
-            self.state = {}
-            self.save()
+            self.finish_attempt()
             return
         self.stop.clear()
         if task["status"] == "stopping":
@@ -309,8 +314,7 @@ class WorkerSession:
             self.state.pop("pending_report", None)
             self.save()
             await self.report("stopped")
-            self.state = {}
-            self.save()
+            self.finish_attempt()
             return
         attempt = self.state["attempt"]
         task_id = task["id"]
@@ -320,8 +324,7 @@ class WorkerSession:
                 raise WorkerStopped("stopped")
             task = heartbeat["task"]
             if task["status"] in TERMINAL:
-                self.state = {}
-                self.save()
+                self.finish_attempt()
                 return
             self.remember_uncertain_planning(task)
             pending = self.state.get("pending_report")
@@ -341,8 +344,7 @@ class WorkerSession:
                 if result["stop_requested"]:
                     raise WorkerStopped("stopped")
                 if task["status"] in TERMINAL:
-                    self.state = {}
-                    self.save()
+                    self.finish_attempt()
                     return
                 self.remember_uncertain_planning(task)
             manifest, requirements = task["source_manifest"], task["requirements"]
@@ -354,8 +356,7 @@ class WorkerSession:
                     await self.report("stage", stage="planning")
                 task = await self.request_plan(task_id, attempt, transcripts)
                 if task["status"] in TERMINAL:
-                    self.state = {}
-                    self.save()
+                    self.finish_attempt()
                     return
                 if task["status"] == "queued" or (task.get("attempt") or {}).get("id") != attempt["id"]:
                     return  # claim() reconciles an explicit retry or supersession.
@@ -386,9 +387,10 @@ class WorkerSession:
                     raise
                 except WorkerError as error:
                     await self.report("failure", output_id=output_id, error=str(error))
-            await self.report("complete")
-            self.state = {}
-            self.save()
+            completed = await self.report("complete")
+            if completed["stop_requested"]:
+                raise WorkerStopped("stopped")
+            self.finish_attempt()
         except WorkerStopped:
             if not self.authorization_lost:
                 current = await self.request("GET", "/tasks/" + task_id)
@@ -396,8 +398,7 @@ class WorkerSession:
                     self.state.pop("pending_report", None)
                     self.save()
                     await self.report("stopped")
-                    self.state = {}
-                    self.save()
+                    self.finish_attempt()
                 # Local Ctrl-C preserves the active attempt for restart; it does not
                 # manufacture a server stop request or a completed result.
         except httpx.HTTPStatusError:
@@ -407,17 +408,16 @@ class WorkerSession:
             self.state.pop("pending_report", None)
             self.save()
             if current["status"] == "stopping":
-                await self.report("stopped")
+                current = (await self.report("stopped"))["task"]
             elif current["status"] not in TERMINAL:
-                await self.report("failure", error="gateway_request_rejected")
-            self.state = {}
-            self.save()
+                current = (await self.report("failure", error="gateway_request_rejected"))["task"]
+            if current["status"] in TERMINAL:
+                self.finish_attempt()
         except WorkerError as error:
             if not self.authorization_lost:
                 result = await self.report("failure", error=str(error))
                 if result["task"]["status"] in TERMINAL:
-                    self.state = {}
-                    self.save()
+                    self.finish_attempt()
                 # A server transaction may preserve a concurrently stored plan.
                 # Keep this attempt so the next authoritative read can execute it.
 

@@ -200,6 +200,160 @@ def clone_files(parent):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("lose_stop_ack", [False, True])
+async def test_stopped_attempt_releases_same_session_for_next_directory(preparation, lose_stop_ack):
+    import json
+
+    client, original, receiving, device = preparation
+
+    class StopAckTransport(httpx.AsyncBaseTransport):
+        lost = False
+
+        async def handle_async_request(self, request):
+            response = await original.http._transport.handle_async_request(request)
+            if request.url.path.endswith("/report") and json.loads(request.content)["kind"] == "stopped" and lose_stop_ack and not self.lost:
+                self.lost = True
+                raise httpx.ReadTimeout("Lost stopped acknowledgment", request=request)
+            return response
+
+    async with httpx.AsyncClient(transport=StopAckTransport(), base_url="https://test", headers=original.http.headers) as worker:
+        session = WorkerSession(original.store, worker)
+        first = await directory_parent(client, session, receiving, device)
+        claimed = await session.claim()
+        assert (await client.post(f"/api/editing/tasks/{first['id']}/stop", headers=OWNER, json={})).json()["status"] == "stopping"
+        if lose_stop_ack:
+            with pytest.raises(httpx.ReadTimeout):
+                await session.execute(claimed)
+            assert session.stop.is_set()
+            await session.execute(await session.claim())
+        else:
+            await session.execute(claimed)
+        assert (await client.get(f"/api/editing/tasks/{first['id']}", headers=OWNER)).json()["status"] == "stopped"
+        assert not session.store.journal()
+        # Same WorkerSession and real ffprobe: no process restart as a workaround.
+        second = await directory_parent(client, session, receiving, device, request_id="after-stop")
+        assert second["status"] == "queued" and second["manifest_frozen"]
+        assert not session.stop.is_set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("global_stop", ["shutdown", "revocation"])
+async def test_stop_ack_cleanup_preserves_shutdown_and_authorization_loss(preparation, global_stop):
+    import json
+
+    client, original, receiving, device = preparation
+
+    class InterruptedAckTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            stopping = request.url.path.endswith("/report") and json.loads(request.content)["kind"] == "stopped"
+            if stopping and global_stop == "revocation":
+                assert (await client.post(f"/api/editing/devices/{device}/revoke", headers=OWNER, json={})).status_code == 200
+            response = await original.http._transport.handle_async_request(request)
+            if stopping and global_stop == "shutdown":
+                session.shutdown.set()  # Local process signal arrives while its ACK is in flight.
+            return response
+
+    async with httpx.AsyncClient(transport=InterruptedAckTransport(), base_url="https://test", headers=original.http.headers) as worker:
+        session = WorkerSession(original.store, worker)
+        first = await directory_parent(client, session, receiving, device)
+        claimed = await session.claim()
+        await client.post(f"/api/editing/tasks/{first['id']}/stop", headers=OWNER, json={})
+        if global_stop == "revocation":
+            with pytest.raises(httpx.HTTPStatusError) as denied:
+                await session.execute(claimed)
+            assert denied.value.response.status_code == 403
+            assert session.authorization_lost
+        else:
+            await session.execute(claimed)
+            assert not session.store.journal()
+        assert session.shutdown.is_set() and session.stop.is_set()
+        await session.execute({**claimed, "status": "stopped"})
+        assert session.shutdown.is_set() and session.stop.is_set()
+
+
+@pytest.mark.asyncio
+async def test_removing_invalid_discovered_file_preserves_exact_directory_subset(preparation):
+    client, session, receiving, device = preparation
+    shutil.copyfile(ASSETS / "synthetic-drama/episode-01.mp4", receiving / "episode-01.mp4")
+    (receiving / "episode-02.mp4").write_bytes(b"invalid synthetic video")
+    task = await create(
+        client, device, [], request_id="directory-remove", source_manifest=None, source_directory={"grant_id": "incoming", "relative_path": "."}
+    )
+    await session.prepare()
+    before = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+    assert before["native_preparation_error"] == "native_process_failed"
+    selected_files = [source for source in clone_files(before) if source["episode"] == 1]
+    updated = await client.post(
+        f"/api/editing/tasks/{task['id']}/prepare",
+        headers=OWNER,
+        json={
+            "device_id": device,
+            "source_manifest": {**before["source_manifest"], "version": 2, "files": selected_files},
+        },
+    )
+    assert updated.status_code == 200
+    await session.prepare()
+    current = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+    assert current["status"] == "queued" and current["manifest_frozen"]
+    assert current["source_directory"] == before["source_directory"]
+    assert [source["episode"] for source in current["source_manifest"]["files"]] == [1]
+    assert current["source_manifest"]["files"][0]["sha256"] == digest(receiving / "episode-01.mp4")
+    assert (receiving / "episode-02.mp4").read_bytes() == b"invalid synthetic video"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changed", ["added", "media_id", "name", "episode", "relative_path", "size_bytes", "grant", "device", "device_only", "device_rediscover"]
+)
+async def test_directory_provenance_never_authorizes_added_or_retargeted_sources(preparation, changed):
+    client, session, receiving, device = preparation
+    shutil.copyfile(ASSETS / "synthetic-drama/episode-01.mp4", receiving / "episode-01.mp4")
+    (receiving / "episode-02.mp4").write_bytes(b"invalid synthetic video")
+    task = await create(
+        client, device, [], request_id="directory-retarget", source_manifest=None, source_directory={"grant_id": "incoming", "relative_path": "."}
+    )
+    await session.prepare()
+    before = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+    files = [source for source in clone_files(before) if source["episode"] == 1]
+    manifest = {**before["source_manifest"], "version": 2, "files": files}
+    if changed == "added":
+        shutil.copyfile(receiving / "episode-01.mp4", receiving / "added.mp4")
+        files.append(selected(media_id="new-source", relative_path="added.mp4", episode=3))
+    elif changed in ("media_id", "name", "relative_path"):
+        files[0][changed] = "retargeted.mp4"
+        if changed == "relative_path":
+            shutil.copyfile(receiving / "episode-01.mp4", receiving / "retargeted.mp4")
+    elif changed == "episode":
+        files[0]["episode"] = 3
+    elif changed == "size_bytes":
+        files[0]["size_bytes"] += 1
+    elif changed == "grant":
+        manifest["grant_id"] = "other"
+        session.store.grant("other", receiving)
+        await session.request("POST", "/heartbeat", json={"platform": "darwin-arm64", "ready": True, "grants": ["incoming", "other"], "worker_version": "test"})
+    target_device = device
+    if changed in ("device", "device_only", "device_rediscover"):
+        target_device = (await client.post("/api/editing/devices", headers=OWNER, json={"name": "Different Mac"})).json()["device"]["id"]
+    payload = {"device_id": target_device}
+    if changed == "device_rediscover":
+        payload["source_directory"] = before["source_directory"]
+    elif changed != "device_only":
+        payload["source_manifest"] = manifest
+    response = await client.post(f"/api/editing/tasks/{task['id']}/prepare", headers=OWNER, json=payload)
+    assert response.status_code == 200
+    if changed == "device_rediscover":
+        assert response.json()["source_directory"] == before["source_directory"]
+        assert response.json()["source_manifest"] is None
+    else:
+        assert response.json()["source_directory"] is None
+    if target_device == device:
+        await session.prepare()
+        current = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+        assert current["status"] == "waiting" and not current["manifest_frozen"]
+        assert current["native_preparation_error"] == "source_receipt_missing"
+
+
+@pytest.mark.asyncio
 async def test_explicit_version_reuses_only_exact_frozen_parent_identity(preparation):
     client, session, receiving, device = preparation
     parent = await directory_parent(client, session, receiving, device)

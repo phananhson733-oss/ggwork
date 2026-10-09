@@ -20,6 +20,10 @@ within a clip. Oversized dialogue selections are refused before cloud planning;
 create a new task with fewer episodes instead of silently dropping selected sources.
 The [fixed quality cases](docs/editing/quality-cases.md) distinguish these checks
 from narrative judgment and record the limitations of earlier real outputs.
+The [review repair record](docs/editing/review-repairs.md) covers sequential stop
+recovery, reduced directory selections, unconfirmed-plan retries and multiline
+Skill aliases. Existing native installations require the paired-wheel upgrade
+procedure in the [native guide](customizations/ggwork-edit/ggwork_edit/worker/README.md).
 
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](./backend/pyproject.toml)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](./Makefile)

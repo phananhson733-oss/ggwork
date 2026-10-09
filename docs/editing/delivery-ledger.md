@@ -20,6 +20,10 @@ are separate evidence layers. Open gates below are not passes.
 
 Implementation and both final review axes are complete. Tickets close through the
 single business PR after its combined integration checks and merge.
+The subsequent user review at `d88364c2` identified four additional reachable
+recovery/alias bugs. Their explicit red/green repair evidence is recorded in
+[review-repairs.md](review-repairs.md); final repair review and the new native
+development bundle are tracked below.
 Issue closure is not a production deployment claim.
 
 | Task | Implementation and evidence | Remaining acceptance boundary |
