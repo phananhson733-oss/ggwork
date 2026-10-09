@@ -325,3 +325,8 @@ an explicitly selected output. Background rechecks must preserve mounted playbac
 until access actually fails; device/account changes invalidate authorization.
 New versions default to the exact frozen source selection, reset verification for
 the new request, and only rescan a directory after the user chooses that mode.
+
+New upload selections use the media UUID plus a validated native media suffix for
+the receiving filename; the original filename remains display metadata. Generate
+that path only at selection time. Uncertain request replay and cloned frozen
+manifests must retain their existing paths and identities.

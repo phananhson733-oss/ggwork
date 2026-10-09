@@ -1,5 +1,7 @@
 const labels: Record<string, string> = {
   profile_unavailable: "此剪辑模式尚未就绪，请联系管理员检查能力配置",
+  source_receipt_missing:
+    "这些素材尚未完成接收，请继续上传或重新提交未完成的文件",
   source_changed: "素材已变化，请重新检查素材后继续",
   directory_missing: "Mac 未找到素材目录，请检查目录位置与授权",
   symlink_denied: "素材链接超出授权范围，请选择授权目录内的原文件",
