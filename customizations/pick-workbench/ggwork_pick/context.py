@@ -72,6 +72,8 @@ class PickTask:
     lark_calls: int = 0
     # Set once a read-only plugin brought outside content into this run; see PickToolGate.
     plugin_read: bool = False
+    # Call id -> whether it failed, for each registered editing tool PickToolGate ran; see _editing_reply.
+    editing_calls: dict[str, bool] = field(default_factory=dict)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     budget: float = field(default_factory=run_seconds)
     publication: PickPublication | None = None

@@ -1,6 +1,7 @@
 """Thin conversation adapters over the same owner-scoped editing operations."""
 
 import json
+import re
 from typing import Literal
 
 from deerflow.tools.types import Runtime
@@ -50,6 +51,81 @@ def task_receipt(task):
 
 def result(task):
     return json.dumps({"task": task_receipt(task)}, ensure_ascii=False, allow_nan=False)
+
+
+EDITING_PAGE = "/workspace/editing"
+# The same wording as the editing page (frontend core/editing/presentation.ts).
+STATUS_TEXT = {
+    "waiting": "待准备",
+    "queued": "等待 Mac 开始处理",
+    "running": "处理中",
+    "awaiting_plan": "等待你确认方案",
+    "stopping": "已请求停止，等待设备确认",
+    "completed": "已完成",
+    "partial": "部分完成",
+    "failed": "失败",
+    "stopped": "已停止",
+}
+STAGE_TEXT = {"transcribing": "转录素材", "planning": "生成方案", "rendering": "渲染视频", "verifying": "检查成片"}
+PREPARATION_TEXT = {
+    "device_required": "请连接并选择 Mac",
+    "sources_required": "请提供素材",
+    "sources_unverified": "等待全部素材本地校验",
+    "directory_not_authorized": "请在 Mac 授权该素材目录",
+}
+
+
+def _task_line(receipt):
+    status = receipt.get("status")
+    text = STATUS_TEXT.get(status) if isinstance(status, str) else None
+    if text is None:
+        line = "剪辑任务状态已更新"
+    else:
+        stage = receipt.get("stage")
+        if status == "running" and isinstance(stage, str) and stage in STAGE_TEXT:
+            text += f"（{STAGE_TEXT[stage]}）"
+        line = f"剪辑任务当前状态：{text}"
+    done, wanted = receipt.get("completed_count"), receipt.get("requested_count")
+    if type(done) is int and type(wanted) is int and 0 <= done <= wanted and wanted > 0:
+        line += f"，成片 {done}/{wanted} 条"
+    reasons = receipt.get("preparation_reasons")
+    needed = [PREPARATION_TEXT[reason] for reason in reasons if isinstance(reason, str) and reason in PREPARATION_TEXT] if isinstance(reasons, list) else []
+    if needed:
+        line += "（" + "；".join(needed) + "）"
+    return f"{line}。[打开剪辑任务]({EDITING_PAGE}/{receipt['id']})"
+
+
+def receipt_reply(results):
+    """Fixed owner-facing text for one run's editing tool results: (content, failed) pairs in call order.
+
+    Only server-set identifiers, states and counts are rendered. Titles, instructions and error text are
+    written by the model or the worker, so this text never repeats them. Returns (text, complete), or
+    None when the results name no task, history page or refusal.
+    """
+    tasks, history, failed = {}, None, False
+    for content, error in results:
+        failed = bool(error)
+        if failed:
+            continue
+        try:
+            body = json.loads(content) if isinstance(content, str) else None
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            continue
+        receipt = body.get("task")
+        if isinstance(receipt, dict) and isinstance(receipt.get("id"), str) and re.fullmatch(r"[0-9a-f]{32}", receipt["id"]):
+            # The latest receipt of a task replaces its earlier ones and moves it last.
+            tasks.pop(receipt["id"], None)
+            tasks[receipt["id"]] = receipt
+        elif "device_id" not in body and isinstance(body.get("items"), list) and type(body.get("total")) is int and body["total"] >= 0:
+            history = body["total"]
+    lines = [_task_line(receipt) for receipt in list(tasks.values())[-5:]]
+    if not lines and history is not None:
+        lines.append(f"剪辑历史共 {history} 个任务。[打开剪辑页面]({EDITING_PAGE})")
+    if failed:
+        lines.append(f"最近一次剪辑操作未完成。请在[剪辑页面]({EDITING_PAGE})查看任务、设备与能力的当前状态后重试。")
+    return ("\n".join(lines), not failed) if lines else None
 
 
 def page(items, limit, offset):

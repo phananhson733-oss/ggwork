@@ -225,3 +225,45 @@ No frontend code, production deployment or paid provider call occurred in this
 repair cycle. Prior native/browser/quality evidence and the total of eight
 successful provider calls remain historical facts. The separate existing feedback
 CI race and earlier broad-suite limits were not modified or relabeled as passing.
+
+## Business-main refresh at 1dfa43eb and checked editing replies
+
+Business main `954d0eb4` (completion query contract, plan drafts, publication gate,
+plural chat references) and its release note `1dfa43eb` were merged at `929b1ebf`
+and `04f75363`. Eight files conflicted; the merge commit records each resolution.
+Rows above that name `3abc86b4` as the latest business main, and their test counts,
+describe the source before this refresh.
+
+The refresh exposed one integration fault that neither side's tests covered. Under
+the host publication gate the pick checker confirms catalog facts only, so the
+final reply of an editing turn was replaced by the fixed unconfirmed notice with
+status `incomplete`. The model gate now publishes fixed text built from the
+editing results of the current run; the rule and its limits are in the
+[completion checker notes](../pick-workbench/answer-checking.md#editing-tool-receipts).
+A first version required the host receipt for a failed call as well. The
+scripted-model run through the real worker showed that receipt arrives only when
+the run ends, so a failed call is now taken from the tool gate's own record.
+
+| Check on the fix | Result |
+| --- | --- |
+| Editing extension | **333 passed, zero skips**: the earlier 319 plus seven gate tests on SQLite and disposable PostgreSQL 17, with native assets |
+| Real worker, graph, error middleware and journal with a scripted model | **2 passed** (`backend/tests/test_editing_checked_reply.py`), run with the pick entrypoint, publication, distribution, acceptance CLI and guidance tests: **177 passed** |
+| Pick workbench suite, SQLite and PostgreSQL | **5454 passed, 25 skipped** |
+| Blocking-I/O | **149 passed** |
+| Ruff lint / format, both extensions and the new host test | passed |
+| Guidance budgets against business main | **0 errors, 13 warnings** |
+| Managed snapshots and the reinstalled host environment | byte-identical to canonical source |
+
+Frontend check, production build and unit tests (**3139 passed, 52 skipped**) ran on
+the merge commit; the fix changes no frontend file. No provider model, browser or
+native Mac round was run for the refresh or the fix, so the fixed reply text has
+not been seen in a real conversation. Replies with no editing result, such as a
+question asked in prose or a turn where editing is not admitted, are still
+withheld by the checker.
+
+`ggwork_edit/tools.py` changed, so a wheel built from this revision differs from
+the `27bae0d9` development bundle, and main added a module to the extension API
+package. The native worker does not use either change; the bundle above was not
+rebuilt. Remote CI on `04f75363` failed only on the feedback SQLite lock test
+(**1 failed, 5449 passed, 29 skipped**), its third consecutive failure on this
+branch; it is unchanged here and tracked separately.

@@ -254,8 +254,18 @@ async def _checked_response(response, task, request, handler):
                 response = await handler(correction)
             checked = check(response, 1)
         task.remaining()
-        metadata = PickCompletionMetadata(checked.status, checked.checker_version, checked.checked_at, checked.correction_count)
-        message = gate.approve(checked.content, metadata)
+        content, status = checked.content, checked.status
+        editing = _editing_reply(task, request.messages)
+        if editing is not None:
+            # With no confirmed fact the receipt text is the whole answer; otherwise it joins the checked
+            # facts, whose status and unconfirmed notice stand.
+            text, complete = editing
+            if status != "incomplete":
+                content = text + "\n" + content
+            else:
+                content, status = text, "confirmed" if complete else "incomplete"
+        metadata = PickCompletionMetadata(status, checked.checker_version, checked.checked_at, checked.correction_count)
+        message = gate.approve(content, metadata)
     except Exception:
         logger.exception("[pick] final publication failed closed")
         message = gate.incomplete()
@@ -340,6 +350,11 @@ class PickToolGate(AgentMiddleware):
         plugin = not lark and name not in ALLOWED_TOOLS and is_plugin_tool(tool)
         if name not in ALLOWED_TOOLS and not plugin and not lark and not editing:
             raise ValueError("本工作台不允许该工具")
+        call_id = request.tool_call.get("id")
+        if editing and isinstance(call_id, str):
+            # Failed until the registered tool returns a result: the host records a failed call's receipt
+            # only when the run ends, too late for the final check.
+            task.editing_calls[call_id] = True
         loop = asyncio.get_running_loop()
         token = None
         try:
@@ -390,11 +405,12 @@ class PickToolGate(AgentMiddleware):
                     task.ordinary_remaining()
                     if loop.time() >= deadline:
                         raise TimeoutError
+                    if editing and isinstance(call_id, str) and not (isinstance(result, ToolMessage) and result.status == "error"):
+                        task.editing_calls[call_id] = False
                     return result
         except (TimeoutError, asyncio.CancelledError):
             # Lock-wait and synchronous encoding failures can bypass the tool's
             # own failure capture. They must not leave an older read "current".
-            call_id = request.tool_call.get("id")
             if name in {"pick_query_candidates", "pick_count_candidates", "pick_query_data"} and isinstance(call_id, str):
                 last = task.answer_evidence.reads[-1] if task.answer_evidence.reads else None
                 if last is None or (last.tool, last.call_id, last.status) != (name, call_id, "unavailable"):
@@ -413,6 +429,28 @@ def is_editing_tool(tool):
             return False
         raise
     return registered(tool)
+
+
+def _editing_reply(task, messages):
+    """Fixed text for the editing tools this run really called, or None.
+
+    The checker confirms catalog facts only, so prose about an editing task would always be withheld.
+    Only calls PickToolGate ran as a registered editing tool count, so a same-named plugin does not.
+    A returned result must still match the host's receipt; a failed call is known from the gate itself.
+    """
+    if not task.editing_calls:
+        return None
+    from ggwork_edit.tools import receipt_reply
+
+    gate = task.publication
+    results = []
+    for message in messages:
+        failed = task.editing_calls.get(message.tool_call_id) if isinstance(message, ToolMessage) else None
+        if failed:
+            results.append((None, True))
+        elif failed is False and message.status != "error" and gate.has_tool_result(message.name, message.tool_call_id, message.content):
+            results.append((message.content, False))
+    return receipt_reply(results)
 
 
 async def _editing_offer(request):
