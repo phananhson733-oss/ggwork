@@ -901,3 +901,9 @@ attempts without full semantic acceptance; no additional model runs are authoriz
 The repairedcd6 package has local/offline validation, not a new real-model pass.
 T12 native VoiceOver remains unverified. Do not infer complete acceptance, deployment,
 automatic publication or external plan-ID propagation from these local checks.
+
+## 2026-10-08 一期追加验收完成（本地集成）
+
+用户确认的7个追加案例共20项检查已全部满足，实际21次模型调用、164246个已知tokens；六个事实答复经过一次纠正后确认，同名合并案例正确等待澄清。原40次失败记录未改写，累计47/47额度耗尽。D901版本展示缺口以仅前端f2df7b32修复，并在同一完成线程实测通过，没有增加模型运行。原生VoiceOver由用户明确移到后续，仍未验证。
+
+本地集成代码、cd6实际安装、真实Gateway浏览器与独立Standards/Spec审查完成；所有26个实现临时工作树已清理，仅保留集成目录及可恢复证据。线上未部署。详见[追加验收与交接](releases/2026-10-08-completion-followup.md)。

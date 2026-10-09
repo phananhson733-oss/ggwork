@@ -184,3 +184,7 @@ SQL or data-cleanup operation was performed for this repair.
 The protected artifact tables still have no public/browser/reader grants.
 Managed tests were refreshed through the official manager after the source-test
 repair; runtime package bytes and the installed-browser digest did not change.
+
+## Subsequent accepted follow-up
+
+The later user-authorized seven-case real-model verification and frontend-only version disclosure are recorded in [completion follow-up](2026-10-08-completion-followup.md). Those selected cases satisfy20/20 criteria; the original40 records remain unchanged. NativeVoiceOver is user-deferred, not passed. Backend artifact cd6 is unchanged; model runs used3e4540e and later rendered display usedf2df7b32. Worktree cleanup preserves archived artifacts and the self-contained integration environment. Earlier pending statements above describe their historical checkpoint, not an additional unconsumed model allowance.
