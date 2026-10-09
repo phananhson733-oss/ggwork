@@ -1,8 +1,10 @@
 """Full query fixtures remain separate from minimal observer permission fixtures."""
 
 import asyncio
+import os
 
 import pytest
+from sqlalchemy.engine import make_url
 
 
 @pytest.mark.asyncio
@@ -15,6 +17,12 @@ async def test_full_pair_fixture_matches_common_query(pg_db_url, tmp_path):
 
     engine, service, shared, importer = await open_query_service(pg_db_url, tmp_path)
     try:
+        reader_url = make_url(service.query_reader._dsn)
+        assert reader_url.username == os.environ["PICK_MIRROR_READER_ROLE"]
+        assert reader_url.password, "Local trust authentication must not hide a missing CI reader password"
+        assert await fetch(engine, "SELECT rolpassword LIKE 'SCRAM-SHA-256$%' AS scram FROM pg_authid WHERE rolname = :role", role=reader_url.username) == [
+            {"scram": True}
+        ]
         version_id, _ = await publish_pair(engine, shared, importer, "fixture")
         schema = f"pickm_v{version_id:06d}"
         physical = await fetch(engine, f"SELECT row_key FROM {schema}.catalog_rows ORDER BY row_key")

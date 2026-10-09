@@ -106,8 +106,8 @@ jobs:
   pick-workbench-tests:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # The trends radar's PostgreSQL night simulations took the suite from about 5 to about 16 minutes on a runner.
-    timeout-minutes: 30
+    # The full PostgreSQL suite took 26 minutes before frontend-backed Gateway journeys were wired in.
+    timeout-minutes: 40
 
     services:
       postgres:
@@ -141,6 +141,21 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: uv sync --group dev --extra postgres
+
+      - name: Setup Node.js for Gateway frontend integration tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Use pinned pnpm version
+        run: corepack prepare pnpm@10.26.2 --activate
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
 
       - name: Lint pick workbench
         run: |

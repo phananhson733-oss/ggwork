@@ -6,6 +6,7 @@ with source_id equal to their mirror row key; the migrated reader uses its own r
 
 import json
 import os
+import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -62,14 +63,22 @@ async def open_query_service(url: str, tmp_path):
     service = PickService(tmp_path / "files")
     await service.initialize(async_sessionmaker(engine, expire_on_commit=False))
     if engine.dialect.name == "postgresql":
+        import psycopg
+        from psycopg import sql
+
         from ggwork_pick.query_reader import QueryReader
 
         role = os.environ["PICK_MIRROR_READER_ROLE"]
+        password = secrets.token_urlsafe(24)
+        # CI uses SCRAM; local trust must not conceal an unusable LOGIN fixture.
+        admin_dsn = engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
+        with psycopg.connect(admin_dsn, autocommit=True) as admin:
+            verifier = admin.pgconn.encrypt_password(password.encode(), role.encode(), b"scram-sha-256").decode()
+            admin.execute(sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(role), sql.Literal(verifier)))
         async with engine.begin() as conn:
-            await conn.execute(text(f'ALTER ROLE "{role}" LOGIN'))
             await conn.execute(text(f'GRANT USAGE ON SCHEMA pick_mirror TO "{role}"'))
             await conn.execute(text(f'GRANT SELECT ON pick_mirror.versions TO "{role}"'))
-        dsn = engine.url.set(drivername="postgresql", username=role, password=None).render_as_string(hide_password=False)
+        dsn = engine.url.set(drivername="postgresql", username=role, password=password).render_as_string(hide_password=False)
         service.query_reader = QueryReader(dsn, ssl=False)
     shared = PickRepository.shared(service.session_factory)
     return engine, service, shared, Importer(shared, service.data_dir)
