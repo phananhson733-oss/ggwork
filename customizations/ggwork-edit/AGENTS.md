@@ -6,6 +6,7 @@
 - Browser routes reject device subjects. Worker routes require the host's exact bearer-router admission plus matching owner/device subject; credentials are digest-only and rechecked after revocation.
 - Every owner mutation uses database serialization (SQLite writer transaction or PostgreSQL transaction advisory lock), including idempotency receipts. Keep stop, publication and retry within that transaction.
 - Source paths are native grant-relative data. Gateway never reads them. Only authenticated devices verify exact selected manifests; source sets freeze on admission.
+- Waiting directory selections retain native provenance only for exact identity subsets on the same device/grant. Added/retargeted sources require discovery or upload receipts. Output-only retry requires a confirmed reusable plan; otherwise expose planning-stage recovery.
 - Delivered result metadata is immutable. A stop fence blocks publication until a real stopped acknowledgment. Offline/expired lease alone never asserts process termination.
 - Native code may import lightweight contracts. Keep host imports inside extension install; native workers never receive host/model credentials.
 - Tests use real routes/services and disposable databases. Synthetic result reports prove protocol behavior, not decoding or native process exit. Real media/native acceptance remains a separate gate.

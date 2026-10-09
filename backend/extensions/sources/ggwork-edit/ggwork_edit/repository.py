@@ -312,8 +312,24 @@ class EditingRepository:
                 # Verification is bound to the original Mac; a new Mac must verify again.
                 for source in task["source_manifest"]["files"]:
                     source.update(state="selected", sha256=None, duration_seconds=None)
+                task["source_directory"] = None
             if manifest:
-                task.update(source_manifest=manifest, source_directory=None)
+                directory = task.get("source_directory")
+                previous = task["source_manifest"]
+                retain_directory = bool(
+                    directory and previous and task["device_id"] == payload.device_id and manifest["grant_id"] == previous["grant_id"] == directory["grant_id"]
+                )
+                if retain_directory:
+                    # Only the native discovery endpoint can have established both
+                    # directory provenance and this selected set. Browser revisions
+                    # may retain exact members, never add or retarget an identity.
+                    originals = {source["media_id"]: source for source in previous["files"]}
+                    keys = ("media_id", "name", "episode", "relative_path", "size_bytes")
+                    retain_directory = all(
+                        source["media_id"] in originals and all(source[key] == originals[source["media_id"]][key] for key in keys)
+                        for source in manifest["files"]
+                    )
+                task.update(source_manifest=manifest, source_directory=directory if retain_directory else None)
             elif payload.source_directory:
                 directory = payload.source_directory.model_dump(mode="json")
                 if directory != task.get("source_directory"):
@@ -553,6 +569,8 @@ class EditingRepository:
                 ids = [o["id"] for o in task["outputs"]]
                 task.update(plan=None, plan_confirmed=False)
                 task.pop("plan_attempt_id", None)
+            elif not task.get("plan") or not task.get("plan_confirmed") or not task.get("plan_attempt_id"):
+                raise ConflictError("Output retry requires a confirmed reusable plan; retry with stage=planning")
             if not ids or len(set(ids)) != len(ids):
                 raise ConflictError("Explicit failed output scope required")
             outputs = {o["id"]: o for o in task["outputs"]}

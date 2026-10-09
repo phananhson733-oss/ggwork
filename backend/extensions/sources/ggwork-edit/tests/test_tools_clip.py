@@ -83,7 +83,16 @@ async def test_named_skills_require_owner_enabled_and_role_admission(skill_confi
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("command", ["/clip-hook make a cut", "$ggwork-edit/clip-hook make a cut"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/clip-hook make a cut",
+        "$ggwork-edit/clip-hook make a cut",
+        "$ggwork-edit/clip-hook\nmake a cut",
+        "$ggwork-edit/clip-hook\tmake a cut",
+        "$ggwork-edit/clip-hook",
+    ],
+)
 async def test_pick_model_gate_admits_registered_tools_without_catalog(api, skill_config, tmp_path, command):
     from ggwork_pick.context import PickLifecycle
     from ggwork_pick.middleware import PickModelGate, PickToolGate
@@ -125,6 +134,37 @@ async def test_pick_model_gate_admits_registered_tools_without_catalog(api, skil
         storage.set_skill_enabled_state(name, False)
     adjusted = await PickModelGate().awrap_model_call(request, capture)
     assert adjusted.tools == [get_tool]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["clip-hook", "clip-highlight"])
+@pytest.mark.parametrize("suffix", ["", " make a cut", "\nmake a cut", "\tmake a cut", "\u00a0make a cut"])
+async def test_registered_plugin_alias_uses_the_shared_slash_whitespace_contract(skill_config, name, suffix):
+    from ggwork_edit.capability import resolve_command
+
+    context = {"user_id": "alice", "user_role": "user"}
+    slash = await resolve_command("/" + name + suffix, context)
+    alias = await resolve_command("$ggwork-edit/" + name + suffix, context)
+    assert slash is not None and alias is not None
+    assert alias.skill.name == slash.skill.name == name
+    assert alias.remaining_text == slash.remaining_text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command",
+    [
+        "$other/clip-hook\ncut",
+        "$ggwork-edit/clip-hook/path\ncut",
+        "$ggwork-edit/clip-hook-extra\tcut",
+        " $ggwork-edit/clip-hook\ncut",
+        "$ggwork-edit/../clip-hook\ncut",
+    ],
+)
+async def test_unregistered_or_path_like_plugin_tokens_never_activate_a_skill(skill_config, command):
+    from ggwork_edit.capability import resolve_command
+
+    assert await resolve_command(command, {"user_id": "alice", "user_role": "user"}) is None
 
 
 @pytest.mark.asyncio
@@ -260,3 +300,67 @@ async def test_receipt_bounds_worker_diagnostics_and_plan_pages_preserve_all_cut
     assert [output["id"] for output in receipt["outputs"]] == ["out-1", "out-2", "out-3"]
     full = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
     assert full["outputs"][0]["error"] == "\x01" * 2000
+
+
+@pytest.mark.asyncio
+async def test_stopped_unconfirmed_plan_requires_planning_retry_through_api_and_tool(api, skill_config):
+    from test_contract import OWNER, REQUEST, ready_task
+    from test_planner import Model, valid_plan
+
+    from ggwork_edit.context import EditingLifecycle
+    from ggwork_edit.planner import TextPlanner
+    from ggwork_edit.planner_routes import build_planner_router
+    from ggwork_edit.repository import ConflictError
+    from ggwork_edit.tools import retry_tool
+
+    request = {**REQUEST, "requirements": {**REQUEST["requirements"], "review_plan": True}}
+    client, task, device, worker, attempt = await ready_task(api, request=request, store_plan=False)
+    api[2].include_router(build_planner_router(api[1], TextPlanner(Model(valid_plan()))))
+    path = f"/api/editing/tasks/{task['id']}"
+    base = f"/api/editing/worker/devices/{device}"
+    transcripts = [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Complete synthetic dialogue."}]}]
+    planned = await client.post(
+        base + f"/tasks/{task['id']}/plan", headers=worker, json={"attempt_id": attempt["id"], "fence": attempt["fence"], "transcripts": transcripts}
+    )
+    assert planned.json()["status"] == "awaiting_plan"
+    await client.post(path + "/stop", headers=OWNER, json={})
+    stopped = await client.post(
+        base + f"/tasks/{task['id']}/report",
+        headers=worker,
+        json={"attempt_id": attempt["id"], "fence": attempt["fence"], "event_id": "stopped-1", "kind": "stopped"},
+    )
+    assert stopped.json()["task"]["status"] == "stopped"
+    rejected = await client.post(path + "/retry", headers=OWNER, json={"request_id": "bad-output-retry", "output_ids": ["out-1"]})
+    assert rejected.status_code == 409
+    assert "stage=planning" in rejected.json()["detail"]
+    store = ExtensionData("retry-unconfirmed")
+    await EditingLifecycle(api[1]).on_task_start(ExtensionData("app"), store, TaskInfo("retry-unconfirmed", "r", "t", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store})
+    with pytest.raises(ConflictError, match="stage=planning"):
+        await retry_tool.coroutine(task["id"], {"request_id": "tool-bad-output-retry", "output_ids": ["out-1"]}, runtime)
+    current = (await client.get(path, headers=OWNER)).json()
+    assert current["status"] == "stopped" and current["attempt"]["id"] == attempt["id"]
+    recovered = json.loads(await retry_tool.coroutine(task["id"], {"request_id": "explicit-planning", "stage": "planning"}, runtime))["task"]
+    assert recovered["status"] == "queued"
+    claim = (await client.post(base + "/claim", headers=worker, json={"request_id": "claim-planning-retry"})).json()
+    assert claim["attempt"]["id"] != attempt["id"]
+    assert claim["task"]["plan"] is None and claim["task"]["stage"] == "planning"
+    fresh = claim["attempt"]
+    replanned = await client.post(
+        base + f"/tasks/{task['id']}/plan", headers=worker, json={"attempt_id": fresh["id"], "fence": fresh["fence"], "transcripts": transcripts}
+    )
+    assert replanned.json()["status"] == "awaiting_plan"
+    confirmed = (await client.post(path + "/confirm-plan", headers=OWNER, json={})).json()
+    assert confirmed["plan_confirmed"] and confirmed["status"] == "running"
+    await client.post(path + "/stop", headers=OWNER, json={})
+    await client.post(
+        base + f"/tasks/{task['id']}/report",
+        headers=worker,
+        json={"attempt_id": fresh["id"], "fence": fresh["fence"], "event_id": "stopped-2", "kind": "stopped"},
+    )
+    output_retry = await client.post(path + "/retry", headers=OWNER, json={"request_id": "confirmed-output-retry", "output_ids": ["out-1"]})
+    assert output_retry.status_code == 200
+    assert output_retry.json()["plan"] == confirmed["plan"]
+    retained = (await client.post(base + "/claim", headers=worker, json={"request_id": "claim-output-retry"})).json()
+    assert retained["task"]["plan_confirmed"]
+    assert retained["attempt"]["plan_attempt_id"] == fresh["id"]

@@ -99,13 +99,14 @@ owner-scoped task operations. Per-owner Skill enabled state and current role
 Skill/model authorization are checked in addition to the editing owner setting.
 `POST /api/editing/skills/{name}` with `{skill_enabled:boolean}` stores the
 owner's switch in the existing host Skill storage. Unknown aliases and paths do
-not become commands. No source-archive scripts, fonts or licensed resources are
+not become commands. Registered aliases accept the same whitespace boundary as
+slash Skills, including newline/tab or no arguments. No source-archive scripts, fonts or licensed resources are
 bundled.
 
 Conversation tools are `clip_submit`, `clip_get`, `clip_prepare`, `clip_stop`,
 `clip_retry`, `clip_confirm_plan`, and `clip_change_version`. Single-task responses
-are `{task:Task}`; `clip_get` without a task ID returns
-`{items:Task[],devices:Device[],capabilities:object}` so a waiting intent can bind
+are `{task:TaskReceipt}`; `clip_get` without a task ID returns paginated
+`{items:TaskSummary[],devices:DeviceSummary[],capabilities:object,...}` so a waiting intent can bind
 a newly paired Mac without asking the user for an opaque device identifier. The stable
 UI link is `/workspace/editing/{task_id}`. Source thread identity comes from the
 host lifecycle rather than model arguments. Changed requirements create a linked
@@ -130,6 +131,11 @@ planner validates source ranges and requested duration; publication checks the
 encoded duration against that output's planned segment sum with a one-second
 mux tolerance. Rendering retries retain the existing approved plan; transcription
 or planning retries clear it and require a new current-attempt plan.
+Stopping before plan confirmation requires `stage=planning` recovery; an
+`output_ids` retry without a confirmed reusable plan returns 409 with that action.
+The newly planned version waits for explicit confirmation again. Removing a bad
+native-discovered source retains only the exact remaining identities on the same
+Mac and grant, so successful directory files need no fabricated upload receipt.
 
 The configured planner injects a live per-owner Skill/model profile policy through
 `service.execution_profiles`. Browser and worker execution paths both enforce it,

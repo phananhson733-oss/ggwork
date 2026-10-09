@@ -1,6 +1,7 @@
 """Editing capabilities use the host's owner Skill storage and role policy."""
 
 import asyncio
+import re
 
 from deerflow.authz.principal import build_principal_from_context
 from deerflow.authz.provider import AuthzDecision, AuthzRequest
@@ -38,9 +39,9 @@ async def admitted_skills(context, *, app_config=None):
 
 async def resolve_command(text, context, *, app_config=None):
     # Only registered literal aliases normalize into the shared slash parser.
-    head, separator, rest = text.partition(" ")
-    if head in ALIASES:
-        text = "/" + ALIASES[head] + (separator + rest if separator else "")
+    head = re.match(r"\S+", text)
+    if head and head.group() in ALIASES:
+        text = "/" + ALIASES[head.group()] + text[head.end() :]
     skills = await admitted_skills(context, app_config=app_config)
     return resolve_slash_skill(text, skills, available_skills={s.name for s in skills})
 

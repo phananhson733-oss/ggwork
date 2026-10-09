@@ -7,6 +7,8 @@
   protocol. Native tests require explicitly supplied real-weight synthetic assets.
 - All subprocesses use argv, new process groups and inherited instance-lock FD.
   A stop acknowledgment follows real exit, never timeout/offline inference.
+- Clear attempt cancellation only after authoritative terminal/stop acknowledgment,
+  including lost-ACK reconciliation, while preserving shutdown/authorization loss.
 - State/journals are atomic 0600 JSON under 0700 home. Claim identity is journaled
   before network IO. Renew lease before replaying immutable event IDs on restart.
 - Planning dispatch is at most once per journaled attempt. Unknown responses use

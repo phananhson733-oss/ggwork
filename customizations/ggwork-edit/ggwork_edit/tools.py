@@ -135,7 +135,9 @@ async def prepare_tool(task_id: str, preparation: PrepareTask, runtime: Runtime)
 
 @tool("clip_retry")
 async def retry_tool(task_id: str, retry: RetryTask, runtime: Runtime) -> str:
-    """Retry failed output IDs or an early failed transcribing/planning stage with unchanged requirements. Never retry successful outputs."""
+    """Retry failed output IDs only with a confirmed reusable plan; otherwise use stage=planning (or transcribing).
+    Requirements stay unchanged. Never retry successful outputs.
+    """
     repo = task_from_runtime(runtime).repository(runtime)
     current = await repo.get_task(task_id)
     await execution(runtime, current["requirements"]["profile"])

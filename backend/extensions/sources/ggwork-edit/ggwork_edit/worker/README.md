@@ -14,6 +14,13 @@ python3 -m venv .venv
   /path/to/ggwork_edit-0.1.0-py3-none-any.whl
 ```
 
+Development builds currently share version `0.1.0`. To upgrade an existing
+environment, stop its foreground worker, verify the new bundle's SHA256SUMS, then
+use `.venv/bin/pip install --force-reinstall` with **both** local wheel paths (or
+install into a fresh environment as above). A plain same-version install can skip
+the updated code. Restart with the same state home to retain grants, receipts and
+artifact indexes; do not rerun setup or replace the existing state directory.
+
 Distribute both wheels together: the matching extension API is not assumed to be
 available from the public package registry. For development source
 installs, install `backend/packages/extension-api` and `customizations/ggwork-edit`
@@ -56,6 +63,9 @@ removing another file retains an unchanged file's receipt. An explicit version m
 reuse exact frozen source identities from its same-device parent after checking
 bytes; a parent link alone grants no new file access. Directory intents continue
 to inspect explicitly authorized existing directories.
+Removing a bad file from a native-discovered directory keeps the exact remaining
+selection on the same Mac and grant. Adding or retargeting a source does not reuse
+that provenance; choose a directory explicitly again or submit the new files.
 Interrupted transfers are restarted with a new transfer ID; partial files are not
 advertised as sources. There is no automatic deletion of user media. If a crash occurs after exclusive
 file publication but before its completed receipt is durable, that unreceipted
@@ -99,6 +109,9 @@ report remains in the local journal until reconnect. These are initial policy
 limits, not throughput claims.
 Cloud planning receives media IDs and transcription text/times; video stays local.
 A remote stop terminates the native process group and waits for exit before ACK.
+Once the stop is acknowledged (including a later authoritative read after a lost
+ACK), its attempt cancellation is cleared so this foreground worker can prepare
+the next task. Local shutdown and authorization-loss signals are never cleared.
 Ctrl-C stops local processes but preserves the active attempt for restart; it does
 not invent a server-side stop. Journals preserve uncertain claims and publication
 receipts. Each subprocess inherits the instance lock: after a hard parent crash,
