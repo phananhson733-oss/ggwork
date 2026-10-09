@@ -313,6 +313,17 @@ export function CandidateView({
       >
         数据截至：{dataAsOfLine(result.data_as_of)}
       </p>
+      <section
+        aria-label="查询时的版本快照"
+        className="text-foreground min-w-0 space-y-1 text-base [overflow-wrap:anywhere]"
+      >
+        <h3 className="font-medium">查询时的版本快照</h3>
+        <p>以下版本属于这份候选生成时的快照，不代表当前执行许可。</p>
+        <p>剧库批次：{result.catalog_batch_id}</p>
+        <p>知识批次：{result.knowledge_batch_id ?? "未使用"}</p>
+        <p>筛选规则：{result.rule_version}</p>
+        <p>排序规则：{result.ranking_version}</p>
+      </section>
       <ResultNotices notes={notes} />
       {read?.feedback && <FeedbackSummary feedback={read.feedback} />}
       {replayHref && <ReplayLink href={replayHref} />}

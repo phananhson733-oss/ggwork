@@ -171,6 +171,69 @@ function checkLinks() {
   return screen.queryAllByRole("link", { name: /在选剧资料核对/ });
 }
 
+describe("candidate snapshot versions", () => {
+  it("shows the historical result's frozen versions in read-only history", () => {
+    renderView(
+      {
+        ...result,
+        catalog_batch_id: "catalog-2026-09-21",
+        knowledge_batch_id: "knowledge-2026-09-20",
+        rule_version: "eligibility-v3",
+        ranking_version: "ranking-v2",
+      },
+      true,
+    );
+    expect(
+      screen.getByRole("region", { name: "查询时的版本快照" }),
+    ).toBeTruthy();
+    expect(screen.getByText("剧库批次：catalog-2026-09-21")).toBeTruthy();
+    expect(screen.getByText("知识批次：knowledge-2026-09-20")).toBeTruthy();
+    expect(screen.getByText("筛选规则：eligibility-v3")).toBeTruthy();
+    expect(screen.getByText("排序规则：ranking-v2")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "以下版本属于这份候选生成时的快照，不代表当前执行许可。",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("follows the displayed snapshot when switching results and preserves unused knowledge", () => {
+    const historical = { ...result, catalog_batch_id: "catalog-old" };
+    const newer = {
+      ...result,
+      id: "r2",
+      catalog_batch_id: "catalog-new",
+      knowledge_batch_id: "knowledge-new",
+      rule_version: "rules-new",
+      ranking_version: "ranking-new",
+    };
+    const view = (value: PickResult) => (
+      <CandidateView
+        result={value}
+        selected={[]}
+        onToggle={rs.fn()}
+        onSave={rs.fn()}
+        busy={false}
+      />
+    );
+    const { rerender } = render(view(newer));
+    expect(screen.getByText("剧库批次：catalog-new")).toBeTruthy();
+    expect(screen.getByText("知识批次：knowledge-new")).toBeTruthy();
+    expect(screen.getByText("筛选规则：rules-new")).toBeTruthy();
+    expect(screen.getByText("排序规则：ranking-new")).toBeTruthy();
+
+    rerender(view(historical));
+    expect(screen.getByText("剧库批次：catalog-old")).toBeTruthy();
+    expect(screen.getByText("知识批次：未使用")).toBeTruthy();
+    expect(screen.getByText("筛选规则：v1")).toBeTruthy();
+    expect(screen.getByText("排序规则：v1")).toBeTruthy();
+    expect(screen.queryByText("剧库批次：catalog-new")).toBeNull();
+    expect(screen.queryByText("知识批次：knowledge-new")).toBeNull();
+    expect(screen.queryByText("筛选规则：rules-new")).toBeNull();
+    expect(screen.queryByText("排序规则：ranking-new")).toBeNull();
+  });
+});
+
 describe("row check links (P4-1)", () => {
   it("links every decodable card to its row at the pinned version", () => {
     renderView(synced);
