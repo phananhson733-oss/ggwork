@@ -31,3 +31,8 @@ it("labels the preparation and completed stages without exposing unknown diagnos
     "状态暂不可识别，请重新检查；如仍未恢复，请联系管理员",
   );
 });
+it("explains missing native upload receipts without showing the internal code", () => {
+  expect(editingLabel("source_receipt_missing")).toBe(
+    "这些素材尚未完成接收，请继续上传或重新提交未完成的文件",
+  );
+});

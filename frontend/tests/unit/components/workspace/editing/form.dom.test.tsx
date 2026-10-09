@@ -174,7 +174,7 @@ it("creates an associated version from the frozen selection without widening it 
         {
           media_id: "selected-episode",
           name: "第三集.mp4",
-          relative_path: "第三集.mp4",
+          relative_path: "persisted-original-path.mov",
           episode: 3,
           size_bytes: 100,
           state: "verified",
@@ -240,6 +240,8 @@ it("creates an associated version from the frozen selection without widening it 
       files: [
         {
           media_id: "selected-episode",
+          name: "第三集.mp4",
+          relative_path: "persisted-original-path.mov",
           state: "selected",
           sha256: null,
           duration_seconds: null,
