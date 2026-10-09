@@ -452,27 +452,34 @@ class EditingRepository:
                     raise ConflictError("Lease expired; heartbeat before reporting")
                 if payload.kind != "failure":
                     await self.require_profile(session, task["requirements"]["profile"])
+                current_plan = bool(task.get("plan") and task.get("plan_attempt_id") and attempt.get("plan_attempt_id") == task["plan_attempt_id"])
                 if payload.kind == "stage":
                     if payload.stage is None:
                         raise ConflictError("Stage required")
-                    if payload.stage == "awaiting_plan" and task.get("plan_confirmed"):
-                        raise ConflictError("Plan already confirmed")
-                    if payload.stage == "awaiting_plan" and not task.get("plan"):
-                        raise ConflictError("No stored plan")
-                    if payload.stage in ("rendering", "verifying"):
-                        self.require_plan(task)
-                    task["stage"] = payload.stage
-                    attempt["stage"] = payload.stage
-                    task["status"] = "awaiting_plan" if payload.stage == "awaiting_plan" else "running"
+                    # A stored current/retained plan is a phase barrier. A delayed
+                    # pre-plan receipt must not erase approval or regress rendering.
+                    obsolete_stage = current_plan and payload.stage in ("transcribing", "planning", "awaiting_plan")
+                    if not obsolete_stage:
+                        if payload.stage == "awaiting_plan":
+                            raise ConflictError("No stored plan")
+                        if payload.stage in ("rendering", "verifying"):
+                            self.require_plan(task)
+                        task["stage"] = payload.stage
+                        attempt["stage"] = payload.stage
+                        task["status"] = "running"
                 elif payload.kind in ("output", "failure"):
                     if payload.output_id is None and payload.kind == "failure":
-                        for output in task["outputs"]:
-                            if output["id"] in attempt["output_ids"] and output["status"] != "completed":
-                                output.update(status="failed", error=payload.error or "stage_failed")
-                        task.update(
-                            status="partial" if any(o["status"] == "completed" for o in task["outputs"]) else "failed",
-                            result="partial" if any(o["status"] == "completed" for o in task["outputs"]) else "failed",
-                        )
+                        # A recovery GET can precede the planner's successful commit.
+                        # Judge this ambiguity under the same fence/receipt transaction.
+                        planning_won = current_plan and payload.error in ("planner_outcome_unknown", "planner_unavailable")
+                        if not planning_won:
+                            for output in task["outputs"]:
+                                if output["id"] in attempt["output_ids"] and output["status"] != "completed":
+                                    output.update(status="failed", error=payload.error or "stage_failed")
+                            task.update(
+                                status="partial" if any(o["status"] == "completed" for o in task["outputs"]) else "failed",
+                                result="partial" if any(o["status"] == "completed" for o in task["outputs"]) else "failed",
+                            )
                     else:
                         output = next((o for o in task["outputs"] if o["id"] == payload.output_id), None)
                         if output is None or output["id"] not in attempt["output_ids"]:
@@ -595,6 +602,25 @@ class EditingRepository:
     async def get_worker_task(self, device_id, task_id):
         async with self.transaction(write=False) as session:
             return await self.view(session, await self.worker_task(session, device_id, task_id))
+
+    async def fail_plan(self, device_id, task_id, attempt_id, fence):
+        """Persist safe provider failure without extending a native execution lease."""
+        async with self.transaction() as session:
+            task = await self.worker_task(session, device_id, task_id)
+            attempt = self.check_attempt(task, attempt_id, fence)
+            if task["status"] not in ("running", "awaiting_plan") or task["fence"] != fence:
+                raise ConflictError("Plan attempt is no longer active")
+            # Another request may already have committed a valid plan. Preserve it.
+            if task.get("plan") is not None:
+                return await self.view(session, task)
+            for output in task["outputs"]:
+                if output["id"] in attempt["output_ids"] and output["status"] != "completed":
+                    output.update(status="failed", error="planner_unavailable")
+            outcome = "partial" if any(o["status"] == "completed" for o in task["outputs"]) else "failed"
+            task.update(status=outcome, result=outcome, stage="planning", updated_at=stamp())
+            attempt["stage"] = "planning"
+            await self.save(session, "task", task_id, task)
+            return await self.view(session, task)
 
     async def store_plan(self, device_id, task_id, attempt_id, fence, plan):
         # Trusted planner validates its structured plan before this persistence seam.

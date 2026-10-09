@@ -446,3 +446,53 @@ async def test_self_contained_mov_matroska_webm_remain_supported(tmp_path, exten
         "outputs": [{"output_id": "out-1", "segments": [{"media_id": "media-1", "start": 0, "end": 5}]}],
     }
     assert (await worker.render(verified, requirements, plan, "container-render", "out-1"))["verified"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("submit_allowed", [False, True])
+@pytest.mark.parametrize("pending_stage", [None, "transcribing", "planning"])
+async def test_upgrade_reconciles_legacy_planning_journal_without_resubmitting(tmp_path, monkeypatch, submit_allowed, pending_stage):
+    import json
+
+    import httpx
+
+    from ggwork_edit.worker import runtime
+
+    store = configured(tmp_path)
+    manifest = await NativeWorker(store).verify_manifest(await NativeWorker(store).discover("drama", "."))
+    attempt = {"id": "legacy-planning-attempt", "fence": 1, "output_ids": ["out-1"]}
+    journal = {"task_id": "task-1", "attempt": attempt, **({"planner_submit_allowed": True} if submit_allowed else {})}
+    if pending_stage:
+        journal["pending_report"] = {"attempt_id": attempt["id"], "fence": 1, "event_id": "old-stage", "kind": "stage", "stage": pending_stage}
+    store.save_journal(journal)
+    task = {
+        "id": "task-1",
+        "status": "running",
+        "stage": "transcribing" if pending_stage == "planning" else "planning",
+        "attempt": attempt,
+        "source_manifest": manifest,
+        "requirements": {"profile": "hook", "aspect_ratio": "9:16", "language": "en", "duration_seconds": 5, "output_count": 1},
+        "plan": None,
+        "outputs": [{"id": "out-1", "status": "pending"}],
+    }
+    model_calls, failures = [], []
+
+    async def gateway(request):
+        body = json.loads(request.content) if request.content else {}
+        if request.url.path.endswith("/plan"):
+            model_calls.append(body["attempt_id"])
+            return httpx.Response(502, json={"detail": {"code": "planner_unavailable", "retry": "explicit"}})
+        if request.url.path.endswith("/report"):
+            if body["kind"] == "stage":
+                task["stage"] = body["stage"]
+            if body["kind"] == "failure":
+                failures.append(body["error"])
+                task["status"] = "failed"
+            return httpx.Response(200, json={"task": task, "stop_requested": False, "fence": 1})
+        return httpx.Response(200, json=task)
+
+    monkeypatch.setattr(runtime, "POLL_SECONDS", 0.01)
+    async with httpx.AsyncClient(base_url="https://example.test", transport=httpx.MockTransport(gateway)) as http:
+        await runtime.WorkerSession(store, http).execute(task)
+    assert model_calls == (["legacy-planning-attempt"] if submit_allowed else [])
+    assert failures == (["planner_unavailable"] if submit_allowed else ["planner_outcome_unknown"])

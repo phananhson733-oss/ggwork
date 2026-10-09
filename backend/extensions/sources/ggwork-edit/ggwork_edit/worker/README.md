@@ -48,8 +48,20 @@ uploads into that grant. Normal source grants are read-only to the worker.
 Uploads require both the page and Mac online. Files are staged, length checked,
 probed, hashed and exclusively published; existing files are never overwritten.
 Received files become verified only when the complete selected manifest is checked.
+A fresh submitted-file manifest requires a completed receipt for that exact task,
+media ID, grant, displayed name, episode, relative path and byte size; a same-name
+file already on disk is never adopted. Receipt SHA-256 is rechecked against the
+current file. Receipts are indexed per file, so changing selection version or
+removing another file retains an unchanged file's receipt. An explicit version may
+reuse exact frozen source identities from its same-device parent after checking
+bytes; a parent link alone grants no new file access. Directory intents continue
+to inspect explicitly authorized existing directories.
 Interrupted transfers are restarted with a new transfer ID; partial files are not
-advertised as sources. There is no automatic deletion of user media.
+advertised as sources. There is no automatic deletion of user media. If a crash occurs after exclusive
+file publication but before its completed receipt is durable, that unreceipted
+file stays in place and is not automatically adopted. Select the file again to
+obtain a fresh media ID and receiving filename; this is a restart, not a promise
+of resumable transfer or automatic deletion of the earlier file.
 
 Directory selection uses grant ID plus a relative directory (`.` for the grant
 root). Automatic discovery scans that directory only; filenames must unambiguously
@@ -73,6 +85,18 @@ CRF 20/veryfast, heartbeat 10 seconds, polling 2 seconds, HTTP timeout 15 second
 and 1 MiB transfer chunks are initial policy defaults, not benchmark claims.
 
 The control loop runs during ASR, cloud planning, plan review and rendering.
+Each attempt journals its planning submission before network dispatch. Provider
+failures require an explicit planning-stage retry and a newly claimed attempt;
+reconnect/restart never automatically submits that same attempt to the model again.
+An old worker journal already in planning without a submission marker is treated
+as uncertain during upgrade; a fresh explicitly retried claim records permission
+to submit its new attempt.
+After an uncertain response, the worker makes at most three task lookups (two
+seconds between lookups), with the budget preserved across restarts. An already
+stored plan or accepted stop wins. If the outcome remains unknown, it records a
+safe failure for explicit retry; if Gateway is unreachable, its idempotent failure
+report remains in the local journal until reconnect. These are initial policy
+limits, not throughput claims.
 Cloud planning receives media IDs and transcription text/times; video stays local.
 A remote stop terminates the native process group and waits for exit before ACK.
 Ctrl-C stops local processes but preserves the active attempt for restart; it does

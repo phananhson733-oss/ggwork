@@ -9,7 +9,13 @@ dependencies = ["deerflow-extension-api==0.2.1", "pydantic>=2,<3", "httpx>=0.28,
 ggwork-edit-worker = "ggwork_edit.worker.cli:main"
 
 [project.optional-dependencies]
-gateway = ["fastapi>=0.115,<1", "sqlalchemy[asyncio]>=2.0,<2.1", "alembic>=1.14,<2"]
+gateway = [
+    "fastapi>=0.115,<1",
+    "sqlalchemy[asyncio]>=2.0,<2.1",
+    "alembic>=1.14,<2",
+    "langchain>=1.3,<2",
+    "langchain-core>=1.4,<2",
+]
 
 [project.entry-points."deerflow.extensions"]
 ggwork-edit = "ggwork_edit:install"

@@ -65,6 +65,10 @@ def confined(root, relative):
     return path
 
 
+def selected_identity(grant_id, source):
+    return {"grant_id": grant_id, **{key: source[key] for key in ("media_id", "name", "episode", "relative_path", "size_bytes")}}
+
+
 class WorkerStore:
     def __init__(self, home):
         self.home = no_symlink(home)
@@ -72,6 +76,7 @@ class WorkerStore:
         os.chmod(self.home, 0o700)
         self.lock_fd = None
         self._read_proofs = {}
+        self.receipt_revisions = {}
 
     def config(self):
         path = no_symlink(self.home / "config.json")
@@ -141,6 +146,32 @@ class WorkerStore:
         path = confined(no_symlink(self.config()["output_root"]), identifier(attempt_id))
         path.mkdir(mode=0o700, exist_ok=True)
         return path
+
+    def receipt_path(self, task_id, grant_id, source):
+        identity = {"task_id": task_id, **selected_identity(grant_id, source)}
+        key = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        return no_symlink(self.home / "source-receipts" / (key + ".json")), identity
+
+    def record_received(self, task_id, grant_id, source, sha256):
+        path, identity = self.receipt_path(task_id, grant_id, source)
+        path.parent.mkdir(mode=0o700, exist_ok=True)
+        value = {"identity": identity, "sha256": sha256}
+        if path.exists():
+            if json.loads(path.read_text(encoding="utf-8")) != value:
+                raise WorkerError("source_changed")
+            return
+        private_json(path, value)
+        self.receipt_revisions[task_id] = self.receipt_revisions.get(task_id, 0) + 1
+
+    def received_sha256(self, task_id, grant_id, source):
+        path, identity = self.receipt_path(task_id, grant_id, source)
+        if not path.exists():
+            raise WorkerError("source_receipt_missing")
+        value = json.loads(path.read_text(encoding="utf-8"))
+        sha = value.get("sha256")
+        if value.get("identity") != identity or not isinstance(sha, str) or not re.fullmatch(r"[a-f0-9]{64}", sha):
+            raise WorkerError("source_changed")
+        return sha
 
     def journal(self):
         path = no_symlink(self.home / "journal.json")

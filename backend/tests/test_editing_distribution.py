@@ -2,7 +2,10 @@
 
 import hashlib
 import subprocess
+import tomllib
 from pathlib import Path
+
+from packaging.requirements import Requirement
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,3 +26,11 @@ def test_pick_image_includes_all_admitted_editing_skills():
     dockerfile = (ROOT / "docker/Dockerfile.pick-gateway").read_text(encoding="utf-8")
     for name in ("pick-drama", "clip-highlight", "clip-hook"):
         assert f"COPY skills/public/{name} ./skills/public/{name}" in dockerfile
+
+
+def test_gateway_extra_declares_framework_dependencies_while_native_stays_light():
+    project = tomllib.loads((ROOT / "customizations/ggwork-edit/pyproject.toml").read_text(encoding="utf-8"))["project"]
+    native = {Requirement(value).name for value in project["dependencies"]}
+    gateway = {Requirement(value).name for value in project["optional-dependencies"]["gateway"]}
+    assert native == {"deerflow-extension-api", "httpx", "pydantic"}
+    assert {"fastapi", "sqlalchemy", "alembic", "langchain", "langchain-core"} <= gateway

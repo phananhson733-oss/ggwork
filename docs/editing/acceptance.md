@@ -27,7 +27,9 @@ compares every tracked customization file to its managed copy and checks the
 three Skill copies in `Dockerfile.pick-gateway`. A locked install plus successful
 Gateway startup is required in addition to that static comparison.
 
-The native CLI needs **both** the editing wheel and the matching extension API
+The optional `gateway` extra declares the extension's direct framework imports;
+the default/native installation keeps only the lightweight API, HTTP and schema
+dependencies. The native CLI needs **both** the editing wheel and the matching extension API
 wheel, built from the same revision. The API package is not assumed published to
 a public index. See the [native distribution instructions](../../customizations/ggwork-edit/ggwork_edit/worker/README.md).
 No signing, notarization or automatic daemon installation is provided.

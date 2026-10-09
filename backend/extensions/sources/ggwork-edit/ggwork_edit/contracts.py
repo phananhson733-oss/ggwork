@@ -133,6 +133,7 @@ class Claim(StrictInput):
 class PreparationError(StrictInput):
     error: Literal[
         "source_changed",
+        "source_receipt_missing",
         "file_missing",
         "directory_missing",
         "grant_denied",

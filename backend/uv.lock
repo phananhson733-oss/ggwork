@@ -1432,6 +1432,8 @@ requires-dist = [
     { name = "deerflow-extension-api", specifier = "==0.2.1" },
     { name = "fastapi", marker = "extra == 'gateway'", specifier = ">=0.115,<1" },
     { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "langchain", marker = "extra == 'gateway'", specifier = ">=1.3,<2" },
+    { name = "langchain-core", marker = "extra == 'gateway'", specifier = ">=1.4,<2" },
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'gateway'", specifier = ">=2.0,<2.1" },
 ]
