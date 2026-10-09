@@ -128,6 +128,52 @@ test("real history and detail retain the same HTTP task identity", async ({
   });
 });
 
+test("real worker offline preserves completed outputs and disables media access", async ({
+  page,
+}, info) => {
+  test.skip(
+    process.env.EDITING_QA_EXPECT_OFFLINE !== "1",
+    "Requires the operator to stop the isolated native worker first",
+  );
+  await login(page);
+  const original = await task(page, qa.completedTaskId);
+  expect(original.status).toBe("completed");
+  await page.goto(`/workspace/editing/${original.id}`);
+  await expect
+    .poll(async () => (await task(page, original.id)).device_status, {
+      timeout: 120_000,
+      intervals: [2000, 5000],
+    })
+    .toBe("offline");
+  const offline = await task(page, original.id);
+  expect(offline.status).toBe(original.status);
+  expect(offline.completed_count).toBe(original.completed_count);
+  const deliveries = (record: EditingTask) =>
+    record.outputs.map(({ id, status, result }) => ({ id, status, result }));
+  expect(deliveries(offline)).toEqual(deliveries(original));
+  const main = page.locator("main.editing-workspace");
+  await expect(
+    main.getByText(
+      "生成设备离线，已确认的任务结果保留，成片暂不可预览或下载。",
+      { exact: true },
+    ),
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(main.getByRole("status")).toContainText("已完成");
+  await expect(main.getByRole("status")).toContainText(
+    `${original.completed_count}/${original.requested_count} 条`,
+  );
+  await expect(main.getByRole("link", { name: "下载成片" })).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "预览成片" })).toHaveCount(0);
+  await main.screenshot({ path: info.outputPath("completed-offline.png") });
+  await saveEvidence(info, "completed-offline", {
+    taskId: offline.id,
+    status: offline.status,
+    deviceStatus: offline.device_status,
+    completedCount: offline.completed_count,
+    outputs: deliveries(offline),
+  });
+});
+
 async function verifyDelivery(page: Page, id: string, info: TestInfo) {
   await expect
     .poll(async () => (await task(page, id)).status, {

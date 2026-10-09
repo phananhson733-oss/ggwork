@@ -51,4 +51,9 @@ the exact task identity. Screenshots and sanitized JSON evidence are retained.
 Traces, automatic screenshots and video recording are off because authentication
 and one-time device tokens must not leak into artifacts. Revision checks here cover
 the unsubmitted draft and original references; actual revised execution, worker
-disconnect, stop acknowledgment and retry need separate coordinated native evidence.
+stop acknowledgment and retry need separate coordinated native evidence. For the
+real disconnect test, stop the isolated worker first, then run with
+`EDITING_QA_EXPECT_OFFLINE=1` and `--grep 'real worker offline'`. It waits up to
+120 seconds for the actual heartbeat to expire, compares completed result metadata,
+and verifies that the browser removes media actions. Reconnect the worker afterward.
+Without that explicit operator coordination the disconnect test is skipped.
