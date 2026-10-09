@@ -1,6 +1,9 @@
 import { EditingEntry } from "@/components/workspace/editing/editing-entry";
 // Native Trends evidence row: production basis, same-batch curve, comparison, result and verification guidance.
 // Missing/partial observations keep their existing semantics; no imported pilot scores or fallback curves.
+import { TrendingDown } from "lucide-react";
+
+import { TrendBadge, toneText } from "@/components/workspace/radar/semantic";
 import {
   SHORT_TERM_HINT,
   TREND_LABEL_TEXT,
@@ -17,6 +20,11 @@ import {
   basisText,
   fetchStatusText,
 } from "@/core/pick/trends-table-wording";
+import {
+  changeTone,
+  collectionTone,
+  type TrendTone,
+} from "@/core/radar/semantic-tones";
 
 import { ExternalLink } from "../links";
 import { TrendsSpark } from "../trends-spark";
@@ -30,12 +38,12 @@ export type TableLine = Readonly<{
   stats: TrendStats | null;
 }>;
 
-const LABEL_TONE: Readonly<Record<TrendStats["label"], string>> = {
-  rising: "text-success-ink font-semibold",
-  new: "text-success-ink font-semibold",
-  falling: "text-danger-ink",
-  flat: "text-ink-2",
-  too_little: "text-ink-dim",
+const LABEL_TONE: Readonly<Record<TrendStats["label"], TrendTone>> = {
+  rising: "success",
+  new: "info",
+  falling: "danger",
+  flat: "neutral",
+  too_little: "warning",
 };
 
 function Drama({ row }: { row: TrendsTableRow }) {
@@ -95,7 +103,9 @@ function Result({ row }: { row: TrendsTableRow }) {
   const detail = row.status === "ok" ? "" : fetchStatusText(row.status);
   return (
     <td className={TD} data-trends-result={row.result}>
-      {RESULT_TEXT[row.result]}
+      <TrendBadge tone={collectionTone(row.result, row.status)}>
+        {RESULT_TEXT[row.result]}
+      </TrendBadge>
       {detail ? <div className={MUTED}>{detail}</div> : null}
     </td>
   );
@@ -133,14 +143,20 @@ export function TrendsTableRowView({
         )}
       </td>
       <td className={`${TD} tabular-nums`}>
-        <div className="text-ink-1 font-semibold" data-trends-change="true">
+        <div
+          className={`${toneText[changeTone(stats?.changeTenths ?? null)]} font-semibold`}
+          data-trends-change="true"
+        >
           {formatChange(stats?.changeTenths ?? null)}
         </div>
         <div data-trends-label={stats?.label ?? ""} className="mt-1">
           {stats ? (
-            <span className={LABEL_TONE[stats.label]}>
+            <TrendBadge
+              tone={LABEL_TONE[stats.label]}
+              icon={stats.label === "falling" ? TrendingDown : undefined}
+            >
               {TREND_LABEL_TEXT[stats.label]}
-            </span>
+            </TrendBadge>
           ) : (
             <span className={MUTED}>—</span>
           )}

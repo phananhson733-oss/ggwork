@@ -1,5 +1,7 @@
 "use client";
 
+import { Minus } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,15 +13,16 @@ import {
 import {
   explain,
   fmt,
-  growth,
   safeLink,
   statuses,
   trendsLink,
 } from "@/core/radar/presentation";
 import { detailSchema, type RadarRow } from "@/core/radar/schema";
+import { historicalSignalTone } from "@/core/radar/semantic-tones";
 import { useRadarRead } from "@/core/radar/use-radar-read";
 
 import { RadarCurve } from "./curve";
+import { HistoricalWindowBadge, RadarGrowth, TrendBadge } from "./semantic";
 
 export function RadarDetailDialog({
   row,
@@ -77,21 +80,40 @@ export function RadarDetailDialog({
         ) : matched ? (
           <>
             <p>
-              {statuses[matched.series_status]} · {matched.geo ?? "市场未知"} ·{" "}
-              {matched.period_days ?? "—"} 个日点
+              <TrendBadge
+                tone={historicalSignalTone(statuses[matched.series_status])}
+              >
+                {statuses[matched.series_status]}
+              </TrendBadge>{" "}
+              · {matched.geo ?? "市场未知"} · {matched.period_days ?? "—"}{" "}
+              个日点
             </p>
             <p>
-              {explain(matched).label}：{explain(matched).reason}
+              <TrendBadge
+                tone={historicalSignalTone(explain(matched).label)}
+                icon={
+                  explain(matched).label === "历史高位平稳" ? Minus : undefined
+                }
+              >
+                {explain(matched).label}
+              </TrendBadge>
+              ：{explain(matched).reason}
             </p>
             <p className="text-muted-foreground">{explain(matched).advice}</p>
             <RadarCurve points={matched.timeline_data} large />
             <p>
               曲线 {matched.series_start ?? "未知"} —{" "}
               {matched.series_end ?? "未知"}
-              {matched.is_older_window ? " · 较早历史窗口" : ""}
+              {matched.is_older_window ? (
+                <>
+                  {" "}
+                  · <HistoricalWindowBadge />
+                </>
+              ) : null}
             </p>
             <p>
-              末 7 日均值较前 7 日：{growth(matched.pilot)} · 实验评分{" "}
+              末 7 日均值较前 7 日：
+              <RadarGrowth pilot={matched.pilot} /> · 实验评分{" "}
               {fmt(matched.pilot.score)} · {matched.pilot.tier ?? "未评分"}
             </p>
             <p>
