@@ -22,6 +22,7 @@ type QA = {
   versionTaskId?: string;
   chatThreadId?: string;
   chatTaskId?: string;
+  priorUploadTaskId?: string;
   profile: string;
   language: string;
   durationSeconds: number;
@@ -281,6 +282,9 @@ test("real submitted file stays a draft until Start then native ACK, cloud plann
   page,
 }, info) => {
   await login(page);
+  const priorUpload = qa.priorUploadTaskId
+    ? await task(page, qa.priorUploadTaskId)
+    : null;
   await page.goto(
     "/workspace/editing/new?title=Synthetic%20browser%20acceptance",
   );
@@ -351,6 +355,33 @@ test("real submitted file stays a draft until Start then native ACK, cloud plann
   expect(delivered.source_manifest?.files.map((file) => file.name)).toEqual(
     qa.sourceFiles.map((file) => path.basename(file.path)),
   );
+  expect(delivered.source_manifest?.grant_id).toBe(qa.receiveGrant);
+  expect(
+    delivered.source_manifest?.files.map((file) => file.relative_path),
+  ).toEqual(
+    createdTask.source_manifest?.files.map((file) => file.relative_path),
+  );
+  for (const file of qa.sourceFiles) {
+    const source = delivered.source_manifest!.files.find(
+      (item) =>
+        item.name === path.basename(file.path) && item.episode === file.episode,
+    )!;
+    expect(source.sha256).toBe(
+      createHash("sha256").update(readFileSync(file.path)).digest("hex"),
+    );
+    if (priorUpload) {
+      expect(priorUpload.source_manifest?.grant_id).toBe(qa.receiveGrant);
+      expect(
+        priorUpload.source_manifest?.files.map((item) => item.relative_path),
+      ).not.toContain(source.relative_path);
+    }
+  }
+  await saveEvidence(info, "verified-upload-sources", {
+    taskId: delivered.id,
+    grantId: qa.receiveGrant,
+    priorTaskId: qa.priorUploadTaskId ?? null,
+    sources: delivered.source_manifest!.files,
+  });
 });
 
 test("real linked version reuses original sources and preserves original media hash", async ({

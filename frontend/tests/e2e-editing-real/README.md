@@ -30,13 +30,17 @@ Keep the QA configuration outside the repository with owner-only file permission
 
 The directory draft and history identity tests read real state without submitting anything.
 Set the language to match the actual native model; English-only Whisper weights
-require `en`, and correctly reject `auto`. Every upload run needs a fresh empty
-receiving grant so prior originals remain untouched.
+require `en`, and correctly reject `auto`. Use an isolated receiving grant for
+synthetic QA media and preserve earlier originals between runs.
 The directory delivery test reuses a genuinely completed task and makes no model call. The
 submitted-file test creates one new task after its explicit Start click. Coordinate
 the cloud-call budget with the native operator before running it. Retries are disabled;
 inspect the attached `accepted-task` identity after any failure before deciding to rerun.
 Do not rerun the creation test merely to repeat playback checks.
+Provide `priorUploadTaskId` to exercise
+another upload in the same receiving grant. The test checks that the new task uses
+distinct source paths, preserves its submitted paths, and that every verified
+native source SHA-256 matches the selected local synthetic file.
 
 ```sh
 PLAYWRIGHT_BASE_URL=http://localhost:13308 \
