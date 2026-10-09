@@ -9,6 +9,7 @@ are separate evidence layers. Open gates below are not passes.
 | --- | --- |
 | Original implementation base | `b17623966ef81e68c202a40a009306f49ffb03c9` |
 | Refreshed review base | Business main `5b6372f9ee41b7c2f65589a2a9332e9bb7475221`, merged before final acceptance |
+| Final business-main refresh | `3abc86b4` semantic Trends/Radar updates were merged before final reviewed source; the resulting editing-entry import order was fixed and frontend check/build rerun |
 | Repository and branch | `phananhson733-oss/ggwork-deerflow`, remote `ggwork`, integration `codex/clip-workbench-integration`; upstream `origin` excluded |
 | Specification | [#53](https://github.com/phananhson733-oss/ggwork-deerflow/issues/53), published body in [spec.md](spec.md), [task graph](task-graph.md) |
 | Integration mounts | [integration.md](integration.md): packaged backend business logic and narrow frontend mounts |
@@ -17,26 +18,27 @@ are separate evidence layers. Open gates below are not passes.
 
 ## Task delivery
 
-All tickets remain subject to final integration review and the single business PR.
+Implementation and both final review axes are complete. Tickets close through the
+single business PR after its combined integration checks and merge.
 Issue closure is not a production deployment claim.
 
 | Task | Implementation and evidence | Remaining acceptance boundary |
 | --- | --- | --- |
-| [T1 / #54](https://github.com/phananhson733-oss/ggwork-deerflow/issues/54) | Specification/task graph/mount decision recorded. Published spec byte equality and relative links checked at foundation. Workflow guidance moved to [agent workflow](../agents/overview.md) to preserve inherited instruction budgets. | Unified PR review pending |
-| [T2a / #62](https://github.com/phananhson733-oss/ggwork-deerflow/issues/62) | Generic exact-route bearer admission, live owner lookup and permission-free device principal; real Cookie/CSRF/device and revocation tests passed. No prefix bypass or session fallback. | Final integration review applies; this host prerequisite precedes T2 |
-| [T2 / #55](https://github.com/phananhson733-oss/ggwork-deerflow/issues/55) | Owner-scoped shared task repository and real host device-bearer admission; SQLite/PostgreSQL contract tests and actual host Cookie/CSRF/device flow passed. | Final source and packaged checks passed; unified review pending |
+| [T1 / #54](https://github.com/phananhson733-oss/ggwork-deerflow/issues/54) | Specification/task graph/mount decision recorded. Published spec byte equality and relative links checked at foundation. Workflow guidance moved to [agent workflow](../agents/overview.md) to preserve inherited instruction budgets. | PR integration/merge pending |
+| [T2a / #62](https://github.com/phananhson733-oss/ggwork-deerflow/issues/62) | Generic exact-route bearer admission, live owner lookup and permission-free device principal; real Cookie/CSRF/device and revocation tests passed. No prefix bypass or session fallback. | Host prerequisite precedes T2; PR integration/merge pending |
+| [T2 / #55](https://github.com/phananhson733-oss/ggwork-deerflow/issues/55) | Owner-scoped shared task repository and real host device-bearer admission; SQLite/PostgreSQL contract tests and actual host Cookie/CSRF/device flow passed. | Final source and packaged checks passed; PR integration/merge pending |
 | [T3 / #56](https://github.com/phananhson733-oss/ggwork-deerflow/issues/56) | Real Apple Silicon CLI, actual pinned whisper weights, FFmpeg render/decode, grant checks, stopped acknowledgment and immutable outputs exercised. Matched development wheels installed in an isolated environment. | Final recovery/source-receipt snapshot and fresh standalone wheel passed; signing/notarization/daemon are not supplied |
-| [T4 / #57](https://github.com/phananhson733-oss/ggwork-deerflow/issues/57) | Independent history/detail/revision UI and shared task cards; real browser task identity, directory draft, preview/download and file-upload pipeline passed. | Actual host `/clip-hook` query and browser live-card identity passed; unified review pending |
+| [T4 / #57](https://github.com/phananhson733-oss/ggwork-deerflow/issues/57) | Independent history/detail/revision UI and shared task cards; real browser task identity, directory draft, preview/download and file-upload pipeline passed. | Actual host `/clip-hook` query and browser live-card identity passed; PR integration/merge pending |
 | [T5 / #58](https://github.com/phananhson733-oss/ggwork-deerflow/issues/58) | Real three-file upload/native ACK/verification; authenticated Range, complete download and hash checks passed. Real device-offline UI preserves completed history and disables access. | One Gateway process/replica constraint; no throughput/load claim |
-| [T6 / #59](https://github.com/phananhson733-oss/ggwork-deerflow/issues/59) | Five successful configured Azure planner requests: directory, browser upload, highlight fault case, linked revision and final receipt-protected upload. Strict plans fed actual native rendering. Provider failures persist until explicit retry. | Actual chat and final recovery/source-receipt checks passed; unified review pending |
-| [T7 / #60](https://github.com/phananhson733-oss/ggwork-deerflow/issues/60) | Accessibility/theme/recovery polish integrated; browser fixture checks and real authenticated screenshots recorded by frontend acceptance. | Final check/build and 3,032 unit tests passed; unified review pending |
-| [T8 / #61](https://github.com/phananhson733-oss/ggwork-deerflow/issues/61) | Packaging, fresh locked host environment, paired native wheels, real directory/upload/media, external encoder fault and targeted retry, actual offline history checks passed as detailed below. | Final same-grant upload/source-receipt proof passed; unified review pending |
+| [T6 / #59](https://github.com/phananhson733-oss/ggwork-deerflow/issues/59) | Six successful configured Azure planner requests: five historical functional cases and one post-fix complete-unit narrative case. Earlier plans are candidly audited below; provider failures persist until explicit retry. | Actual chat and final recovery/source-receipt checks passed; PR integration/merge pending |
+| [T7 / #60](https://github.com/phananhson733-oss/ggwork-deerflow/issues/60) | Accessibility/theme/recovery polish integrated; browser fixture checks and real authenticated screenshots recorded by frontend acceptance. | Final check/build and 3,038 unit tests passed; PR integration/merge pending |
+| [T8 / #61](https://github.com/phananhson733-oss/ggwork-deerflow/issues/61) | Packaging, fresh locked host environment, paired native wheels, real directory/upload/media, external encoder fault and targeted retry, actual offline history checks passed as detailed below. | Final same-grant upload/source-receipt proof passed; PR integration/merge pending |
 
 ## Automated checks
 
 | Check | Result and scope |
 | --- | --- |
-| Editing extension, refreshed source | **226 passed**, with disposable PostgreSQL 17 and real native assets; no PostgreSQL/native skips |
+| Editing extension, final reviewed source | **266 passed**, with disposable PostgreSQL 17 and real native assets, including 30 fixed-content tests; no PostgreSQL/native skips |
 | Legacy and current selection regressions | **178 passed**, SQLite/PostgreSQL query guards, save receipt, mirror replay, board replay, native source, catalog source and Radar tests |
 | Strict backend blocking-I/O suite | **149 passed** on refreshed source |
 | Packaging/acceptance CLI regression | **9 passed** (six CLI protocol cases plus three distribution checks); independently reviewed. HTTP/FFmpeg fakes in CLI tests are not live acceptance evidence. |
@@ -45,7 +47,7 @@ Issue closure is not a production deployment claim.
 | Focused failure audit | Candidate and clean pinned main each: **1 identical Lark failure, 3 Docker skips**. This is an explicit broad-suite limitation, not a green check. |
 | Public Skill CI | Both changed `clip-highlight` and `clip-hook` packages passed against pinned main: **0 blockers, errors, warnings or info; 0 waived findings**. No waiver edits. |
 | Guidance budgets | Against refreshed main: **0 errors**, existing warnings retained. Root guidance shrank relative to main; no budget increase. |
-| Frontend | Final source `c08bd5e3`: frozen install, check, production build and full unit suite **3,032 passed / 45 skipped**. Real browser directory, upload, offline, conversation card, linked revision and final receipt/nonce upload passed. No intercepted API or fabricated media result used. |
+| Frontend | Source `045d2e34` after latest business-main merge: check, production build and full unit suite **3,038 passed / 45 skipped**. Real browser directory, upload, offline, conversation card, linked revision and final receipt/nonce upload passed. No intercepted API or fabricated media result used. |
 
 ## Actual native, model and browser evidence
 
@@ -99,8 +101,9 @@ ASR quality, broad model reliability, resource capacity or relay throughput.
 Before the final review fixes, **seven successful provider HTTP 200 responses** were verified across
 the runtime logs: five planner calls and two conversation model calls. Automatic
 title generation was disabled only in the isolated QA config. These seven calls
-are historical functional evidence; the separately authorized post-fix fixed-content
-case remains pending below. The one-process/one-replica RAM relay limitation remains.
+are historical functional evidence; one separately authorized post-fix fixed-content
+call passed below, making **eight** successful calls total (six planning, two chat).
+The one-process/one-replica RAM relay limitation remains.
 No Vercel/Railway deployment, signing, notarization or daemon installation was
 performed. A push or merged PR would not change those facts.
 
@@ -130,7 +133,10 @@ missing bounded long-input/fixed-content acceptance. The first two implementatio
 findings and long-input admission were fixed in `91439bc5`; latest business main
 `3abc86b4` was merged before source `cf5c847f`, followed by the import-only fix
 `045d2e34`. Both canonical package snapshots were regenerated through the official
-extension manager. Follow-up Spec review approved this core implementation.
+extension manager. Follow-up Spec review approved this core implementation. Final Spec review then
+verified the corpus/audit and independently hashed and fully decoded the fresh
+real output: all three original findings resolved, zero remaining blockers.
+Standards and the independent Python/corpus follow-up also approved.
 
 - Real host budgeting now preserves compact receipts, stable task IDs, state and
   recovery actions. History, plan cuts and grants are paginated; full task data
@@ -141,10 +147,14 @@ extension manager. Follow-up Spec review approved this core implementation.
   model invocation, keeps the frozen source selection and returns actionable
   new-selection guidance. Model context capacity is unknown, not inferred.
 - Post-fix shared tool/planner tests: **113 passed** across SQLite/PostgreSQL.
-  Full extension/native suite with the initial ten fixed content cases:
-  **256 passed, zero skips**. The initial full run hit a local template-config
+  Final full extension/native suite with all 15 fixed content cases:
+  **266 passed, zero skips**. The initial full run hit a local template-config
   variable error; rerunning with an isolated minimal config passed without source
   changes or a real provider invocation.
+- Final blocking-I/O: **149 passed**. Distribution/CLI/guidance tests:
+  **22 passed**; guidance check against latest main: **0 errors, 12 existing
+  warnings**. The final fixed content corpus itself passed **30 tests** across
+  SQLite and PostgreSQL.
 - Updated frontend: **3,038 passed / 45 existing skips**; check and production
   build passed after the import-order fix. The five focused presentation tests
   include actionable long-dialogue refusal.
@@ -158,6 +168,18 @@ The [15 annotated cases](quality-cases.md) include the [five retained-plan
 assessments](retained-plan-audit.json): four historical Hook plans fail today's
 boundary policy; the complete-unit highlight case passes. This does not modify
 old evidence or turn decoding into a narrative-quality score. The new real
-11-second conflict/stakes/challenge acceptance remains **pending**; the third
-Spec finding is not yet closed by deterministic fixtures alone. The broad-suite
+11-second conflict/stakes/challenge acceptance **passed**, with source ASR units,
+plan order, actual native encoding and browser byte/playback proof in
+[postfix-quality-evidence.json](postfix-quality-evidence.json). Task
+`fda461b0acf240f9b2415a448089ecde` planned episode 2 `[0, 5.44]` then episode 3
+`[0, 5.3]`, total 10.74 seconds; delivered 1280×720 H.264/AAC, 10.8 seconds,
+286,920 bytes, SHA-256
+`f99f50adce59a819a3f505da63780f954958eb51689d00c9788725e2fc682403`.
+The browser's current time reached 1.497133 with no media error; exact Range 206
+and full download matched the native receipt. All originals and isolated copies
+retained their hashes. Old revision/chat replay passed 2/2, controlled UI fixtures
+passed 6/6, and this new real-media browser case passed 1/1. The third Spec finding
+was closed by the final Spec review using bounded input policy, annotated corpus,
+retained-plan audit and one fresh content-aligned real output. This closes the limited
+fixed-case gap, not broad narrative/multilingual evaluation. The broad-suite
 Lark/Docker limitations and no-production-deployment boundary above remain.

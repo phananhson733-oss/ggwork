@@ -40,10 +40,20 @@ hashes and recovery; they do not become new-policy quality passes. No historical
 task, plan or output was rewritten. Fresh plans use the new validation policy;
 retained approved plans remain unchanged for existing output-only retries.
 
-The planned post-fix real content gate is one 11-second English Hook using episode
+The [post-fix real content gate](postfix-quality-evidence.json) passed on task
+`fda461b0acf240f9b2415a448089ecde`, one 11-second English Hook using episode
 2 `[0, 5.44]`, then episode 3 `[0, 5.3]`: accusation/evidence → family stakes →
-challenge, total 10.74 seconds. The actual new provider/native/browser result is
-**pending**; deterministic fixture admission alone is not this real-media gate.
+challenge, total 10.74 seconds. One actual provider call produced these exact
+complete-unit cuts. Native rendering and full decode produced a 1280×720 H.264/AAC
+MP4, 10.8 seconds and 286,920 bytes, SHA-256
+`f99f50adce59a819a3f505da63780f954958eb51689d00c9788725e2fc682403`.
+The authenticated browser played it without a media error, advanced to 1.497133
+seconds, returned the requested 1,024-byte HTTP 206 range and downloaded matching
+complete bytes. Actual source ASR, derived units, plan order and output metadata
+are recorded with the evidence. All three original synthetic files and both
+isolated episode copies retained their hashes. The annotation establishes this
+single conflict/stakes/challenge exchange; broad creative quality is unmeasured.
+All **15** offline corpus cases passed against SQLite and PostgreSQL (**30 tests**).
 
 For long selections, the current strategy is an explicit single-request limit:
 count the complete JSON role/content messages as UTF-8, including system prompt,

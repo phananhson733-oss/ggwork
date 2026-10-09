@@ -1,0 +1,147 @@
+{
+  "source_commit": "cf5c847f6ec442a42f1f4e54fdbe17794d8305b5",
+  "task_id": "fda461b0acf240f9b2415a448089ecde",
+  "requirements": {
+    "profile": "hook",
+    "instructions": "Use the complete forged-contract conflict from episode 2 first, then the complete envelope/family-stakes/challenge exchange from episode 3. Preserve both full utterances in that exact 2 then 3 order; do not cut within either utterance.",
+    "output_count": 1,
+    "duration_seconds": 11.0,
+    "aspect_ratio": "16:9",
+    "language": "en",
+    "review_plan": false
+  },
+  "plan": {
+    "profile": "hook",
+    "aspect_ratio": "16:9",
+    "language": "en",
+    "outputs": [
+      {
+        "output_id": "out-1",
+        "segments": [
+          {
+            "start": 0.0,
+            "end": 5.44,
+            "media_id": "media-2"
+          },
+          {
+            "start": 0.0,
+            "end": 5.3,
+            "media_id": "media-3"
+          }
+        ]
+      }
+    ]
+  },
+  "transcripts": [
+    {
+      "media_id": "media-2",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 4.76,
+          "text": "that contract is forged. The original is in this envelope. You signed it in front of the"
+        },
+        {
+          "start": 4.76,
+          "end": 5.44,
+          "text": "whole board."
+        }
+      ]
+    },
+    {
+      "media_id": "media-3",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 5.3,
+          "text": "Wait, if you open that envelope, my family loses everything, then tell them what you did."
+        }
+      ]
+    }
+  ],
+  "allowed_units": {
+    "media-2": [
+      {
+        "start": 0.0,
+        "end": 5.44
+      }
+    ],
+    "media-3": [
+      {
+        "start": 0.0,
+        "end": 5.3
+      }
+    ]
+  },
+  "expected_plan_duration_seconds": 10.74,
+  "outputs": [
+    {
+      "id": "out-1",
+      "status": "completed",
+      "result": {
+        "artifact_id": "8b65ad4bc13e495499f610ccb2ce1a26_out-1",
+        "sha256": "f99f50adce59a819a3f505da63780f954958eb51689d00c9788725e2fc682403",
+        "size_bytes": 286920,
+        "duration_seconds": 10.8,
+        "width": 1280,
+        "height": 720,
+        "video_codec": "h264",
+        "audio_codec": "aac",
+        "verified": true
+      },
+      "error": null,
+      "access_status": "unchecked"
+    }
+  ],
+  "ffprobe": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "codec_name": "h264",
+        "codec_type": "video",
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "codec_name": "aac",
+        "codec_type": "audio"
+      }
+    ],
+    "format": {
+      "duration": "10.800000",
+      "size": "286920"
+    }
+  },
+  "all_three_originals_unchanged": true,
+  "isolated_copies_unchanged": true,
+  "narrative_scope": "Complete forged-contract conflict, then envelope/family stakes/challenge in exact requested order; one English synthetic case only.",
+  "model_configuration": {
+    "model_alias": "azure-pick",
+    "deployment_name": "withheld; fixed by approved provider environment",
+    "reasoning_effort": "low",
+    "max_output_tokens": 32000,
+    "context_window_known": false,
+    "context_window": null,
+    "request_timeout_seconds": 300,
+    "stream_chunk_timeout_seconds": 300,
+    "max_retries": 0,
+    "use_responses_api": true
+  },
+  "browser": {
+    "frontend_commit": "045d2e34c1af17b5f43e51dd8b74602c600dbaa7",
+    "decoded_playback_seconds": 1.497133,
+    "media_error": null,
+    "range_status": 206,
+    "range_bytes": 1024,
+    "full_download_bytes": 286920,
+    "full_download_sha256": "f99f50adce59a819a3f505da63780f954958eb51689d00c9788725e2fc682403",
+    "read_only_test_passed": true
+  },
+  "provider_calls": {
+    "postfix_planning": 1,
+    "historical_planning": 5,
+    "historical_conversation": 2,
+    "successful_total": 8
+  }
+}
