@@ -452,28 +452,26 @@ class EditingRepository:
                     raise ConflictError("Lease expired; heartbeat before reporting")
                 if payload.kind != "failure":
                     await self.require_profile(session, task["requirements"]["profile"])
+                current_plan = bool(task.get("plan") and task.get("plan_attempt_id") and attempt.get("plan_attempt_id") == task["plan_attempt_id"])
                 if payload.kind == "stage":
                     if payload.stage is None:
                         raise ConflictError("Stage required")
-                    if payload.stage == "awaiting_plan" and task.get("plan_confirmed"):
-                        raise ConflictError("Plan already confirmed")
-                    if payload.stage == "awaiting_plan" and not task.get("plan"):
-                        raise ConflictError("No stored plan")
-                    if payload.stage in ("rendering", "verifying"):
-                        self.require_plan(task)
-                    task["stage"] = payload.stage
-                    attempt["stage"] = payload.stage
-                    task["status"] = "awaiting_plan" if payload.stage == "awaiting_plan" else "running"
+                    # A stored current/retained plan is a phase barrier. A delayed
+                    # pre-plan receipt must not erase approval or regress rendering.
+                    obsolete_stage = current_plan and payload.stage in ("transcribing", "planning", "awaiting_plan")
+                    if not obsolete_stage:
+                        if payload.stage == "awaiting_plan":
+                            raise ConflictError("No stored plan")
+                        if payload.stage in ("rendering", "verifying"):
+                            self.require_plan(task)
+                        task["stage"] = payload.stage
+                        attempt["stage"] = payload.stage
+                        task["status"] = "running"
                 elif payload.kind in ("output", "failure"):
                     if payload.output_id is None and payload.kind == "failure":
                         # A recovery GET can precede the planner's successful commit.
                         # Judge this ambiguity under the same fence/receipt transaction.
-                        planning_won = (
-                            payload.error in ("planner_outcome_unknown", "planner_unavailable")
-                            and task.get("plan")
-                            and task.get("plan_attempt_id")
-                            and attempt.get("plan_attempt_id") == task["plan_attempt_id"]
-                        )
+                        planning_won = current_plan and payload.error in ("planner_outcome_unknown", "planner_unavailable")
                         if not planning_won:
                             for output in task["outputs"]:
                                 if output["id"] in attempt["output_ids"] and output["status"] != "completed":
