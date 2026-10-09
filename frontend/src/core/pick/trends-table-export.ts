@@ -35,6 +35,8 @@ export function trendsCsv(
       "变化",
       "采集结果",
       "采集说明",
+      "查询组",
+      "同组查询词",
     ],
   ];
   for (const { row, stats } of lines)
@@ -52,6 +54,8 @@ export function trendsCsv(
       stats?.changeTenths == null ? null : formatChange(stats.changeTenths),
       RESULT_TEXT[row.result],
       fetchStatusText(row.status),
+      row.query_group ?? null,
+      row.comparison_terms?.join(" / ") ?? null,
     ]);
   return "\uFEFF" + rows.map((r) => r.map(cell).join(",")).join("\r\n");
 }

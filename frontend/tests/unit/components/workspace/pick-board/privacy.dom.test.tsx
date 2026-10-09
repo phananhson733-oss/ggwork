@@ -166,7 +166,7 @@ describe("nothing on the board links to a pan or shows a code or an amount", () 
 });
 
 describe("the pan cell says whether a pan exists, never where", () => {
-  it("rows table: has pan points to RealShort, no pan says so", () => {
+  it("rows table: has pan points to a protected resource page, no pan says so", () => {
     const { container } = render(
       <RowsTable
         rows={[pickRow(), pickRow({ rowKey: "kalos-demo-3", hasPan: false })]}
@@ -178,14 +178,14 @@ describe("the pan cell says whether a pan exists, never where", () => {
       (tr) => tr.lastElementChild?.textContent ?? "",
     );
     expect(cells[0]).toContain("有网盘");
-    expect(cells[0]).toContain("到 RealShort 证据页查看");
+    expect(cells[0]).toContain("当前取货资料");
     expect(cells[1]).toContain("无网盘");
-    expect(cells[1]).not.toContain("到 RealShort 证据页查看");
+    expect(cells[1]).not.toContain("当前取货资料");
     const link = container.querySelector(
-      'a[href^="https://dramashortstv.com/admin/pick?tab=row&row="]',
+      'a[href^="/workspace/pick-resources?row="]',
     );
     expect(link?.getAttribute("href")).toBe(
-      "https://dramashortstv.com/admin/pick?tab=row&row=kalos-demo-1",
+      "/workspace/pick-resources?row=kalos-demo-1",
     );
     expect(link?.getAttribute("target")).toBe("_blank");
   });
@@ -195,7 +195,7 @@ describe("the pan cell says whether a pan exists, never where", () => {
       <RowDetailView detail={rowDetail()} req={request()} rules={rules} />,
     );
     expect(withPan.container.textContent).toContain(
-      "有网盘（网盘信息不同步到本页，到 RealShort 证据页查看）",
+      "有网盘（按资料所有者权限读取当前取货信息）",
     );
     cleanup();
     const without = render(

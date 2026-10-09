@@ -42,7 +42,9 @@ def test_the_download_is_checked_against_the_pinned_digest():
     assert "https://github.com/larksuite/cli/releases/download/${LARK_CLI_VERSION}/" in text
     assert "sha256sum -c" in text
     assert "latest" not in text.lower()
-    assert not re.search(r"\b(npm|npx|node)\b", text)
+    assert not re.search(r"\b(npm|npx|node)\b", text.split("AS lark-cli", 1)[1].split("FROM node:", 1)[0])
+    assert "node:24.12.0-bookworm-slim AS pick-source" in text
+    assert "--frozen-lockfile --ignore-scripts" in text
 
 
 def test_the_final_image_names_the_pin_and_the_lark_user():

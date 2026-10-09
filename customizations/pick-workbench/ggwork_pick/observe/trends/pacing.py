@@ -69,15 +69,18 @@ class PacingParams:
 DESIGN_PARAMS = PacingParams()
 USER_PARAMS = replace(DESIGN_PARAMS, bucket_capacity=4, refill_per_minute=2)
 CONSERVATIVE_PARAMS = replace(USER_PARAMS, bucket_capacity=2, refill_per_minute=1, hour_cap=60, inter_unit_seconds=(100, 120))
-PRESETS: Mapping[str, PacingParams] = MappingProxyType({"design": DESIGN_PARAMS, "user": USER_PARAMS, "conservative": CONSERVATIVE_PARAMS})
+BATCHED_PARAMS = replace(CONSERVATIVE_PARAMS, inter_unit_seconds=(120, 180))
+PRESETS: Mapping[str, PacingParams] = MappingProxyType(
+    {"design": DESIGN_PARAMS, "user": USER_PARAMS, "conservative": CONSERVATIVE_PARAMS, "batched": BATCHED_PARAMS}
+)
 PRODUCTION_PRESET = "user"  # the cron's default (settings.PICK_OBS_TRENDS_PACE)
 DEFAULT_PARAMS = DESIGN_PARAMS  # what a bare EnvelopePacer() paces at: stage 0's default and the TR-03 tests'
 
 
-def recovery_note() -> dict[str, Any]:
-    p = CONSERVATIVE_PARAMS
+def recovery_note(batch_size: int = 1) -> dict[str, Any]:
+    p = BATCHED_PARAMS if batch_size == 5 else CONSERVATIVE_PARAMS
     return {
-        "preset": "conservative",
+        "preset": "batched" if batch_size == 5 else "conservative",
         "bucket_capacity": p.bucket_capacity,
         "refill_per_minute": p.refill_per_minute,
         "hour_cap": p.hour_cap,
