@@ -214,6 +214,18 @@ class WorkerSession:
                 pass  # The durable marker already records the uncertain outcome.
         return await self.recover_plan(task_id)
 
+    def remember_uncertain_planning(self, task):
+        if (
+            task.get("plan") is None
+            and task.get("stage") in ("planning", "awaiting_plan")
+            and not self.state.get("planner_submit_allowed")
+            and "planning_request" not in self.state
+        ):
+            # Either authoritative observation can prove a legacy planning stage;
+            # an older receipt must not erase evidence seen before its replay.
+            self.state["planning_request"] = {"lookups": 0, "error": "planner_outcome_unknown"}
+            self.save()
+
     async def execute(self, task):
         if self.shutdown.is_set():
             return
@@ -242,16 +254,7 @@ class WorkerSession:
                 self.state = {}
                 self.save()
                 return
-            if (
-                task.get("plan") is None
-                and task.get("stage") in ("planning", "awaiting_plan")
-                and not self.state.get("planner_submit_allowed")
-                and "planning_request" not in self.state
-            ):
-                # Preserve the authoritative planning evidence before replaying an
-                # older stage receipt that could otherwise regress the stage.
-                self.state["planning_request"] = {"lookups": 0, "error": "planner_outcome_unknown"}
-                self.save()
+            self.remember_uncertain_planning(task)
             pending = self.state.get("pending_report")
             if (
                 task.get("plan") is not None
@@ -272,6 +275,7 @@ class WorkerSession:
                     self.state = {}
                     self.save()
                     return
+                self.remember_uncertain_planning(task)
             manifest, requirements = task["source_manifest"], task["requirements"]
             if task.get("plan") is None:
                 transcripts = None

@@ -450,7 +450,7 @@ async def test_self_contained_mov_matroska_webm_remain_supported(tmp_path, exten
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("submit_allowed", [False, True])
-@pytest.mark.parametrize("pending_stage", [False, True])
+@pytest.mark.parametrize("pending_stage", [None, "transcribing", "planning"])
 async def test_upgrade_reconciles_legacy_planning_journal_without_resubmitting(tmp_path, monkeypatch, submit_allowed, pending_stage):
     import json
 
@@ -463,12 +463,12 @@ async def test_upgrade_reconciles_legacy_planning_journal_without_resubmitting(t
     attempt = {"id": "legacy-planning-attempt", "fence": 1, "output_ids": ["out-1"]}
     journal = {"task_id": "task-1", "attempt": attempt, **({"planner_submit_allowed": True} if submit_allowed else {})}
     if pending_stage:
-        journal["pending_report"] = {"attempt_id": attempt["id"], "fence": 1, "event_id": "old-stage", "kind": "stage", "stage": "transcribing"}
+        journal["pending_report"] = {"attempt_id": attempt["id"], "fence": 1, "event_id": "old-stage", "kind": "stage", "stage": pending_stage}
     store.save_journal(journal)
     task = {
         "id": "task-1",
         "status": "running",
-        "stage": "planning",
+        "stage": "transcribing" if pending_stage == "planning" else "planning",
         "attempt": attempt,
         "source_manifest": manifest,
         "requirements": {"profile": "hook", "aspect_ratio": "9:16", "language": "en", "duration_seconds": 5, "output_count": 1},
