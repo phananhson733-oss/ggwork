@@ -371,3 +371,43 @@ async def test_caller_does_not_wait_for_receipt_cancellation_cleanup(blocked_syn
         finish_cleanup.set()
         caller.cancel()
         await asyncio.gather(caller, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pick_db_url", ["sqlite"], indirect=True)
+async def test_receipt_read_abandoned_by_a_leaving_caller_does_not_block_publication(blocked_sync, monkeypatch):
+    """A caller that leaves between a receipt SELECT and its fetch abandons the SQLite cursor mid-statement.
+
+    The cursor keeps its read snapshot until garbage collection reaches the cancelled task. On the host's WAL
+    connections the worker still commits; under a rollback journal the commit waits out the busy timeout and fails.
+    """
+    import gc
+
+    import aiosqlite
+
+    service, _engine, started, release = blocked_sync
+    run = await service.trigger("alice")
+    await asyncio.wait_for(started.wait(), 2)
+    fetching = asyncio.Event()
+
+    async def never_fetched(_cursor):
+        fetching.set()
+        await asyncio.Event().wait()
+
+    collecting = gc.isenabled()
+    # Collection would finalize the abandoned cursor at an arbitrary moment; keep it alive for the whole check.
+    gc.disable()
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(aiosqlite.Cursor, "fetchall", never_fetched)
+            caller = asyncio.create_task(service.refresh("alice", resume_run_id=run["id"], wait_seconds=2))
+            await asyncio.wait_for(fetching.wait(), 2)
+            caller.cancel()
+            await asyncio.gather(caller, *service.waiters, return_exceptions=True)
+        assert caller.cancelled() and not service.waiters
+        release.set()
+        outcome = await service.refresh("alice", resume_run_id=run["id"], wait_seconds=2)
+        assert outcome.status == "ok"
+    finally:
+        if collecting:
+            gc.enable()
