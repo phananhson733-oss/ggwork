@@ -234,6 +234,8 @@ class EditingRepository:
         return settings is None or settings["skill_enabled"]
 
     async def capabilities(self):
+        from ggwork_edit.contracts import MAX_PLANNER_INPUT_BYTES
+
         async with self.transaction(write=False) as session:
             enabled = await self.enabled(session)
             profiles = []
@@ -247,6 +249,7 @@ class EditingRepository:
                 "skill_enabled": enabled,
                 "limits": {
                     "max_sources": 500,
+                    "max_planner_input_bytes": MAX_PLANNER_INPUT_BYTES,
                     "max_outputs": 10,
                     "min_duration_seconds": 5,
                     "max_duration_seconds": 180,
@@ -603,8 +606,10 @@ class EditingRepository:
         async with self.transaction(write=False) as session:
             return await self.view(session, await self.worker_task(session, device_id, task_id))
 
-    async def fail_plan(self, device_id, task_id, attempt_id, fence):
-        """Persist safe provider failure without extending a native execution lease."""
+    async def fail_plan(self, device_id, task_id, attempt_id, fence, *, error="planner_unavailable"):
+        """Persist safe planner failure without extending a native execution lease."""
+        if error not in ("planner_unavailable", "planner_input_too_large"):
+            raise ValueError("Unsupported planner failure")
         async with self.transaction() as session:
             task = await self.worker_task(session, device_id, task_id)
             attempt = self.check_attempt(task, attempt_id, fence)
@@ -615,7 +620,7 @@ class EditingRepository:
                 return await self.view(session, task)
             for output in task["outputs"]:
                 if output["id"] in attempt["output_ids"] and output["status"] != "completed":
-                    output.update(status="failed", error="planner_unavailable")
+                    output.update(status="failed", error=error)
             outcome = "partial" if any(o["status"] == "completed" for o in task["outputs"]) else "failed"
             task.update(status=outcome, result=outcome, stage="planning", updated_at=stamp())
             attempt["stage"] = "planning"

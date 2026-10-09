@@ -18,6 +18,8 @@ const labels: Record<string, string> = {
   render_failed: "视频渲染失败，请检查 Mac 环境与可用磁盘空间后重试此条",
   decode_failed: "成片解码检查未通过，请检查 Mac 环境后重试此条",
   planning_failed: "剪辑方案生成失败，请检查规划服务后重试该阶段",
+  planner_input_too_large:
+    "本次选集的对白内容过长，请新建任务并减少选集；原任务和素材会保留",
   transcribing_failed: "素材转录失败，请检查本地转录模型与素材后重试该阶段",
   unsupported_platform:
     "当前执行器支持 Apple Silicon Mac，请在支持的设备上连接",

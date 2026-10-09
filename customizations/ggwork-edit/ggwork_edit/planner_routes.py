@@ -2,7 +2,8 @@
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ggwork_edit.planner import PlannerUnavailable, PlanRequest
+from ggwork_edit.contracts import MAX_PLANNER_INPUT_BYTES
+from ggwork_edit.planner import PlannerInputTooLarge, PlannerUnavailable, PlanRequest
 from ggwork_edit.repository import ConflictError
 from ggwork_edit.routes import EditingRoute, owner
 
@@ -27,6 +28,10 @@ def build_planner_router(service, planner):
                     {"user_id": str(user.id), "user_role": user.system_role, "is_internal": False}, task["requirements"]["profile"], planner.model_name
                 )
             return await planner.plan(repo, device_id, task_id, payload)
+        except PlannerInputTooLarge:
+            raise HTTPException(
+                413, {"code": "planner_input_too_large", "max_input_bytes": MAX_PLANNER_INPUT_BYTES, "recovery": "create_task_with_fewer_sources"}
+            ) from None
         except PlannerUnavailable:
             raise HTTPException(502, {"code": "planner_unavailable", "retry": "explicit"}) from None
         except ConflictError:

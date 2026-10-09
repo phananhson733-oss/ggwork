@@ -1,6 +1,7 @@
 """Thin conversation adapters over the same owner-scoped editing operations."""
 
 import json
+from typing import Literal
 
 from deerflow.tools.types import Runtime
 from langchain.tools import tool
@@ -20,8 +21,45 @@ class Submit(StrictInput):
     source_directory: SourceDirectory | None = None
 
 
+def task_receipt(task):
+    """Bounded identity/recovery data; live cards resolve the full HTTP resource."""
+    keys = (
+        "id",
+        "status",
+        "stage",
+        "device_id",
+        "device_status",
+        "access_status",
+        "source_thread_id",
+        "parent_task_id",
+        "requested_count",
+        "completed_count",
+        "available_actions",
+        "preparation_reasons",
+        "plan_confirmed",
+    )
+    receipt = {key: task[key] for key in keys}
+    receipt.update(
+        title=task["title"][:80],
+        requirements={key: value for key, value in task["requirements"].items() if key != "instructions"},
+        source_count=len((task.get("source_manifest") or {}).get("files", [])),
+        outputs=[{"id": output["id"], "status": output["status"], "error": output["error"][:64] if output["error"] else None} for output in task["outputs"]],
+    )
+    return receipt
+
+
 def result(task):
-    return json.dumps({"task": task}, ensure_ascii=False, allow_nan=False)
+    return json.dumps({"task": task_receipt(task)}, ensure_ascii=False, allow_nan=False)
+
+
+def page(items, limit, offset):
+    return {
+        "items": items[offset : offset + limit],
+        "limit": limit,
+        "offset": offset,
+        "total": len(items),
+        "next_offset": offset + limit if offset + limit < len(items) else None,
+    }
 
 
 async def execution(runtime, profile):
@@ -43,12 +81,41 @@ async def submit_tool(request: Submit, runtime: Runtime) -> str:
 
 
 @tool("clip_get")
-async def get_tool(runtime: Runtime, task_id: str | None = None) -> str:
-    """Read current editing task or list the owner's tasks. Historical conversation text is not current task state."""
+async def get_tool(
+    runtime: Runtime, task_id: str | None = None, limit: int = 5, offset: int = 0, section: Literal["summary", "plan"] = "summary", device_id: str | None = None
+) -> str:
+    """Read a bounded current task receipt or paginated history (limit 1–5). Historical text is not live state.
+    For plan review use task_id + section=plan and follow next_offset for all cuts. For preparation use device_id
+    to page its authorized grant IDs. The overview includes a device page; device_next_offset is independent.
+    """
+    if not 1 <= limit <= 5 or offset < 0:
+        raise ValueError("limit must be 1–5 and offset nonnegative")
     repo = task_from_runtime(runtime).repository(runtime)
+    if device_id:
+        devices = [d for d in await repo.devices() if d["id"] == device_id]
+        if not devices:
+            raise ValueError("Device unavailable")
+        device = devices[0]
+        return json.dumps({"device_id": device_id, **page(device["grants"], limit, offset)}, ensure_ascii=False)
     if task_id:
-        return result(await repo.get_task(task_id))
-    return json.dumps({"items": await repo.list_tasks(), "devices": await repo.devices(), "capabilities": await repo.capabilities()}, ensure_ascii=False)
+        task = await repo.get_task(task_id)
+        if section == "plan":
+            cuts = [{"output_id": output["output_id"], **cut} for output in (task.get("plan") or {}).get("outputs", []) for cut in output["segments"]]
+            return json.dumps({"task": task_receipt(task), "plan_cuts": page(cuts, limit, offset)}, ensure_ascii=False)
+        return result(task)
+    tasks = await repo.list_tasks_page(limit=limit, offset=offset)
+    tasks["items"] = [
+        {key: task[key] for key in ("id", "status", "stage", "completed_count", "requested_count")} | {"title": task["title"][:80]} for task in tasks["items"]
+    ]
+    devices = page(await repo.devices(), limit, offset)
+    tasks.update(
+        devices=[
+            {key: d[key] for key in ("id", "online", "ready", "revoked")} | {"name": d["name"][:80], "grant_count": len(d["grants"])} for d in devices["items"]
+        ],
+        device_next_offset=devices["next_offset"],
+        capabilities=await repo.capabilities(),
+    )
+    return json.dumps(tasks, ensure_ascii=False, allow_nan=False)
 
 
 @tool("clip_stop")

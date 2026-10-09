@@ -144,7 +144,8 @@ async def test_change_version_keeps_original_and_requires_fresh_verification(api
     assert version["parent_task_id"] == parent["id"]
     assert version["id"] != parent["id"]
     assert version["status"] == "waiting"
-    assert version["source_manifest"]["files"][0]["sha256"] is None
+    current = (await client.get(f"/api/editing/tasks/{version['id']}", headers={"test-owner": "alice"})).json()
+    assert current["source_manifest"]["files"][0]["sha256"] is None
     assert (await client.get(f"/api/editing/tasks/{parent['id']}", headers={"test-owner": "alice"})).json()["requirements"]["instructions"] == "A dialogue hook"
 
 
@@ -173,3 +174,89 @@ async def test_waiting_tool_intent_discovers_paired_device_and_prepares_same_tas
     continued = json.loads(await prepare_tool.coroutine(submitted["id"], {"device_id": paired["id"]}, runtime))["task"]
     assert continued["id"] == submitted["id"]
     assert continued["device_id"] == paired["id"]
+
+
+@pytest.mark.asyncio
+async def test_large_task_receipts_and_history_keep_identity_through_host_budget(api, skill_config, tmp_path):
+    from deerflow.agents.middlewares.tool_output_budget_middleware import _patch_tool_message
+    from deerflow.config.tool_output_config import ToolOutputConfig
+    from langchain_core.messages import ToolMessage
+
+    from ggwork_edit.context import EditingLifecycle
+    from ggwork_edit.tools import get_tool, submit_tool
+
+    client, service, _ = api
+    store = ExtensionData("budget")
+    await EditingLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("budget", "r", "t", "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store})
+    files = [{"media_id": f"m-{i}", "name": f"Episode {i}", "episode": i, "relative_path": f"episode-{i}.mp4", "size_bytes": 100} for i in range(1, 61)]
+    ids = []
+    for index in range(6):
+        raw = await submit_tool.coroutine(
+            {
+                "request_id": f"large-{index}",
+                "title": "Long drama",
+                "requirements": {"instructions": "x" * 10000, "output_count": 10, "duration_seconds": 30, "aspect_ratio": "9:16"},
+                "source_manifest": {"version": 1, "grant_id": "source", "files": files},
+            },
+            runtime,
+        )
+        patched = _patch_tool_message(ToolMessage(content=raw, name="clip_submit", tool_call_id="budget"), ToolOutputConfig(), str(tmp_path))
+        receipt = json.loads(patched.content)["task"]
+        ids.append(receipt["id"])
+        assert receipt["source_count"] == 60
+        assert receipt["available_actions"] == ["stop"]
+        assert len(receipt["outputs"]) == 10
+        full = (await client.get(f"/api/editing/tasks/{receipt['id']}", headers={"test-owner": "alice"})).json()
+        assert len(full["source_manifest"]["files"]) == 60
+        assert full["requirements"]["instructions"] == "x" * 10000
+    found = []
+    offset = 0
+    while offset is not None:
+        raw = await get_tool.coroutine(runtime, offset=offset, limit=2)
+        patched = _patch_tool_message(ToolMessage(content=raw, name="clip_get", tool_call_id="history"), ToolOutputConfig(), str(tmp_path))
+        page = json.loads(patched.content)
+        assert len(page["items"]) == 2
+        found.extend(item["id"] for item in page["items"])
+        offset = page["next_offset"]
+    assert set(found) == set(ids)
+
+
+@pytest.mark.asyncio
+async def test_receipt_bounds_worker_diagnostics_and_plan_pages_preserve_all_cuts(api, skill_config, tmp_path):
+    from deerflow.agents.middlewares.tool_output_budget_middleware import _patch_tool_message
+    from deerflow.config.tool_output_config import ToolOutputConfig
+    from langchain_core.messages import ToolMessage
+    from test_contract import OWNER, REQUEST, ready_task
+
+    from ggwork_edit.context import EditingLifecycle
+    from ggwork_edit.tools import get_tool
+
+    client, task, device, worker, attempt = await ready_task(api, request={**REQUEST, "title": "\x01" * 255})
+    store = ExtensionData("maximum")
+    await EditingLifecycle(api[1]).on_task_start(ExtensionData("app"), store, TaskInfo("maximum", "r", "t" * 128, "lead"))
+    runtime = SimpleNamespace(context={"user_id": "alice", EXTENSION_TASK_STORE_KEY: store})
+    first = json.loads(await get_tool.coroutine(runtime, task_id=task["id"], section="plan", limit=2))
+    second = json.loads(await get_tool.coroutine(runtime, task_id=task["id"], section="plan", limit=2, offset=first["plan_cuts"]["next_offset"]))
+    assert [cut["output_id"] for cut in first["plan_cuts"]["items"] + second["plan_cuts"]["items"]] == ["out-1", "out-2", "out-3"]
+    assert second["plan_cuts"]["next_offset"] is None
+    failed = await client.post(
+        f"/api/editing/worker/devices/{device}/tasks/{task['id']}/report",
+        headers=worker,
+        json={
+            "attempt_id": attempt["id"],
+            "fence": attempt["fence"],
+            "event_id": "e" * 128,
+            "kind": "failure",
+            "error": "\x01" * 2000,
+        },
+    )
+    assert failed.status_code == 200
+    raw = await get_tool.coroutine(runtime, task_id=task["id"])
+    patched = _patch_tool_message(ToolMessage(content=raw, name="clip_get", tool_call_id="maximum"), ToolOutputConfig(), str(tmp_path))
+    receipt = json.loads(patched.content)["task"]
+    assert receipt["id"] == task["id"]
+    assert receipt["available_actions"] == ["retry"]
+    assert [output["id"] for output in receipt["outputs"]] == ["out-1", "out-2", "out-3"]
+    full = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+    assert full["outputs"][0]["error"] == "\x01" * 2000
