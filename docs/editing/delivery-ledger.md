@@ -23,6 +23,7 @@ Issue closure is not a production deployment claim.
 | Task | Implementation and evidence | Remaining acceptance boundary |
 | --- | --- | --- |
 | [T1 / #54](https://github.com/phananhson733-oss/ggwork-deerflow/issues/54) | Specification/task graph/mount decision recorded. Published spec byte equality and relative links checked at foundation. Workflow guidance moved to [agent workflow](../agents/overview.md) to preserve inherited instruction budgets. | Unified PR review pending |
+| [T2a / #62](https://github.com/phananhson733-oss/ggwork-deerflow/issues/62) | Generic exact-route bearer admission, live owner lookup and permission-free device principal; real Cookie/CSRF/device and revocation tests passed. No prefix bypass or session fallback. | Final integration review applies; this host prerequisite precedes T2 |
 | [T2 / #55](https://github.com/phananhson733-oss/ggwork-deerflow/issues/55) | Owner-scoped shared task repository and real host device-bearer admission; SQLite/PostgreSQL contract tests and actual host Cookie/CSRF/device flow passed. | Final source and packaged checks passed; unified review pending |
 | [T3 / #56](https://github.com/phananhson733-oss/ggwork-deerflow/issues/56) | Real Apple Silicon CLI, actual pinned whisper weights, FFmpeg render/decode, grant checks, stopped acknowledgment and immutable outputs exercised. Matched development wheels installed in an isolated environment. | Final recovery/source-receipt snapshot and fresh standalone wheel passed; signing/notarization/daemon are not supplied |
 | [T4 / #57](https://github.com/phananhson733-oss/ggwork-deerflow/issues/57) | Independent history/detail/revision UI and shared task cards; real browser task identity, directory draft, preview/download and file-upload pipeline passed. | Actual host `/clip-hook` query and browser live-card identity passed; unified review pending |
@@ -95,10 +96,11 @@ browser state remain outside Git.
 These short English synthetic cases establish functional behavior and measured
 file metadata. They do not establish long-drama narrative quality, multilingual
 ASR quality, broad model reliability, resource capacity or relay throughput.
-Exactly **seven successful provider HTTP 200 responses** were verified across
+Before the final review fixes, **seven successful provider HTTP 200 responses** were verified across
 the runtime logs: five planner calls and two conversation model calls. Automatic
-title generation was disabled only in the isolated QA config. No further live
-model calls were made after the final source-receipt upload. The one-process/one-replica RAM relay limitation remains.
+title generation was disabled only in the isolated QA config. These seven calls
+are historical functional evidence; the separately authorized post-fix fixed-content
+case remains pending below. The one-process/one-replica RAM relay limitation remains.
 No Vercel/Railway deployment, signing, notarization or daemon installation was
 performed. A push or merged PR would not change those facts.
 
@@ -114,8 +116,48 @@ The locked host environment's **25 editing and 177 pick Python files** matched
 the canonical source byte for byte. The new native environment's installed
 editing Python files also matched the canonical source.
 
-- `ggwork_edit-0.1.0-py3-none-any.whl`: SHA-256 `896d8dcadb530d27832d5e7af15728ce4fd18592213111e9bc866c74110db38c`
+- Post-review `ggwork_edit-0.1.0-py3-none-any.whl`: SHA-256 `1117c362e8ee8762abdd9893752d2eb026af68a817e88a6fb316a051138d4ed6`
 - `deerflow_extension_api-0.2.1-py3-none-any.whl`: SHA-256 `c54f6d145b3c439284db77bc5eccd284d55c9b4c327fc423817b9355e5330da1`
 
 These are development wheels, not signed/notarized applications. The public API
 wheel must be distributed with the native wheel. No production deploy was done.
+
+## Final review follow-up
+
+Standards review reported zero actionable findings. Spec review identified three:
+lost task cards after host output budgeting, midpoint/repeated dialogue cuts, and
+missing bounded long-input/fixed-content acceptance. The first two implementation
+findings and long-input admission were fixed in `91439bc5`; latest business main
+`3abc86b4` was merged before source `cf5c847f`, followed by the import-only fix
+`045d2e34`. Both canonical package snapshots were regenerated through the official
+extension manager. Follow-up Spec review approved this core implementation.
+
+- Real host budgeting now preserves compact receipts, stable task IDs, state and
+  recovery actions. History, plan cuts and grants are paginated; full task data
+  remains on the owner HTTP resource. No editing-tool budget exemption was added.
+- Invalid midpoint/repeated cuts fail without storing a plan. Complete ASR units
+  may be reordered; already delivered plans/outputs remain immutable.
+- A complete-message 32,000-byte input policy rejects over-limit requests before
+  model invocation, keeps the frozen source selection and returns actionable
+  new-selection guidance. Model context capacity is unknown, not inferred.
+- Post-fix shared tool/planner tests: **113 passed** across SQLite/PostgreSQL.
+  Full extension/native suite with the initial ten fixed content cases:
+  **256 passed, zero skips**. The initial full run hit a local template-config
+  variable error; rerunning with an isolated minimal config passed without source
+  changes or a real provider invocation.
+- Updated frontend: **3,038 passed / 45 existing skips**; check and production
+  build passed after the import-order fix. The five focused presentation tests
+  include actionable long-dialogue refusal.
+- New matched development wheels from `045d2e34` were installed into a fresh
+  **13-package** environment; all **25** editing Python files matched canonical
+  bytes. Host-only frameworks were absent, and the actual native CLI doctor
+  returned ready with pinned tiny.en weights and a synthetic grant. The local
+  delivery ZIP contains both wheels, native README, SHA256SUMS and safe evidence.
+
+The [15 annotated cases](quality-cases.md) include the [five retained-plan
+assessments](retained-plan-audit.json): four historical Hook plans fail today's
+boundary policy; the complete-unit highlight case passes. This does not modify
+old evidence or turn decoding into a narrative-quality score. The new real
+11-second conflict/stakes/challenge acceptance remains **pending**; the third
+Spec finding is not yet closed by deterministic fixtures alone. The broad-suite
+Lark/Docker limitations and no-production-deployment boundary above remain.

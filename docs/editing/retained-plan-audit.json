@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "policy": "punctuation-joined-ASR-v1",
+  "scope": "Five prior real planner calls among seven successful provider calls; the other two calls are conversation turns. Read-only retained-plan assessment.",
+  "mapping": "Public synthetic source SHA when recorded; frozen episode identity in safe projected exports. Test fixture uses m-1/m-2/m-3 aliases only.",
+  "results": [
+    {
+      "case": "directory",
+      "task_id": "7fbabde040ef4827a8bc1b1b7590a548",
+      "original_plan_sha256": "4fb99b13269105a8e65fc7aa088e8e3b49079d4344dec75c5ba05412ea2bcec3",
+      "would_admit_new_plan": false,
+      "reason": "Plan splits an ASR dialogue unit",
+      "existing_task_and_plan_modified": false,
+      "canonical_source_cuts": [
+        {
+          "output_id": "out-1",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.44,
+              "media_id": "m-2"
+            },
+            {
+              "start": 0.0,
+              "end": 3.5,
+              "media_id": "m-3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "browser-upload",
+      "task_id": "8e66b42a216f4e9ca5fc6594db2fb82b",
+      "original_plan_sha256": "e64fbfe0714eee7744b7d1728081ee91bcbf63f1cc76778991ba472092105a0e",
+      "would_admit_new_plan": false,
+      "reason": "Plan splits an ASR dialogue unit",
+      "existing_task_and_plan_modified": false,
+      "canonical_source_cuts": [
+        {
+          "output_id": "out-1",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.44,
+              "media_id": "m-2"
+            },
+            {
+              "start": 0.0,
+              "end": 3.4,
+              "media_id": "m-3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "highlight-targeted-retry",
+      "task_id": "fac46151d8ec4f898809aeadd176bded",
+      "original_plan_sha256": "ce5a012ef335ac2dd2e38e0ae5cc36fab1bf491877e9cc1f1e6254fb1a6506ed",
+      "would_admit_new_plan": true,
+      "reason": "Complete observed ASR dialogue units; no within-output repeated ranges.",
+      "existing_task_and_plan_modified": false,
+      "canonical_source_cuts": [
+        {
+          "output_id": "out-1",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.44,
+              "media_id": "m-2"
+            }
+          ]
+        },
+        {
+          "output_id": "out-2",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.3,
+              "media_id": "m-3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "linked-revision",
+      "task_id": "db149a978c094e16819ecb0812124d4b",
+      "original_plan_sha256": "d5ed68aee542a1a0f3284ca64e291c155e7f9e716b00f3ee56869f3d311615b2",
+      "would_admit_new_plan": false,
+      "reason": "Plan splits an ASR dialogue unit",
+      "existing_task_and_plan_modified": false,
+      "canonical_source_cuts": [
+        {
+          "output_id": "out-1",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.44,
+              "media_id": "m-2"
+            },
+            {
+              "start": 0.0,
+              "end": 3.3,
+              "media_id": "m-3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "final-receipt-upload",
+      "task_id": "f449fff9b09845c58568649b76c21eee",
+      "original_plan_sha256": "3218f467beadaead28ee646ab53537b6f0491d40b40a5356895c5dfeb290ffcb",
+      "would_admit_new_plan": false,
+      "reason": "Plan splits an ASR dialogue unit",
+      "existing_task_and_plan_modified": false,
+      "canonical_source_cuts": [
+        {
+          "output_id": "out-1",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.44,
+              "media_id": "m-2"
+            },
+            {
+              "start": 0.0,
+              "end": 3.5,
+              "media_id": "m-3"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
