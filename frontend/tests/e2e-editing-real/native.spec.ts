@@ -16,6 +16,7 @@ type QA = {
   directoryPath: string;
   receiveGrant: string;
   sourceFiles: { path: string; episode: number }[];
+  existingTaskId: string;
   completedTaskId: string;
   profile: string;
   durationSeconds: number;
@@ -85,6 +86,39 @@ test("real device status and directory draft make no task mutations before Start
   await page
     .locator("main.editing-workspace")
     .screenshot({ path: info.outputPath("directory-draft.png") });
+});
+
+test("real history and detail retain the same HTTP task identity", async ({
+  page,
+}, info) => {
+  await login(page);
+  const record = await task(page, qa.existingTaskId);
+  await page.goto("/workspace/editing");
+  const link = page.locator(`main a[href="/workspace/editing/${record.id}"]`);
+  await expect(link).toHaveText(record.title);
+  await link.click();
+  await expect(page).toHaveURL(new RegExp(`/workspace/editing/${record.id}$`));
+  await expect(
+    page
+      .locator("main")
+      .getByRole("heading", { name: record.title, exact: true }),
+  ).toBeVisible();
+  await page.getByText("任务记录与连接说明", { exact: true }).click();
+  await expect(
+    page.getByText(`任务标识：${record.id}`, { exact: true }),
+  ).toBeVisible();
+  await page
+    .locator("main.editing-workspace")
+    .screenshot({ path: info.outputPath("shared-task-identity.png") });
+  await info.attach("task-identity", {
+    body: JSON.stringify({
+      taskId: record.id,
+      status: record.status,
+      stage: record.stage,
+      completedCount: record.completed_count,
+    }),
+    contentType: "application/json",
+  });
 });
 
 async function verifyDelivery(page: Page, id: string, info: TestInfo) {
@@ -173,6 +207,10 @@ test("real native directory task decodes, downloads completely and retains origi
   page,
 }, info) => {
   await login(page);
+  expect(
+    qa.completedTaskId,
+    "A genuinely completed native directory task is required",
+  ).toBeTruthy();
   const original = await verifyDelivery(page, qa.completedTaskId, info);
   await page.getByRole("button", { name: "调整要求，创建新版本" }).click();
   await expect(page.getByLabel("提供素材方式")).toHaveValue("existing");

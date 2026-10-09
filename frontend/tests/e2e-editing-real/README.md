@@ -20,13 +20,14 @@ Keep the QA configuration outside the repository with owner-only file permission
   "directoryPath": ".",
   "receiveGrant": "incoming",
   "sourceFiles": [{ "path": "/synthetic/episode-01.mp4", "episode": 1 }],
+  "existingTaskId": "real-task-id-for-history-identity",
   "completedTaskId": "real-directory-task-id",
   "profile": "hook",
   "durationSeconds": 8
 }
 ```
 
-The directory draft test checks real device state without submitting anything.
+The directory draft and history identity tests read real state without submitting anything.
 The directory delivery test reuses a genuinely completed task and makes no model call. The
 submitted-file test creates one new task after its explicit Start click. Coordinate
 the cloud-call budget with the native operator before running it. Retries are disabled;
