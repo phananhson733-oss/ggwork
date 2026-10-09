@@ -990,3 +990,19 @@ Native mirror v27 published paired at 14:48 UTC with all eight gates passing, ze
 - Browser validation: three brand directions in light/dark modes, minimum badge contrast 4.68:1 / 6.95:1; at 390px, no page overflow or truncated labels and detail remains readable. These theme combinations used local synthetic fixtures with the real components.
 - Authenticated production readback confirms Return of the King remains neutral with green +9.2%, Off the Ice has blue historical stable with red -1%, and Taste of the Wild has green historical climb with green +1.7%. All three retain amber historical-window labels and their original numeric values; coverage remains 6,716 total / 2,816 with curves / 3,900 without usable curves. The evidence dialog and daily record navigation also work.
 - This release changes frontend presentation and documentation only; no Gateway deployment, data mutation, migration, schedule change, or manual Google query was performed.
+
+
+## 2026-10-09 — Completion Gateway and frontend production publication
+
+PR #73 merged as `2f12e68cfbbf9cb8b4186ff1428f72134a7afd9b`. Final CI on `21587cf7` passed: source 5,450 passed / 29 expected skips; host entrypoint, JSON sanitizer and account CLI 108 passed; real board integration 51 cases with no skips. CI fixes were dependency/fixture-only and independently reviewed.
+
+- Gateway deployment `f01793fc-c7cc-46c1-a051-359881412bc4` is successful. Actual installed digest is `sha256:4bd745bba1c491ad58879acdf08a67735b12063c553fbc18c67333f7161d814e`; private migration head `0011`; seven new tables deny PUBLIC, anon, authenticated, board/query readers and observer. Existing 15 selections and 67 candidate sets remain; native source and feedback stay enabled, current mirror is 29. Five installed query domains pass in 0.526–1.508 seconds, without model/provider or business writes. Startup logs show no extension/application startup failure.
+- Vercel production deployment `dpl_HMhQt44Qe2PZbmYHxGr41EiqEsoV` was built from the guarded Git archive, staged, verified and promoted. The canonical alias `ggwork-deerflow.vercel.app` now resolves to this exact READY deployment. Authenticated browser shows the new navigation and the empty personal planning list; the current QA identity correctly receives the existing source-authorization requirement in published review.
+- Backup restoration validated 137 tables, 2,715,642 rows, 18 sequences and constraints; the local production-clone migration retained exact content hashes for all 136 old tables excluding the version table. Recovery artifacts and schema ACL/role metadata are private.
+- A Gateway-only `ggwork_query_reader` login inherits existing `pick_board_reader` permissions (INHERIT true, SET/ADMIN false), uses verified TLS and default read-only transactions; no existing passwords changed. Connection cap 20 matches Supavisor, UTC is explicit. Reader URL/CA and exact native-source revision were verified in Railway.
+- Existing Trends compatibility redeployment is the next release step. Preserve its schedule, recovery approvals and breaker/budget state; do not manually collect Google data.
+
+Original 47 Agent attempts remain the acceptance boundary; this release adds none. Native VoiceOver remains deferred/unverified. Existing Queyu authorization and named MoboReels retention boundaries are unchanged.
+
+- `pick-deploy-guard target=gateway commit=2f12e68cfbbf9cb8b4186ff1428f72134a7afd9b prod_head=0008 chain_head=0011 at=2026-10-09T04:45:21Z`
+- `pick-deploy-guard target=frontend commit=2f12e68cfbbf9cb8b4186ff1428f72134a7afd9b at=2026-10-09T04:46:21Z`
