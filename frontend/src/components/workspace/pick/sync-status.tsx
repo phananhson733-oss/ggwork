@@ -139,10 +139,14 @@ export function SyncStatus() {
   return (
     <section
       className="bg-card space-y-3 rounded-lg border p-5"
-      aria-label="RealShort 数据同步"
+      aria-label={
+        data?.native_source ? "GGWork 数据同步" : "RealShort 数据同步"
+      }
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 className="font-semibold">RealShort 数据同步</h2>
+        <h2 className="font-semibold">
+          {data?.native_source ? "GGWork 数据同步" : "RealShort 数据同步"}
+        </h2>
         <Button
           size="sm"
           variant="outline"
@@ -174,6 +178,43 @@ export function SyncStatus() {
         </p>
       )}
       <MirrorLine mirror={data?.mirror} />
+      {data?.native_source && (
+        <div className="space-y-1 text-xs" data-testid="pick-native-source">
+          <p>直接采集数据；「立即同步」发布已采集的资料版本。</p>
+          {data.native_source.error && (
+            <p role="alert">暂时无法读取采集状态。</p>
+          )}
+          {data.native_source.jobs.map((job) => (
+            <p
+              key={job.name}
+              role={
+                job.status === "failed" || job.error_code ? "alert" : "status"
+              }
+            >
+              {
+                {
+                  cps: "ReelShort 片库与账单",
+                  catalog: "飞书剧单与发布记录",
+                  queyu: "鹊娱榜单与剧库",
+                }[job.name]
+              }
+              ：{STATUS_LABEL[job.status]} · 最近成功{" "}
+              {utc(job.last_success_at) ?? "尚未成功采集"}
+              {job.error_code === "moboreels_retained"
+                ? " · MoboReels 保留原资料和原日期"
+                : job.error_code === "source_access_denied"
+                  ? " · 飞书源表无查看权限，保留旧资料"
+                  : job.error_code === "queyu_auth_required"
+                    ? " · 需要接通鹊娱登录态，保留原有榜单日期"
+                    : job.error_code === "queyu_library_incomplete"
+                      ? " · 榜单已采集，剧库未完整更新"
+                      : job.error_code
+                        ? " · 本轮未完成，保留最近成功数据"
+                        : ""}
+            </p>
+          ))}
+        </div>
+      )}
       {data?.runs.length ? (
         <ul className="text-muted-foreground space-y-1 text-xs">
           {data.runs.slice(0, 5).map((run) => (

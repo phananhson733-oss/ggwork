@@ -60,7 +60,7 @@ async def tonight(settings: Settings, source: TaskSource, *, now: datetime, envi
     async with status_reader(TRENDS, environ=environ) as step:
         broken = await _breaker(step, target, now)
         day = Day(settings, target, budget.day_limits(settings.limits, target, broken))
-        refusals = await refusal_codes(step, day, broken)
+        refusals = await refusal_codes(step, day, broken, now=now)
         plan = build_plan(day, source, await source.units(step, target_date=target))
     start, deadline = day.limits.window(target)
     figures = payload_overview(day, plan, admission)

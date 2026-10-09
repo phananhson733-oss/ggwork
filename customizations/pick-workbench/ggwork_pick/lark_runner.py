@@ -186,6 +186,23 @@ def run_for_user(user_id: str, args: tuple[str, ...], *, timeout: float = TIMEOU
     return _run_user(user_id, args, timeout=timeout)
 
 
+@dataclass(frozen=True)
+class CatalogExport:
+    completed: Completed
+    files: dict[str, str]
+
+
+def run_catalog_export(user_id: str, kind: str, token: str, table: str, offset: int = 0) -> CatalogExport:
+    """Only operator-registered catalogue sources; credentials retain their owner isolation."""
+    from ggwork_pick.catalog_sources import export_arguments
+
+    args = export_arguments(user_id, kind, token, table, offset)
+    if command_risk(args[:2]) != "read":
+        raise LarkUnavailable("Catalog export must be read-only")
+    names = ("source.json",) if kind == "sheet" else ("source.ndjson", "source.manifest.json")
+    return _run_user(user_id, args, timeout=180, catalog_files=names)
+
+
 def run_feedback_export(user_id: str, table_id: str, field_ids: tuple[str, ...], offset: int, *, timeout: float = TIMEOUT_SECONDS) -> FeedbackExport:
     """Server-only fixed Base export. The general model tool still cannot read local artifacts."""
     from ggwork_pick.feedback.contracts import BASE_TOKEN, TABLE_BY_ID
@@ -221,14 +238,13 @@ def run_feedback_export(user_id: str, table_id: str, field_ids: tuple[str, ...],
     return _run_user(user_id, args, timeout=timeout, export=True)
 
 
-def _read_feedback_file(work: Path, name: str) -> str:
+def _read_feedback_file(work: Path, name: str, *, cap: int = 8 * 1024 * 1024) -> str:
     if not stat.S_ISDIR(work.lstat().st_mode):
         raise LarkUnavailable("反馈导出目录无效")
     # The child has been reaped. Still refuse symlinks/devices and bound reads before parsing any contents.
     descriptor = os.open(work / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(descriptor, "rb") as stream:
         info = os.fstat(stream.fileno())
-        cap = 8 * 1024 * 1024
         if not stat.S_ISREG(info.st_mode) or info.st_size > cap:
             raise LarkUnavailable("反馈导出不是有界普通文件")
         data = stream.read(cap + 1)
@@ -237,7 +253,7 @@ def _read_feedback_file(work: Path, name: str) -> str:
         return data.decode("utf-8")
 
 
-def _run_user(user_id: str, args: tuple[str, ...], *, timeout: float, export: bool = False):
+def _run_user(user_id: str, args: tuple[str, ...], *, timeout: float, export: bool = False, catalog_files: tuple[str, ...] = ()):
     binary, owner = resolve_binary(), run_as()
     deadline = time.monotonic() + timeout
     with _failures_as_unavailable("飞书凭据或 lark-cli 无法使用"), _user_lock(user_id, deadline), _slot(deadline):
@@ -250,6 +266,18 @@ def _run_user(user_id: str, args: tuple[str, ...], *, timeout: float, export: bo
             _hand_over(scratch, owner)
             completed = _execute(binary, args, scratch, owner, deadline)
             _keep_changes(user_id, scratch, real, before)
+            if catalog_files:
+                if completed.exit_code != 0 or completed.truncated:
+                    return CatalogExport(completed, {})
+                work = scratch / "work"
+                files = {}
+                for name in catalog_files:
+                    candidates = (name, "source.ndjson.manifest.json") if name == "source.manifest.json" else (name,)
+                    present = [value for value in candidates if (work / value).exists()]
+                    if len(present) != 1:
+                        raise LarkUnavailable("Catalog export artifact is missing or ambiguous")
+                    files[name] = _read_feedback_file(work, present[0], cap=32 * 1024 * 1024)
+                return CatalogExport(completed, files)
             if export:
                 if completed.exit_code != 0 or completed.truncated:
                     return FeedbackExport(completed)
@@ -386,7 +414,7 @@ def _run_process(args: list[str], *, timeout: float, **options) -> subprocess.Co
     out, err = _Capped(process.stdout), _Capped(process.stderr)
     try:
         returncode = process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
+    except BaseException:
         _kill(process, group=bool(options.get("start_new_session")))
         process.wait()
         raise

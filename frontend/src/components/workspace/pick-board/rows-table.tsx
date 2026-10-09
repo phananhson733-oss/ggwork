@@ -50,7 +50,7 @@ const HEADS: { text: string; hint?: string; right?: boolean }[] = [
   { text: "取货" },
   {
     text: "备用资源 · 限制",
-    hint: "剧单附没附网盘（链接不同步到本页，到 RealShort 证据页看），以及这个剧场的 YouTube 条件与下架记录",
+    hint: "剧单附没附网盘（当前资源按资料所有者权限读取），以及这个剧场的 YouTube 条件与下架记录",
   },
 ];
 

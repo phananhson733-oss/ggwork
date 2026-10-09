@@ -254,3 +254,7 @@ These apply repo-wide; module guides own the module-specific detail.
   `scripts/verify_versions.sh <ver>` to catch drift early. See [RELEASING.md](RELEASING.md).
 - **Don't edit `CLAUDE.md`** — it only contains `@AGENTS.md`. All agent guidance changes
   belong here in `AGENTS.md`; `CLAUDE.md` is a thin import shim.
+
+## Native selection data
+
+For selection-source collection, restored data, private resource links or native-mode deployment, read `docs/pick-workbench/native-source.md`. The Node package is `customizations/pick-source/`; its lifecycle and owner-isolated Feishu access belong to the existing pick extension, not the core agent runtime.

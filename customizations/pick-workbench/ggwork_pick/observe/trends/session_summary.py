@@ -44,7 +44,23 @@ def progress_entry(outcome: UnitOutcome) -> dict[str, Any]:
         return {"status": None, "reason": outcome.reason, "series": None, "bare": None, "user_type": None, "attempts": outcome.attempts}
     bare = result.bare_line.status.value if result.bare_line is not None else None
     series = result.timeline.status.value if result.timeline is not None else None
-    return {"status": result.status.value, "reason": None, "series": series, "bare": bare, "user_type": result.user_type, "attempts": outcome.attempts}
+    return {
+        "status": result.status.value,
+        "reason": None,
+        "series": series,
+        "bare": bare,
+        "user_type": result.user_type,
+        "attempts": outcome.attempts,
+        **(
+            {
+                "lines": {
+                    term: (result.timeline.line(term).status.value if result.timeline and result.timeline.line(term) else series) for term in outcome.unit.terms
+                }
+            }
+            if outcome.unit.members
+            else {}
+        ),
+    }
 
 
 def fetched(entry: Mapping[str, Any]) -> bool:
@@ -64,7 +80,12 @@ class ZeroRate:
 
 def all_zero_rate(units: Sequence[QueryUnit], progress: Mapping[str, Mapping[str, Any]]) -> ZeroRate:
     """The share of the drama units' judgeable bare series (ok or ok_zero) that were all zero."""
-    bare = [progress[unit.key]["bare"] for unit in units if unit.item in DRAMA_ITEMS and unit.key in progress]
+    bare = [
+        status
+        for unit in units
+        if unit.item in DRAMA_ITEMS and unit.key in progress
+        for status in (list(progress[unit.key].get("lines", {}).values()) if unit.members else [progress[unit.key]["bare"]])
+    ]
     judged = [status for status in bare if status in JUDGED]
     if not judged:
         return ZeroRate(None, 0)

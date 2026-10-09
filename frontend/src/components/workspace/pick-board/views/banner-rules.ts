@@ -140,8 +140,24 @@ function gatewayBanners({ board, sync }: BannerInput): Banner[] {
       },
     ];
   if (!mirror) return personal;
+  const nativeWarnings = (sync.data.native_source?.jobs ?? []).flatMap(
+    (job): Banner[] => {
+      const text =
+        job.error_code === "moboreels_retained"
+          ? "MoboReels 剧单保留上次成功资料；本轮未刷新该剧场，原导入时间与榜单日期保持不变。"
+          : job.error_code === "queyu_auth_required"
+            ? "鹊娱自动采集尚未接通，当前沿用已有榜单与原始日期。"
+            : job.status === "failed"
+              ? `数据采集未完成：${{ cps: "ReelShort 片库与账单", catalog: "飞书剧单与发布记录", queyu: "鹊娱榜单与剧库" }[job.name]}；保留最近成功资料。`
+              : null;
+      return text
+        ? [{ key: `native-${job.name}`, role: "alert", text, link: TO_IMPORTS }]
+        : [];
+    },
+  );
   return [
     ...personal,
+    ...nativeWarnings,
     ...when(mirror.behind, behindBanner(mirror, board)),
     ...when(mirror.alert, alertBanner(mirror)),
     ...when(!mirror.enabled, {
