@@ -450,7 +450,8 @@ async def test_self_contained_mov_matroska_webm_remain_supported(tmp_path, exten
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("submit_allowed", [False, True])
-async def test_upgrade_reconciles_legacy_planning_journal_without_resubmitting(tmp_path, monkeypatch, submit_allowed):
+@pytest.mark.parametrize("pending_stage", [False, True])
+async def test_upgrade_reconciles_legacy_planning_journal_without_resubmitting(tmp_path, monkeypatch, submit_allowed, pending_stage):
     import json
 
     import httpx
@@ -460,7 +461,10 @@ async def test_upgrade_reconciles_legacy_planning_journal_without_resubmitting(t
     store = configured(tmp_path)
     manifest = await NativeWorker(store).verify_manifest(await NativeWorker(store).discover("drama", "."))
     attempt = {"id": "legacy-planning-attempt", "fence": 1, "output_ids": ["out-1"]}
-    store.save_journal({"task_id": "task-1", "attempt": attempt, **({"planner_submit_allowed": True} if submit_allowed else {})})
+    journal = {"task_id": "task-1", "attempt": attempt, **({"planner_submit_allowed": True} if submit_allowed else {})}
+    if pending_stage:
+        journal["pending_report"] = {"attempt_id": attempt["id"], "fence": 1, "event_id": "old-stage", "kind": "stage", "stage": "transcribing"}
+    store.save_journal(journal)
     task = {
         "id": "task-1",
         "status": "running",
@@ -479,6 +483,8 @@ async def test_upgrade_reconciles_legacy_planning_journal_without_resubmitting(t
             model_calls.append(body["attempt_id"])
             return httpx.Response(502, json={"detail": {"code": "planner_unavailable", "retry": "explicit"}})
         if request.url.path.endswith("/report"):
+            if body["kind"] == "stage":
+                task["stage"] = body["stage"]
             if body["kind"] == "failure":
                 failures.append(body["error"])
                 task["status"] = "failed"

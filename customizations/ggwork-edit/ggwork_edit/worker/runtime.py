@@ -242,6 +242,16 @@ class WorkerSession:
                 self.state = {}
                 self.save()
                 return
+            if (
+                task.get("plan") is None
+                and task.get("stage") in ("planning", "awaiting_plan")
+                and not self.state.get("planner_submit_allowed")
+                and "planning_request" not in self.state
+            ):
+                # Preserve the authoritative planning evidence before replaying an
+                # older stage receipt that could otherwise regress the stage.
+                self.state["planning_request"] = {"lookups": 0, "error": "planner_outcome_unknown"}
+                self.save()
             pending = self.state.get("pending_report")
             if (
                 task.get("plan") is not None
@@ -264,11 +274,6 @@ class WorkerSession:
                     return
             manifest, requirements = task["source_manifest"], task["requirements"]
             if task.get("plan") is None:
-                if task.get("stage") in ("planning", "awaiting_plan") and not self.state.get("planner_submit_allowed") and "planning_request" not in self.state:
-                    # A pre-upgrade journal cannot prove that its planning stage
-                    # never submitted. Reconcile it; only a new claim permits POST.
-                    self.state["planning_request"] = {"lookups": 0, "error": "planner_outcome_unknown"}
-                    self.save()
                 transcripts = None
                 if "planning_request" not in self.state:
                     await self.report("stage", stage="transcribing")
