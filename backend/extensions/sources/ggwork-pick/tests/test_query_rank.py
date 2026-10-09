@@ -441,6 +441,9 @@ async def test_counterpart_typescript_loaders_on_same_committed_synthetic_mirror
         str(binary),
         "run",
         "tests/unit/server/pick-board/query-rank-parity.integration.test.ts",
+        "--reporter",
+        "json",
+        "--silent=true",
         cwd=root / "frontend",
         env=env,
         stdout=asyncio.subprocess.PIPE,
@@ -448,6 +451,17 @@ async def test_counterpart_typescript_loaders_on_same_committed_synthetic_mirror
     )
     output, _ = await asyncio.wait_for(process.communicate(), timeout=60)
     assert process.returncode == 0, output.decode()
+    report_text = output.decode()
+    report = json.loads(report_text[report_text.index("{") :])
+    assert report["status"] == "pass", report_text
+    summary = report["summary"]
+    assert {key: summary[key] for key in ("testFiles", "tests", "passedTests", "failedTests", "skippedTests")} == {
+        "testFiles": 1,
+        "tests": 1,
+        "passedTests": 1,
+        "failedTests": 0,
+        "skippedTests": 0,
+    }, report_text
 
 
 @pytest.mark.asyncio

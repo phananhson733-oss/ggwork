@@ -81,6 +81,23 @@ def frontend_environment(fixture: Path, origin: str) -> dict[str, str]:
     }
 
 
+def require_passing_report(output: str, *, expected_tests: int) -> None:
+    """A successful runner exit alone can conceal an entirely skipped fixture suite."""
+    report = json.loads(output[output.index("{") :])
+    summary = report["summary"]
+    if report["status"] != "pass" or any(
+        summary[key] != value
+        for key, value in {
+            "testFiles": 1,
+            "tests": expected_tests,
+            "passedTests": expected_tests,
+            "failedTests": 0,
+            "skippedTests": 0,
+        }.items()
+    ):
+        raise ValueError(f"Parity matrix is incomplete or failed: {summary}")
+
+
 def _run(
     cluster_file: Path, output: Path, gateway_root: Path, candidate_adapters: bool
 ) -> int:
@@ -364,6 +381,9 @@ from app.gateway.pick_asgi import app
             "rstest",
             "run",
             "common-query-parity.integration.test.ts",
+            "--reporter",
+            "json",
+            "--silent=true",
         ]
         with (output / "parity-results.log").open("w", encoding="utf-8") as stream:
             tests = subprocess.Popen(
@@ -382,6 +402,11 @@ from app.gateway.pick_asgi import app
                     # test worker before tearing down its Gateway/database.
                     os.killpg(tests.pid, signal.SIGKILL)
                     tests.wait(timeout=5)
+        if return_code == 0:
+            require_passing_report(
+                (output / "parity-results.log").read_text(encoding="utf-8"),
+                expected_tests=5,
+            )
         print(
             json.dumps(
                 {

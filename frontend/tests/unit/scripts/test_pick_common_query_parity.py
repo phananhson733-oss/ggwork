@@ -1,6 +1,7 @@
 """Offline public harness-config boundary checks; never opens a database/socket."""
 
 import importlib.util
+import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
@@ -15,6 +16,35 @@ spec.loader.exec_module(module)
 
 
 class ClusterConfiguration(unittest.TestCase):
+    def test_report_requires_the_complete_unskipped_parity_matrix(self):
+        report = {
+            "status": "pass",
+            "summary": {
+                "testFiles": 1,
+                "tests": 5,
+                "passedTests": 5,
+                "failedTests": 0,
+                "skippedTests": 0,
+            },
+        }
+        module.require_passing_report(json.dumps(report), expected_tests=5)
+        for changes in (
+            {"skippedTests": 1, "passedTests": 4},
+            {"tests": 0, "passedTests": 0},
+            {"testFiles": 0},
+            {"failedTests": 1},
+            {"tests": 4, "passedTests": 4},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                module.require_passing_report(
+                    json.dumps({**report, "summary": {**report["summary"], **changes}}),
+                    expected_tests=5,
+                )
+        with self.assertRaises(ValueError):
+            module.require_passing_report(
+                json.dumps({**report, "status": "fail"}), expected_tests=5
+            )
+
     def test_libpq_overrides_and_nonlocal_targets_are_rejected(self):
         for target in (
             "postgresql://synthetic@127.0.0.1:5432/postgres?host=outside.example.invalid",
