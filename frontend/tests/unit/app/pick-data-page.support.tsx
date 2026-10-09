@@ -102,6 +102,8 @@ export function pickBoardMock(state: PageState) {
 }
 
 export const navigationMock = () => ({
+  usePathname: () => "/workspace/pick-data",
+  useSearchParams: () => new URLSearchParams("v=7&tab=rows"),
   redirect: (url: string) => {
     throw new Error(`NEXT_REDIRECT ${url}`);
   },
