@@ -105,6 +105,12 @@ Single-run schedule edits retain the mounted task's original `run_at` while its 
 
 ### Theme and brand
 
+Trends list and detail views share `components/workspace/radar/semantic.tsx` and
+`core/radar/semantic-tones.ts`. Preserve the semantic colors and visible labels
+defined in [Trends UX SPEC](../docs/pick-workbench/trends-ux-spec.md); historical
+signals, data freshness, measured zero, missing evidence and collection failures
+must remain distinct. Brand styling must not flatten these into neutral badges.
+
 `src/styles/ggwork-theme.css` (Claude Design project, direction 1c; imported by
 `globals.css`) is the only palette: tokens on `:root`, dark values on `.dark`
 (next-themes sets it on `<html>`; dark mode only swaps tokens), 1a/1b alternates
