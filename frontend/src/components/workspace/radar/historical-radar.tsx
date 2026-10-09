@@ -1,20 +1,17 @@
 "use client";
 
+import { Minus } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  explain,
-  fmt,
-  growth,
-  statuses,
-  trendsLink,
-} from "@/core/radar/presentation";
+import { explain, fmt, statuses, trendsLink } from "@/core/radar/presentation";
 import { listSchema, statsSchema, type RadarRow } from "@/core/radar/schema";
+import { historicalSignalTone } from "@/core/radar/semantic-tones";
 import { useRadarRead } from "@/core/radar/use-radar-read";
 
 import { RadarCurve } from "./curve";
 import { RadarDetailDialog } from "./detail";
+import { HistoricalWindowBadge, RadarGrowth, TrendBadge } from "./semantic";
 
 const initial = {
   search: "",
@@ -123,7 +120,11 @@ export function HistoricalRadar({ dailyHref }: { dailyHref: string }) {
             key={label}
             className="border-border bg-card rounded-xl border p-5"
           >
-            <p className="text-2xl font-semibold tabular-nums">{value}</p>
+            <p
+              className={`text-2xl font-semibold tabular-nums ${label === "带历史曲线" ? "text-info-ink" : label === "无可用曲线 / 待核验" ? "text-warning-ink" : "text-ink-1"}`}
+            >
+              {value}
+            </p>
             <p className="text-muted-foreground mt-1 text-sm">{label}</p>
           </div>
         ))}
@@ -300,9 +301,14 @@ export function HistoricalRadar({ dailyHref }: { dailyHref: string }) {
                         </div>
                       </td>
                       <td className="min-w-56 px-4 py-5">
-                        <span className="bg-muted rounded px-2 py-1 text-xs">
+                        <TrendBadge
+                          tone={historicalSignalTone(reading.label)}
+                          icon={
+                            reading.label === "历史高位平稳" ? Minus : undefined
+                          }
+                        >
                           {reading.label}
-                        </span>
+                        </TrendBadge>
                         <p className="text-muted-foreground mt-3 text-xs leading-5">
                           {reading.reason}
                         </p>
@@ -321,23 +327,35 @@ export function HistoricalRadar({ dailyHref }: { dailyHref: string }) {
                               {points[0]!.date} — {points.at(-1)!.date}
                             </p>
                             <p className="mt-1 text-xs">
-                              末日指数 {fmt(points.at(-1)!.value)} · 非零{" "}
-                              {points.filter((p) => p.value > 0).length}/
-                              {points.length} 个日点
+                              末日指数{" "}
+                              <strong>{fmt(points.at(-1)!.value)}</strong> ·
+                              非零{" "}
+                              <strong>
+                                {points.filter((p) => p.value > 0).length}/
+                                {points.length}
+                              </strong>{" "}
+                              个日点
                             </p>
                             <p className="mt-1 text-xs">
-                              末 7 日均值较前 7 日：{growth(r.pilot)}
+                              末 7 日均值较前 7 日：
+                              <RadarGrowth pilot={r.pilot} />
                             </p>
                           </>
                         ) : (
                           <p className="text-muted-foreground mt-2 text-xs">
-                            {statuses[r.series_status]}
+                            <TrendBadge
+                              tone={historicalSignalTone(
+                                statuses[r.series_status],
+                              )}
+                            >
+                              {statuses[r.series_status]}
+                            </TrendBadge>
                           </p>
                         )}
                         {r.is_older_window ? (
-                          <p className="text-warning mt-1 text-xs">
-                            较早历史窗口
-                          </p>
+                          <div className="mt-2">
+                            <HistoricalWindowBadge />
+                          </div>
                         ) : null}
                       </td>
                       <td className="text-muted-foreground min-w-44 px-4 py-5 text-xs leading-6">

@@ -241,7 +241,7 @@ describe("the table", () => {
     expect(
       lost.querySelector('[data-trends-result="not_fetched"]')?.textContent,
     ).toBe("这晚未查到被限流（429）");
-    expect(lost.querySelector("svg")).toBeNull();
+    expect(lost.querySelector('svg[role="img"]')).toBeNull();
     const cells = within(lost).getAllByRole("cell");
     expect(cells[2]?.textContent).toBe("—");
     expect(lost.querySelector("[data-trends-change]")?.textContent).toBe("—");
@@ -254,7 +254,7 @@ describe("the table", () => {
     expect(
       quiet.querySelector('[data-trends-result="no_data"]')?.textContent,
     ).toBe("Google 未返回数据Google 没有返回曲线");
-    expect(quiet.querySelector("svg")).toBeNull();
+    expect(quiet.querySelector('svg[role="img"]')).toBeNull();
   });
 
   it("draws a curve of zeros as data: Google's index, too little to judge, never 'no data'", () => {
@@ -402,7 +402,7 @@ it("filters the same batch without fetching or replacing missing curves", () => 
     target: { value: "Lost Night" },
   });
   expect(titles(root)).toEqual(["Lost Night"]);
-  expect(root.querySelector("tbody svg")).toBeNull();
+  expect(root.querySelector('tbody svg[role="img"]')).toBeNull();
   fireEvent.change(screen.getByRole("searchbox", { name: "搜索剧目" }), {
     target: { value: "" },
   });
