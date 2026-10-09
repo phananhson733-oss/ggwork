@@ -24,7 +24,7 @@ Initial record: 2026-10-08. This ledger separates source, automated checks, brow
 | [T5 / #58](https://github.com/phananhson733-oss/ggwork-deerflow/issues/58) | Pending; implementation owner records tested revision and checks | Pending; issue remains open |
 | [T6 / #59](https://github.com/phananhson733-oss/ggwork-deerflow/issues/59) | Pending; implementation owner records tested revision and checks | Pending; issue remains open |
 | [T7 / #60](https://github.com/phananhson733-oss/ggwork-deerflow/issues/60) | Pending; implementation owner records tested revision and checks | Pending; issue remains open |
-| [T8 / #61](https://github.com/phananhson733-oss/ggwork-deerflow/issues/61) | Pending; implementation owner records tested revision and checks | Pending; issue remains open |
+| [T8 / #61](https://github.com/phananhson733-oss/ggwork-deerflow/issues/61) | Acceptance worktree based on `ca765aef`; official manager installed editing and refreshed pick snapshots; image copies both editing Skills; repeatable package/live checks in [acceptance runbook](acceptance.md) | SQLite + disposable PostgreSQL + real native suite: 129 passed; strict blocking-I/O: 149 passed; legacy filter/replay/save checks: 130 passed. Live cloud planning is blocked by configured provider DNS; browser/media completion remains open. |
 
 ## Acceptance and release gates
 
@@ -42,3 +42,51 @@ Initial record: 2026-10-08. This ledger separates source, automated checks, brow
 | Integration PR | One business-repository PR with exact test revision and explicit passed/pending gates | Not created by T1 |
 
 A GitHub push or merged PR is not a production release: this project uses CLI deployments. Do not mark native, quality or deployment acceptance complete from unit/API tests, simulated status or prior deployment notes. Preserve outstanding gates and open issues when the integrated implementation cannot yet supply the required evidence.
+
+## T8 isolated acceptance record
+
+Recorded 2026-10-08 against integrated source `ca765aef` plus T8 packaging changes.
+The package regression test first failed on the stale pick gate snapshot and
+missing container Skills; both passed after official manager regeneration and
+image updates. A fresh locked backend environment imported both extension
+packages. Native development wheels were rebuilt as a matched pair and installed
+in a separate environment; real Apple Silicon doctor reported ready using the
+pinned synthetic model (`921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f`).
+
+An isolated TLS Gateway, new QA account, SQLite app home and real native CLI
+exercised host login/session Cookie, CSRF, device pairing/bearer, explicit grants,
+directory discovery, hash verification and actual local ASR. Task
+`7fbabde040ef4827a8bc1b1b7590a548` reached cloud planning. The configured Azure
+provider then failed DNS resolution (`gaierror` errno 8, `APIConnectionError`).
+The owned CLI was stopped after two observed failed provider attempts to prevent
+unbounded automatic retries. There is no successful cloud plan, rendered output
+or browser relay claim from this run. Provider failure handling and live model
+availability must be resolved before marking this gate complete.
+
+Automated commands and boundaries:
+
+- Editing package: `EDIT_TEST_PG_URL` points to an owned ephemeral PostgreSQL 17
+  cluster; `GGWORK_NATIVE_ASSETS` supplies real pinned weights and three synthetic
+  episodes. **129 passed**, no PostgreSQL/native skips.
+- Backend strict blocking suite: **149 passed**.
+- Legacy pick query guards, selection/save receipt, mirror replay, board replay
+  cases and board fixture: **130 passed**, with SQLite and disposable PostgreSQL.
+- Backend broad offline suite: 18,481 passed, 174 skipped, 3 deselected,
+  3 failures on the first run. Two integration guidance inventory/budget failures
+  were corrected; the native subprocess test needs the current virtualenv on PATH.
+  Focused rerun and frontend/browser final evidence are recorded separately.
+
+All provider variables were loaded by exact name into the isolated Gateway.
+Inherited database, pick sync, authentication and app-home variables were cleared;
+primary `.env` was not sourced. Worker credentials, TLS private keys and raw logs
+remain outside Git. No production database, media, deployment or signing step was
+used. One process/replica remains a deployment constraint rather than a throughput
+measurement.
+
+The real owner stop request remained `stopping` while the native CLI was offline.
+Restarting that same paired CLI produced its real acknowledgment and transitioned
+the task to `stopped`. All three synthetic original SHA-256 values still matched
+the frozen source manifest. The browser authenticated against this Gateway,
+verified directory draft behavior without task submission, and followed history
+into the same stopped task ID. These establish preparation/identity/stop behavior,
+not successful rendering or media delivery.

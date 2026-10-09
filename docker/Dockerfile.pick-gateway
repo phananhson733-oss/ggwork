@@ -43,6 +43,8 @@ WORKDIR /app
 COPY --from=builder /app/backend ./backend
 COPY config.pick.example.yaml ./config.pick.example.yaml
 COPY skills/public/pick-drama ./skills/public/pick-drama
+COPY skills/public/clip-highlight ./skills/public/clip-highlight
+COPY skills/public/clip-hook ./skills/public/clip-hook
 ENV PATH="/app/backend/.venv/bin:$PATH"
 EXPOSE 8001
 CMD ["sh", "-c", "cd backend && python -m app.gateway.pick_entrypoint"]
