@@ -105,6 +105,12 @@ Single-run schedule edits retain the mounted task's original `run_at` while its 
 
 ### Theme and brand
 
+Trends list and detail views share `components/workspace/radar/semantic.tsx` and
+`core/radar/semantic-tones.ts`. Preserve the semantic colors and visible labels
+defined in [Trends UX SPEC](../docs/pick-workbench/trends-ux-spec.md); historical
+signals, data freshness, measured zero, missing evidence and collection failures
+must remain distinct. Brand styling must not flatten these into neutral badges.
+
 `src/styles/ggwork-theme.css` (Claude Design project, direction 1c; imported by
 `globals.css`) is the only palette: tokens on `:root`, dark values on `.dark`
 (next-themes sets it on `<html>`; dark mode only swaps tokens), 1a/1b alternates
@@ -288,7 +294,9 @@ This checkout adds `/workspace/picks` and `/workspace/pick-data`, `core/pick/`, 
 
 Pick-board pagination must round-trip every generated page without a fixed catalog-size cap. `__unknown__` is the URL-only empty-language filter; bind it as `''` in SQL. Explicit tab changes clear replay identity, but candidate → evidence → return preserves `result`, page and version through the server page. Catalog and posted freshness are separate: the latter comes from the chosen version's `meta.control.postedStats.importedAt`. Assess archived versions at their capture time, and never use a fresh mirror timestamp to claim fresh upstream data.
 
-The Trends tab keeps its authenticated server fetch and statistics in the existing route/view. `pick-board/trends-table-explorer.tsx` is a small client island for same-batch text/platform/result filters and CSV export; it must not fetch replacement observations or import server modules. Rows use the shared GGWork theme and existing completeness/zero-value rules. Production data must never be filled from the standalone DramaRadar US snapshot.
+The daily Trends view (`rv=daily`) keeps its authenticated server fetch and statistics in the existing route/view. `pick-board/trends-table-explorer.tsx` is a small client island for same-batch text/platform/result filters and CSV export; it must not fetch replacement observations or import server modules. Rows use the shared GGWork theme and existing completeness/zero-value rules. Production data must never be filled from the standalone DramaRadar US snapshot.
+
+The default Trends view is the authenticated historical DramaRadar client in `components/workspace/radar`, with validated GET-only `/api/pick/radar` reads. Keep its sealed US snapshot and experimental scores separate from live worldwide observations and candidate ranking. The default view must retain coverage cards, both historical tabs, six filters, pagination, full-match export and evidence details; it is not a single-night table.
 
 ### Personal selections
 

@@ -56,6 +56,41 @@ def test_feedback_export_reads_bounded_artifacts_before_scratch_cleanup(monkeypa
     assert not Path(call.kwargs["cwd"]).exists()
 
 
+@pytest.mark.parametrize("kind", ["sheet", "base"])
+def test_catalog_export_keeps_large_artifacts_and_reaps_real_descendants(monkeypatch, tmp_path, kind):
+    """Native exports retain their larger limit under the completion process runner."""
+    ready, survived, scratch_record = (tmp_path / name for name in ("child-ready", "survived", "scratch"))
+    child = (
+        "import os, time; from pathlib import Path; os.close(1); os.close(2); "
+        f"Path({str(ready)!r}).write_text('ready'); time.sleep(1); Path({str(survived)!r}).write_text('late')"
+    )
+    binary = tmp_path / "synthetic-catalog-cli"
+    binary.write_text(
+        f"#!{sys.executable}\nimport subprocess, sys, time\nfrom pathlib import Path\n"
+        f"Path({str(scratch_record)!r}).write_text(str(Path.cwd().parent))\n"
+        "name = 'source.json' if sys.argv[1] == 'sheets' else 'source.ndjson'\n"
+        "Path(name).write_text('x' * (9 * 1024 * 1024))\n"
+        "if name.endswith('ndjson'): Path('source.ndjson.manifest.json').write_text('{}')\n"
+        f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+        f"while not Path({str(ready)!r}).exists(): time.sleep(0.01)\n"
+        "print('{}')\n",
+        encoding="utf-8",
+    )
+    binary.chmod(0o700)
+    lark_runner._BINARY_CACHE["path"] = str(binary)
+    monkeypatch.setattr(lark_runner, "command_risk", lambda *_args, **_kwargs: "read")
+    _user_tree()
+    token, table = ("RRBAszuhOhNM8StMqRVcGknSnyf", "7ba1a7") if kind == "sheet" else ("OtnsbnRnwaLmnVsJByscTkFMntd", "tbl5Kzrhuz9B7LTE")
+    result = lark_runner.run_catalog_export("alice", kind, token, table)
+    assert result.completed.exit_code == 0 and not result.completed.truncated
+    assert len(result.files["source.json" if kind == "sheet" else "source.ndjson"]) == 9 * 1024 * 1024
+    if kind == "base":
+        assert result.files["source.manifest.json"] == "{}"
+    assert not Path(scratch_record.read_text()).exists()
+    time.sleep(1.1)
+    assert not survived.exists(), "export returned with an owned descendant still running"
+
+
 def test_feedback_export_rejects_symlinks_without_reading_target(monkeypatch, tmp_path):
     private = tmp_path / "private"
     private.write_text("not an export", encoding="utf-8")

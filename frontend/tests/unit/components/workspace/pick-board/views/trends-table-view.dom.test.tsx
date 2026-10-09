@@ -211,7 +211,9 @@ describe("the table", () => {
       "Zero Curve Nights",
     ]);
     const change = screen.getByRole("link", { name: "按变化" });
-    expect(change.getAttribute("href")).toBe("/workspace/pick-data?tab=trends");
+    expect(change.getAttribute("href")).toBe(
+      "/workspace/pick-data?tab=trends&rv=daily",
+    );
     expect(change.getAttribute("data-prefetch")).toBe("false");
   });
 
@@ -239,7 +241,7 @@ describe("the table", () => {
     expect(
       lost.querySelector('[data-trends-result="not_fetched"]')?.textContent,
     ).toBe("这晚未查到被限流（429）");
-    expect(lost.querySelector("svg")).toBeNull();
+    expect(lost.querySelector('svg[role="img"]')).toBeNull();
     const cells = within(lost).getAllByRole("cell");
     expect(cells[2]?.textContent).toBe("—");
     expect(lost.querySelector("[data-trends-change]")?.textContent).toBe("—");
@@ -252,7 +254,7 @@ describe("the table", () => {
     expect(
       quiet.querySelector('[data-trends-result="no_data"]')?.textContent,
     ).toBe("Google 未返回数据Google 没有返回曲线");
-    expect(quiet.querySelector("svg")).toBeNull();
+    expect(quiet.querySelector('svg[role="img"]')).toBeNull();
   });
 
   it("draws a curve of zeros as data: Google's index, too little to judge, never 'no data'", () => {
@@ -400,7 +402,7 @@ it("filters the same batch without fetching or replacing missing curves", () => 
     target: { value: "Lost Night" },
   });
   expect(titles(root)).toEqual(["Lost Night"]);
-  expect(root.querySelector("tbody svg")).toBeNull();
+  expect(root.querySelector('tbody svg[role="img"]')).toBeNull();
   fireEvent.change(screen.getByRole("searchbox", { name: "搜索剧目" }), {
     target: { value: "" },
   });
@@ -415,4 +417,18 @@ it("does not call a finished partial batch fully collected", () => {
   expect(root.querySelector("h2")?.textContent).toContain("已结束，未采完整");
   expect(root.textContent).not.toContain("US 历史快照");
   expect(screen.getByRole("button", { name: "导出当前筛选 CSV" })).toBeTruthy();
+});
+
+it("shows actual group terms beside each grouped observation", () => {
+  show(
+    table([
+      {
+        ...ROWS[0]!,
+        query_group: "group:123456789abc",
+        comparison_terms: [ROWS[0]!.term, "Another drama"],
+      },
+    ]),
+  );
+  expect(screen.getByText("2 词同组查询")).toBeTruthy();
+  expect(screen.getByText(/指数仅在同组、同市场及窗口内可比/)).toBeTruthy();
 });

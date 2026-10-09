@@ -15,13 +15,13 @@ import {
   type PickRequest,
 } from "@/core/pick-board/request";
 import type { BoardRules } from "@/core/pick-board/rules";
-import { dramaPath, realshortRowUrl } from "@/core/pick-board/site";
 import type { PickRow, RowDetail } from "@/server/pick-board";
 
 import { FactTags, SignalPills, YoutubePill } from "./cells";
-import { ExternalLink, RuleLink } from "./links";
+import { RuleLink } from "./links";
 import { PostedRecordCard } from "./posted-record";
 import { QueyuButton } from "./queyu-button";
+import { ResourceLink } from "./resource-link";
 import { TAB_LABELS, pickHref, rowHref } from "./toolbar";
 
 /**
@@ -143,13 +143,8 @@ function Material({
       <br />
       {row.hasPan ? (
         <span className="text-helper text-xs">
-          有网盘（网盘信息不同步到本页，到 RealShort 证据页查看）{" "}
-          <ExternalLink
-            href={realshortRowUrl(row.rowKey)}
-            className="text-link hover:underline"
-          >
-            RealShort 证据页 ↗
-          </ExternalLink>
+          有网盘（按资料所有者权限读取当前取货信息）{" "}
+          <ResourceLink rowKey={row.rowKey} />
         </span>
       ) : (
         <span className="text-helper text-xs">这一行剧单没附网盘</span>
@@ -283,12 +278,7 @@ function SiteDramas({ detail, req }: { detail: RowDetail; req: PickRequest }) {
               {d.chapterCount} 集
               {d.payStart > 0 ? ` · 第 ${d.payStart} 集起付费` : ""}
             </span>
-            <ExternalLink
-              href={dramaPath(d.locale, d.slug)}
-              className="text-link hover:underline"
-            >
-              公开页
-            </ExternalLink>
+            <ResourceLink rowKey={reelshortRowKey(d.id)} />
             <Link
               prefetch={false}
               href={rowHref(req, reelshortRowKey(d.id))}

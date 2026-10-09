@@ -92,3 +92,6 @@ skills/*
 skills/public/*
 !skills/public/pick-drama/
 !skills/public/pick-drama/SKILL.md
+
+# Private migration backups must never enter a build context.
+.private/

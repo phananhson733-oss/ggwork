@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from ggwork_pick.feedback.settings import FeedbackSettings
 from ggwork_pick.feedback.sync import FeedbackSyncService
+from ggwork_pick.native_source import NativeSourceProcess
 from ggwork_pick.repository import PickRepository
 from ggwork_pick.schedule import CATCH_UP_DELAY_SECONDS, guarded_pull, run_schedule
 
@@ -68,7 +69,7 @@ class SyncSettings:
     def from_env(cls, environ: Mapping[str, str] | None = None) -> SyncSettings:
         env = os.environ if environ is None else environ
         return cls(
-            feed_url=env.get("PICK_REALSHORT_FEED_URL", "").strip(),
+            feed_url="http://127.0.0.1:8003" if env.get("PICK_SOURCE_ENABLED") == "1" else env.get("PICK_REALSHORT_FEED_URL", "").strip(),
             feed_token=env.get("PICK_REALSHORT_FEED_TOKEN", "").strip(),
             export_token=env.get(EXPORT_TOKEN_ENV, "").strip(),
             # Exactly "1" (U39): not stripped, so " 1" or "true" leave the mirror off.
@@ -111,6 +112,7 @@ class PickService:
         feedback_settings: FeedbackSettings | None = None,
     ):
         self.data_dir = data_dir
+        self.native_source = NativeSourceProcess()
         self.run_evidence_reader = None
         self.query_reader = None
         self.session_factory: async_sessionmaker | None = None
@@ -226,6 +228,7 @@ class PickService:
             raise RuntimeError("选剧需要持久化数据库，不能使用 memory backend")
         self.run_evidence_reader = deps.run_evidence_reader
         await self.initialize(deps.session_factory)
+        await self.native_source.start()
         self._start_schedule()
         if self.feedback_settings.scheduled and self.feedback is not None and self.feedback.enabled:
             from ggwork_pick.feedback.schedule import run_feedback_schedule
@@ -249,6 +252,7 @@ class PickService:
             tasks.append(self.scheduler)
         # Let an in-flight pull record its outcome before the host disposes the engine, but never hang a deploy.
         await _drain(tasks, STOP_GRACE_SECONDS)
+        await self.native_source.stop()
         self.session_factory = None
 
 

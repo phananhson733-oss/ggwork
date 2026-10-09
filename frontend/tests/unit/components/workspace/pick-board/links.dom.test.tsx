@@ -135,9 +135,11 @@ describe("links stay on the pinned version or leave over https", () => {
     const all = hrefs(container);
     expect(all.length).toBeGreaterThan(40);
     for (const href of all)
-      expect(PINNED_BOARD_LINK.test(href) || href.startsWith("https://")).toBe(
-        true,
-      );
+      expect(
+        PINNED_BOARD_LINK.test(href) ||
+          href.startsWith("https://") ||
+          href.startsWith("/workspace/pick-resources?row="),
+      ).toBe(true);
   });
 
   it("next/link is only used for board links and never prefetches", () => {
@@ -146,7 +148,11 @@ describe("links stay on the pinned version or leave over https", () => {
     expect(links.length).toBeGreaterThan(20);
     for (const a of links) {
       expect(a.getAttribute("data-prefetch")).toBe("false");
-      expect(a.getAttribute("href")).toMatch(PINNED_BOARD_LINK);
+      const href = a.getAttribute("href") ?? "";
+      expect(
+        PINNED_BOARD_LINK.test(href) ||
+          href.startsWith("/workspace/pick-resources?row="),
+      ).toBe(true);
     }
   });
 
@@ -163,14 +169,17 @@ describe("links stay on the pinned version or leave over https", () => {
     }
   });
 
-  it("public drama pages are absolute ReelShort addresses", () => {
+  it("current resources use the protected GGWork page instead of the retired website", () => {
     const { container } = render(
       <ReelshortTable rows={[observeRow()]} asOf={AS_OF} req={request()} />,
     );
     const page = container.querySelector(
-      'a[href="https://dramashortstv.com/en/drama/demo-heir"]',
+      'a[href^="/workspace/pick-resources?row="]',
     );
-    expect(page?.getAttribute("rel")).toBe("noopener");
+    expect(page?.getAttribute("rel")).toContain("noopener");
+    expect(
+      container.querySelector('a[href^="https://dramashortstv.com/"]'),
+    ).toBeNull();
     expect(page?.getAttribute("target")).toBe("_blank");
   });
 });

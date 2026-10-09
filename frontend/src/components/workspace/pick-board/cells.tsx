@@ -21,11 +21,10 @@ import {
   type PickRequest,
 } from "@/core/pick-board/request";
 import type { BoardRules } from "@/core/pick-board/rules";
-import { dramaPath, realshortRowUrl } from "@/core/pick-board/site";
 import type { PickPostedTag, PickRow, PickSignal } from "@/server/pick-board";
 
-import { ExternalLink } from "./links";
 import { QueyuButton } from "./queyu-button";
+import { ResourceLink } from "./resource-link";
 import { rowHref } from "./toolbar";
 
 /**
@@ -571,12 +570,7 @@ export function PickupCell({ row, req }: { row: PickRow; req: PickRequest }) {
       {row.rs ? (
         <>
           {" "}
-          <ExternalLink
-            href={dramaPath(row.rs.locale, row.rs.slug)}
-            className="text-helper hover:text-link"
-          >
-            公开页 ↗
-          </ExternalLink>
+          <ResourceLink rowKey={row.rowKey} />
         </>
       ) : (
         <span
@@ -596,12 +590,7 @@ function PanNote({ row }: { row: PickRow }) {
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
       <span className="text-ink-2">有网盘</span>
-      <ExternalLink
-        href={realshortRowUrl(row.rowKey)}
-        className="text-link hover:underline"
-      >
-        到 RealShort 证据页查看
-      </ExternalLink>
+      <ResourceLink rowKey={row.rowKey} />
     </div>
   );
 }

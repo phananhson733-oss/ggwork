@@ -102,6 +102,7 @@ import {
  * 钉住（批判 B11：它优先于链接的 v），只取这一页的行、一次查全名单的缺行（B10）。别的 tab 带着 result 一律忽略。
  */
 
+import { radarPage } from "./radar-route";
 import { trendsRoute } from "./trends-route";
 
 export const dynamic = "force-dynamic";
@@ -450,7 +451,8 @@ export default async function PickDataPage({
         <AuthNotice reason={access.reason} />
       </NoticePage>
     );
-  if (req0.tab === "trends") return trendsRoute(req0, nextPath);
+  if (req0.tab === "trends")
+    return raw.rv === "daily" ? trendsRoute(req0, nextPath) : radarPage(req0);
   if (req0.tab === "imports")
     return (
       <NoticePage>
