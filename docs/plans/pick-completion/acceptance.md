@@ -87,3 +87,9 @@ These checks supplement the existing engineering gates; they do not replace them
 - Complete primary tasks by keyboard. Check focus entry/return, unsaved edits when closing, error-summary links, native labels, checkbox scopes and concise live announcements. Confirm screen-reader operation and no focus trap outside actual modal dialogs.
 - Measure text contrast (4.5:1), control/focus contrast (3:1), visible focus and at least44px touch targets; honor reduced motion and high contrast. These are future acceptance checks, not current measurements.
 - Capture actual rendered screenshots and do visual QA after implementation. No mockup was generated in this review because the designer lacked its API key; no visual approval should be inferred.
+
+## User-confirmed acceptance adjustment — 2026-10-08 America/Chicago
+
+The user replied “确认！” to the two proposed recommendations. This explicitly authorizes at most seven additional real Agent attempts: D9-01, D9-03, D9-08, D9-10, D9-11, D9-14 and D9-16, each once, including failures, with no added retries. This replaces the earlier four-case suggestion; allowances do not stack. The original baseline20/candidate20 ledger and outcomes remain immutable. Total historical allowance is now at most47 Agent attempts, not47 provider requests. Existing per-run/model/tool/deadline limits remain unchanged. Preparation, independent harness review and an exact-fingerprint ROOT GO still precede execution.
+
+Actual native VoiceOver acceptance is explicitly moved to a later manual follow-up. It remains NOT VERIFIED, never converted into a pass. This phase's interface acceptance boundary is the completed actual keyboard/focus/contrast/responsive/zoom/Gateway journey evidence. No additional OS accessibility changes are authorized by this deferral. No production deployment or external business write is authorized.

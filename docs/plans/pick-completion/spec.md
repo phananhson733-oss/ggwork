@@ -426,3 +426,9 @@ RECOMMENDATION: 依据已确定的工程与设计任务实施；实现阶段执�
 | 图片与独立意见 | 0张生成、0张批准；本轮独立意见按D2=B跳过 |
 
 整体取最低分，避免平均数掩盖最弱环节。8/10表示方案规格具备实施条件；要达到10，需要实际界面渲染、任务完成和可访问性证据。主工程方案正文因新增设计规格而改变，之前工程记录的文件hash不再代表完整现稿；原工程决定继续有效，不能沿用旧hash宣称新稿已重新完成工程评审。
+
+## User-confirmed acceptance adjustment — 2026-10-08 America/Chicago
+
+The user replied “确认！” to the two proposed recommendations. This explicitly authorizes at most seven additional real Agent attempts: D9-01, D9-03, D9-08, D9-10, D9-11, D9-14 and D9-16, each once, including failures, with no added retries. This replaces the earlier four-case suggestion; allowances do not stack. The original baseline20/candidate20 ledger and outcomes remain immutable. Total historical allowance is now at most47 Agent attempts, not47 provider requests. Existing per-run/model/tool/deadline limits remain unchanged. Preparation, independent harness review and an exact-fingerprint ROOT GO still precede execution.
+
+Actual native VoiceOver acceptance is explicitly moved to a later manual follow-up. It remains NOT VERIFIED, never converted into a pass. This phase's interface acceptance boundary is the completed actual keyboard/focus/contrast/responsive/zoom/Gateway journey evidence. No additional OS accessibility changes are authorized by this deferral. No production deployment or external business write is authorized.
