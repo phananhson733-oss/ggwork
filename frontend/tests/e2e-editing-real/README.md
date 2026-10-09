@@ -57,3 +57,20 @@ real disconnect test, stop the isolated worker first, then run with
 120 seconds for the actual heartbeat to expire, compares completed result metadata,
 and verifies that the browser removes media actions. Reconnect the worker afterward.
 Without that explicit operator coordination the disconnect test is skipped.
+
+For actual version execution, provide `versionParentTaskId` for a completed upload
+task and reserve one planner request, then set `EDITING_QA_CREATE_VERSION=1` and
+run `--grep 'real linked version'`. The form retains existing sources and their
+original paths, changes the opening instructions, uses English and one output,
+and posts exactly one task without uploading again. It checks the completed new
+MP4 and downloads the original again to confirm its hash is unchanged. Save the
+`accepted-version.json` task ID as `versionTaskId` in a private QA config for
+subsequent verification; that mode reuses the completed version and makes no
+planner request.
+
+For the actual chat tool card, have the host run the natural-language/Skill
+conversation with the same QA owner, then supply `chatThreadId` and `chatTaskId`
+and run `--grep 'real conversation tool card'`. The test reads the persisted
+conversation and live task APIs without interception, follows the rendered card
+to the exact task detail, and makes no model request. Version creation and chat
+checks are skipped when their explicit prerequisites are absent.

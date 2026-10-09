@@ -18,6 +18,10 @@ type QA = {
   sourceFiles: { path: string; episode: number }[];
   existingTaskId: string;
   completedTaskId: string;
+  versionParentTaskId?: string;
+  versionTaskId?: string;
+  chatThreadId?: string;
+  chatTaskId?: string;
   profile: string;
   language: string;
   durationSeconds: number;
@@ -347,4 +351,148 @@ test("real submitted file stays a draft until Start then native ACK, cloud plann
   expect(delivered.source_manifest?.files.map((file) => file.name)).toEqual(
     qa.sourceFiles.map((file) => path.basename(file.path)),
   );
+});
+
+test("real linked version reuses original sources and preserves original media hash", async ({
+  page,
+}, info) => {
+  test.skip(
+    !qa.versionTaskId && process.env.EDITING_QA_CREATE_VERSION !== "1",
+    "Creating a version requires an explicitly reserved planner request",
+  );
+  expect(qa.versionParentTaskId).toBeTruthy();
+  await login(page);
+  const original = await task(page, qa.versionParentTaskId!);
+  expect(original.status).toBe("completed");
+  const sources = (record: EditingTask) =>
+    record.source_manifest?.files.map(
+      ({ media_id, relative_path, name, episode, size_bytes }) => ({
+        media_id,
+        relative_path,
+        name,
+        episode,
+        size_bytes,
+      }),
+    );
+  let versionId = qa.versionTaskId;
+  if (!versionId) {
+    await page.goto(`/workspace/editing/${original.id}`);
+    await page.getByRole("button", { name: "调整要求，创建新版本" }).click();
+    await expect(page.getByLabel("提供素材方式")).toHaveValue("existing");
+    await page
+      .getByRole("textbox", { name: "剪辑要求", exact: true })
+      .fill(
+        "Use a shorter opening and reach the dialogue conflict immediately. Preserve complete spoken dialogue and use only the original selected sources.",
+      );
+    await page.getByLabel("素材语言", { exact: true }).fill("en");
+    await page.getByLabel("成片数量", { exact: true }).fill("1");
+    const mutations: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() !== "GET" &&
+        new URL(request.url()).pathname.startsWith("/api/editing/")
+      )
+        mutations.push(
+          request.method() + " " + new URL(request.url()).pathname,
+        );
+    });
+    const accepted = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/editing/tasks" &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "开始剪辑", exact: true }).click();
+    const response = await accepted;
+    expect(response.ok()).toBe(true);
+    const created = (await response.json()) as EditingTask;
+    versionId = created.id;
+    await saveEvidence(info, "accepted-version", {
+      taskId: versionId,
+      parentTaskId: original.id,
+    });
+    expect(created.parent_task_id).toBe(original.id);
+    expect(sources(created)).toEqual(sources(original));
+    expect(created.requirements.language).toBe("en");
+    expect(created.requested_count).toBe(1);
+    expect(created.requirements.instructions).not.toBe(
+      original.requirements.instructions,
+    );
+    await expect(page).toHaveURL(
+      new RegExp(`/workspace/editing/${versionId}$`),
+    );
+    expect(mutations).toEqual(["POST /api/editing/tasks"]);
+  }
+  const version = await verifyDelivery(page, versionId, info);
+  expect(version.id).not.toBe(original.id);
+  expect(version.parent_task_id).toBe(original.id);
+  expect(sources(version)).toEqual(sources(original));
+  expect(version.source_manifest?.grant_id).toBe(
+    original.source_manifest?.grant_id,
+  );
+  expect(version.requirements.language).toBe("en");
+  expect(version.requested_count).toBe(1);
+  expect(version.requirements.instructions).not.toBe(
+    original.requirements.instructions,
+  );
+  await expect(
+    page.getByRole("link", { name: "来源版本（原版保留）", exact: true }),
+  ).toHaveAttribute("href", `/workspace/editing/${original.id}`);
+  const retained = await task(page, original.id);
+  expect(retained.outputs).toEqual(original.outputs);
+  const output = original.outputs.find((item) => item.status === "completed")!;
+  const download = await page.request.get(
+    `/api/editing/tasks/${original.id}/outputs/${output.id}/content?download=true`,
+  );
+  expect(download.status()).toBe(200);
+  const bytes = await download.body();
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  expect(bytes.length).toBe(output.result!.size_bytes);
+  expect(sha256).toBe((output.result as unknown as { sha256: string }).sha256);
+  await saveEvidence(info, "version-lineage", {
+    taskId: version.id,
+    parentTaskId: original.id,
+    originalBytes: bytes.length,
+    originalSha256: sha256,
+    originalOutputsUnchanged: true,
+    sourcesUnchanged: true,
+  });
+});
+
+test("real conversation tool card opens the same owner task as HTTP and detail", async ({
+  page,
+}, info) => {
+  test.skip(
+    !qa.chatThreadId || !qa.chatTaskId,
+    "Requires an actual completed host conversation from the same isolated owner",
+  );
+  await login(page);
+  const record = await task(page, qa.chatTaskId!);
+  await page.goto(`/workspace/chats/${qa.chatThreadId}`);
+  const card = page
+    .getByText("剪辑任务 · 当前状态（历史叙述保留原意）", { exact: true })
+    .locator("..");
+  await expect(
+    card.getByRole("heading", { name: record.title, exact: true }),
+  ).toBeVisible();
+  await expect(card.getByRole("status")).toContainText(
+    `${record.completed_count}/${record.requested_count} 条`,
+  );
+  const link = card.getByRole("link", { name: "打开剪辑详情", exact: true });
+  await expect(link).toHaveAttribute("href", `/workspace/editing/${record.id}`);
+  await card.screenshot({
+    path: info.outputPath("real-conversation-card.png"),
+  });
+  await link.click();
+  await expect(page).toHaveURL(new RegExp(`/workspace/editing/${record.id}$`));
+  await expect(
+    page
+      .locator("main")
+      .getByRole("heading", { name: record.title, exact: true }),
+  ).toBeVisible();
+  await saveEvidence(info, "conversation-task-identity", {
+    threadId: qa.chatThreadId,
+    taskId: record.id,
+    completedCount: record.completed_count,
+    status: record.status,
+  });
 });
