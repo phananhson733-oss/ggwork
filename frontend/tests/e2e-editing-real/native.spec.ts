@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
@@ -18,12 +18,27 @@ type QA = {
   sourceFiles: { path: string; episode: number }[];
   existingTaskId: string;
   completedTaskId: string;
+  versionParentTaskId?: string;
+  versionTaskId?: string;
+  chatThreadId?: string;
+  chatTaskId?: string;
+  priorUploadTaskId?: string;
   profile: string;
+  language: string;
   durationSeconds: number;
 };
 const qa = JSON.parse(
   readFileSync(process.env.EDITING_QA_CONFIG!, "utf8"),
 ) as QA;
+
+async function saveEvidence(info: TestInfo, name: string, data: unknown) {
+  const evidencePath = info.outputPath(`${name}.json`);
+  writeFileSync(evidencePath, JSON.stringify(data, null, 2));
+  await info.attach(name, {
+    path: evidencePath,
+    contentType: "application/json",
+  });
+}
 
 async function login(page: Page) {
   await page.goto("/login");
@@ -110,14 +125,57 @@ test("real history and detail retain the same HTTP task identity", async ({
   await page
     .locator("main.editing-workspace")
     .screenshot({ path: info.outputPath("shared-task-identity.png") });
-  await info.attach("task-identity", {
-    body: JSON.stringify({
-      taskId: record.id,
-      status: record.status,
-      stage: record.stage,
-      completedCount: record.completed_count,
-    }),
-    contentType: "application/json",
+  await saveEvidence(info, "task-identity", {
+    taskId: record.id,
+    status: record.status,
+    stage: record.stage,
+    completedCount: record.completed_count,
+  });
+});
+
+test("real worker offline preserves completed outputs and disables media access", async ({
+  page,
+}, info) => {
+  test.skip(
+    process.env.EDITING_QA_EXPECT_OFFLINE !== "1",
+    "Requires the operator to stop the isolated native worker first",
+  );
+  await login(page);
+  const original = await task(page, qa.completedTaskId);
+  expect(original.status).toBe("completed");
+  await page.goto(`/workspace/editing/${original.id}`);
+  await expect
+    .poll(async () => (await task(page, original.id)).device_status, {
+      timeout: 120_000,
+      intervals: [2000, 5000],
+    })
+    .toBe("offline");
+  const offline = await task(page, original.id);
+  expect(offline.status).toBe(original.status);
+  expect(offline.completed_count).toBe(original.completed_count);
+  const deliveries = (record: EditingTask) =>
+    record.outputs.map(({ id, status, result }) => ({ id, status, result }));
+  expect(deliveries(offline)).toEqual(deliveries(original));
+  const main = page.locator("main.editing-workspace");
+  await expect(
+    main.getByText(
+      "生成设备离线，已确认的任务结果保留，成片暂不可预览或下载。",
+      { exact: true },
+    ),
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(main.getByRole("status")).toContainText("已完成");
+  await expect(main.getByRole("status")).toContainText(
+    `${original.completed_count}/${original.requested_count} 条`,
+  );
+  await expect(main.getByRole("link", { name: "下载成片" })).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "预览成片" })).toHaveCount(0);
+  await main.screenshot({ path: info.outputPath("completed-offline.png") });
+  await saveEvidence(info, "completed-offline", {
+    taskId: offline.id,
+    status: offline.status,
+    deviceStatus: offline.device_status,
+    completedCount: offline.completed_count,
+    outputs: deliveries(offline),
   });
 });
 
@@ -162,6 +220,7 @@ async function verifyDelivery(page: Page, id: string, info: TestInfo) {
   expect(media.height).toBeGreaterThan(0);
   expect(media.error).toBeNull();
   await video.evaluate((v: HTMLVideoElement) => v.pause());
+  await video.screenshot({ path: info.outputPath("decoded-video-frame.png") });
   const output = record.outputs.find((value) => value.status === "completed")!;
   const content = `/api/editing/tasks/${id}/outputs/${output.id}/content`;
   const range = await page.request.get(content, {
@@ -184,21 +243,14 @@ async function verifyDelivery(page: Page, id: string, info: TestInfo) {
   const expected = output.result as unknown as { sha256: string };
   expect(digest).toBe(expected.sha256);
   await main.screenshot({ path: info.outputPath("completed-playback.png") });
-  await info.attach("verified-delivery", {
-    body: JSON.stringify(
-      {
-        taskId: id,
-        outputId: output.id,
-        artifactId: output.result!.artifact_id,
-        bytes: bytes.length,
-        sha256: digest,
-        rangeStatus: range.status(),
-        media,
-      },
-      null,
-      2,
-    ),
-    contentType: "application/json",
+  await saveEvidence(info, "verified-delivery", {
+    taskId: id,
+    outputId: output.id,
+    artifactId: output.result!.artifact_id,
+    bytes: bytes.length,
+    sha256: digest,
+    rangeStatus: range.status(),
+    media,
   });
   return record;
 }
@@ -230,6 +282,9 @@ test("real submitted file stays a draft until Start then native ACK, cloud plann
   page,
 }, info) => {
   await login(page);
+  const priorUpload = qa.priorUploadTaskId
+    ? await task(page, qa.priorUploadTaskId)
+    : null;
   await page.goto(
     "/workspace/editing/new?title=Synthetic%20browser%20acceptance",
   );
@@ -254,14 +309,19 @@ test("real submitted file stays a draft until Start then native ACK, cloud plann
     await page
       .getByLabel(`${path.basename(file.path)} 集号`, { exact: true })
       .fill(String(file.episode));
-  await page.getByLabel("剪辑模式", { exact: true }).selectOption(qa.profile);
+  await page
+    .getByRole("combobox", { name: "剪辑模式", exact: true })
+    .selectOption(qa.profile);
   await page
     .getByRole("textbox", { name: "剪辑要求", exact: true })
     .fill(
       "Create one coherent short clip preserving the original spoken dialogue. Only use the supplied transcript and source ranges.",
     );
   await page.getByLabel("每条时长（秒）").fill(String(qa.durationSeconds));
-  await page.getByLabel("画幅", { exact: true }).selectOption("16:9");
+  await page.getByLabel("素材语言", { exact: true }).fill(qa.language);
+  await page
+    .getByRole("combobox", { name: "画幅", exact: true })
+    .selectOption("16:9");
   expect(mutations).toEqual([]);
   await page
     .locator("main.editing-workspace")
@@ -277,10 +337,7 @@ test("real submitted file stays a draft until Start then native ACK, cloud plann
   const createdTask = (await created.json()) as EditingTask;
   // Preserve the accepted identity even if a later native/media assertion fails.
   // Operators can inspect this task without spending another planner call.
-  await info.attach("accepted-task", {
-    body: JSON.stringify({ taskId: createdTask.id }),
-    contentType: "application/json",
-  });
+  await saveEvidence(info, "accepted-task", { taskId: createdTask.id });
   await expect(page).toHaveURL(
     new RegExp(`/workspace/editing/${createdTask.id}$`),
     { timeout: 90_000 },
@@ -298,4 +355,175 @@ test("real submitted file stays a draft until Start then native ACK, cloud plann
   expect(delivered.source_manifest?.files.map((file) => file.name)).toEqual(
     qa.sourceFiles.map((file) => path.basename(file.path)),
   );
+  expect(delivered.source_manifest?.grant_id).toBe(qa.receiveGrant);
+  expect(
+    delivered.source_manifest?.files.map((file) => file.relative_path),
+  ).toEqual(
+    createdTask.source_manifest?.files.map((file) => file.relative_path),
+  );
+  for (const file of qa.sourceFiles) {
+    const source = delivered.source_manifest!.files.find(
+      (item) =>
+        item.name === path.basename(file.path) && item.episode === file.episode,
+    )!;
+    expect(source.sha256).toBe(
+      createHash("sha256").update(readFileSync(file.path)).digest("hex"),
+    );
+    if (priorUpload) {
+      expect(priorUpload.source_manifest?.grant_id).toBe(qa.receiveGrant);
+      expect(
+        priorUpload.source_manifest?.files.map((item) => item.relative_path),
+      ).not.toContain(source.relative_path);
+    }
+  }
+  await saveEvidence(info, "verified-upload-sources", {
+    taskId: delivered.id,
+    grantId: qa.receiveGrant,
+    priorTaskId: qa.priorUploadTaskId ?? null,
+    sources: delivered.source_manifest!.files,
+  });
+});
+
+test("real linked version reuses original sources and preserves original media hash", async ({
+  page,
+}, info) => {
+  test.skip(
+    !qa.versionTaskId && process.env.EDITING_QA_CREATE_VERSION !== "1",
+    "Creating a version requires an explicitly reserved planner request",
+  );
+  expect(qa.versionParentTaskId).toBeTruthy();
+  await login(page);
+  const original = await task(page, qa.versionParentTaskId!);
+  expect(original.status).toBe("completed");
+  const sources = (record: EditingTask) =>
+    record.source_manifest?.files.map(
+      ({ media_id, relative_path, name, episode, size_bytes }) => ({
+        media_id,
+        relative_path,
+        name,
+        episode,
+        size_bytes,
+      }),
+    );
+  let versionId = qa.versionTaskId;
+  if (!versionId) {
+    await page.goto(`/workspace/editing/${original.id}`);
+    await page.getByRole("button", { name: "调整要求，创建新版本" }).click();
+    await expect(page.getByLabel("提供素材方式")).toHaveValue("existing");
+    await page
+      .getByRole("textbox", { name: "剪辑要求", exact: true })
+      .fill(
+        "Use a shorter opening and reach the dialogue conflict immediately. Preserve complete spoken dialogue and use only the original selected sources.",
+      );
+    await page.getByLabel("素材语言", { exact: true }).fill("en");
+    await page.getByLabel("成片数量", { exact: true }).fill("1");
+    const mutations: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() !== "GET" &&
+        new URL(request.url()).pathname.startsWith("/api/editing/")
+      )
+        mutations.push(
+          request.method() + " " + new URL(request.url()).pathname,
+        );
+    });
+    const accepted = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/editing/tasks" &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "开始剪辑", exact: true }).click();
+    const response = await accepted;
+    expect(response.ok()).toBe(true);
+    const created = (await response.json()) as EditingTask;
+    versionId = created.id;
+    await saveEvidence(info, "accepted-version", {
+      taskId: versionId,
+      parentTaskId: original.id,
+    });
+    expect(created.parent_task_id).toBe(original.id);
+    expect(sources(created)).toEqual(sources(original));
+    expect(created.requirements.language).toBe("en");
+    expect(created.requested_count).toBe(1);
+    expect(created.requirements.instructions).not.toBe(
+      original.requirements.instructions,
+    );
+    await expect(page).toHaveURL(
+      new RegExp(`/workspace/editing/${versionId}$`),
+    );
+    expect(mutations).toEqual(["POST /api/editing/tasks"]);
+  }
+  const version = await verifyDelivery(page, versionId, info);
+  expect(version.id).not.toBe(original.id);
+  expect(version.parent_task_id).toBe(original.id);
+  expect(sources(version)).toEqual(sources(original));
+  expect(version.source_manifest?.grant_id).toBe(
+    original.source_manifest?.grant_id,
+  );
+  expect(version.requirements.language).toBe("en");
+  expect(version.requested_count).toBe(1);
+  expect(version.requirements.instructions).not.toBe(
+    original.requirements.instructions,
+  );
+  await expect(
+    page.getByRole("link", { name: "来源版本（原版保留）", exact: true }),
+  ).toHaveAttribute("href", `/workspace/editing/${original.id}`);
+  const retained = await task(page, original.id);
+  expect(retained.outputs).toEqual(original.outputs);
+  const output = original.outputs.find((item) => item.status === "completed")!;
+  const download = await page.request.get(
+    `/api/editing/tasks/${original.id}/outputs/${output.id}/content?download=true`,
+  );
+  expect(download.status()).toBe(200);
+  const bytes = await download.body();
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  expect(bytes.length).toBe(output.result!.size_bytes);
+  expect(sha256).toBe((output.result as unknown as { sha256: string }).sha256);
+  await saveEvidence(info, "version-lineage", {
+    taskId: version.id,
+    parentTaskId: original.id,
+    originalBytes: bytes.length,
+    originalSha256: sha256,
+    originalOutputsUnchanged: true,
+    sourcesUnchanged: true,
+  });
+});
+
+test("real conversation tool card opens the same owner task as HTTP and detail", async ({
+  page,
+}, info) => {
+  test.skip(
+    !qa.chatThreadId || !qa.chatTaskId,
+    "Requires an actual completed host conversation from the same isolated owner",
+  );
+  await login(page);
+  const record = await task(page, qa.chatTaskId!);
+  await page.goto(`/workspace/chats/${qa.chatThreadId}`);
+  const card = page
+    .getByText("剪辑任务 · 当前状态（历史叙述保留原意）", { exact: true })
+    .locator("..");
+  await expect(
+    card.getByRole("heading", { name: record.title, exact: true }),
+  ).toBeVisible();
+  await expect(card.getByRole("status")).toContainText(
+    `${record.completed_count}/${record.requested_count} 条`,
+  );
+  const link = card.getByRole("link", { name: "打开剪辑详情", exact: true });
+  await expect(link).toHaveAttribute("href", `/workspace/editing/${record.id}`);
+  await card.screenshot({
+    path: info.outputPath("real-conversation-card.png"),
+  });
+  await link.click();
+  await expect(page).toHaveURL(new RegExp(`/workspace/editing/${record.id}$`));
+  await expect(
+    page
+      .locator("main")
+      .getByRole("heading", { name: record.title, exact: true }),
+  ).toBeVisible();
+  await saveEvidence(info, "conversation-task-identity", {
+    threadId: qa.chatThreadId,
+    taskId: record.id,
+    completedCount: record.completed_count,
+    status: record.status,
+  });
 });

@@ -12,6 +12,7 @@ import {
 } from "@/core/editing/api";
 import { useEditingOwner, useEditingSetup } from "@/core/editing/hooks";
 import { editingLabel, safeEditingReturn } from "@/core/editing/presentation";
+import { selectedUploadSource } from "@/core/editing/source";
 import {
   type CreateTask,
   type EditingTask,
@@ -381,14 +382,7 @@ export function EditingForm({
                     setFiles(
                       Array.from(event.target.files ?? []).map((file) => ({
                         file,
-                        source: {
-                          media_id: crypto.randomUUID(),
-                          name: file.name,
-                          relative_path: file.name,
-                          episode: 0,
-                          size_bytes: file.size,
-                          state: "selected",
-                        },
+                        source: selectedUploadSource(file),
                       })),
                     )
                   }

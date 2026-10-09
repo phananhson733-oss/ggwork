@@ -13,6 +13,11 @@
   the persisted bounded GET-only lookup budget, never automatic model resubmission.
   Reconcile authoritative plan/stop/terminal state before reporting a safe failure;
   an explicit owner retry creates the next attempt.
+- Fresh manifest uploads require completed task/media/grant/selected-identity
+  receipts with rechecked SHA. Never adopt an existing receiving filename by size.
+  Per-file receipt lookup must stay independent of selection version/other files.
+  Existing directory intents and exact frozen same-device parent identities are
+  the only reuse paths. Parent scope403 is not global device-token revocation.
 - Never overwrite originals, delivered MP4s or indexes. Gateway media IDs resolve
   only through frozen manifests and local explicit grants; reject symlinks/traversal.
 - Every ffprobe/ffmpeg media input uses media_input() restrictions before demux:

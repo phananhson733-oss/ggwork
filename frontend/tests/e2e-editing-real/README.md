@@ -23,16 +23,24 @@ Keep the QA configuration outside the repository with owner-only file permission
   "existingTaskId": "real-task-id-for-history-identity",
   "completedTaskId": "real-directory-task-id",
   "profile": "hook",
+  "language": "en",
   "durationSeconds": 8
 }
 ```
 
 The directory draft and history identity tests read real state without submitting anything.
+Set the language to match the actual native model; English-only Whisper weights
+require `en`, and correctly reject `auto`. Use an isolated receiving grant for
+synthetic QA media and preserve earlier originals between runs.
 The directory delivery test reuses a genuinely completed task and makes no model call. The
 submitted-file test creates one new task after its explicit Start click. Coordinate
 the cloud-call budget with the native operator before running it. Retries are disabled;
 inspect the attached `accepted-task` identity after any failure before deciding to rerun.
 Do not rerun the creation test merely to repeat playback checks.
+Provide `priorUploadTaskId` to exercise
+another upload in the same receiving grant. The test checks that the new task uses
+distinct source paths, preserves its submitted paths, and that every verified
+native source SHA-256 matches the selected local synthetic file.
 
 ```sh
 PLAYWRIGHT_BASE_URL=http://localhost:13308 \
@@ -47,4 +55,26 @@ the exact task identity. Screenshots and sanitized JSON evidence are retained.
 Traces, automatic screenshots and video recording are off because authentication
 and one-time device tokens must not leak into artifacts. Revision checks here cover
 the unsubmitted draft and original references; actual revised execution, worker
-disconnect, stop acknowledgment and retry need separate coordinated native evidence.
+stop acknowledgment and retry need separate coordinated native evidence. For the
+real disconnect test, stop the isolated worker first, then run with
+`EDITING_QA_EXPECT_OFFLINE=1` and `--grep 'real worker offline'`. It waits up to
+120 seconds for the actual heartbeat to expire, compares completed result metadata,
+and verifies that the browser removes media actions. Reconnect the worker afterward.
+Without that explicit operator coordination the disconnect test is skipped.
+
+For actual version execution, provide `versionParentTaskId` for a completed upload
+task and reserve one planner request, then set `EDITING_QA_CREATE_VERSION=1` and
+run `--grep 'real linked version'`. The form retains existing sources and their
+original paths, changes the opening instructions, uses English and one output,
+and posts exactly one task without uploading again. It checks the completed new
+MP4 and downloads the original again to confirm its hash is unchanged. Save the
+`accepted-version.json` task ID as `versionTaskId` in a private QA config for
+subsequent verification; that mode reuses the completed version and makes no
+planner request.
+
+For the actual chat tool card, have the host run the natural-language/Skill
+conversation with the same QA owner, then supply `chatThreadId` and `chatTaskId`
+and run `--grep 'real conversation tool card'`. The test reads the persisted
+conversation and live task APIs without interception, follows the rendered card
+to the exact task detail, and makes no model request. Version creation and chat
+checks are skipped when their explicit prerequisites are absent.

@@ -10,6 +10,7 @@ import {
 } from "@/core/editing/api";
 import { useEditingOwner, useEditingSetup } from "@/core/editing/hooks";
 import { editingLabel } from "@/core/editing/presentation";
+import { selectedUploadSource } from "@/core/editing/source";
 import type { EditingTask, Source } from "@/core/editing/types";
 
 import { EditingDevices, editingInputClass } from "./editing-devices";
@@ -152,14 +153,7 @@ export function EditingPrepare({
                   setFiles(
                     Array.from(event.target.files ?? []).map((file) => ({
                       file,
-                      source: {
-                        media_id: crypto.randomUUID(),
-                        name: file.name,
-                        relative_path: file.name,
-                        episode: 0,
-                        size_bytes: file.size,
-                        state: "selected",
-                      },
+                      source: selectedUploadSource(file),
                     })),
                   )
                 }

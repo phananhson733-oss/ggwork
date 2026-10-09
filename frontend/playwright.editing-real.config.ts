@@ -23,6 +23,7 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL,
+    actionTimeout: 30_000,
     // Auth cookies and native connection tokens must not enter trace archives.
     trace: "off",
     screenshot: "off",
