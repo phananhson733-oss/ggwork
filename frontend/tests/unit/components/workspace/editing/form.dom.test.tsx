@@ -10,6 +10,7 @@ import {
 
 import { EditingForm } from "@/components/workspace/editing/editing-form";
 import { AuthProvider, type User } from "@/core/auth/AuthProvider";
+import type { EditingTask } from "@/core/editing/types";
 rs.mock("next/navigation", () => ({
   useRouter: () => ({ push: rs.fn() }),
   usePathname: () => "/workspace/editing/new",
@@ -92,6 +93,7 @@ it("holds a directory draft until Start and creates one standalone request", asy
 });
 
 it("confirms the same uncertain submission after reopening instead of creating a new request", async () => {
+  let configured = true;
   const submissions: { request_id: string }[] = [];
   rs.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url =
@@ -103,7 +105,9 @@ it("confirms the same uncertain submission after reopening instead of creating a
     if (url.endsWith("/devices")) return Response.json({ items: [] });
     if (url.endsWith("/capabilities"))
       return Response.json({
-        profiles: [{ id: "hook", available: true, reasons: [] }],
+        profiles: configured
+          ? [{ id: "hook", available: true, reasons: [] }]
+          : [],
         skill_enabled: true,
         limits: {
           max_sources: 50,
@@ -138,9 +142,111 @@ it("confirms the same uncertain submission after reopening instead of creating a
   fireEvent.click(screen.getByRole("button", { name: "开始剪辑" }));
   await screen.findByText(/提交结果尚未确认/);
   first.unmount();
+  configured = false;
+  client.clear();
   render(ui);
   fireEvent.click(await screen.findByRole("button", { name: "确认提交结果" }));
   await waitFor(() => expect(submissions).toHaveLength(2));
   expect(submissions[1]?.request_id).toBe(submissions[0]?.request_id);
+  client.clear();
+});
+
+it("creates an associated version from the frozen selection without widening it to the old directory", async () => {
+  const submissions: Record<string, unknown>[] = [];
+  const parent = {
+    id: "parent",
+    title: "雨夜",
+    device_id: "mac",
+    requirements: {
+      profile: "hook",
+      instructions: "原要求",
+      output_count: 1,
+      duration_seconds: 30,
+      aspect_ratio: "9:16",
+      language: "auto",
+      review_plan: false,
+    },
+    source_directory: { grant_id: "drama", relative_path: "." },
+    source_manifest: {
+      version: 2,
+      grant_id: "drama",
+      files: [
+        {
+          media_id: "selected-episode",
+          name: "第三集.mp4",
+          relative_path: "第三集.mp4",
+          episode: 3,
+          size_bytes: 100,
+          state: "verified",
+          sha256: "a".repeat(64),
+          duration_seconds: 30,
+        },
+      ],
+    },
+  } as EditingTask;
+  rs.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    if (url.endsWith("/devices"))
+      return Response.json({
+        items: [
+          {
+            id: "mac",
+            name: "Studio",
+            ready: true,
+            online: true,
+            grants: ["drama"],
+            reasons: [],
+          },
+        ],
+      });
+    if (url.endsWith("/capabilities"))
+      return Response.json({
+        profiles: [{ id: "hook", available: true, reasons: [] }],
+        limits: {
+          max_sources: 50,
+          max_outputs: 4,
+          min_duration_seconds: 5,
+          max_duration_seconds: 90,
+        },
+      });
+    submissions.push(
+      JSON.parse(init?.body as string) as Record<string, unknown>,
+    );
+    return Response.json({ id: "version-2" });
+  });
+  const client = new QueryClient();
+  render(
+    <AuthProvider initialUser={{ id: "clone-owner" } as User}>
+      <QueryClientProvider client={client}>
+        <EditingForm parent={parent} />
+      </QueryClientProvider>
+    </AuthProvider>,
+  );
+  await screen.findByRole("option", { name: "Hook 剪辑" });
+  fireEvent.change(screen.getByLabelText("剪辑要求"), {
+    target: { value: "缩短开场" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "开始剪辑" }));
+  await waitFor(() => expect(submissions).toHaveLength(1));
+  expect(submissions[0]).toMatchObject({
+    parent_task_id: "parent",
+    requirements: { instructions: "缩短开场" },
+    source_manifest: {
+      files: [
+        {
+          media_id: "selected-episode",
+          state: "selected",
+          sha256: null,
+          duration_seconds: null,
+        },
+      ],
+    },
+  });
+  expect(submissions[0]).not.toHaveProperty("source_directory");
   client.clear();
 });

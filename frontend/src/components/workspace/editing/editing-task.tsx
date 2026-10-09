@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { editingAction } from "@/core/editing/api";
+import { EditingError, editingAction } from "@/core/editing/api";
 import {
   editingKeys,
   useEditingOwner,
@@ -19,7 +19,11 @@ import {
 import { EditingForm } from "./editing-form";
 import { EditingOutput } from "./editing-output";
 import { EditingPrepare } from "./editing-prepare";
-import { EditingNotice } from "./editing-shell";
+import {
+  EditingNotice,
+  EditingStatus,
+  editingContentClass,
+} from "./editing-shell";
 
 export function EditingTaskView({
   taskId,
@@ -38,7 +42,7 @@ export function EditingTaskView({
   const [version, setVersion] = useState(false);
   const active = useRef<AbortController | null>(null);
   const retryKeys = useRef(new Map<string, string>());
-  useEffect(() => () => active.current?.abort(), [taskId]);
+  useEffect(() => () => active.current?.abort(), [taskId, owner]);
   const task = query.data;
   const back = safeEditingReturn(returnTo);
   async function action(
@@ -61,7 +65,7 @@ export function EditingTaskView({
               ? { output_ids: [outputId] }
               : {
                   stage:
-                    task?.stage === "transcribing"
+                    task?.stage === "transcribing" || task?.status === "stopped"
                       ? "transcribing"
                       : "planning",
                 }),
@@ -81,7 +85,11 @@ export function EditingTaskView({
     } catch (error) {
       expire(error);
       if (current.current === owner && !controller.signal.aborted)
-        setError(error instanceof Error ? error.message : "操作未完成");
+        setError(
+          error instanceof EditingError
+            ? error.message
+            : "操作未完成，请检查连接后重试",
+        );
     } finally {
       if (current.current === owner && !controller.signal.aborted)
         setBusy(false);
@@ -110,7 +118,7 @@ export function EditingTaskView({
       <header className="space-y-3">
         <h2 className="text-xl font-semibold">{task.title}</h2>
         <p role="status" className="font-medium">
-          {editingLabel(task.status)} · {task.completed_count}/
+          <EditingStatus status={task.status} /> · {task.completed_count}/
           {task.requested_count} 条
         </p>
         <p>
@@ -122,8 +130,8 @@ export function EditingTaskView({
         <p>当前阶段：{editingLabel(task.stage)}</p>
         {task.device_status === "offline" && (
           <p>
-            {task.status === "completed" || task.status === "partial"
-              ? "生成设备离线，已交付的成片记录保留，暂不可预览或下载。"
+            {["completed", "partial", "stopped", "failed"].includes(task.status)
+              ? "生成设备离线，已确认的任务结果保留，成片暂不可预览或下载。"
               : "设备离线，执行状态待确认。请在 Mac 启动执行器；最后确认的阶段保留。"}
           </p>
         )}
@@ -180,13 +188,18 @@ export function EditingTaskView({
           )}
           {task.available_actions.includes("retry") &&
             task.completed_count === 0 &&
-            ["transcribing", "planning"].includes(task.stage) && (
+            (["transcribing", "planning"].includes(task.stage) ||
+              (task.status === "stopped" &&
+                task.manifest_frozen &&
+                (!task.plan || !task.plan_confirmed))) && (
               <Button
                 variant="outline"
                 disabled={busy}
                 onClick={() => void action("retry")}
               >
-                重试该阶段
+                {task.status === "stopped"
+                  ? "重新处理已停止任务"
+                  : "重试该阶段"}
               </Button>
             )}
         </div>
@@ -280,7 +293,7 @@ export function EditingToolCard({
 }) {
   const id = editingTaskId(result);
   return (
-    <section className="my-3 rounded-lg border p-4 text-base">
+    <section className={`my-3 rounded-lg border p-4 ${editingContentClass}`}>
       <p className="mb-3 font-medium">
         剪辑任务 · 当前状态（历史叙述保留原意）
       </p>

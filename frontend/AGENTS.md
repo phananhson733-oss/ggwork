@@ -311,3 +311,15 @@ Output previews use the relay access preflight and Range-capable content URL;
 never fetch a whole MP4 into a browser Blob. Offline, missing-file, authorization,
 transfer errors, partial results and pending stop acknowledgement remain distinct.
 Changing requirements creates a parent-linked task and preserves original outputs.
+
+Editing UI checks use `playwright.editing.config.ts` and `tests/e2e-editing/` with
+explicit API fixtures; these prove browser layout/interactions, not a native Mac
+pipeline or production readiness. Run against a dedicated frontend URL using
+`PLAYWRIGHT_BASE_URL` and `PLAYWRIGHT_SKIP_WEB_SERVER=1`. Keep body/labels at 16px,
+controls at 44px, semantic status colors separate from host primary actions, and
+recovery guidance localized through `core/editing/presentation.ts`; unknown worker
+text must never be rendered as user guidance. Output access checks begin only for
+an explicitly selected output. Background rechecks must preserve mounted playback
+until access actually fails; device/account changes invalidate authorization.
+New versions default to the exact frozen source selection, reset verification for
+the new request, and only rescan a directory after the user chooses that mode.
