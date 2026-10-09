@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
@@ -19,11 +19,21 @@ type QA = {
   existingTaskId: string;
   completedTaskId: string;
   profile: string;
+  language: string;
   durationSeconds: number;
 };
 const qa = JSON.parse(
   readFileSync(process.env.EDITING_QA_CONFIG!, "utf8"),
 ) as QA;
+
+async function saveEvidence(info: TestInfo, name: string, data: unknown) {
+  const evidencePath = info.outputPath(`${name}.json`);
+  writeFileSync(evidencePath, JSON.stringify(data, null, 2));
+  await info.attach(name, {
+    path: evidencePath,
+    contentType: "application/json",
+  });
+}
 
 async function login(page: Page) {
   await page.goto("/login");
@@ -110,14 +120,11 @@ test("real history and detail retain the same HTTP task identity", async ({
   await page
     .locator("main.editing-workspace")
     .screenshot({ path: info.outputPath("shared-task-identity.png") });
-  await info.attach("task-identity", {
-    body: JSON.stringify({
-      taskId: record.id,
-      status: record.status,
-      stage: record.stage,
-      completedCount: record.completed_count,
-    }),
-    contentType: "application/json",
+  await saveEvidence(info, "task-identity", {
+    taskId: record.id,
+    status: record.status,
+    stage: record.stage,
+    completedCount: record.completed_count,
   });
 });
 
@@ -162,6 +169,7 @@ async function verifyDelivery(page: Page, id: string, info: TestInfo) {
   expect(media.height).toBeGreaterThan(0);
   expect(media.error).toBeNull();
   await video.evaluate((v: HTMLVideoElement) => v.pause());
+  await video.screenshot({ path: info.outputPath("decoded-video-frame.png") });
   const output = record.outputs.find((value) => value.status === "completed")!;
   const content = `/api/editing/tasks/${id}/outputs/${output.id}/content`;
   const range = await page.request.get(content, {
@@ -184,21 +192,14 @@ async function verifyDelivery(page: Page, id: string, info: TestInfo) {
   const expected = output.result as unknown as { sha256: string };
   expect(digest).toBe(expected.sha256);
   await main.screenshot({ path: info.outputPath("completed-playback.png") });
-  await info.attach("verified-delivery", {
-    body: JSON.stringify(
-      {
-        taskId: id,
-        outputId: output.id,
-        artifactId: output.result!.artifact_id,
-        bytes: bytes.length,
-        sha256: digest,
-        rangeStatus: range.status(),
-        media,
-      },
-      null,
-      2,
-    ),
-    contentType: "application/json",
+  await saveEvidence(info, "verified-delivery", {
+    taskId: id,
+    outputId: output.id,
+    artifactId: output.result!.artifact_id,
+    bytes: bytes.length,
+    sha256: digest,
+    rangeStatus: range.status(),
+    media,
   });
   return record;
 }
@@ -254,14 +255,19 @@ test("real submitted file stays a draft until Start then native ACK, cloud plann
     await page
       .getByLabel(`${path.basename(file.path)} 集号`, { exact: true })
       .fill(String(file.episode));
-  await page.getByLabel("剪辑模式", { exact: true }).selectOption(qa.profile);
+  await page
+    .getByRole("combobox", { name: "剪辑模式", exact: true })
+    .selectOption(qa.profile);
   await page
     .getByRole("textbox", { name: "剪辑要求", exact: true })
     .fill(
       "Create one coherent short clip preserving the original spoken dialogue. Only use the supplied transcript and source ranges.",
     );
   await page.getByLabel("每条时长（秒）").fill(String(qa.durationSeconds));
-  await page.getByLabel("画幅", { exact: true }).selectOption("16:9");
+  await page.getByLabel("素材语言", { exact: true }).fill(qa.language);
+  await page
+    .getByRole("combobox", { name: "画幅", exact: true })
+    .selectOption("16:9");
   expect(mutations).toEqual([]);
   await page
     .locator("main.editing-workspace")
@@ -277,10 +283,7 @@ test("real submitted file stays a draft until Start then native ACK, cloud plann
   const createdTask = (await created.json()) as EditingTask;
   // Preserve the accepted identity even if a later native/media assertion fails.
   // Operators can inspect this task without spending another planner call.
-  await info.attach("accepted-task", {
-    body: JSON.stringify({ taskId: createdTask.id }),
-    contentType: "application/json",
-  });
+  await saveEvidence(info, "accepted-task", { taskId: createdTask.id });
   await expect(page).toHaveURL(
     new RegExp(`/workspace/editing/${createdTask.id}$`),
     { timeout: 90_000 },

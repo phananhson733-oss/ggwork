@@ -23,11 +23,15 @@ Keep the QA configuration outside the repository with owner-only file permission
   "existingTaskId": "real-task-id-for-history-identity",
   "completedTaskId": "real-directory-task-id",
   "profile": "hook",
+  "language": "en",
   "durationSeconds": 8
 }
 ```
 
 The directory draft and history identity tests read real state without submitting anything.
+Set the language to match the actual native model; English-only Whisper weights
+require `en`, and correctly reject `auto`. Every upload run needs a fresh empty
+receiving grant so prior originals remain untouched.
 The directory delivery test reuses a genuinely completed task and makes no model call. The
 submitted-file test creates one new task after its explicit Start click. Coordinate
 the cloud-call budget with the native operator before running it. Retries are disabled;
