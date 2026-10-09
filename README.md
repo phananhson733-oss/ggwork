@@ -30,6 +30,8 @@ https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
 > [!NOTE]
 > **DeerFlow 2.0 is a ground-up rewrite.** It shares no code with v1. If you're looking for the original Deep Research framework, it's maintained on the [`1.x` branch](https://github.com/bytedance/deer-flow/tree/main-1.x) — contributions there are still welcome. Active development has moved to 2.0.
 
+Google Trends evidence uses semantic color badges for historical signals, change values, and data freshness or collection warnings. See the [Trends UX specification](docs/pick-workbench/trends-ux-spec.md) for their meaning; historical signals remain distinct from current observations.
+
 ## Official Website
 
 Learn more and see **real demos** on our [**official website**](https://deerflow.tech).

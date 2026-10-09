@@ -136,9 +136,7 @@ it("detail navigation rejects an earlier response after another drama was select
   expect(
     await screen.findByRole("heading", { name: "Second synthetic" }),
   ).toBeTruthy();
-  await waitFor(() =>
-    expect(screen.getByText(/末 7 日均值较前 7 日：\+100%/)).toBeTruthy(),
-  );
+  await waitFor(() => expect(screen.getByText("+100%")).toBeTruthy());
   resolveFirst(new Response(JSON.stringify(first), { status: 200 }));
   await waitFor(() =>
     expect(screen.queryByRole("heading", { name: "Sample" })).toBeNull(),

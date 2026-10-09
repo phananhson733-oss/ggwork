@@ -938,3 +938,12 @@ Indexed source deployment `2f5b8b09-4c9c-4122-a2da-8449d12f1cb3` passed readines
 - `pick-deploy-guard target=frontend commit=3a82b95e9d3dac7c9d42560d617ae4d3f473447b at=2026-10-08T14:53:14Z`
 
 Native mirror v27 published paired at 14:48 UTC with all eight gates passing, zero drift, zero scrub hits and cleared mirror-failure status. Production frontend promotion and authenticated browser checks passed. Queyu authentication remains explicitly pending; the owner-approved MoboReels retained-source exception stays visible. See [release acceptance](releases/2026-10-08-native-source-acceptance.md) for identities, validation boundaries and scheduled-run evidence.
+
+## 2026-10-08 Trends semantic emphasis release
+
+- `pick-deploy-guard target=frontend commit=9b9f4658f011ab783293c4799a6fbe2d489ab333 at=2026-10-09T02:24:03Z`
+- PR #72 implements the [Trends UX specification](trends-ux-spec.md). Frontend deployment `dpl_6AVocBwfcBQMSEA6iskoiBf5rLfF` was built from the guard's clean archive and promoted to `https://ggwork-deerflow.vercel.app`.
+- Local validation: lint/typecheck and production build pass; 30 targeted tests pass; complete frontend suite has 3,011 passed, 45 skipped, zero failures. Independent standards/spec reviews have no remaining findings.
+- Browser validation: three brand directions in light/dark modes, minimum badge contrast 4.68:1 / 6.95:1; at 390px, no page overflow or truncated labels and detail remains readable. These theme combinations used local synthetic fixtures with the real components.
+- Authenticated production readback confirms Return of the King remains neutral with green +9.2%, Off the Ice has blue historical stable with red -1%, and Taste of the Wild has green historical climb with green +1.7%. All three retain amber historical-window labels and their original numeric values; coverage remains 6,716 total / 2,816 with curves / 3,900 without usable curves. The evidence dialog and daily record navigation also work.
+- This release changes frontend presentation and documentation only; no Gateway deployment, data mutation, migration, schedule change, or manual Google query was performed.
