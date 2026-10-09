@@ -1006,3 +1006,12 @@ Original 47 Agent attempts remain the acceptance boundary; this release adds non
 
 - `pick-deploy-guard target=gateway commit=2f12e68cfbbf9cb8b4186ff1428f72134a7afd9b prod_head=0008 chain_head=0011 at=2026-10-09T04:45:21Z`
 - `pick-deploy-guard target=frontend commit=2f12e68cfbbf9cb8b4186ff1428f72134a7afd9b at=2026-10-09T04:46:21Z`
+
+
+### Completion release closure — Trends compatibility and formal-domain acceptance
+
+Trends deployment `70ba9db3-21c5-42f4-8f86-5382a2373bb5` is successful; service/deployment settings match the repository, collection configuration fingerprints are unchanged, and Docker source inputs match the verified Gateway. Observer compatibility at0011 passed without running a collector. No natural scheduled collection is claimed here.
+
+Formal-domain checks also passed for the current user's four saved selections and notes, prefilled planning form (no draft created), an existing20-card conversation, shared published records and the6,716-row historical Radar. The published-review source authorization notice is correct for the QA session. See [the complete production release record](releases/2026-10-09-completion-production.md).
+
+- `pick-deploy-guard target=cron:trends commit=954d0eb415b536a91b3da40102578b992e9a7e24 prod_head=0011 chain_head=0011 at=2026-10-09T04:55:42Z`
