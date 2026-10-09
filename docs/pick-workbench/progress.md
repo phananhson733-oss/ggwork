@@ -906,6 +906,49 @@ PR #47 产品提交 `638f3ae18a44f2d9496234a689c380d9a95fc0b2` 已部署到gatew
 
 初始映射仍待确认，生产反馈及调度仍关闭；已登录页面确认关闭状态，未触发生产反馈或模型请求。原有RealShort feed 503另行记录，不将该来源宣称为健康。现有采集器、停止标记及计划保持，迁移仍为0008；本次没有cron兼容镜像更新。详见[发布记录](releases/2026-10-08-feedback-identity-mapping.md)及[映射维护说明](feedback-identity-mapping.md)。
 
+
+## T7 draft API — local source implementation
+
+Private draft CRUD/version/idempotency/time handling is implemented under the existing authenticated Gateway. SQLite and disposable PostgreSQL tests cover frozen sources, conflicting writes, lost replies, restart, source disappearance,100-row bounds and private schema grants; a models-disabled loopback Gateway proves cookie/CSRF and owner isolation. This does not claim production rollout, preview/export (T8), or feedback linkage (T9). See [planning contract and boundaries](planning.md).
+
+
+## 2026-10-08 completion package — local final review
+
+The selection, checking, personal-list, draft/CSV and published-review implementation
+is assembled on `codex/pick-completion-20261008`; this entry records local package
+validation, not a release. The final official-manager snapshot includes the reviewed
+legacy-detail repair5519fdb7. Its192 runtime files match source, managed and physical
+noneditable installation at digest
+`sha256:cd6ad51fd738ce52833ed94418e351bf951f0a2a68752fca5a4b678db1dc8f72`;
+private migration head is0011, with no production migration performed.
+
+Source broad5380passed/29skipped exposed one legacy-detail regression; the reviewed
+repair passed173 affected tests including the original case. Host18344passed plus
+997 affected-module passes after correcting inherited manager configuration form
+explicit composite evidence; initial159 invocation failures remain recorded.
+Frontend3101passed/52skipped, lint/typecheck/build, blocking149 and original projection
+benchmark passed. Actual installed legacy-null detail, strict old/new DTO decoding
+and immutable export probes passed. See the [package verification record](releases/2026-10-08-completion-package.md)
+for exact artifact boundaries, historical failures and retained ledgers.
+
+The required finalcd6 installed browser rerun passed checked chat → saved selections
+→ revision-bound plan/CSV (65.252s) and actual published metrics → explicit manual
+link (3.848s). Both starts verified installed provenance, default uvloop and TLS;
+the host file manifest matched at the recorded start/post-run checkpoints. This
+scripted-model browser pass does not substitute for live-model or VoiceOver gates.
+
+T11 remains open: the original996 package consumed all40 baseline/candidate Agent
+attempts without full semantic acceptance; no additional model runs are authorized.
+The repairedcd6 package has local/offline validation, not a new real-model pass.
+T12 native VoiceOver remains unverified. Do not infer complete acceptance, deployment,
+automatic publication or external plan-ID propagation from these local checks.
+
+## 2026-10-08 一期追加验收完成（本地集成）
+
+用户确认的7个追加案例共20项检查已全部满足，实际21次模型调用、164246个已知tokens；六个事实答复经过一次纠正后确认，同名合并案例正确等待澄清。原40次失败记录未改写，累计47/47额度耗尽。D901版本展示缺口以仅前端f2df7b32修复，并在同一完成线程实测通过，没有增加模型运行。原生VoiceOver由用户明确移到后续，仍未验证。
+
+本地集成代码、cd6实际安装、真实Gateway浏览器与独立Standards/Spec审查完成；所有26个实现临时工作树已清理，仅保留集成目录及可恢复证据。线上未部署。详见[追加验收与交接](releases/2026-10-08-completion-followup.md)。
+
 ## 2026-10-08 飞书反馈生产启用
 
 用户明确授权后，已将生产反馈和小时调度启用并绑定现有已授权owner。仅变更三个反馈配置项，配置部署 `6bbb7959-91d6-44a2-9769-a6dcd87f0319` 成功；gateway源代码与此前映射发布一致，迁移仍为0008，未部署前端或修改采集器。

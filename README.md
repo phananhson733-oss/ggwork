@@ -6,6 +6,14 @@ English | [中文](./README_zh.md) | [日本語](./README_ja.md) | [Français](.
 
 **GGWork customization:** the pick workbench includes optional, owner-scoped Feishu operational feedback. It reads 15 business tables into versioned private storage, exposes evidence to the Agent and preserves historical candidate decisions. It is disabled by default, does not write to Feishu, and does not introduce a new ranking score. See the [feedback runbook](docs/pick-workbench/feedback-runbook.md) and [verification status](docs/pick-workbench/feedback-progress.md) before enabling it.
 
+GGWork exposes a shared read-only query API for the data board and Agent, with immutable mirror/rule pins and explicit private-import provenance. The model and read-only operator card use a bounded structured projection while the board API retains complete source records. Gateway reader configuration and compatibility boundaries are in the [completion query contract](docs/pick-workbench/completion-contract.md).
+
+GGWork also has a source implementation of [private content-plan drafts](docs/pick-workbench/planning.md), with owner isolation, immutable source snapshots, retry receipts, revision conflicts and explicit IANA/DST scheduling. Draft saving does not grant execution or publication approval.
+
+GGWork uses a conservative [completion fact checker and publication gate](docs/pick-workbench/answer-checking.md): provisional model prose is withheld, and only checked content or explicit incompletion enters the assistant message. The same message is used for live delivery, history, reconnect and subsequent context; at most one correction consumes the existing model-call and time budget.
+
+The personal pick workbench supports explicitly referencing selected items from two historical candidate batches in one chat. Each batch keeps its own source snapshot; comparison alone does not bind chat context. See [the reference contract](docs/pick-workbench/completion-contract.md#explicit-plural-chat-references).
+
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](./backend/pyproject.toml)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](./Makefile)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
@@ -1979,7 +1987,9 @@ Deleting a project moves its entire shelf to trash in the same step.
 
 ## Scheduled Tasks
 
-In this GGWork customization, the Scheduled tasks and 我的选剧 sidebar entries are temporarily unavailable. Both remain visible and show “暂未开放” (or “Not available yet” in English) when clicked, keeping the current page open. 选剧资料 remains accessible.
+In this GGWork customization, the pick workspace has direct entries for conversation, personal selections, plan drafts, publication review, and source data. Personal selections can create a private draft; plan edits are explicitly saved, execution export requires a version-bound source check, and download retries use the same immutable receipt. Publication review reads actual posts and requires explicit two-sided confirmation for manual plan links. Two explicitly chosen batches can be compared without silently changing chat references. Scheduled tasks remains temporarily unavailable.
+
+The completion frontend has deterministic mocked-HTTP component/browser coverage; actual plan/export/feedback persistence and host final-publication acceptance require the assembled backend. The declared data-board candidate/catalog/rank/posted/rules readers now use the authenticated common-query endpoint after same-version PostgreSQL/Gateway differential verification; specialized detail, replay and Trends paths remain version-pinned. See [the frozen completion contract](docs/pick-workbench/completion-contract.md).
 
 DeerFlow now includes a first-class scheduled-task MVP in the workspace.
 
@@ -2179,6 +2189,8 @@ This checkout adds a personal drama-selection workspace on the pinned DeerFlow b
 The follow-up adds [callback usage observations](docs/pick-workbench/usage-observation.md), including known partial usage on cancellation and explicit missing-data reasons, and a [read-only canary facts report](docs/pick-workbench/observe-runbook/canary-report.md). Deployment and live verification are recorded in progress. The [team workflow](docs/plans/2026-10-06-pick-team-workflow-spec.md) and [confirmed external writes](docs/plans/2026-10-06-pick-external-write-spec.md) documents specify later implementation; those features are not implemented by this follow-up.
 
 The Google Trends tab uses an evidence-first table in the shared GGWork theme, with same-batch search/platform/result filters and CSV export. Expand batch details to inspect collection sources and recovery status. Historical pilot data and experimental grades are not mixed into production observations.
+
+Private published review and explicit manual post-to-plan attribution are documented in [published review](docs/pick-workbench/published-review.md), including source-revision checks, account namespace limits and observation/revenue semantics.
 
 ### Historical Trends radar
 

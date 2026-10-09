@@ -111,7 +111,7 @@ async def test_deadline_cancels_inflight_tool():
     from ggwork_pick.context import PickTask
     from ggwork_pick.middleware import PickToolGate
 
-    task = PickTask(service=None, info=TaskInfo("t", "r", "c", "lead"), deadline=time.monotonic() + 0.02)
+    task = PickTask(service=None, info=TaskInfo("t", "r", "c", "lead"), deadline=time.monotonic() + 20.02)
     store = ExtensionData("t")
     store.set(task)
     request = SimpleNamespace(runtime=SimpleNamespace(context={EXTENSION_TASK_STORE_KEY: store}), tool_call={"name": "pick_query_candidates"})

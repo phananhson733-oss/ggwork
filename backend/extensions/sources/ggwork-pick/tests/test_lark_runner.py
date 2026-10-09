@@ -56,6 +56,41 @@ def test_feedback_export_reads_bounded_artifacts_before_scratch_cleanup(monkeypa
     assert not Path(call.kwargs["cwd"]).exists()
 
 
+@pytest.mark.parametrize("kind", ["sheet", "base"])
+def test_catalog_export_keeps_large_artifacts_and_reaps_real_descendants(monkeypatch, tmp_path, kind):
+    """Native exports retain their larger limit under the completion process runner."""
+    ready, survived, scratch_record = (tmp_path / name for name in ("child-ready", "survived", "scratch"))
+    child = (
+        "import os, time; from pathlib import Path; os.close(1); os.close(2); "
+        f"Path({str(ready)!r}).write_text('ready'); time.sleep(1); Path({str(survived)!r}).write_text('late')"
+    )
+    binary = tmp_path / "synthetic-catalog-cli"
+    binary.write_text(
+        f"#!{sys.executable}\nimport subprocess, sys, time\nfrom pathlib import Path\n"
+        f"Path({str(scratch_record)!r}).write_text(str(Path.cwd().parent))\n"
+        "name = 'source.json' if sys.argv[1] == 'sheets' else 'source.ndjson'\n"
+        "Path(name).write_text('x' * (9 * 1024 * 1024))\n"
+        "if name.endswith('ndjson'): Path('source.ndjson.manifest.json').write_text('{}')\n"
+        f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+        f"while not Path({str(ready)!r}).exists(): time.sleep(0.01)\n"
+        "print('{}')\n",
+        encoding="utf-8",
+    )
+    binary.chmod(0o700)
+    lark_runner._BINARY_CACHE["path"] = str(binary)
+    monkeypatch.setattr(lark_runner, "command_risk", lambda *_args, **_kwargs: "read")
+    _user_tree()
+    token, table = ("RRBAszuhOhNM8StMqRVcGknSnyf", "7ba1a7") if kind == "sheet" else ("OtnsbnRnwaLmnVsJByscTkFMntd", "tbl5Kzrhuz9B7LTE")
+    result = lark_runner.run_catalog_export("alice", kind, token, table)
+    assert result.completed.exit_code == 0 and not result.completed.truncated
+    assert len(result.files["source.json" if kind == "sheet" else "source.ndjson"]) == 9 * 1024 * 1024
+    if kind == "base":
+        assert result.files["source.manifest.json"] == "{}"
+    assert not Path(scratch_record.read_text()).exists()
+    time.sleep(1.1)
+    assert not survived.exists(), "export returned with an owned descendant still running"
+
+
 def test_feedback_export_rejects_symlinks_without_reading_target(monkeypatch, tmp_path):
     private = tmp_path / "private"
     private.write_text("not an export", encoding="utf-8")
@@ -689,3 +724,69 @@ def test_one_run_at_a_time_across_processes(monkeypatch):
     assert fake.calls == []
     lark_runner.run_guide(("docs", "--help"))
     assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("bounded", [True, False])
+@pytest.mark.parametrize("kind", ["guide", "user"])
+def test_cold_setup_consumes_absolute_budget_without_changing_default_callers(monkeypatch, bounded, kind):
+    clock = [90.0]
+    monkeypatch.setattr(lark_runner, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    lark_runner._BINARY_CACHE.clear()
+
+    def probe(**kwargs):
+        if bounded:
+            assert callable(kwargs["process_runner"])
+        clock[0] = 98.0
+        return lark_cli.LarkCliProbe(available=True, path="/synthetic/lark", version="0.0.0")
+
+    monkeypatch.setattr(lark_cli, "probe_lark_cli", probe)
+    fake = FakeCli()
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
+    options = {"timeout": 15, **({"deadline": 100.0} if bounded else {})}
+    if kind == "guide":
+        lark_runner.run_guide(("skills", "list"), **options)
+    else:
+        _user_tree("alice")
+        lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"), **options)
+    assert fake.calls[0].kwargs["timeout"] == (2 if bounded else 15)
+
+
+@pytest.mark.parametrize("kind", ["guide", "user"])
+def test_probe_that_finishes_late_cannot_start_command_setup(monkeypatch, kind):
+    clock = [90.0]
+    monkeypatch.setattr(lark_runner, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    lark_runner._BINARY_CACHE.clear()
+
+    def probe(**kwargs):
+        clock[0] = 101.0
+        return lark_cli.LarkCliProbe(available=True, path="/synthetic/lark", version="0.0.0")
+
+    monkeypatch.setattr(lark_cli, "probe_lark_cli", probe)
+    fake = FakeCli()
+    monkeypatch.setattr(lark_runner, "_run_process", fake)
+    with pytest.raises(TimeoutError):
+        if kind == "guide":
+            lark_runner.run_guide(("skills", "list"), deadline=100.0)
+        else:
+            lark_runner.run_for_user("alice", ("docs", "+fetch", "--doc", "AbC"), deadline=100.0)
+    assert not fake.calls
+
+
+@pytest.mark.parametrize("deadline,expected", [(102.0, 2), (200.0, 5), (99.0, None)])
+def test_cold_probe_shortens_five_second_cap_and_never_starts_when_expired(monkeypatch, deadline, expected):
+    lark_runner._BINARY_CACHE.clear()
+    monkeypatch.setattr(lark_runner, "time", SimpleNamespace(monotonic=lambda: 100.0))
+    monkeypatch.setattr(lark_cli, "_resolve_lark_cli_path", lambda: "/synthetic/lark")
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append((kwargs["timeout"], kwargs["deadline"]))
+        return subprocess.CompletedProcess(args, 0, "0.0.0", "")
+
+    monkeypatch.setattr(lark_runner, "_run_process", run)
+    if expected is None:
+        with pytest.raises(TimeoutError):
+            lark_runner.resolve_binary(deadline=deadline)
+    else:
+        assert lark_runner.resolve_binary(deadline=deadline) == "/synthetic/lark"
+    assert calls == ([] if expected is None else [(expected, min(deadline, 105.0))])

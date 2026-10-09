@@ -17,12 +17,12 @@ from mirror_pairs import (
     V1_FRESHNESS,
     batch,
     behind,
-    building_version,
+    building_query_version,
     catalog_payload,
     degrade,
     fetch,
     now,
-    open_service,
+    open_query_service,
     publish_pair,
     stage_pair,
     version,
@@ -33,14 +33,14 @@ from sqlalchemy.util import await_only
 
 @pytest_asyncio.fixture
 async def pg_world(pg_db_url, tmp_path):
-    engine, service, shared, importer = await open_service(pg_db_url, tmp_path)
+    engine, service, shared, importer = await open_query_service(pg_db_url, tmp_path)
     yield engine, service, shared, importer
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
 async def world(pick_db_url, tmp_path):
-    engine, service, shared, importer = await open_service(pick_db_url, tmp_path)
+    engine, service, shared, importer = await open_query_service(pick_db_url, tmp_path)
     yield engine, service, shared, importer
     await engine.dispose()
 
@@ -135,7 +135,7 @@ async def test_pin_counts_only_published_versions(pg_world):
     engine, service, shared, importer = pg_world
     version_a, pair_a = await publish_pair(engine, shared, importer, "a")
     # A version being built has no published_at, which PostgreSQL sorts first; it is not current.
-    await building_version(engine)
+    await building_query_version(engine)
     assert (await _alice(service).current_pin()).mirror_version == version_a
     # Nor is a dropped one, however recent: the pair b batches are current, their version is gone.
     version_b, pair_b = await publish_pair(engine, shared, importer, "b")
@@ -153,7 +153,7 @@ async def test_pin_survives_a_version_off_the_minute(pg_world, caplog):
     async with engine.begin() as conn:
         await conn.execute(text("ALTER TABLE pick_mirror.versions DROP CONSTRAINT pick_mirror_versions_as_of"))
     staged = await stage_pair(importer, "a")
-    version_id, schema = await building_version(engine, as_of=AS_OF.replace(second=30))
+    version_id, schema = await building_query_version(engine, as_of=AS_OF.replace(second=30))
     await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
     with caplog.at_level(logging.WARNING, logger="ggwork_pick.pin"):
         pin = await _alice(service).current_pin()
@@ -282,7 +282,7 @@ async def test_frozen_on_write(pg_world):
     assert c2["mirror_version"] == version_1 and c2["data_as_of_json"] == c1["data_as_of_json"]
     # The same batches then pair with a new version: earlier results keep what they froze.
     staged = await stage_pair(importer, "a", as_of_text=later)
-    version_2, schema = await building_version(engine, as_of=AS_OF.replace(hour=15))
+    version_2, schema = await building_query_version(engine, as_of=AS_OF.replace(hour=15))
     await shared.publish_mirror_pair(version_id=version_2, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
     assert await _record(service, c1["id"]) == c1 and await _record(service, c2["id"]) == c2
     c3 = await _record(service, (await service_alice.query({}, thread_id="t", run_id="r3", call_id="c3"))["id"])
@@ -293,7 +293,7 @@ async def test_frozen_on_write(pg_world):
 async def test_sqlite_current_pin_runs(tmp_path):
     from ggwork_pick.pin import Pin
 
-    engine, service, shared, importer = await open_service(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}", tmp_path)
+    engine, service, shared, importer = await open_query_service(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}", tmp_path)
     try:
         assert await _alice(service).current_pin() == Pin(None, None, None, None)
         staged = await stage_pair(importer, "a")
@@ -314,7 +314,7 @@ async def test_pin_single_statement(world):
     if postgres:
         version_id, staged = await publish_pair(engine, shared, importer, "a")
         # The next pair is ready; on PostgreSQL it is published right after the pin's first statement.
-        pending, (pending_version, pending_schema) = await stage_pair(importer, "b"), await building_version(engine)
+        pending, (pending_version, pending_schema) = await stage_pair(importer, "b"), await building_query_version(engine)
     else:
         staged, version_id = await degrade(shared, importer, "a"), None
     repo = _alice(service)

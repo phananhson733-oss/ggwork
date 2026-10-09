@@ -1,0 +1,364 @@
+{
+  "query": {
+    "domain": "rankings",
+    "scope": "full_catalog",
+    "pin": null,
+    "query": null,
+    "source": null,
+    "source_id": null,
+    "language": null,
+    "theater": null,
+    "channel": null,
+    "account": null,
+    "published_from": null,
+    "published_to": null,
+    "exclude_posted": false,
+    "exclude_selected": false,
+    "confirmed_eligible_only": true,
+    "exclude_previous": false,
+    "hot_only": false,
+    "tags": [],
+    "signal_kind": "kd",
+    "period": {
+      "kind": "daily",
+      "value": "2026-01-01"
+    },
+    "order": "rank",
+    "offset": 0,
+    "limit": 20,
+    "budget_ms": 10000,
+    "posted_filter": "",
+    "posted_state": "",
+    "with_off": false,
+    "signal_only": false,
+    "wide": false,
+    "youtube_ok": false,
+    "dated_only": false,
+    "in_use_only": false,
+    "rank": "kd",
+    "grade": null,
+    "rs_sort": "rr",
+    "rs_locale": null,
+    "rs_bucket": null,
+    "legacy_week_label": null,
+    "result_id": null
+  },
+  "response": {
+    "contract_version": "pick-completion-v1",
+    "request": {
+      "domain": "rankings",
+      "scope": "full_catalog",
+      "pin": null,
+      "query": null,
+      "source": null,
+      "source_id": null,
+      "language": null,
+      "theater": null,
+      "channel": null,
+      "account": null,
+      "published_from": null,
+      "published_to": null,
+      "exclude_posted": false,
+      "exclude_selected": false,
+      "confirmed_eligible_only": true,
+      "exclude_previous": false,
+      "hot_only": false,
+      "tags": [],
+      "signal_kind": "kd",
+      "period": {
+        "kind": "daily",
+        "value": "2026-01-01"
+      },
+      "order": "rank",
+      "offset": 0,
+      "limit": 20,
+      "budget_ms": 10000,
+      "posted_filter": "",
+      "posted_state": "",
+      "with_off": false,
+      "signal_only": false,
+      "wide": false,
+      "youtube_ok": false,
+      "dated_only": false,
+      "in_use_only": false,
+      "rank": "kd",
+      "grade": null,
+      "rs_sort": "rr",
+      "rs_locale": null,
+      "rs_bucket": null,
+      "legacy_week_label": null,
+      "result_id": null
+    },
+    "pin": {
+      "catalog_batch_id": "synthetic-catalog-1",
+      "mirror_version": 1,
+      "knowledge_batch_id": "synthetic-knowledge-1",
+      "rule_version": "synthetic-rules-v1",
+      "feedback_version_id": null
+    },
+    "actual_period": {
+      "kind": "daily",
+      "value": "2026-01-01"
+    },
+    "order_version": "synthetic-rank-v1",
+    "counts": {
+      "total": 5,
+      "matched": 1,
+      "returned": 1,
+      "excluded": {}
+    },
+    "truncated": false,
+    "next_offset": null,
+    "rows": [
+      {
+        "identity": "[\"synthetic\",\"A\",\"en\"]",
+        "drama": {
+          "source": "synthetic",
+          "source_id": "A",
+          "language": "en",
+          "title": "Synthetic Dawn",
+          "theater": "",
+          "tags": [],
+          "listed_at": null,
+          "availability": "active",
+          "signals": [],
+          "channel_rules": {},
+          "detail_url": null,
+          "posted": null
+        },
+        "posted_status": "unknown",
+        "posted_scope_complete": false,
+        "evidence_refs": [],
+        "exclusion_reasons": []
+      }
+    ],
+    "board": null,
+    "facets": null,
+    "period_options": {
+      "days": [
+        "2026-01-01"
+      ],
+      "weeks": [],
+      "resolution": "exact"
+    },
+    "source_as_of": "2026-01-01T10:00:00+00:00",
+    "mirror_synced_at": "2026-10-08T11:00:00+00:00",
+    "warnings": []
+  },
+  "publication": {
+    "thread_id": "t",
+    "run_id": "run1",
+    "message_id": "m",
+    "status": "partial",
+    "content": "已确认候选为 Synthetic Dawn；集数尚未核对。",
+    "facts": [
+      {
+        "claim": "候选为 Synthetic Dawn",
+        "status": "confirmed",
+        "evidence_refs": [
+          "result:r1/i1"
+        ],
+        "reason": ""
+      },
+      {
+        "claim": "共80集",
+        "status": "unknown",
+        "evidence_refs": [],
+        "reason": "合成来源缺集数"
+      }
+    ],
+    "references": [
+      {
+        "result_id": "r1",
+        "item_ids": [
+          "i1"
+        ]
+      }
+    ],
+    "checker_version": "check-v1",
+    "correction_count": 1,
+    "checked_at": "2026-10-08T12:00:00+00:00"
+  },
+  "draft": {
+    "request_id": "cmd1",
+    "title": "合成排期",
+    "timezone": "America/Chicago",
+    "rows": [
+      {
+        "row_id": "row1",
+        "identity": "[\"synthetic\",\"A\",\"en\"]",
+        "source_result_id": "r1",
+        "source_item_id": "i1",
+        "selection_id": null,
+        "account": "QA-A",
+        "channel": "youtube",
+        "local_time": "2026-10-12T09:00",
+        "fold": null,
+        "copy_text": "示例文案",
+        "note": ""
+      }
+    ]
+  },
+  "plan": {
+    "id": "plan1",
+    "version": 1,
+    "title": "合成排期",
+    "timezone": "America/Chicago",
+    "rows": [
+      {
+        "row_id": "row1",
+        "identity": "[\"synthetic\",\"A\",\"en\"]",
+        "source_result_id": "r1",
+        "source_item_id": "i1",
+        "selection_id": null,
+        "account": "QA-A",
+        "channel": "youtube",
+        "local_time": "2026-10-12T09:00",
+        "fold": null,
+        "copy_text": "示例文案",
+        "note": "",
+        "title": "Synthetic Dawn",
+        "theater": "Synthetic",
+        "language": "en",
+        "source_pin": {
+          "catalog_batch_id": "synthetic-catalog-1",
+          "mirror_version": 1,
+          "knowledge_batch_id": "synthetic-knowledge-1",
+          "rule_version": "synthetic-rules-v1",
+          "feedback_version_id": null
+        },
+        "scheduled_at": "2026-10-12T14:00:00+00:00"
+      }
+    ],
+    "created_at": "2026-10-08T12:00:00+00:00",
+    "updated_at": "2026-10-08T12:00:00+00:00"
+  },
+  "preview": {
+    "plan": {
+      "id": "plan1",
+      "version": 1,
+      "title": "合成排期",
+      "timezone": "America/Chicago",
+      "rows": [
+        {
+          "row_id": "row1",
+          "identity": "[\"synthetic\",\"A\",\"en\"]",
+          "source_result_id": "r1",
+          "source_item_id": "i1",
+          "selection_id": null,
+          "account": "QA-A",
+          "channel": "youtube",
+          "local_time": "2026-10-12T09:00",
+          "fold": null,
+          "copy_text": "示例文案",
+          "note": "",
+          "title": "Synthetic Dawn",
+          "theater": "Synthetic",
+          "language": "en",
+          "source_pin": {
+            "catalog_batch_id": "synthetic-catalog-1",
+            "mirror_version": 1,
+            "knowledge_batch_id": "synthetic-knowledge-1",
+            "rule_version": "synthetic-rules-v1",
+            "feedback_version_id": null
+          },
+          "scheduled_at": "2026-10-12T14:00:00+00:00"
+        }
+      ],
+      "created_at": "2026-10-08T12:00:00+00:00",
+      "updated_at": "2026-10-08T12:00:00+00:00"
+    },
+    "preview_id": "preview1",
+    "checked_at": "2026-10-08T12:01:00+00:00",
+    "exportable": true,
+    "checks": [
+      {
+        "row_id": "row1",
+        "status": "ready",
+        "blockers": [],
+        "warnings": [],
+        "current_pin": {
+          "catalog_batch_id": "synthetic-catalog-1",
+          "mirror_version": 1,
+          "knowledge_batch_id": "synthetic-knowledge-1",
+          "rule_version": "synthetic-rules-v1",
+          "feedback_version_id": null
+        }
+      }
+    ]
+  },
+  "export": {
+    "id": "export1",
+    "plan_id": "plan1",
+    "plan_version": 1,
+    "preview_id": "preview1",
+    "created_at": "2026-10-08T12:01:00+00:00",
+    "filename": "plan1-v1.csv",
+    "row_count": 1,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "link": {
+    "id": "link1",
+    "plan_id": "plan1",
+    "row_id": "row1",
+    "plan_version": 1,
+    "feedback_version_id": "synthetic-feedback-1",
+    "post_key": "post-QA-1",
+    "method": "manual",
+    "status": "confirmed",
+    "evidence_refs": [
+      "feedback:synthetic-feedback-1/post-QA-1"
+    ],
+    "created_at": "2026-10-15T12:00:00+00:00"
+  },
+  "error": {
+    "code": "query_timeout",
+    "message": "资料查询超时，请重试",
+    "retryable": true,
+    "current_version": null
+  },
+  "review": {
+    "status": "ok",
+    "feedback_version_id": "fv1",
+    "scan_completed_at": "2026-10-08T12:00:00+00:00",
+    "items": [
+      {
+        "post_key": "post1",
+        "account_id": "QA-A",
+        "channel": "youtube",
+        "identity": null,
+        "title": "Synthetic Dawn",
+        "language": "en",
+        "published_at": "2026-10-05T12:00:00+00:00",
+        "observed_at": "2026-10-08T12:00:00+00:00",
+        "observation_days": 3,
+        "requested_observation_days": 7,
+        "window_complete": false,
+        "views": 0,
+        "likes": null,
+        "comments": null,
+        "revenue": [
+          {
+            "record_id": "revenue1",
+            "source_lane": "cps_manual",
+            "grain": "post",
+            "currency": "USD",
+            "metric": "commission",
+            "amount": "1E-7",
+            "drama_record_id": null,
+            "metric_on": null,
+            "amount_basis": null,
+            "attribution": "unmatched"
+          }
+        ],
+        "link": null,
+        "evidence_refs": [
+          "synthetic:post1"
+        ]
+      }
+    ],
+    "total": 1,
+    "next_offset": null,
+    "warnings": []
+  }
+}

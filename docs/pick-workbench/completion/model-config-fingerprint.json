@@ -1,0 +1,36 @@
+{
+  "format_version": "pick-model-acceptance-fingerprint-v1",
+  "status": "template-must-be-filled-before-first-run",
+  "cases_sha256": "04a5887b6de64b8b191aca821edb17d1928c6e13018b9581b7299335c7b6e668",
+  "baseline_sha": null,
+  "candidate_sha": null,
+  "provider": null,
+  "model_id": null,
+  "model_parameters": {
+    "temperature": null,
+    "top_p": null,
+    "seed": null
+  },
+  "effective_total_timeout_seconds": null,
+  "effective_model_call_limit": null,
+  "system_prompt_sha256": {
+    "baseline": null,
+    "candidate": null
+  },
+  "tool_schema_sha256": {
+    "baseline": null,
+    "candidate": null
+  },
+  "qa_dataset_sha256": null,
+  "qa_owner_alias": "QA-A",
+  "locale": "zh-CN",
+  "timezone": "America/Chicago",
+  "clock": "2026-10-08T12:00:00+00:00",
+  "run_limits": {
+    "baseline": 20,
+    "candidate": 20,
+    "total": 40,
+    "additional_retries": 0
+  },
+  "secret_fields_permitted": false
+}

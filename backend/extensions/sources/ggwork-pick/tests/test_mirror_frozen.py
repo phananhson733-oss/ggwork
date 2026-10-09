@@ -23,10 +23,10 @@ from mirror_pairs import (
     NO_ACCEPT_EMPTY,
     V1_FRESHNESS,
     V2_FRESHNESS,
-    building_version,
+    building_query_version,
     catalog_payload,
     now,
-    open_service,
+    open_query_service,
     publish_pair,
     stage_pair,
 )
@@ -61,7 +61,7 @@ async def _client(service):
 
 @pytest_asyncio.fixture
 async def world(pg_db_url, tmp_path):
-    engine, service, shared, importer = await open_service(pg_db_url, tmp_path)
+    engine, service, shared, importer = await open_query_service(pg_db_url, tmp_path)
     async with _client(service) as client:
         yield SimpleNamespace(engine=engine, service=service, shared=shared, importer=importer, client=client)
     await engine.dispose()
@@ -87,7 +87,7 @@ async def _set_frozen(service, result_id: str, value) -> None:
 async def _repair(world) -> int:
     """The same content pairs again, with a later version: the batches are reused and their source_as_of rewritten."""
     staged = await stage_pair(world.importer, "a", as_of_text=LATER_TEXT)
-    version_id, schema = await building_version(world.engine, as_of=LATER, freshness=LATER_V2_FRESHNESS)
+    version_id, schema = await building_query_version(world.engine, as_of=LATER, freshness=LATER_V2_FRESHNESS)
     await world.shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
     return version_id
 

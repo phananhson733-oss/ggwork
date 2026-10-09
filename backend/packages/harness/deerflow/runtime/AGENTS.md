@@ -366,3 +366,32 @@ JSONL's single-process deployment constraint. Regression coverage is in
 ### Optional host execution deadline
 
 `RunContext.execution_timeout_seconds` is a trusted host setting, never a runnable/client config override. The worker starts its watchdog before cancellable preflight and stops it before terminal status calculation/persistence, on both exception paths, and in final cleanup. Deadline cancellation records `timeout`/`execution_timeout`; an explicit user abort retains the existing interrupt/rollback path. Durable terminal cleanup must still drain: this is an execution deadline, not permission to abandon a database or checkpoint write at the wall-clock boundary. Gateway binds the pick deployment's `PICK_RUN_TIMEOUT_SECONDS`; unset preserves upstream unlimited-run behavior. Tests: `tests/test_run_execution_deadline.py`.
+
+
+### Pick final publication
+
+`deerflow_extension_api.pick_publication.PickPublication` is a host-created,
+run-scoped capability in `ExtensionData`. A business lifecycle may prepare its
+safe fallback, but only the resolved `PickPublicationMiddleware` activates the
+gate before model execution. Never activate from caller context, message
+metadata, attribution tags, or extension installation alone. The harness imports
+no business package.
+
+While active, journal callbacks retain usage but suppress provisional AI events.
+Safe tool-call intent is journaled before its tool result; matching tool-result
+receipts guard fixed operational copy. The extension substitutes checked final
+content before the graph model node returns; an outer host wrapper prevents later
+model wrappers from replacing it. Final AI chunks/state frames wait for durable
+checkpoint plus journal persistence. Failed storage never falls back to raw text.
+The canonical message ID/content and four `pick_completion` fields are reused by
+all existing history/reconnect/context paths. No parallel final-message store.
+
+Cancellation fallback uses a state-only mutation graph and the existing
+`CheckpointStateAccessor`, shielded through repeated host cancellation before
+releasing the finalizing barrier. Single values/updates consumers also receive
+fallback. Public callback/stream errors use fixed safe text while server logs
+retain diagnostics. Provider usage replays remain deduplicated; final message
+usage includes its initial draft and one correction for state-based token caps.
+The absolute host deadline is exposed on the capability; reserve policy remains
+business-owned. Test via `tests/test_pick_message_publication.py` with scripted
+models; never use a live provider for these host-contract checks.

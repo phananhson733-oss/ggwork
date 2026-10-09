@@ -32,7 +32,7 @@ from contextvars import Context
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
-from typing import Any, Final, Literal, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.types import Overwrite
@@ -98,6 +98,9 @@ from deerflow.workspace_changes.types import WorkspaceSnapshot
 from .manager import RunManager, RunRecord, RunStartOutcome
 from .naming import resolve_root_run_name
 from .schemas import RunStatus
+
+if TYPE_CHECKING:
+    from deerflow_extension_api.pick_publication import PickPublication
 
 logger = logging.getLogger(__name__)
 
@@ -844,6 +847,11 @@ async def run_agent(
 
     extensions = ctx.extensions if ctx.extensions is not None else get_loaded_extensions()
     task_store: ExtensionData | None = None
+    from deerflow_extension_api.pick_publication import PICK_EXECUTION_ERROR, PickPublication
+    from langchain_core.messages import AIMessage
+
+    publication = PickPublication(thread_id, run_id)
+    pending_pick_frames: list[tuple[str, Any, tuple]] = []
     task_info: TaskInfo | None = None
     deferred_finalization_interrupt: BaseException | None = None
     pre_run_checkpoint_id: str | None = None
@@ -897,6 +905,7 @@ async def run_agent(
             worker_task.cancel()
 
     if ctx.execution_timeout_seconds is not None:
+        publication.deadline = time.monotonic() + ctx.execution_timeout_seconds
         deadline_handle = asyncio.get_running_loop().call_later(ctx.execution_timeout_seconds, expire_execution)
 
     def stop_execution_deadline() -> None:
@@ -1002,6 +1011,10 @@ async def run_agent(
         task_id = lead_task_id(run_id)
         if extensions.needs_task_store:
             task_store = ExtensionData(task_id)
+            task_store.set(publication)
+            if journal is not None:
+                journal.pick_publication = publication
+                publication.on_tool_message = journal.publish_pick_message
 
         if extensions.has_task_lifecycle:
             task_info = TaskInfo(
@@ -1272,6 +1285,27 @@ async def run_agent(
         # re-enter the stream and would otherwise discard the resolved seqs.
         seq_stamper = _build_seq_stamper(event_store, thread_id, journal) if "values" in requested_modes else None
 
+        async def publish_checked_tools() -> None:
+            for safe in publication.drain_tools():
+                if "messages-tuple" in requested_modes:
+                    await bridge.publish(run_id, "messages", serialize((AIMessage(**safe), {"langgraph_node": "model"}), mode="messages"))
+
+        def safe_pick_errors(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: (PICK_EXECUTION_ERROR if key in {"error", "exception"} and item is not None else safe_pick_errors(item)) for key, item in value.items()}
+            if isinstance(value, list):
+                return [safe_pick_errors(item) for item in value]
+            return value
+
+        def holds_pick_final(value: Any) -> bool:
+            if isinstance(value, AIMessage):
+                return value.id == publication.message_id
+            if isinstance(value, dict):
+                return value.get("id") == publication.message_id or any(holds_pick_final(item) for item in value.values())
+            if isinstance(value, (list, tuple)):
+                return any(holds_pick_final(item) for item in value)
+            return False
+
         async def _stream_once(input_payload: Any, stream_config: RunnableConfig) -> None:
             nonlocal llm_error_fallback_message
             file_tool_chunk_batcher = _LargeFileToolChunkBatcher() if "messages-tuple" in requested_modes else None
@@ -1288,6 +1322,14 @@ async def run_agent(
                                     broke_on_abort = True
                                     logger.info("Run %s abort requested — stopping", run_id)
                                     break
+                                await publish_checked_tools()
+                                if publication.active and single_mode == "messages" and isinstance(chunk[0], AIMessage):
+                                    continue
+                                if publication.active and single_mode in {"debug", "tasks", "checkpoints"}:
+                                    chunk = safe_pick_errors(serialize(chunk, mode=single_mode))
+                                if publication.active and single_mode != "custom" and holds_pick_final(chunk):
+                                    pending_pick_frames.append((single_mode, serialize(chunk, mode=single_mode), ()))
+                                    continue
                                 if single_mode != "custom":
                                     # Custom frames carry task_* events whose payload can hold a delegated
                                     # subagent's messages; see the multi-mode branch below.
@@ -1331,6 +1373,14 @@ async def run_agent(
                             if mode is None:
                                 continue
 
+                            await publish_checked_tools()
+                            if publication.active and not namespace and mode == "messages" and isinstance(chunk[0], AIMessage):
+                                continue
+                            if publication.active and not namespace and mode in {"debug", "tasks", "checkpoints"}:
+                                chunk = safe_pick_errors(serialize(chunk, mode=mode))
+                            if publication.active and not namespace and mode != "custom" and holds_pick_final(chunk):
+                                pending_pick_frames.append((mode, serialize(chunk, mode=mode), namespace))
+                                continue
                             if not namespace and mode != "custom":
                                 # Only root-graph frames may decide the parent run's error
                                 # fallback: a delegated subagent's marked fallback is the
@@ -1362,6 +1412,7 @@ async def run_agent(
                                 logger.debug("Could not close agent stream for run %s", run_id, exc_info=True)
             finally:
                 stream_error = sys.exception()
+                await publish_checked_tools()
                 if file_tool_chunk_batcher is not None:
                     try:
                         for publish_chunk in file_tool_chunk_batcher.finish():
@@ -1474,6 +1525,8 @@ async def run_agent(
         stop_execution_deadline()
         error_msg = f"{exc}"
         logger.exception("Run %s failed: %s", run_id, error_msg)
+        if publication.active:
+            error_msg = PICK_EXECUTION_ERROR
         await _ensure_finalizing_before_edit_failure(run_manager, record)
         cancel_action = await run_manager.set_status_if_not_cancelled(
             run_id,
@@ -1525,6 +1578,58 @@ async def run_agent(
                         logger.info("Run %s edit replay restored pre-run checkpoint %s", run_id, pre_run_checkpoint_id)
                 except Exception:
                     logger.warning("Run %s edit replay rollback failed", run_id, exc_info=True)
+
+            # A checked response becomes visible only after the canonical graph
+            # state is durable. Drain this small finalizer across repeated cancel.
+            if publication.active and not record.ownership_lost and not checkpoint_rollback_completed and accessor is not None:
+
+                async def persist_pick_final() -> None:
+                    state_config = {"configurable": {"thread_id": thread_id}}
+                    async with _checkpoint_thread_lock(thread_id):
+                        current = await accessor.aget(state_config)
+                        current_messages = current.values.get("messages", []) if current else []
+                        awaiting_user = record.status == RunStatus.success and not record.abort_event.is_set() and not deadline_expired and not publication.has_final and _ends_on_trusted_pick_input(current_messages, publication)
+                        payload = None if awaiting_user else publication.incomplete()
+                        appended = payload is not None and not any(getattr(message, "id", None) == payload["id"] for message in current_messages)
+                        if appended and payload is not None:
+                            mutation = build_state_mutation_graph("pick_final", ctx.checkpoint_channel_mode, graph_state_schema(agent))
+                            final_accessor = CheckpointStateAccessor.bind(mutation, checkpointer, mode=ctx.checkpoint_channel_mode)
+                            await final_accessor.aupdate(state_config, {"messages": [AIMessage(**payload)]}, as_node="pick_final")
+                            current = await accessor.aget(state_config)
+                    # The existing event store is the only message history. A
+                    # failed flush retains the journal buffer for its normal retry.
+                    approved_messages = publication.drain()
+                    if journal is not None:
+                        for safe in approved_messages:
+                            journal.publish_pick_message(safe)
+                        try:
+                            await journal.flush()
+                        except Exception:
+                            # RunJournal retains an uncommitted failed batch;
+                            # retry that same batch, never reconstruct messages.
+                            await journal.flush()
+                    if "messages-tuple" in requested_modes:
+                        for safe in approved_messages:
+                            await bridge.publish(run_id, "messages", serialize((AIMessage(**safe), {"langgraph_node": "model"}), mode="messages"))
+                    for mode_name, held, namespace in pending_pick_frames:
+                        wire = held
+                        if mode_name == "values" and seq_stamper is not None:
+                            wire = await seq_stamper.stamp(wire)
+                        await bridge.publish(run_id, _lg_mode_to_sse_event(mode_name), wire)
+                    if appended and payload is not None:
+                        if "values" in requested_modes:
+                            await bridge.publish(run_id, "values", serialize(current.values, mode="values"))
+                        if "updates" in requested_modes:
+                            await bridge.publish(run_id, "updates", serialize({"model": {"messages": [AIMessage(**payload)]}}, mode="updates"))
+
+                finalizer = asyncio.create_task(persist_pick_final(), name=f"pick-final-{run_id}")
+                try:
+                    deferred_finalization_interrupt = await _await_task_stop_after_host_cancellation(finalizer, deferred_finalization_interrupt)
+                except Exception:
+                    logger.exception("Could not persist checked pick final for run %s", run_id)
+                    await run_manager.set_status(run_id, RunStatus.error, error="Checked answer could not be persisted", **terminal_status_kwargs)
+                except BaseException as exc:
+                    deferred_finalization_interrupt = _defer_finalization_interrupt(deferred_finalization_interrupt, exc)
 
             # Persist any subagent step events still buffered (#3779) — including on
             # abort/exception paths, where the stream loop broke before its own flush.
@@ -1853,6 +1958,19 @@ def _has_durable_goal_turn_receipt(checkpoint_tuple: Any, messages: list[Any]) -
     if not visible_messages:
         return False
     return _message_type(visible_messages[-1]) == "ai"
+
+
+def _ends_on_trusted_pick_input(messages: list[Any], publication: PickPublication) -> bool:
+    """Preserve waiting only for the current host-receipted clarification artifact."""
+    from langchain_core.messages import ToolMessage
+
+    for message in reversed(messages):
+        if _message_type(message) != "tool":
+            return False
+        wire = message if isinstance(message, dict) else message.model_dump() if isinstance(message, ToolMessage) else None
+        if wire is not None and publication.has_human_input(wire):
+            return True
+    return False
 
 
 def _ends_on_human_input_request(messages: list[Any]) -> bool:

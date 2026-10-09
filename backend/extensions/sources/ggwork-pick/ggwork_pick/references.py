@@ -1,5 +1,7 @@
-"""Condition values checked against the batch before filtering: a value the batch does not contain is a mistake to
-report, not a filter that silently matches nothing (2026-09-28: 「US 地区」 sent as theater, zero results three times)."""
+"""Validate condition names before filtering; documented language codes may legitimately match no rows.
+
+Regions and unsupported labels remain mistakes, not zero-result filters (2026-09-28: 「US 地区」 as theater).
+"""
 
 import re
 import unicodedata
@@ -30,6 +32,7 @@ REGION_LANGUAGES = {
     **dict.fromkeys(("taiwan", "hong kong", "台湾", "台灣", "香港", "港台"), "zh-hant"),
     **dict.fromkeys(("middle east", "saudi arabia", "中东", "中東", "沙特"), "ar"),
 }
+SUPPORTED_LANGUAGE_CODES = frozenset(REGION_LANGUAGES.values())
 # Words that only restate a filter. A query made of nothing but a region and these ("US 热门", "美国热门短剧") is a
 # region and a hotness ask put in the title field; a query with anything else ("美國總裁") stays a title search.
 FILTER_WORDS = (
@@ -134,6 +137,8 @@ def _check_theater(rows, theater: str) -> None:
 
 
 def _check_language(rows, language: str) -> None:
+    if language.casefold() in SUPPORTED_LANGUAGE_CODES:
+        return
     counts = Counter(row["language"] for row in rows)
     if not any(code.casefold() == language.casefold() for code in counts):
         raise ValueError(f"剧库里没有语种「{language}」；language填语种代码，可选：{_choices(counts)}。{_region_hint(language)}{_clear('language')}")

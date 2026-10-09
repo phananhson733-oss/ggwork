@@ -9,6 +9,8 @@ import {
 } from "@/components/workspace/pick-board/toolbar";
 import type { PickRequest } from "@/core/pick-board/request";
 
+import controls from "../../pick/control-scope.module.css";
+
 import { IMPORTS_HREF } from "./banner-rules";
 
 const DATA_TABS = ["pick", "all", "rank", "posted", "rules"] as const;
@@ -43,14 +45,14 @@ export function ImportsOnlyTabs() {
         <Link
           prefetch={false}
           href="/workspace/pick-data?tab=trends"
-          className="text-helper px-3.5 py-2.5 text-[14px]"
+          className={`${controls.taskAction} text-helper px-3.5 py-2.5 text-[14px]`}
         >
           {TAB_LABELS.trends}
         </Link>
         <Link
           prefetch={false}
           href={IMPORTS_HREF}
-          className="text-helper hover:text-ink-1 -mb-px border-b-2 border-transparent px-3.5 py-2.5 text-[14px] whitespace-nowrap"
+          className={`${controls.taskAction} text-helper hover:text-ink-1 -mb-px border-b-2 border-transparent px-3.5 py-2.5 text-[14px] whitespace-nowrap`}
         >
           {TAB_LABELS.imports}
         </Link>

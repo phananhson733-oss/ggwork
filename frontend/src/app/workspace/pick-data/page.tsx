@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactElement, ReactNode } from "react";
 
 import { Sources } from "@/components/workspace/pick-board/sources";
-import { TAB_LABELS } from "@/components/workspace/pick-board/toolbar";
+import {
+  TAB_LABELS,
+  pickHref,
+} from "@/components/workspace/pick-board/toolbar";
 import {
   bannersFor,
   type Banner,
@@ -73,6 +77,8 @@ import {
   loadRowsByKeys,
   loadRsRank,
   MirrorBusy,
+  MirrorPeriodMissing,
+  MirrorSessionRequired,
   MirrorMisconfigured,
   MirrorUnavailable,
   MirrorVersionGone,
@@ -127,6 +133,9 @@ function mirrorNoticeOf(error: unknown): MirrorNoticeKind | null {
   if (error instanceof MirrorUnavailable) return { kind: "unavailable" };
   if (error instanceof MirrorMisconfigured)
     return { kind: "misconfigured", reason: error.reason };
+  if (error instanceof MirrorSessionRequired)
+    return { kind: "session-required" };
+  if (error instanceof MirrorPeriodMissing) return { kind: "period-missing" };
   if (error instanceof MirrorBusy) return { kind: "busy" };
   if (error instanceof MirrorVersionGone) return { kind: "gone" };
   return null;
@@ -359,8 +368,8 @@ async function replayBoardPage(
       {content.ok ? (
         <ReplayBody data={content.value[1]} req={req} ctx={ctx} />
       ) : (
-        /* 「打开当前版本」带着 result：回放在当前版本上接着做（配对版本已清理时走 B11 的回退） */
-        <MirrorNotice notice={content.notice} req={req} />
+        /* Switching to current is a new query, never historical replay evidence. */
+        <MirrorNotice notice={content.notice} req={{ ...req, result: "" }} />
       )}
     </BoardFrame>
   );
@@ -399,12 +408,31 @@ async function replayRoute(
   ]);
   if (loaded.kind === "unauthenticated")
     redirect(buildLoginUrl(validateAuthNextPath(nextPath) ?? PICK_DATA_PATH));
+  if (loaded.kind === "ok" && loaded.answer.mirrorVersion === null)
+    return (
+      <NoticePage>
+        <ImportsOnlyTabs />
+        <p role="alert">原始镜像版本未保留，不能完整回放历史资料。</p>
+        <Link
+          prefetch={false}
+          href={pickHref(req0, { result: "", v: null })}
+          className="text-link inline-flex min-h-11 items-center underline"
+        >
+          用最新资料重新查询
+        </Link>
+      </NoticePage>
+    );
   const v =
     loaded.kind === "ok" ? replayVersion(loaded.answer, req0.v) : req0.v;
   const resolved = await guarded(() => resolveBoard(v));
   if (!resolved.ok) return mirrorlessPage(resolved.notice, req0);
   if (resolved.value.state === "empty")
     return mirrorlessPage({ kind: "empty" }, req0);
+  if (
+    loaded.kind === "ok" &&
+    resolved.value.scope.versionId !== loaded.answer.mirrorVersion
+  )
+    return mirrorlessPage({ kind: "gone" }, req0);
   return replayBoardPage(resolved.value, req0, sync, loaded);
 }
 

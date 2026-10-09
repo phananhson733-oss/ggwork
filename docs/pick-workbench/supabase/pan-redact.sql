@@ -14,6 +14,9 @@
 --   之前时，观察雷达的表和 obs_as_of_json 还不存在，那 27 条 UPDATE 和一条 DELETE 跳过，输出再少 28 行。
 --   与 pan-check.sql 用同一个模式、同一个选行条件，所以误报也会一起换掉。
 -- 不改：
+--   - 0009–0011 的计划标题、source_json/ editable_json、计划命令/预览/导出回执、帖子关联回执/依据和关联命令，
+--     以及 csv_bytes：这些位置由 pan-check.sql 只读检测。禁止原地改写版本、原始命令回执或SHA256绑定的字节；
+--     命中后停止通用清洗，按属主隔离/替换/撤销方案人工处置，不能把这些位置仍有命中说成已清除。
 --   - 任何主键与 identity 列；JSON 里 identity、source_id、item_id、citation_id、request_id，以及观察雷达的 old_identity、
 --     new_identity、root_identity、matched_identity 这几个键的值。改了会让剧目、快照、选择、回执、别名与提示彼此对不上。
 --   - ggwp_knowledge_versions.source_ref：document_id 是它的 sha256，是文档身份的一部分；text：规则全文，整篇换掉会丢规则。

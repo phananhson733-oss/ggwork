@@ -300,6 +300,7 @@ export function InputBox({
   canStopStreaming = true,
   canCreateRuns = true,
   planModes = true,
+  pickTask = false,
   agentSkillNames,
   agentSkillsLoading = false,
   ...props
@@ -388,6 +389,8 @@ export function InputBox({
    * and never writes it back, since other agents' chats read the same choice.
    */
   planModes?: boolean;
+  /** Scope business-task readability without changing ordinary chat surfaces. */
+  pickTask?: boolean;
 }) {
   const { locale, t } = useI18n();
   const queryClient = useQueryClient();
@@ -2943,7 +2946,8 @@ export function InputBox({
 
       <p
         className={cn(
-          "text-muted-foreground/67 z-10 px-4 text-center text-xs leading-4",
+          "z-10 px-4 text-center text-xs leading-4",
+          pickTask ? "text-helper" : "text-muted-foreground/67",
           !isWelcomeMode && "absolute top-full right-0 left-0",
         )}
       >

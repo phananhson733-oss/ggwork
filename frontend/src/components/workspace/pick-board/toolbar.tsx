@@ -24,7 +24,10 @@ import {
   type Sort,
 } from "@/core/pick-board/request";
 import type { BoardRules } from "@/core/pick-board/rules";
+import { cn } from "@/lib/utils";
 import type { PickFacets } from "@/server/pick-board";
+
+import controls from "../pick/control-scope.module.css";
 
 /**
  * Tab 与筛选，全部走 URL 参数（筛选结果能发给同事、能加书签、刷新不丢）。
@@ -137,7 +140,7 @@ function TabLink({
         result: "",
       })}
       aria-current={active ? "page" : undefined}
-      className={`-mb-px border-b-2 px-3.5 py-2.5 text-[14px] whitespace-nowrap ${
+      className={`${controls.taskAction} -mb-px border-b-2 px-3.5 py-2.5 text-[14px] whitespace-nowrap ${
         active
           ? "border-link text-ink-1 font-semibold"
           : "text-helper hover:text-ink-1 border-transparent"
@@ -145,7 +148,7 @@ function TabLink({
     >
       {label}
       {count !== undefined ? (
-        <small className="text-ink-dim ml-1 text-[12px] font-normal tabular-nums">
+        <small className="text-helper ml-1 text-[12px] font-normal tabular-nums">
           {count.toLocaleString("en-US")}
         </small>
       ) : null}
@@ -205,17 +208,19 @@ export function Chip({
       href={href}
       aria-current={on ? "true" : undefined}
       title={item.title}
-      className={`rounded-full border px-2.5 py-1 text-[12px] whitespace-nowrap ${
+      className={`${controls.taskAction} inline-flex items-center rounded-full border px-2.5 py-1 text-[12px] whitespace-nowrap ${
         on
           ? "border-brand bg-brand text-on-brand font-semibold"
           : item.dashed
-            ? "border-line-strong text-ink-dim hover:text-ink-2 border-dashed"
-            : `border-line bg-panel hover:border-line-strong ${item.muted ? "text-ink-dim" : "text-ink-2"}`
+            ? "border-line-strong text-helper hover:text-ink-2 border-dashed"
+            : `border-line bg-panel hover:border-line-strong ${item.muted ? "text-helper" : "text-ink-2"}`
       }`}
     >
       {item.text}
       {item.count !== undefined ? (
-        <small className="ml-[3px] text-[11px] tabular-nums opacity-75">
+        <small
+          className={cn("ml-[3px] text-[11px] tabular-nums", !on && "text-helper")}
+        >
           {item.count.toLocaleString("en-US")}
         </small>
       ) : null}
@@ -277,7 +282,7 @@ function Toggle({
       href={href}
       aria-pressed={on}
       title={title}
-      className={`rounded-full border px-2.5 py-1 text-[12px] whitespace-nowrap ${
+      className={`${controls.taskAction} inline-flex items-center rounded-full border px-2.5 py-1 text-[12px] whitespace-nowrap ${
         on
           ? "border-brand bg-brand text-on-brand font-semibold"
           : "border-line bg-panel text-ink-2 hover:border-line-strong"
@@ -376,7 +381,7 @@ function SearchForm({ req }: { req: PickRequest }) {
     <form
       action={BOARD_PATH}
       method="get"
-      className="flex flex-wrap gap-2"
+      className={`${controls.controls} flex flex-wrap gap-2`}
       role="search"
     >
       {req.tab !== "pick" ? <Hidden name="tab" value={req.tab} /> : null}
@@ -400,10 +405,10 @@ function SearchForm({ req }: { req: PickRequest }) {
         name="q"
         defaultValue={req.q}
         placeholder="搜索剧名 / 中文名 / 行键 / book_id"
-        className="border-line bg-panel placeholder:text-ink-dim focus-visible:border-link focus-visible:ring-brand-soft min-w-0 flex-1 rounded-md border px-3 py-2 text-[14px] focus-visible:ring-[3px] focus-visible:outline-none"
+        className={`${controls.taskAction} border-line bg-panel placeholder:text-helper focus-visible:border-link focus-visible:ring-brand-soft min-w-0 flex-1 rounded-md border px-3 py-2 text-[14px] focus-visible:ring-[3px] focus-visible:outline-none`}
       />
       <button
-        className="border-line-strong bg-panel text-ink-1 hover:bg-panel-hover rounded-md border px-4 py-2 text-[14px] font-medium"
+        className={`${controls.taskAction} border-helper bg-panel text-ink-1 hover:bg-panel-hover rounded-md border px-4 py-2 text-[14px] font-medium`}
         type="submit"
       >
         搜索
@@ -672,14 +677,14 @@ function PagerSummary({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <span className="text-ink-dim text-[12px]">
+      <span className="text-helper text-[12px]">
         第 {req.page}
         {pages === null ? "" : ` / ${pages.toLocaleString("en-US")}`} 页 · 本页{" "}
         {count} 行
         {total === null ? "" : ` · 共 ${total.toLocaleString("en-US")} 条`}
       </span>
       <div className="flex-1" />
-      <span className="text-ink-dim text-[12px]">每页</span>
+      <span className="text-helper text-[12px]">每页</span>
       <PageSizes req={req} />
     </div>
   );

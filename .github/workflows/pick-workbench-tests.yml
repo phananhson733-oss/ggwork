@@ -39,6 +39,8 @@ on:
       - 'frontend/package.json'
       - 'frontend/pnpm-lock.yaml'
       - 'frontend/rstest.config.ts'
+      - 'frontend/scripts/pick-common-query-parity.py'
+      - 'frontend/tests/unit/scripts/test_pick_common_query_parity.py'
       - 'frontend/tests/unit/core/pick/fixtures/**'
       - 'deploy/pick-obs/**'
       - 'railway.toml'
@@ -77,6 +79,8 @@ on:
       - 'frontend/package.json'
       - 'frontend/pnpm-lock.yaml'
       - 'frontend/rstest.config.ts'
+      - 'frontend/scripts/pick-common-query-parity.py'
+      - 'frontend/tests/unit/scripts/test_pick_common_query_parity.py'
       - 'frontend/tests/unit/core/pick/fixtures/**'
       - 'deploy/pick-obs/**'
       - 'railway.toml'
@@ -102,8 +106,8 @@ jobs:
   pick-workbench-tests:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # The trends radar's PostgreSQL night simulations took the suite from about 5 to about 16 minutes on a runner.
-    timeout-minutes: 30
+    # The full PostgreSQL suite took 26 minutes before frontend-backed Gateway journeys were wired in.
+    timeout-minutes: 40
 
     services:
       postgres:
@@ -138,6 +142,21 @@ jobs:
         working-directory: backend
         run: uv sync --group dev --extra postgres
 
+      - name: Setup Node.js for Gateway frontend integration tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Use pinned pnpm version
+        run: corepack prepare pnpm@10.26.2 --activate
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
       - name: Lint pick workbench
         run: |
           backend/.venv/bin/ruff check customizations/pick-workbench
@@ -162,8 +181,8 @@ jobs:
 
   pick-board-integration:
     # board_fixture.py builds the mirror through the production paths on a postgres:17 service like the job above's,
-    # then rstest runs the two pick-board integration suites as its reader. Those suites skip themselves without
-    # PICK_BOARD_TEST_PG_URL, so the report must show every case passed and none skipped.
+    # then rstest runs reader suites plus the common-query and rank fixture harnesses.
+    # Every integration file must run with its required fixture and no skipped cases.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -230,10 +249,16 @@ jobs:
 
       - name: Run the pick-board integration tests as the reader
         working-directory: frontend
-        # Every *.integration.test.ts there runs, and the report must count exactly that many files.
+        # Fixture-specific suites run in the two steps below; all other integration files run here.
         run: |
           shopt -s nullglob
-          suites=(tests/unit/server/pick-board/*.integration.test.ts)
+          suites=()
+          for suite in tests/unit/server/pick-board/*.integration.test.ts; do
+            case "$suite" in
+              */common-query-parity.integration.test.ts|*/query-rank-parity.integration.test.ts) ;;
+              *) suites+=("$suite") ;;
+            esac
+          done
           if [ "${#suites[@]}" -eq 0 ]; then
             echo "::error::no pick-board integration test files found"
             exit 1
@@ -271,6 +296,31 @@ jobs:
           }
           EOF
           exit "$status"
+
+      - name: Run common-query parity with a real Gateway and PostgreSQL
+        run: |
+          umask 077
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          target = Path(os.environ["RUNNER_TEMP"]) / "pick-parity-cluster.json"
+          target.write_text(json.dumps({"purpose": "throwaway tests only", "test_pg_url": os.environ["PICK_TEST_PG_URL"]}))
+          PY
+          backend/.venv/bin/python -m pytest frontend/tests/unit/scripts/test_pick_common_query_parity.py -q
+          backend/.venv/bin/python frontend/scripts/pick-common-query-parity.py \
+            --cluster-file "$RUNNER_TEMP/pick-parity-cluster.json" --output "$RUNNER_TEMP/pick-common-parity"
+
+      - name: Run rank parity with its real PostgreSQL cases
+        run: |
+          backend/.venv/bin/python -m pytest \
+            customizations/pick-workbench/tests/test_query_rank.py::test_counterpart_typescript_loaders_on_same_committed_synthetic_mirror \
+            -v -rs --junitxml="$RUNNER_TEMP/pick-rank-parity.xml"
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ["RUNNER_TEMP"], "pick-rank-parity.xml")).getroot()
+          cases = root.findall(".//testcase")
+          assert len(cases) == 1 and not root.findall(".//skipped") and not root.findall(".//failure") and not root.findall(".//error"), "Rank parity must pass without skips"
+          PY
 
       - name: Drop the mirror the board read
         if: always()

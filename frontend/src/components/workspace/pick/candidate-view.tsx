@@ -35,10 +35,10 @@ export function RowCheckLink({ href, title }: { href: string; title: string }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={`在选剧资料核对：${title}`}
-      className="text-link inline-flex min-h-11 items-center text-xs hover:underline"
+      aria-label={`在选剧资料核对：${title}（新标签页）`}
+      className="text-link inline-flex min-h-11 items-center text-base hover:underline"
     >
-      在选剧资料核对
+      在选剧资料核对（新标签页）
     </a>
   );
 }
@@ -54,9 +54,9 @@ export function ReplayLink({ href }: { href: string }) {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-link inline-flex min-h-11 items-center text-xs hover:underline"
+        className="text-link inline-flex min-h-11 items-center text-base hover:underline"
       >
-        回放这份候选
+        回放这份候选（新标签页）
       </a>
     </p>
   );
@@ -64,7 +64,7 @@ export function ReplayLink({ href }: { href: string }) {
 
 function EvidenceDetails({ item }: { item: PickItem }) {
   return (
-    <details className="mt-3 text-xs">
+    <details className="mt-3 text-base">
       <summary className="text-muted-foreground min-h-11 cursor-pointer py-3">
         查看依据（{item.evidence.length}）
       </summary>
@@ -130,30 +130,12 @@ function CandidateCard({
           <span className="font-medium">
             {index + 1}. {item.title}
           </span>
-          <span className="text-muted-foreground mt-1 block text-xs">
+          <span className="text-muted-foreground mt-1 block text-base">
             {item.theater || "剧场未注明"} · {item.language}
           </span>
         </span>
       </label>
-      <section className="mt-3 space-y-1 text-sm" aria-label="入选依据">
-        <h3 className="font-medium">入选依据</h3>
-        <p>{item.reason}</p>
-        <p
-          data-testid="pick-primary-evidence"
-          className="bg-muted/50 rounded-md p-2 text-xs leading-5"
-        >
-          {primary ? (
-            <>
-              {evidenceLine(primary)}
-              <br />
-              依据日期：{evidenceDate(primary.observed_at)}
-            </>
-          ) : (
-            "暂无匹配的榜单或指标依据 · 依据日期未知"
-          )}
-        </p>
-      </section>
-      <section className="mt-3 space-y-1 text-xs" aria-label="可核实事实">
+      <section className="mt-3 space-y-1 text-base" aria-label="可核实事实">
         <h3 className="font-medium">可核实事实</h3>
         {facts && (
           <p className="text-muted-foreground">
@@ -175,7 +157,7 @@ function CandidateCard({
         )}
       </section>
       {checks.pending.length > 0 && (
-        <section className="mt-3 space-y-1 text-xs" aria-label="待核实事项">
+        <section className="mt-3 space-y-1 text-base" aria-label="待核实事项">
           <h3 className="font-medium">待核实事项</h3>
           {checks.pending.map((warning) => (
             <p key={warning} className="text-warning-ink">
@@ -184,6 +166,24 @@ function CandidateCard({
           ))}
         </section>
       )}
+      <section className="mt-3 space-y-1 text-base" aria-label="入选依据">
+        <h3 className="font-medium">入选依据</h3>
+        <p>{item.reason}</p>
+        <p
+          data-testid="pick-primary-evidence"
+          className="bg-muted/50 rounded-md p-2 text-base leading-6"
+        >
+          {primary ? (
+            <>
+              {evidenceLine(primary)}
+              <br />
+              依据日期：{evidenceDate(primary.observed_at)}
+            </>
+          ) : (
+            "暂无匹配的榜单或指标依据 · 依据日期未知"
+          )}
+        </p>
+      </section>
       {checkHref && (
         <p className="mt-2">
           <RowCheckLink href={checkHref} title={item.title} />
@@ -201,7 +201,7 @@ function CandidateCard({
 function ResultNotices({ notes }: { notes: PickNotesState | undefined }) {
   if (notes?.kind === "gone" || notes?.kind === "error")
     return (
-      <p className="text-muted-foreground text-xs" data-testid="pick-notes">
+      <p className="text-muted-foreground text-base" data-testid="pick-notes">
         {notes.kind === "gone" ? notes.message : "依据说明暂不可用，可稍后刷新"}
       </p>
     );
@@ -214,7 +214,7 @@ function ResultNotices({ notes }: { notes: PickNotesState | undefined }) {
   )
     return null;
   return (
-    <div className="space-y-1 text-xs" data-testid="pick-notes">
+    <div className="space-y-1 text-base" data-testid="pick-notes">
       <p className="font-medium">{notesReferenceLine(notes.notes)}</p>
       {[...new Set(notices)].map((notice) => (
         <p key={notice} className="text-warning-ink">
@@ -230,14 +230,14 @@ function EmptyResult({ notes }: { notes: PickResultNotes | undefined }) {
   const diagnosis = notes?.zero_diagnosis;
   if (!diagnosis)
     return (
-      <p className="rounded-lg border border-dashed p-6 text-sm">
+      <p className="rounded-lg border border-dashed p-6 text-base">
         没有符合这次条件的剧目，可以放宽条件后重新查询。
       </p>
     );
   const { lead, steps, caution } = zeroDiagnosisLines(diagnosis);
   return (
     <div
-      className="rounded-lg border border-dashed p-6 text-sm"
+      className="rounded-lg border border-dashed p-6 text-base"
       data-testid="pick-zero-diagnosis"
     >
       <p>没有符合这次条件的剧目。{lead}</p>
@@ -271,26 +271,30 @@ export function CandidateView({
   /** GET /results/{id}/notes; absent while loading or where nothing reads it. */
   notes?: PickNotesState;
 }) {
+  const complete = result.run_status === "success";
   const replayHref = replayLink(result);
   const read = notes?.kind === "notes" ? notes.notes : undefined;
   return (
-    <div className="space-y-4">
-      <p role="status" className="text-sm">
+    <div className="space-y-4 text-base leading-6">
+      <p role="status" className="text-base">
         {pickRunStatusLabel[result.run_status]}
       </p>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
         <div>
           <h2 className="font-semibold">本次候选</h2>
-          <p className="text-muted-foreground text-sm">
-            找到 {result.items.length} 部 / 请求 {result.conditions.limit} 部
-            {typeof result.matched_total === "number" &&
+          <p className="text-muted-foreground text-base">
+            {complete
+              ? `找到 ${result.items.length} 部 / 请求 ${result.conditions.limit} 部`
+              : `本次查询未完成，尚不能确认符合条件的数量（已收到 ${result.items.length} 部候选）`}
+            {complete &&
+              typeof result.matched_total === "number" &&
               ` · 符合条件共 ${result.matched_total} 部`}
           </p>
         </div>
         {!readOnly && (
           <Button
             size="sm"
-            className="min-h-11 shrink-0"
+            className="min-h-11 shrink-0 text-base"
             disabled={
               busy || selected.length === 0 || result.run_status !== "success"
             }
@@ -300,19 +304,30 @@ export function CandidateView({
           </Button>
         )}
       </div>
-      <p className="text-muted-foreground text-xs">
+      <p className="text-muted-foreground text-base">
         {conditionsLine(result.conditions)}
       </p>
       <p
-        className="text-muted-foreground text-xs"
+        className="text-muted-foreground text-base"
         data-testid="pick-data-as-of"
       >
         数据截至：{dataAsOfLine(result.data_as_of)}
       </p>
+      <section
+        aria-label="查询时的版本快照"
+        className="text-foreground min-w-0 space-y-1 text-base [overflow-wrap:anywhere]"
+      >
+        <h3 className="font-medium">查询时的版本快照</h3>
+        <p>以下版本属于这份候选生成时的快照，不代表当前执行许可。</p>
+        <p>剧库批次：{result.catalog_batch_id}</p>
+        <p>知识批次：{result.knowledge_batch_id ?? "未使用"}</p>
+        <p>筛选规则：{result.rule_version}</p>
+        <p>排序规则：{result.ranking_version}</p>
+      </section>
       <ResultNotices notes={notes} />
       {read?.feedback && <FeedbackSummary feedback={read.feedback} />}
       {replayHref && <ReplayLink href={replayHref} />}
-      {result.items.length === 0 && <EmptyResult notes={read} />}
+      {complete && result.items.length === 0 && <EmptyResult notes={read} />}
       {result.items.map((item, index) => (
         <CandidateCard
           key={item.item_id}
@@ -333,7 +348,7 @@ export function CandidateView({
           }
         />
       ))}
-      <p className="text-muted-foreground text-xs">
+      <p className="text-muted-foreground text-base">
         这是查询时的资料快照。推荐不代表已经发布或同步到外部系统。
       </p>
     </div>

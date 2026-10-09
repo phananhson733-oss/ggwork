@@ -67,6 +67,7 @@ import { KnowledgeSourcesPanel } from "../citations/knowledge-source";
 import { ConversationReferenceChip } from "../conversation-references/conversation-reference-chip";
 import { CopyButton } from "../copy-button";
 import { PickAnswerCheckNote } from "../pick/answer-check-note";
+import { CompletionStatus } from "../pick/completion-status";
 import { ReferenceAttachmentSummary } from "../sidecar/reference-attachments";
 import { SlashSkillChip } from "../slash-skill-chip";
 import { Tooltip } from "../tooltip";
@@ -616,12 +617,20 @@ function MessageContent_({
       <MarkdownContent
         content={contentToDisplay}
         isLoading={isLoading}
-        className="my-3"
+        className={cn(
+          "my-3",
+          message.type === "ai" &&
+            message.additional_kwargs?.pick_completion != null &&
+            "[overflow-wrap:anywhere] [&_p]:[overflow-wrap:anywhere]",
+        )}
         components={components}
       />
       <CitationSourcesPanel sources={citationSources} />
       <KnowledgeSourcesPanel content={contentToDisplay} />
-      {message.type === "ai" && (
+      {message.type === "ai" && message.additional_kwargs?.pick_completion != null && (
+        <CompletionStatus metadata={message.additional_kwargs.pick_completion} />
+      )}
+      {message.type === "ai" && message.additional_kwargs?.pick_completion == null && (
         <PickAnswerCheckNote
           threadId={threadId}
           messageId={message.id}

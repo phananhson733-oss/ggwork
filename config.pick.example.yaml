@@ -43,6 +43,7 @@ sandbox:
 tools:
   - {name: pick_search_knowledge, group: pick, use: 'ggwork_pick.tools:search_knowledge_tool'}
   - {name: pick_query_candidates, group: pick, use: 'ggwork_pick.tools:query_candidates_tool'}
+  - {name: pick_query_data, group: pick, use: 'ggwork_pick.tools:query_data_tool'}
   - {name: pick_count_candidates, group: pick, use: 'ggwork_pick.tools:count_candidates_tool'}
   - {name: pick_get_drama_detail, group: pick, use: 'ggwork_pick.tools:get_drama_detail_tool'}
   - {name: pick_prepare_selection, group: pick, use: 'ggwork_pick.tools:prepare_selection_tool'}
@@ -62,8 +63,8 @@ tool_output:
   # The host budget replaces any tool result over 12,000 characters with a prose summary (30,000 truncates
   # regardless), which a candidate result reaches at 8 to 10 dramas: the card then fails to parse it and the
   # model is pointed at read_file, which PickToolGate refuses. Pick results stay whole; the read_file pair is
-  # the host default and stays exempt too.
-  exempt_tools: [read_file, read_file_tool, pick_query_candidates, pick_count_candidates, pick_get_drama_detail, pick_prepare_selection, pick_search_knowledge, pick_get_feedback, pick_analyze_feedback]
+  # the host default and stays exempt too. pick_query_data has its own closed20-row/48KB projection.
+  exempt_tools: [read_file, read_file_tool, pick_query_candidates, pick_query_data, pick_count_candidates, pick_get_drama_detail, pick_prepare_selection, pick_search_knowledge, pick_get_feedback, pick_analyze_feedback]
 plugins:
   - name: ggwork-pick
     use: 'ggwork_pick:install'

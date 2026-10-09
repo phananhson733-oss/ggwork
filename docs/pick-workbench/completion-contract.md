@@ -1,0 +1,209 @@
+# Pick completion v1 — frozen integration contract (T1)
+
+This contract is additive. Python DTOs: `customizations/pick-workbench/ggwork_pick/completion_contracts.py`; frontend runtime parsers and inferred types: `frontend/src/core/pick/completion-types.ts`. Full round-trip wire examples: `frontend/tests/unit/core/pick/fixtures/completion-v1.json`. Existing `PickConditions`, stored result/item JSON, `types.ts`, `/results/{id}/notes`, and historical fixtures are unchanged. Query/plan/publication metadata must not be added to those objects.
+
+T1 defines contracts and acceptance fixtures only. Routes, owner checks, SQL, host publication, plan persistence, export checks and external feedback activation remain downstream work. Private migration head inspected at base `bb070f1f`: **0008 → 0007**. T7 must inspect head again and allocate the next private migration; no host migration or managed extension snapshot changes belong here.
+
+## Routes and wire shapes
+
+All paths below are relative to the authenticated Gateway; the frontend uses its existing credential/CSRF fetcher. DTO name means the exact closed shape in both files above, including inherited fields and defaults. Frontend closed parsers trim editable strings like StrictInput; backend remains authoritative for PostgreSQL storable-text validation, owner checks, calendar/local-time/timezone resolution and body limits. Mirror source models preserve raw source text. GET queries are listed explicitly. No request accepts `owner_id`; all records resolve the authenticated principal first. An unauthorized record reads as 404 regardless of its actual existence.
+
+| Method / path | Request | Response |
+| --- | --- | --- |
+| POST `/api/pick/query` | `CommonQuery` | 200 `QueryResponse` |
+| GET `/api/pick/plans?offset=0&limit=20` | offset nonnegative integer; limit 1–100 | 200 `{items: Plan[], total: integer, next_offset: integer|null}` |
+| POST `/api/pick/plans` | `PlanCreate` | 200 `Plan` |
+| GET `/api/pick/plans/{id}` | stable plan ID | 200 `Plan` |
+| PATCH `/api/pick/plans/{id}` | `PlanUpdate`; complete editable row list | 200 `Plan` |
+| POST `/api/pick/plans/{id}/preview` | `PlanVersionCommand` | 200 `PlanPreview` including blocked rows |
+| POST `/api/pick/plans/{id}/exports` | `PlanExportCommand` | 200 `PlanExport` immutable receipt |
+| GET `/api/pick/exports/{id}` | stable export ID | immutable CSV bytes, `text/csv; charset=utf-8`, attachment filename from receipt |
+| GET `/api/pick/feedback/posts` | `ReviewQuery` fields as query parameters | 200 `ReviewPosts` |
+| GET `/api/pick/feedback/plan-links?plan_id=...` | owner-scoped plan ID | 200 `{items: PlanLink[]}` |
+| POST `/api/pick/feedback/plan-links` | `PlanLinkCommand` | 200 `PlanLink` |
+
+Business errors use `{detail: CompletionError}`. Code/status mapping: invalid_query=422; unauthorized=401; not_found=404; version_gone=410; period_missing=422; source_unavailable=503; query_timeout=504; version_conflict/export_blocked/link_conflict=409. `retryable` is true for temporary source/timeout failures, false for invalid input or required revision/confirmation changes. `current_version` is owner-safe and only meaningful for a revision conflict. Existing validation 422 and authentication envelopes remain supported; do not replace global host error handling. Errors never return success-shaped empty rows or zero counts. Only safe human messages reach the UI; no database exception, raw source body or credentials.
+
+Model query tools retain legacy `status: rejected` and `notice`, and additionally carry safe `code` and `retryable` for a `QueryFailure`. Candidate/count adapters preserve the same failure fields and owner-checked catalog provenance; a timeout never creates an empty successful candidate result.
+
+For a paired mirror query, source/eligibility/personal-selection predicates use the owner-checked canonical catalog for that exact pin before SQL counts, facets and pagination. Non-RealShort canonical `source_id` maps to the exact raw key; RealShort uses its canonical base64url raw key. Multiple canonical identities/namespaces or raw tables claiming the same key fail closed as `source_unavailable`. Confirmed YouTube eligibility requires canonical active/allowed facts, excludes canonical denial and raw explicit platform denial/delisting (including `with_off` queries), and never derives positive eligibility from the raw YouTube boolean. Returned facts apply those raw negative overrides to copies, preserving cached imported rows. Raw-only records remain unknown; source filters and owner-scoped full-identity exclusions use this same mapping, including an exact saved RealShort identity when its canonical row later disappears. Blank or whitespace-only raw language remains a readonly catalog record with no candidate identity or confirmed eligibility even beside an active/allowed canonical row. The production RealShort feed's unknown/denied facts remain unknown/denied.
+
+
+## Common query
+
+`domain`: candidates/catalog/rankings/posted/rules. `scope`: candidate_pool/full_catalog. These are independent and must be displayed. `pin=null` resolves a single current version; response always returns the resolved `QueryPin` (`catalog_batch_id`, paired `mirror_version`, `knowledge_batch_id`, `rule_version`, optional private `feedback_version_id`). An explicit historical pin either resolves exactly or fails `version_gone`; no silent current substitution. A run cannot mix conflicting pins. Owner/version/permission context belongs in cache keys.
+
+Legacy candidate adapters must explicitly preserve the current `PickConditions` defaults (especially exclude_selected=true), tags, confirmed_eligible_only, exclude_previous and hot_only. CommonQuery defaults are board-neutral, not a replacement for candidate defaults. The existing observation-specific conditions stay on the existing observation query path until its own explicit common DTO mapping and parity tests; do not drop those conditions during cutover.
+
+Input filters are explicit: query (title/Chinese title fuzzy and stable source ID exact), source/source_id, language/theater/channel/account, published_from/to, exclude_posted/selected, signal_kind; board filters posted_filter (`no/yes/pool`), posted_state (`pub/sched/none/nomatch`), with_off, signal_only, wide, youtube_ok, dated_only, in_use_only; rank (all 13 theater bases and 8 ReelShort ranks), grade, rs_sort/locale/bucket and legacy_week_label. `result_id` is a replay reference and must pass existing owner/thread checks. A request does not infer country from language. `language=null` means no filter, `language=""` explicitly means unknown/empty source language; the board URL's `__unknown__` maps to this empty value.
+
+`period={kind:latest,value:null}` requests latest. Daily uses its exact YYYY-MM-DD; weekly uses the full **week start**, not a yearless label. `actual_period` identifies the returned data; `period_options` contains available days/weeks and resolution latest/exact/label/ambiguous/missing. Preserve existing visible missing/ambiguous fallback behavior when adapting board reads; a caller must never describe a fallback as the requested period. If no period is readable use period_missing. Nonperiod domains return null. Ranking results include historical delisted rows as the existing board does.
+
+`order` names browse evidence/listed/title or explicit rank/published_at; `evidence_date` is the existing candidate order name. `order_version` pins the implemented deterministic order and tie-breaker (stable source key). Browsing and source rank are never called predicted commercial value. `offset` is zero-based; `limit` 1–200 supports current board pagination without a fixed page-count cap. `counts.total` is the domain/scope universe, `matched` is the complete filtered count, `returned` is the selected page count; `truncated` and `next_offset` describe pagination. `excluded` is a named filter diagnosis, not assumed disjoint arithmetic. If an existing capped rank cannot supply an exact total, downstream must model that explicitly before cutover; never invent a count.
+
+`rows` is the candidate fact projection (`QueryRow`, existing `DramaInput` reused). It is **not** a replacement for all board data. `board: QueryBoardData|null` preserves full typed mirror records: catalog_rows, signals, posted, accounts, rs_rows, bill_orders and version rules. These reuse `mirror/contracts.py` models (including their closed nested source payload keys). `board.row_keys` defines the ordered page; the other arrays decorate that page and are not separate pages. No raw source/secret URL is introduced. Empty source language and unmatched posted records remain representable in board records even when no candidate identity is available. `facets` carries platform/language/basis/posted/rank/grade counts; each facet excludes its own selected dimension while retaining the others, exactly as current SQL. Posted-state counts exclude state filter but retain search. Rank counts remain global per existing board semantics.
+
+`posted_status` is only the candidate's scoped truth assessment: posted/not_posted/unknown. Preserve original pub/sched/none/nomatch, post_count, sched_count, archived, account/source records in `board.posted`; do not collapse them into that assessment. Archived publications still count as published. `not_posted` requires complete matching, account/channel/window coverage. Neither missing joins nor no rows prove never posted.
+
+Current board derived projections (ReelShort observations/growth/ledger joins, freshness and links) retain their existing public TS contracts in `server/pick-board/`; source records here make lossless adaptation possible but do not claim those calculations are implemented. T4/T5 must retain old read paths until each derived view proves pagination, ordering, facets, rule, error and fixed-version parity. Extend this versioned DTO explicitly if a derived field cannot be losslessly reconstructed; never introduce an untyped arbitrary payload.
+
+The caller owns a single 10,000ms query budget. The pick ASGI entrypoint starts it before body parsing and global authentication. `X-Pick-Query-Budget-Ms` carries only a shorter remaining duration; values above 10,000 cannot extend the cap. The body `budget_ms` is measured from that same request start. HTTP disconnect cancels the active request and awaits cleanup, including rollback/release of the independent reader connection. The route encodes the typed response inside the budget and checks elapsed time after synchronous encoding. The reader preserves any shorter database statement timeout, its existing 8s command cap, 5s connect cap, and three-connection maximum. `budget_ms` may only shorten it; connection wait, SQL, enrichment and serialization consume the remainder. Agent query invocations start that cap before their execution lock and repository setup; a task-local context carries the same deadline into common service/SQL work and is reset on all exits. Internal calls honor the earlier ordinary-phase deadline. Cancellation releases resources. Source observation and mirror synchronization times are separate fields; historical evidence never becomes current because the mirror synced today.
+
+## Checked final publication
+
+`CheckedPublication` is an **internal extension-to-host payload**, not a public write endpoint. The host binds thread/run/message identity from trusted runtime authority; model input cannot create it. It contains content, status confirmed/partial/incomplete, per-claim `CheckedFact` (claim/status/evidence_refs/reason), up to two explicit result references, checker_version, correction_count 0–1 and checked_at. A confirmed fact needs evidence and a confirmed publication cannot contain unknown/contradicted facts. These DTO checks alone do not prove prose coverage: the checker must identify all hard factual claims, and unrecognized claims remain unconfirmed.
+
+The public host message keeps its normal message ID/content envelope and receives server-written `additional_kwargs.pick_completion: CheckedMessageMetadata` (status/checker_version/checked_at/correction_count). Strip any client/model-supplied copy before publishing. T3 must emit the same metadata in stream and every history path. `run_status=success` or old answer-check notes do not imply a checked final message. Optional transient custom event `pick.processing` carries `PickProcessingEvent` (thread_id/run_id/stage=querying|checking|correcting|finalizing); emit only when the real stage begins and never replay it as a final guarantee. Old batch-only references allowing empty item_ids remain on the old reference protocol; the new ResultReference requires explicit selected items and does not replace that parser.
+
+Only the checked content becomes the canonical host assistant message. Streaming, copy, all history reads, reconnect and subsequent context consume the same content/message ID. Repeated callbacks are idempotent. Provisional content is withheld from final surfaces. Partial output labels unknown facts explicitly and cannot repeat contradicted claims as truth. If no safe content exists, publish explicit incompletion. D10 reserves at most the final20s **inside** the effective existing deadline, starts no ordinary calls during that reserve, and never extends model-call quota or the one-correction cap. Cancellation also cannot bypass checking.
+
+## Plans, confirmation and exports
+
+Plan/row/export/link IDs use the existing opaque string convention (1–64 characters; implementations generate uuid4 hex). `PlanCreate` has request_id, title, IANA timezone, and up to100 rows. Each `PlanRowInput` has stable row_id and source identity/result/item, optional selection_id/account/channel/local_time/fold, copy_text and note. Missing execution fields may remain null in saved drafts. The server resolves title/theater/language and source_pin from owner-scoped evidence; clients cannot assert these facts. `Plan` adds id/version/timestamps and enriched `PlanRow[]`, including scheduled_at (offset-qualified UTC instant or null). Saving is user-confirmed, not model-authorized.
+
+PATCH is a replacement of editable fields, not a JSON merge patch. Existing row IDs retain identity; new rows get new IDs; omitted rows are removed from that draft version. Duplicate row IDs fail. Every accepted mutation increments version once. Idempotency keys bind owner + operation + request body: same key/body returns the original receipt; different body conflicts. Failed/unknown network outcomes retry the same request ID. A version conflict preserves local edits and requires a fresh read and user reconciliation.
+
+Time edits use the plan timezone, independent of browser timezone. Nonexistent DST local times cannot become executable; ambiguous times require fold0/1. Timezone changes require explicit keep_local_time/keep_instant plus preview; missing explicit choice is invalid. Source ids and source_pin remain immutable evidence for each row even when rules later change.
+
+Preview pins plan version and current required source reads. `PlanCheck` contains each row's ready/blocked status, blockers/warnings, and current_pin separately from source_pin. Re-read current delisting, channel permission and required-source completeness before export commit. Any mandatory unknown/missing/read failure/denial blocks the **whole** execution export, retains all draft rows and explains each blocker; unrelated stale metrics only warn. Empty plans cannot export. Export request submits preview_id and expected_version; a mid-check edit yields version_conflict and requires new confirmation. A prior preview is never blanket authority for later rule changes.
+
+Execution CSV columns in exact order: plan_id, plan_version, row_id, identity, source_result_id, source_item_id, title, theater, language, account, channel, local_time, timezone, scheduled_at, copy_text, note. UTF-8 BOM, RFC4180 escaping and formula-prefix neutralization apply to every user/source text cell (`= + - @`, leading tab/CR/LF and whitespace-prefixed formula). Preserve time zone/identity. Reference-list CSV keeps its old columns and clearly says reference-only. Export receipt binds immutable bytes/hash/plan_version/preview_id; download retry reads the same bytes after subsequent edits. Export generation/download never marks a row published.
+
+## Feedback linkage
+
+Feedback data stays in existing owner-private feedback versions; external sources remain read-only. `PlanLinkCommand` contains exact plan/row/revision, feedback version, post_key and explicit manual confirmation. The server verifies both objects are visible, the row belongs to that plan version, and the source post exists in the pinned version. `PlanLink` records provenance and manual/verified_external_id method, status confirmed/needs_review/conflict. Automatic linking is internal only, gated on verified unique cross-system ID propagation and compatible owner/source; title/date proximity is insufficient. Existing conflicting mappings are not overwritten; duplicate same confirmation is idempotent. Source revisions trigger revalidation and unresolved cases remain needs_review.
+
+`GET /api/pick/feedback/posts` accepts ReviewQuery (optional feedback_version_id/account_id/channel/language/published_from/to plus offset/limit≤50). It lists actual owner-visible posts, including unlinked ones; ReviewPosts.status distinguishes ok/disabled/unavailable/auth_required. Unavailable totals are null, never0. ReviewPost supplies post_key, source identity/account/channel/title/language, publication/observation timestamps, observed/requested observation days, window_complete, nullable views/likes/comments, existing typed RevenueObservation entries, nullable PlanLink and source evidence refs. A disabled source never returns fabricated posts. Manual linking presents this exact post alongside the selected plan row before confirmation.
+
+Existing feedback observation/revenue DTOs remain authoritative. Null, measured0, absent observation, insufficient observation window, unlinked and unattributed remain different states. Do not aggregate differing source/currency/metric/window or infer a conversion rate without a denominator. No production source activation is implied by these DTOs.
+
+## D9 fixture and fingerprint freeze
+
+`completion/model-acceptance-v1.json` locks exactly20 prompts, synthetic base records, per-case preconditions and expected behavior. File SHA-256: `04a5887b6de64b8b191aca821edb17d1928c6e13018b9581b7299335c7b6e668`. Preconditions are normative fixture overlays and run setup, not instructions to fabricate successful tool output. The baseline and new version receive identical seeded data/context and prompts.
+
+`completion/model-config-fingerprint.json` defines the required config fingerprint format. It is intentionally a template: T11 must resolve real provider/model/parameters/effective limits and baseline/candidate SHAs, hash actual prompt/tool schemas and seeded QA data, then freeze the filled record before the first run. No secret values or production credentials belong in it. Fingerprint SHA-256 is over UTF-8 JSON with sorted keys, compact separators and no ASCII escaping; absent provider options are null and explicitly marked unsupported in the run ledger. Baseline/candidate intentional code/prompt/schema differences are recorded, all execution settings stay fixed.
+
+Run ledger: `{case_id, phase:baseline|candidate, attempt:1, thread_id, run_id, started_at, finished_at, status, model_call_count, fingerprint_sha256, artifact_paths, expected_checks:[{expectation,passed,evidence}], failure}`. Failures/cancellation/timeouts still consume one of20 runs per phase. Total cap40 **Agent runs**, not API requests. No automatic extra attempts; no production writes. T1 executes zero product-model calls and does not claim model acceptance.
+
+## Shared query reader (T4)
+
+The Gateway now owns a separate `QueryReader` for `/api/pick/query` and the model's
+`pick_query_data`. Configure **Gateway** `PICK_MIRROR_READER_URL` with the existing
+restricted mirror reader role and `PICK_MIRROR_CA_PEM` with its validating CA.
+These variables are independent of the host/writer `PICK_DATABASE_URL`; the
+service never substitutes writer credentials. The URL accepts only PostgreSQL
+and no query parameters. A missing reader is a typed `source_unavailable` error
+for a paired mirror, while imported private catalogs continue on their own
+provenance. The pool holds at most three connections, with five-second connect
+and eight-second command backstops, no cached prepared statements, and every
+request uses a read-only transaction with an absolute deadline. Only tests
+construct the reader with TLS disabled against a disposable loopback cluster.
+
+`rule_version=mirror-rules-v<N>` binds the immutable rules in mirror version N;
+the server also verifies the exact catalog/knowledge batch pair. Private imported
+catalogs keep `pick-rules-v1`. The original candidate tools explicitly preserve
+`exclude_selected=true` and persisted card/notes shapes. The common tool is
+read-only and creates no saved candidate reference. Observation-specific filters
+remain on their existing candidate path.
+
+Board domain projections additionally expose typed `rs_ids`, `rank_rows`,
+`bill_rows`, `bill_totals`, `effective_sort`, `legacy_total`, `rank_limit`,
+`rs_counts`, `growth_baseline`, `sources`, and `posted_stats`. These preserve
+legacy linked-row, historical-rank, capped-growth and ledger semantics.
+`facets.language_order` retains PostgreSQL order even when a language label is
+numeric and JavaScript would reorder object keys. `row_keys` is the ordered
+identity page (posted domain uses ledger record `sd`); ledger rank may decorate
+multiple bills with the same canonical drama, so its returned count is the
+number of bill records, not the number of unique drama keys.
+
+New mirrored candidate cards record `ranking_version=mirror-board-v1`, and their
+existing `/api/pick/replay` route reuses the common reader and frozen exclusions.
+Older cards keep their original ranking versions and replay implementation.
+This avoids describing the new PostgreSQL ordering as the old identity ordering.
+Unsupported domain/filter combinations fail explicitly. A published-date window
+requires canonical source dates and complete attributable publication details;
+missing details or account mapping returns an unavailable error rather than a
+successful zero. Account/state facets each compute their own status predicate.
+
+Checked common-query facts use hashed, bracket-free `tool:<call>:row:<digest>`
+references; they never manufacture saved result IDs. Only typed scalar/enum/date
+facts become assertion templates. Source identifiers and language codes are
+constrained, display labels remain quoted, duplicate titles remain ambiguous,
+and exact scoped publication assertions require complete matching for a negative
+claim. Failed reads invalidate all uncited “current query” count/period/pin/scope
+claims; an explicit reference to a prior receipt remains historical evidence.
+
+## Agent finalization budget
+
+`PickTask.deadline` remains the earlier local/host trusted total deadline. Ordinary models, data tools, plugins and their setup/lock waits stop at `ordinary_deadline`, twenty seconds before that total deadline. A total budget of twenty seconds or less starts no ordinary work. Expiry returns the host's checked incomplete final message; it does not turn a failed query into an empty result. Final checking and the existing at-most-one correction use only actual remaining total time and still share the twelve-model-call cap. A synchronous late response is checked against the deadline before approval. These are execution budgets, not a measured successful-response latency guarantee; cancellation cleanup and durable publication still preserve host resource/persistence invariants.
+
+## Bounded model/operator query projection
+
+`pick_query_data` returns `QueryModelProjection` (`projection_version=pick-query-model-v1`),
+not the HTTP `QueryResponse`. Its source is `query_model_contracts.py`; the matching
+closed TypeScript parser is `queryModelProjectionSchema`. The full typed response
+is captured as checker evidence first. The model and read-only operator card then
+receive the same bounded projection: at most 20 rows, five selected signals per
+drama, and 48,000 UTF-8 bytes. Raw board records, history arrays, source prose,
+private audit facts and unbounded links are not copied into model context.
+
+The projection retains the effective request (with a maximum limit of 20), pin,
+actual period/resolution, source/mirror clocks, source query counts, and stable
+hashed tool-row/signal references. `projection.requested_limit` records the caller's
+original limit. `counts` and `query_next_offset` describe the source query page;
+`projection.shown`, `available_count`, `omitted_rows`, `signals_omitted` and
+`next_offset` describe the visible projection. Byte trimming advances only past
+the source rows shown. Rule metadata has explicit projection pagination. The
+host tool-output exemption is safe only together with this bounded serializer.
+Malformed source fields fail with a bounded unavailable message.
+
+Rows are discriminated `drama`, `posted`, `bill`, `rule`, or `catalog_record`.
+The last variant preserves actual mirror rows with an empty source language,
+using `row_key` and a fixed-version source reference, `identity=null`, and unknown
+eligibility. It never creates a candidate identity or a save authority. Display
+label truncation is explicit. Shared synthetic examples live in
+`frontend/tests/unit/core/pick/fixtures/query-model-v1.json`.
+
+For ReelShort, the projection also carries `effective_sort` and `rank_limit` from
+the executed query. The one selected `rank_metric` includes its explicit unit,
+source scope, comparison window, observed/baseline times and a citable reference.
+Growth is the decimal difference of `rr` and the raw `s1_rr`/`s7_rr` operands (or
+promotion counts), with comparability retained. `bill` means the exported
+`bill_rank`, not order count. Ratios retain exact operands instead of claiming a
+rounded value. Failed or unknown platform-metric acquisition remains null;
+a verified measured zero stays zero. Bills/search/clicks retain their separate
+source semantics. Bill records use the same hashed identity in projection and
+checker facts; unknown-language records suppress conflicting flattened candidate
+language/rule facts.
+
+
+## Explicit plural chat references
+
+A new turn may send `context.pick_references = {"version":"pick-references-v1","references":[{"result_id":"...","item_ids":["..."]}, ...]}`. The strict envelope accepts one or two distinct results, with one to twenty distinct explicit item IDs per result. Raw arrays, unknown versions/keys, duplicate groups/items, and simultaneous `pick_reference` plus `pick_references` are rejected. The legacy singular protocol, including empty item IDs for a whole batch, remains unchanged.
+
+The server resolves every group under the authenticated owner and current thread, then validates item membership before initializing the bound references. Missing, foreign, wrong-thread and invalid items share one refusal. Each result retains its own catalogue/knowledge batches, mirror/rule/ranking versions and frozen source clocks; these references do not replace the ordinary query's current pin. The model reads details from the explicit bound result or a result produced by this run. Readonly comparison reads each bound result's frozen feedback sidecar independently; it never establishes or replaces the ordinary feedback-analysis pin. Single-reference and derived-query feedback pin guards remain unchanged. Selected item groups guide prompt/save defaults, while any additionally read item must retain its own exact result/item evidence citation. Same-title facts across sources or versions require exact citations. A save with two groups needs an explicit result; a derived “another batch” query requires the user to choose one base first.
+
+Frontend comparison has separate read-only chat-reference checkboxes for each snapshot, so the same stable identity may be compared across both versions. Save-source choices still select one source per identity. Only the explicit “引用所选两批到对话” action binds both groups. A visible, clearable context shows the selected snapshots; failed restoration blocks sending until reselected or cleared. Owner changes destroy that state. Stored choices are reauthorized through result reads on refresh.
+
+Gateway forwarding copies identifiers only to runtime context, never checkpoint configurable state. Human-message metadata stores the exact versioned envelope and original thread. Sending freezes the selection before async work; regenerate/edit restore that turn's references, while a cross-thread branch remains unbound. The existing edit-prepare endpoint's attachment-only metadata behavior is retained: the frontend explicitly reapplies the original pick metadata and runtime context for edit replay. CheckedPublication's internal references come only from server-validated groups; public checked-message metadata keeps its original four fields.
+
+Deterministic coverage: `test_plural_references.py`, `test_plural_mirror_references.py`, authenticated HTTP/real-factory `test_pick_plural_runtime.py`, frontend reference/replay/context tests, and `pnpm exec playwright test --config playwright.pick-references.config.ts`. That browser suite uses synthetic HTTP responses and zero provider calls; it complements the separate real Gateway/runtime/PostgreSQL tests and is not production or live-model evidence.
+
+
+### Deadline clock domains
+
+Host `PickPublication.deadline`, `PickTask.deadline` / `ordinary_deadline`, and Lark worker deadlines are absolute `time.monotonic()` values. Model/correction `asyncio.timeout()` calls receive remaining durations, so they do not assume a clock epoch.
+
+`PickTask.ordinary_loop_deadline` translates the current remaining monotonic duration into the running event loop's `loop.time()` domain. It samples loop time first so conversion work can only shorten the budget. `PickToolGate` and `query_call_loop_deadline` carry this loop-domain deadline through the invocation; `task.query_deadline` returns the earlier loop-domain ordinary/caller limit. QueryService, QueryReader, rankings, HTTP/ASGI request budgets and plan-export SQL checks consume only loop-domain deadlines. No consumer may compare a host/worker monotonic timestamp directly with `loop.time()` or pass it to `asyncio.timeout_at()`.
+
+These epochs differ on supported uvloop installations. The explicit conversion preserves the original host total, finalization reserve and per-call limits without changing the configured event-loop implementation. Tests cover positive/negative synthetic offsets, actual asyncio and uvloop Agent→PostgreSQL queries, and actual HTTP disconnect/SQL cancellation/reuse.
+
+### Historical detail facts and supported empty language queries
+
+`pick_get_drama_detail` authorizes the owner, thread, referenced result and exact item before reading. Its model-only `historical_summary` contains the stored pre-limit `matched_total` (nullable for older snapshots), original conditions and exact `result:<result_id>` reference. This is the historical result's total, never the current query total or the displayed item count. A single explicit deictic reference prompts a detail read before clarification; absent/ambiguous references or a new scope still require clarification.
+
+For paired results, the existing common reader receives the result's complete catalog/knowledge/mirror pin and derived immutable mirror rule ID. An exact source/source-id/language lookup, including delisted rows, may add a bounded `source_facts` sidecar containing `identity`, item `reference`, `pin`, nullable nonnegative integer `episodes`, and `source_ref=mirror:<version>:<table>:<row_key>`. No title matching, synthetic metadata lookup or latest-version fallback is used. Missing or ambiguous matches supply no fact. The common query keeps its typed historical availability failures; detail treats only unavailable optional supplements as absent, returning the authorized frozen item/summary and original provenance (including null) with a fixed `data_notices` warning. It emits no new episode proof and never retries against latest. Result/thread/owner/item authorization stays outside this recovery; timeout and cancellation still propagate. Private imports without a paired mirror have no inferred episode supplement. Stored Result/Item JSON and the existing notes DTO stay unchanged.
+
+The closed common model projection adds optional nullable `episodes` and `episodes_source_ref` on drama rows. Old projection rows still parse; raw source unknown-language records remain readonly and cannot gain a candidate identity or permission. Boolean, negative and string episode values are refused, null stays unknown, and measured zero stays zero. Episode checker atoms use the same exact source and row/item citation. Detail calls now share the invocation-wide at-most-ten-second query cap, including setup/lock/encoding, with the ordinary/finalization reserve unchanged. The common projection keeps its twenty-row, five-signal and48,000-byte caps.
+
+The shared legacy/paired candidate reference guard accepts the explicitly documented region-hint language codes (`en`, `ko`, `ja`, `es`, `pt`, `id`, `th`, `fr`, `de`, `zh-hant`, `ar`) case-insensitively even when absent from the batch. Existing literal catalog language labels remain supported. Absent valid languages yield scoped zero with ordinary provenance/diagnosis; unsupported `USA`, `english`, and `zz` still refuse. This policy does not convert unknown raw source language into any supported code.

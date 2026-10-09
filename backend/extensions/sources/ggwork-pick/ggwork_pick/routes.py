@@ -1,5 +1,6 @@
 """Authenticated UI operations. The Agent never receives this write authority."""
 
+import asyncio
 import csv
 import io
 import logging
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import Field, ValidationError
 
+from ggwork_pick.completion_contracts import CommonQuery, CompletionError, QueryResponse
 from ggwork_pick.contracts import UNSTORABLE_TEXT, StrictInput
 from ggwork_pick.imports import MAX_BYTES, Importer
 from ggwork_pick.mirror.status import mirror_status
@@ -21,6 +23,7 @@ from ggwork_pick.native_source import native_resource, native_status
 from ggwork_pick.observe.status import obs_status
 from ggwork_pick.observe.trends_candidates import trends_candidates
 from ggwork_pick.observe.trends_table import trends_table
+from ggwork_pick.query_reader import QueryFailure
 from ggwork_pick.repository import SHARED_OWNER, ConflictError, PickRepository
 from ggwork_pick.selection import NotesGone, ReplayGone, ReplayUnrunnable, SelectionService, result_view
 
@@ -165,6 +168,41 @@ def build_router(service):
     from ggwork_pick.feedback.routes import register_feedback_routes
 
     register_feedback_routes(router, service, repository)
+    from ggwork_pick.planning_routes import register_planning_routes
+
+    register_planning_routes(router, repository, service.common_query)
+
+    @router.post("/query", response_model=QueryResponse)
+    async def common_query(body: CommonQuery, request: Request):
+        loop = asyncio.get_running_loop()
+        started = getattr(request.state, "pick_query_started", loop.time())
+        deadline = min(getattr(request.state, "pick_query_deadline", started + 10), started + body.budget_ms / 1000)
+        request.state.pick_query_deadline = deadline
+        try:
+            if loop.time() >= deadline:
+                raise TimeoutError
+            async with asyncio.timeout_at(deadline):
+                repo = repository(request)
+                result = await service.common_query(repo).query(body, deadline=deadline)
+                content = result.model_dump_json()
+                if loop.time() >= deadline:
+                    raise TimeoutError
+                return Response(content, media_type="application/json")
+        except TimeoutError:
+            raise HTTPException(504, CompletionError(code="query_timeout", message="查询超过时限，请缩小范围后重试", retryable=True).model_dump()) from None
+        except QueryFailure as exc:
+            status = {
+                "invalid_query": 422,
+                "not_found": 404,
+                "version_gone": 410,
+                "source_unavailable": 503,
+                "query_timeout": 504,
+                "version_conflict": 409,
+                "period_missing": 422,
+            }[exc.code]
+            raise HTTPException(status, CompletionError(code=exc.code, message=str(exc), retryable=exc.retryable).model_dump()) from None
+        except LookupError:
+            raise HTTPException(404, CompletionError(code="not_found", message="查询引用不存在", retryable=False).model_dump()) from None
 
     from ggwork_pick.radar.routes import register_radar_routes
 
@@ -304,7 +342,9 @@ def build_router(service):
         """The owner's result re-run on its own batch, for the data page's replay view (plan 2.5 item 4)."""
         repo = repository(request)
         try:
-            return await SelectionService(repo).replay(result_id)
+            return await SelectionService(repo, query_service=service.common_query(repo)).replay(result_id)
+        except QueryFailure as exc:
+            raise HTTPException(504 if exc.code == "query_timeout" else 503, str(exc)) from None
         except ReplayGone as exc:
             raise HTTPException(410, str(exc)) from None
         except ReplayUnrunnable as exc:

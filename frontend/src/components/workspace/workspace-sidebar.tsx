@@ -1,10 +1,15 @@
 "use client";
 
-import { DatabaseIcon, ListChecksIcon } from "lucide-react";
+import {
+  DatabaseIcon,
+  ListChecksIcon,
+  CalendarDaysIcon,
+  ChartNoAxesCombinedIcon,
+  MessageSquareIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useId } from "react";
-import { toast } from "sonner";
 
 import {
   Sidebar,
@@ -19,7 +24,6 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { useI18n } from "@/core/i18n/hooks";
 
 import { WorkspaceChannelsList } from "./channels/workspace-channels-list";
 import { ProjectsSection } from "./projects-section";
@@ -38,19 +42,35 @@ function isUnder(pathname: string | null, base: string): boolean {
 }
 
 /**
- * The 选剧工作台 group: 我的选剧 shows an availability notice;
- * 选剧资料 is marked current on its own pages.
+ * Direct entries for the delivered pick workspace pages.
  */
 export function PickNav() {
-  const { t } = useI18n();
   const pathname = usePathname();
   const labelId = useId();
   const links = [
     {
+      href: "/workspace/chats/new",
+      label: "选剧对话",
+      icon: MessageSquareIcon,
+      current: isUnder(pathname, "/workspace/chats"),
+    },
+    {
+      href: "/workspace/pick-plans",
+      label: "排期草稿",
+      icon: CalendarDaysIcon,
+      current: isUnder(pathname, "/workspace/pick-plans"),
+    },
+    {
+      href: "/workspace/pick-review",
+      label: "发布复盘",
+      icon: ChartNoAxesCombinedIcon,
+      current: isUnder(pathname, "/workspace/pick-review"),
+    },
+    {
       href: PICKS_PATH,
       label: "我的选剧",
       icon: ListChecksIcon,
-      current: false,
+      current: isUnder(pathname, PICKS_PATH),
     },
     {
       href: PICK_DATA_PATH,
@@ -66,22 +86,16 @@ export function PickNav() {
         <SidebarMenu>
           {links.map(({ href, label, icon: Icon, current }) => (
             <SidebarMenuItem key={href}>
-              {href === PICKS_PATH ? (
-                <SidebarMenuButton
-                  type="button"
-                  onClick={() => toast.info(t.sidebar.notOpenYet)}
-                >
+              <SidebarMenuButton
+                className="min-h-11 text-base"
+                isActive={current}
+                asChild
+              >
+                <Link href={href} aria-current={current ? "page" : undefined}>
                   <Icon />
                   <span>{label}</span>
-                </SidebarMenuButton>
-              ) : (
-                <SidebarMenuButton isActive={current} asChild>
-                  <Link href={href} aria-current={current ? "page" : undefined}>
-                    <Icon />
-                    <span>{label}</span>
-                  </Link>
-                </SidebarMenuButton>
-              )}
+                </Link>
+              </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
         </SidebarMenu>

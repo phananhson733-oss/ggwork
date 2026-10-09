@@ -16,13 +16,13 @@ from mirror_pairs import (
     RULES_REF,
     batch,
     batch_meta,
-    building_version,
+    building_query_version,
     catalog_payload,
     control,
     degrade,
     fetch,
     now,
-    open_service,
+    open_query_service,
     publish_pair,
     row_count,
     stage_pair,
@@ -37,14 +37,14 @@ LATER_TEXT = "2026-09-24T15:38:00.000Z"
 
 @pytest_asyncio.fixture
 async def world(pick_db_url, tmp_path):
-    engine, service, shared, importer = await open_service(pick_db_url, tmp_path)
+    engine, service, shared, importer = await open_query_service(pick_db_url, tmp_path)
     yield engine, service, shared, importer
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
 async def pg_world(pg_db_url, tmp_path):
-    engine, service, shared, importer = await open_service(pg_db_url, tmp_path)
+    engine, service, shared, importer = await open_query_service(pg_db_url, tmp_path)
     yield engine, service, shared, importer
     await engine.dispose()
 
@@ -91,7 +91,7 @@ async def test_stage_dedupe_defers_reuse(world):
 async def test_pair_publish_atomic_visibility(pg_world):
     engine, _, shared, importer = pg_world
     old_version, old = await publish_pair(engine, shared, importer, "a")
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     staged = await stage_pair(importer, "b")
     async with engine.connect() as holder:
         # Holding the control row stops the publish at its last statement, with everything before it done.
@@ -136,7 +136,7 @@ async def test_pair_publish_reuse_old_batch_becomes_current(pg_world):
     # The same content again, captured later and described by this run's meta.
     staged = await stage_pair(importer, "a", as_of_text=LATER_TEXT, meta=batch_meta("again"))
     assert [item["id"] for item in staged] == [item["id"] for item in first] and staged[0]["staged"] is False
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     t = now()
     published = await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=t, **NO_ACCEPT_EMPTY)
     assert published["catalog_batch_id"] == first[0]["id"] and published["published_at"] == stamp(t)
@@ -153,7 +153,7 @@ async def test_pair_publish_rowcount_guard(pg_world):
     from ggwork_pick.mirror.publish import MirrorPublishError
 
     engine, _, shared, importer = pg_world
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     async with engine.begin() as conn:
         await conn.execute(text("UPDATE pick_mirror.versions SET status = 'failed' WHERE id = :id"), {"id": version_id})
     staged = await stage_pair(importer, "a")
@@ -162,7 +162,7 @@ async def test_pair_publish_rowcount_guard(pg_world):
     assert [(await batch(engine, item["id"]))["status"] for item in staged] == ["importing", "importing"]
     assert (await version(engine, version_id))["status"] == "failed"
     # A batch that is neither staged nor published stops the publish the same way.
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     await shared.fail_staged([staged[0]["id"]])
     with pytest.raises(MirrorPublishError):
         await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
@@ -173,7 +173,7 @@ async def test_pair_publish_rowcount_guard(pg_world):
 @pytest.mark.asyncio
 async def test_pair_publish_refuses_bad_names_before_any_sql(pg_world):
     engine, _, shared, importer = pg_world
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     staged = await stage_pair(importer, "a")
     with pytest.raises(ValueError, match="schema"):
         await shared.publish_mirror_pair(version_id=version_id, schema_name="public", batches=staged, t=now(), **NO_ACCEPT_EMPTY)
@@ -192,7 +192,7 @@ async def test_pair_publish_refuses_bad_names_before_any_sql(pg_world):
 @pytest.mark.asyncio
 async def test_grant_skipped_without_role(pg_world):
     engine, _, shared, importer = pg_world
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     staged = await stage_pair(importer, "a")
     published = await shared.publish_mirror_pair(
         version_id=version_id, schema_name=schema, batches=staged, t=now(), reader_role="pick_board_reader_absent", **NO_ACCEPT_EMPTY
@@ -204,7 +204,7 @@ async def test_grant_skipped_without_role(pg_world):
 @pytest.mark.asyncio
 async def test_grant_granted_with_role(pg_world, pg_reader_role):
     engine, _, shared, importer = pg_world
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     staged = await stage_pair(importer, "a")
     assert await _privileges(engine, pg_reader_role, schema) == (False, False)
     published = await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), **NO_ACCEPT_EMPTY)
@@ -324,7 +324,7 @@ async def test_accept_empty_kept_if_reset_after_gate(pg_world):
     engine, _, shared, importer = pg_world
     seen = now() - timedelta(minutes=5)
     await _set_accept_empty(engine, seen)
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     staged = await stage_pair(importer, "a")
     # The operator runs accept-empty again after the gate read seen.
     await _set_accept_empty(engine, now())
@@ -338,7 +338,7 @@ async def test_accept_empty_consumed_when_seen(pg_world):
     engine, _, shared, importer = pg_world
     seen = now() - timedelta(minutes=5)
     await _set_accept_empty(engine, seen)
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     staged = await stage_pair(importer, "a")
     await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), accept_empty_used=True, accept_empty_seen=seen)
     state = await control(engine)
@@ -350,7 +350,7 @@ async def test_accept_empty_consumed_when_never_stamped(pg_world):
     # accept_empty_once set by hand, without accept_empty_set_at: the gate read NULL, and NULL matches NULL.
     engine, _, shared, importer = pg_world
     await _set_accept_empty(engine, None)
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     staged = await stage_pair(importer, "a")
     await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), accept_empty_used=True, accept_empty_seen=None)
     state = await control(engine)
@@ -362,7 +362,7 @@ async def test_accept_empty_untouched_when_not_used(pg_world):
     engine, _, shared, importer = pg_world
     seen = now() - timedelta(minutes=5)
     await _set_accept_empty(engine, seen)
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     staged = await stage_pair(importer, "a")
     await shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=staged, t=now(), accept_empty_used=False, accept_empty_seen=seen)
     state = await control(engine)
@@ -390,7 +390,7 @@ async def test_record_mirror_failure(world):
 
 @pytest.mark.asyncio
 async def test_pair_publish_is_postgres_only(tmp_path):
-    engine, _, shared, importer = await open_service(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}", tmp_path)
+    engine, _, shared, importer = await open_query_service(f"sqlite+aiosqlite:///{tmp_path / 'pick.db'}", tmp_path)
     try:
         staged = await stage_pair(importer, "a")
         with pytest.raises(RuntimeError, match="PostgreSQL"):
@@ -458,7 +458,7 @@ def _shared_owner_lock() -> int:
 @pytest.mark.asyncio
 async def test_publishes_queue_behind_the_shared_owner_lock(pg_world):
     engine, _, shared, importer = pg_world
-    version_id, schema = await building_version(engine)
+    version_id, schema = await building_query_version(engine)
     paired, degraded = await stage_pair(importer, "a"), await stage_pair(importer, "b")
     publishes = (
         lambda: shared.publish_mirror_pair(version_id=version_id, schema_name=schema, batches=paired, t=now(), **NO_ACCEPT_EMPTY),
