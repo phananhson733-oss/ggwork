@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 ID = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")]
 SHA = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+# Conservative single-request admission bound, not a measured model capacity.
+MAX_PLANNER_INPUT_BYTES = 32000
 
 
 class StrictInput(BaseModel):

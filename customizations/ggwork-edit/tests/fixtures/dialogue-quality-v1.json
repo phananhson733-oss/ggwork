@@ -1,0 +1,383 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "annotation_method": "Fixed editorial expectations recorded during implementation; no paid model evaluator or human quality study. HTTP expectations are executable; narrative annotations remain limited content judgments.",
+  "asr_model": {
+    "name": "whisper.cpp tiny.en",
+    "sha256": "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f"
+  },
+  "sources": [
+    {
+      "episode": 1,
+      "file": "episode-01.mp4",
+      "text": "You thought I had no evidence. I kept every receipt. Tomorrow everyone will know the truth.",
+      "duration_seconds": 5.194014,
+      "sha256": "ae4d0f901bfb882afdb25741040314f8eb891780889fc0b0d5754f825490035c",
+      "bytes": 53026,
+      "media_id": "m-1",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 5.08,
+          "text": "You thought I had no evidence. I kept every receipt. Tomorrow everyone will know the truth.\""
+        }
+      ]
+    },
+    {
+      "episode": 2,
+      "file": "episode-02.mp4",
+      "text": "That contract is forged. The original is in this envelope. You signed it in front of the whole board.",
+      "duration_seconds": 5.490023,
+      "sha256": "644ed74bf65cf14631e29f9de83311201e802d8fe39c7ed6a7b3f86133e68a03",
+      "bytes": 58648,
+      "media_id": "m-2",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 4.76,
+          "text": "that contract is forged. The original is in this envelope. You signed it in front of the"
+        },
+        {
+          "start": 4.76,
+          "end": 5.44,
+          "text": "whole board."
+        }
+      ]
+    },
+    {
+      "episode": 3,
+      "file": "episode-03.mp4",
+      "text": "Wait. If you open that envelope, my family loses everything. Then tell them what you did.",
+      "duration_seconds": 5.342993,
+      "sha256": "98b4f6782872475ddce67dae5a11f829f3c0e12e6a30a5aaa31840f9b02f136d",
+      "bytes": 55616,
+      "media_id": "m-3",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 5.3,
+          "text": "Wait, if you open that envelope, my family loses everything, then tell them what you did."
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "conflict-stakes-challenge",
+      "cuts": [
+        {
+          "media_id": "m-2",
+          "start": 0,
+          "end": 5.44
+        },
+        {
+          "media_id": "m-3",
+          "start": 0,
+          "end": 5.3
+        }
+      ],
+      "duration": 11,
+      "expected_http": 200,
+      "content_annotation": "Complete forged-contract accusation and evidence, followed by family stakes and a challenge. Expected coherent local exchange; no claim about the rest of a drama."
+    },
+    {
+      "id": "hook-before-context",
+      "cuts": [
+        {
+          "media_id": "m-3",
+          "start": 0,
+          "end": 5.3
+        },
+        {
+          "media_id": "m-2",
+          "start": 0,
+          "end": 5.44
+        }
+      ],
+      "duration": 11,
+      "expected_http": 200,
+      "content_annotation": "Deliberate complete-unit reordering: immediate stakes then forged-contract context. Chronological reversal is allowed."
+    },
+    {
+      "id": "asr-fragment-is-not-sentence",
+      "cuts": [
+        {
+          "media_id": "m-2",
+          "start": 0,
+          "end": 4.76
+        },
+        {
+          "media_id": "m-3",
+          "start": 0,
+          "end": 5.3
+        }
+      ],
+      "duration": 10,
+      "expected_http": 422,
+      "content_annotation": "Episode 2 ends at \"front of the\"; an ASR segment boundary alone is insufficient."
+    },
+    {
+      "id": "mid-utterance-end",
+      "cuts": [
+        {
+          "media_id": "m-2",
+          "start": 0,
+          "end": 5.44
+        },
+        {
+          "media_id": "m-3",
+          "start": 0,
+          "end": 3.5
+        }
+      ],
+      "duration": 9,
+      "expected_http": 422,
+      "content_annotation": "Truncates the stakes/challenge unit. This is the pattern observed in the historical final-upload plan."
+    },
+    {
+      "id": "mid-utterance-start",
+      "cuts": [
+        {
+          "media_id": "m-2",
+          "start": 1,
+          "end": 5.44
+        },
+        {
+          "media_id": "m-3",
+          "start": 0,
+          "end": 5.3
+        }
+      ],
+      "duration": 10,
+      "expected_http": 422,
+      "content_annotation": "Drops the opening of the forged-contract utterance."
+    },
+    {
+      "id": "repeat-after-other-source",
+      "cuts": [
+        {
+          "media_id": "m-2",
+          "start": 0,
+          "end": 5.44
+        },
+        {
+          "media_id": "m-3",
+          "start": 0,
+          "end": 5.3
+        },
+        {
+          "media_id": "m-2",
+          "start": 0,
+          "end": 5.44
+        }
+      ],
+      "duration": 16,
+      "expected_http": 422,
+      "content_annotation": "Episode 2 repeats after a different media source. Duplicate detection must not rely on adjacent cuts."
+    },
+    {
+      "id": "wrong-language-contract",
+      "cuts": [
+        {
+          "media_id": "m-2",
+          "start": 0,
+          "end": 5.44
+        },
+        {
+          "media_id": "m-3",
+          "start": 0,
+          "end": 5.3
+        }
+      ],
+      "duration": 11,
+      "plan_language": "zh",
+      "expected_http": 422,
+      "content_annotation": "An English request must not become a Chinese-output claim. This tests the plan contract, not multilingual ASR quality."
+    },
+    {
+      "id": "unsupported-source",
+      "cuts": [
+        {
+          "media_id": "m-99",
+          "start": 0,
+          "end": 5.44
+        },
+        {
+          "media_id": "m-3",
+          "start": 0,
+          "end": 5.3
+        }
+      ],
+      "duration": 11,
+      "expected_http": 422,
+      "content_annotation": "The envelope exchange cannot cite an unselected media ID."
+    },
+    {
+      "id": "selected-source-omitted",
+      "cuts": [
+        {
+          "media_id": "m-2",
+          "start": 0,
+          "end": 5.44
+        },
+        {
+          "media_id": "m-3",
+          "start": 0,
+          "end": 5.3
+        }
+      ],
+      "duration": 11,
+      "omit_transcript": "m-1",
+      "expected_http": 422,
+      "content_annotation": "Even unused selected material must reach planner admission; no silent transcript omission."
+    },
+    {
+      "id": "complete-utterance-incomplete-story",
+      "cuts": [
+        {
+          "media_id": "m-1",
+          "start": 0,
+          "end": 5.08
+        }
+      ],
+      "duration": 5,
+      "expected_http": 200,
+      "content_annotation": "The complete threat sentence has no forged-contract cause or family consequence. Structurally valid but insufficient for the conflict-stakes-challenge narrative rubric. The validator does not claim semantic story quality."
+    },
+    {
+      "id": "retained-directory",
+      "historical_task_id": "7fbabde040ef4827a8bc1b1b7590a548",
+      "outputs": [
+        {
+          "output_id": "out-1",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.44,
+              "media_id": "m-2"
+            },
+            {
+              "start": 0.0,
+              "end": 3.5,
+              "media_id": "m-3"
+            }
+          ]
+        }
+      ],
+      "duration": 8.0,
+      "profile": "hook",
+      "aspect_ratio": "9:16",
+      "expected_http": 422,
+      "content_annotation": "Plan splits an ASR dialogue unit This audits old evidence under the new policy; it does not rewrite or retroactively certify historical delivery."
+    },
+    {
+      "id": "retained-browser-upload",
+      "historical_task_id": "8e66b42a216f4e9ca5fc6594db2fb82b",
+      "outputs": [
+        {
+          "output_id": "out-1",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.44,
+              "media_id": "m-2"
+            },
+            {
+              "start": 0.0,
+              "end": 3.4,
+              "media_id": "m-3"
+            }
+          ]
+        }
+      ],
+      "duration": 8.0,
+      "profile": "hook",
+      "aspect_ratio": "16:9",
+      "expected_http": 422,
+      "content_annotation": "Plan splits an ASR dialogue unit This audits old evidence under the new policy; it does not rewrite or retroactively certify historical delivery."
+    },
+    {
+      "id": "retained-highlight-targeted-retry",
+      "historical_task_id": "fac46151d8ec4f898809aeadd176bded",
+      "outputs": [
+        {
+          "output_id": "out-1",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.44,
+              "media_id": "m-2"
+            }
+          ]
+        },
+        {
+          "output_id": "out-2",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.3,
+              "media_id": "m-3"
+            }
+          ]
+        }
+      ],
+      "duration": 5.0,
+      "profile": "highlight",
+      "aspect_ratio": "1:1",
+      "expected_http": 200,
+      "content_annotation": "Complete observed ASR dialogue units; no within-output repeated ranges. This audits old evidence under the new policy; it does not rewrite or retroactively certify historical delivery."
+    },
+    {
+      "id": "retained-linked-revision",
+      "historical_task_id": "db149a978c094e16819ecb0812124d4b",
+      "outputs": [
+        {
+          "output_id": "out-1",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.44,
+              "media_id": "m-2"
+            },
+            {
+              "start": 0.0,
+              "end": 3.3,
+              "media_id": "m-3"
+            }
+          ]
+        }
+      ],
+      "duration": 8.0,
+      "profile": "hook",
+      "aspect_ratio": "16:9",
+      "expected_http": 422,
+      "content_annotation": "Plan splits an ASR dialogue unit This audits old evidence under the new policy; it does not rewrite or retroactively certify historical delivery."
+    },
+    {
+      "id": "retained-final-receipt-upload",
+      "historical_task_id": "f449fff9b09845c58568649b76c21eee",
+      "outputs": [
+        {
+          "output_id": "out-1",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 5.44,
+              "media_id": "m-2"
+            },
+            {
+              "start": 0.0,
+              "end": 3.5,
+              "media_id": "m-3"
+            }
+          ]
+        }
+      ],
+      "duration": 8.0,
+      "profile": "hook",
+      "aspect_ratio": "16:9",
+      "expected_http": 422,
+      "content_annotation": "Plan splits an ASR dialogue unit This audits old evidence under the new policy; it does not rewrite or retroactively certify historical delivery."
+    }
+  ]
+}

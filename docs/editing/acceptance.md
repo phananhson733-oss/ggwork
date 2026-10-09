@@ -110,3 +110,10 @@ Also run frontend check/unit/build, targeted pick browser regressions, and the
 legacy pick filter/replay/save-receipt tests. Record exact revisions and separate
 pre-existing broad-suite failures reproduced at the base from introduced failures.
 See the [delivery ledger](delivery-ledger.md) for current evidence and open gates.
+
+Run the [fixed content cases and retained-plan audit](quality-cases.md) alongside
+the protocol suite. The real-content gate must also show a newly planned output
+that satisfies the annotated conflict/stakes/challenge sequence and complete ASR
+unit boundaries; decode success alone cannot close it. Model context is currently
+unknown: enforce the reported complete-message byte limit, reject oversize input
+before provider invocation, and keep all selected sources in the frozen manifest.

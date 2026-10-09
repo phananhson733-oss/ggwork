@@ -1,8 +1,8 @@
-import { EditingEntry } from "@/components/workspace/editing/editing-entry";
 // Native Trends evidence row: production basis, same-batch curve, comparison, result and verification guidance.
 // Missing/partial observations keep their existing semantics; no imported pilot scores or fallback curves.
 import { TrendingDown } from "lucide-react";
 
+import { EditingEntry } from "@/components/workspace/editing/editing-entry";
 import { TrendBadge, toneText } from "@/components/workspace/radar/semantic";
 import {
   SHORT_TERM_HINT,

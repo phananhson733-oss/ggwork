@@ -25,6 +25,78 @@ def valid_plan():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "segments",
+    [
+        [{"media_id": "m-1", "start": 2, "end": 32}],
+        [{"media_id": "m-1", "start": 0, "end": 15}, {"media_id": "m-1", "start": 0, "end": 15}],
+    ],
+)
+async def test_mid_utterance_and_duplicate_dialogue_are_rejected(api, segments):
+    from ggwork_edit.planner import TextPlanner
+    from ggwork_edit.planner_routes import build_planner_router
+
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
+    plan = valid_plan()
+    plan["outputs"][0]["segments"] = segments
+    api[2].include_router(build_planner_router(api[1], TextPlanner(Model(plan))))
+    response = await client.post(
+        f"/api/editing/worker/devices/{device}/tasks/{task['id']}/plan",
+        headers=worker,
+        json={
+            "attempt_id": attempt["id"],
+            "fence": attempt["fence"],
+            "transcripts": [
+                {
+                    "media_id": "m-1",
+                    "segments": [
+                        {"start": 0, "end": 15, "text": "You promised."},
+                        {"start": 15, "end": 30, "text": "I have proof."},
+                        {"start": 30, "end": 90, "text": "Tell them the truth."},
+                    ],
+                }
+            ],
+        },
+    )
+    assert response.status_code == 422
+    current = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+    assert current["plan"] is None
+    assert not current["plan_confirmed"]
+
+
+@pytest.mark.asyncio
+async def test_long_input_is_refused_before_model_without_truncating_sources(api):
+    from ggwork_edit.planner import TextPlanner
+    from ggwork_edit.planner_routes import build_planner_router
+
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
+    model = Model(valid_plan())
+    api[2].include_router(build_planner_router(api[1], TextPlanner(model)))
+    before = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+    body = {
+        "attempt_id": attempt["id"],
+        "fence": attempt["fence"],
+        "transcripts": [
+            {
+                "media_id": "m-1",
+                "segments": [
+                    {"start": 0, "end": 30, "text": "真相。" * 6000},
+                ],
+            }
+        ],
+    }
+    response = await client.post(f"/api/editing/worker/devices/{device}/tasks/{task['id']}/plan", headers=worker, json=body)
+    assert response.status_code == 413
+    assert response.json()["detail"] == {"code": "planner_input_too_large", "max_input_bytes": 32000, "recovery": "create_task_with_fewer_sources"}
+    assert model.messages == []
+    current = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+    assert current["status"] == "failed"
+    assert current["plan"] is None
+    assert current["source_manifest"] == before["source_manifest"]
+    assert all(output["error"] == "planner_input_too_large" for output in current["outputs"])
+
+
+@pytest.mark.asyncio
 async def test_device_text_planning_returns_same_task_and_no_paths(api):
     from ggwork_edit.planner import TextPlanner
     from ggwork_edit.planner_routes import build_planner_router
@@ -35,7 +107,7 @@ async def test_device_text_planning_returns_same_task_and_no_paths(api):
     body = {
         "attempt_id": attempt["id"],
         "fence": attempt["fence"],
-        "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Synthetic dialogue"}]}],
+        "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Synthetic dialogue"}]}],
     }
     path = f"/api/editing/worker/devices/{device}/tasks/{task['id']}/plan"
     response = await client.post(path, headers=worker, json=body)
@@ -83,7 +155,7 @@ async def test_invalid_model_plan_is_rejected_without_persistence(api, mutation)
         json={
             "attempt_id": attempt["id"],
             "fence": attempt["fence"],
-            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Dialogue"}]}],
         },
     )
     assert response.status_code == 422
@@ -105,7 +177,7 @@ async def test_stopped_attempt_cannot_spend_model_or_store_plan(api):
         json={
             "attempt_id": attempt["id"],
             "fence": attempt["fence"],
-            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Dialogue"}]}],
         },
     )
     assert response.status_code == 409
@@ -141,7 +213,7 @@ async def test_plan_first_waits_for_same_task_confirmation(api):
         json={
             "attempt_id": attempt["id"],
             "fence": attempt["fence"],
-            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Dialogue"}]}],
         },
     )
     assert response.json()["status"] == "awaiting_plan"
@@ -194,7 +266,7 @@ async def test_real_device_bearer_planning_rechecks_owner_skill_and_model(gatewa
     body = {
         "attempt_id": attempt["id"],
         "fence": attempt["fence"],
-        "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+        "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Dialogue"}]}],
     }
     assert (await client.post(path, headers=browser, json=body)).status_code == 401
     storage.set_skill_enabled_state("clip-hook", False)
@@ -230,7 +302,7 @@ async def test_concurrent_same_attempt_planning_spends_once_and_returns_same_pla
     body = {
         "attempt_id": attempt["id"],
         "fence": attempt["fence"],
-        "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+        "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Dialogue"}]}],
     }
     responses = await asyncio.gather(client.post(path, headers=worker, json=body), client.post(path, headers=worker, json=body))
     assert [response.status_code for response in responses] == [200, 200]
@@ -257,7 +329,7 @@ async def test_live_profile_revocation_prevents_cloud_planning(api):
         json={
             "attempt_id": attempt["id"],
             "fence": attempt["fence"],
-            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Dialogue"}]}],
         },
     )
     assert response.status_code == 409
@@ -291,7 +363,7 @@ async def test_stop_during_cloud_call_remains_responsive_and_fences_plan(api, pr
             json={
                 "attempt_id": attempt["id"],
                 "fence": attempt["fence"],
-                "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+                "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Dialogue"}]}],
             },
         )
     )
@@ -332,7 +404,7 @@ async def test_provider_failure_is_safe_terminal_and_requires_explicit_new_attem
     body = {
         "attempt_id": attempt["id"],
         "fence": attempt["fence"],
-        "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+        "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Dialogue"}]}],
     }
     responses = await asyncio.gather(client.post(path, headers=worker, json=body), client.post(path, headers=worker, json=body))
     for response in responses:
@@ -377,7 +449,7 @@ async def test_cancelled_model_call_propagates_without_manufacturing_failure(api
             json={
                 "attempt_id": attempt["id"],
                 "fence": attempt["fence"],
-                "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+                "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Dialogue"}]}],
             },
         )
     current = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
@@ -407,7 +479,7 @@ async def test_plan_committed_after_recovery_read_wins_ambiguous_failure_report(
         json={
             "attempt_id": attempt["id"],
             "fence": attempt["fence"],
-            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 30, "text": "Dialogue"}]}],
         },
     )
     assert planned.status_code == 200

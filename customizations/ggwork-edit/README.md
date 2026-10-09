@@ -29,6 +29,24 @@ never silently reassigned after lease expiry; the same attempt may heartbeat to
 resume reporting. Loss of the native attempt journal requires explicit recovery
 work; this package does not infer that an offline process stopped.
 
+Cloud planning admits at most 32,000 UTF-8 bytes for the complete role/content
+messages (schema, requirements and all selected transcripts). This conservative
+single-request policy never silently drops episodes or truncates dialogue. An
+over-limit request fails before any model call; create a new task with fewer
+selected episodes. The original task and materials remain available. The 500-file
+selection limit does not promise that every such selection fits the planner.
+Cuts must preserve complete punctuation-joined ASR units, without overlapping or
+repeated ranges within an output. Complete units may be reordered for a Hook;
+different outputs may reuse source ranges. Coarse ASR boundaries and punctuation
+do not prove linguistic or narrative quality. Invalid cuts are rejected, not snapped.
+
+Conversation tools return compact identity, state and recovery receipts so the
+host context budget preserves the live card. The full task remains at its owner
+HTTP resource. `clip_get` accepts `limit` (1–5), `offset`, `section=plan` with a task
+ID to inspect every cut, or `device_id` to page authorized grants. Follow each
+`next_offset` (and the overview's independent `device_next_offset`); summaries
+do not silently stand in for the complete plan at explicit plan review.
+
 `GET /api/editing/capabilities`, `/devices`, `/tasks`, and `/tasks/{id}` provide
 current state. Creation, prepare, stop, retry and confirm-plan use the same
 repository operations as tools. `/api/editing/worker/devices/{id}` exposes

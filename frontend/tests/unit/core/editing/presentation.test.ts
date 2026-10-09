@@ -36,3 +36,8 @@ it("explains missing native upload receipts without showing the internal code", 
     "这些素材尚未完成接收，请继续上传或重新提交未完成的文件",
   );
 });
+it("explains a long-dialogue refusal with an explicit new-selection recovery", () => {
+  expect(editingLabel("planner_input_too_large")).toBe(
+    "本次选集的对白内容过长，请新建任务并减少选集；原任务和素材会保留",
+  );
+});
