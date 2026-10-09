@@ -1,6 +1,47 @@
 > 项目统一命名为 **ggwork-deerflow**，业务仓库为 `phananhson733-oss/ggwork-deerflow`。本地目录、旧版项目和部署方式见[项目对应关系](../project-identity.md)。以下发布记录中的旧 GitHub 地址、remote 短名和提交标识保留为历史证据。
 
-# 当前前端发布状态（2026-10-08，PR #48 Trends 原生界面）
+# Trends 五词修复发布记录（2026-10-08，PR #66）
+
+[PR #66](https://github.com/phananhson733-oss/ggwork-deerflow/pull/66) 已合并发布，业务代码 `9c6ae901a97fbdf4c4923fd2ff81b73aa0fb2338`，前端版本 `20261008-9c6ae90`。保留同期主线原生数据源迁移与 CPS 读取重试；发布前确认 CPS 同步已结束成功。Trends/Python/前端与最终 PR 测试版本一致，合并时额外包含的 CPS 修复有独立 Native source CI 通过。
+
+- 最多5个不同剧名共享查询，正常组间120–180秒；同名不同身份拆组，逐剧保留身份、曲线、状态和同组词。HTTP按组记账，覆盖率和表格按剧计数；失败不写默认热度。
+- 新恢复合同 `daily-five-v2`，用户明确批准保留历史并开启新轮次。`since=2026-10-09`；结构化授权绑定旧起点、旧批次、新起点和批准时间，随新计划留存。同起点不能跨夜切换policy/pace，旧授权不能解除新轮次停止或全局禁用。
+- Gateway `46e10e04-9302-434a-8ba2-f2460e03dbfe` SUCCESS；Vercel `dpl_HB3ybBu8by1GFo8mvpMhJrxshjC1` READY，正式域名与 About 版本已核对。维持原生源和现有调度配置，源 revision 随实际组合发布提交更新；生产迁移仍为0008。
+- 采集器自检部署 `43a48ac2-75bc-4a65-839a-df7ce7cf42f2` 自检和只读预检通过：角色pick_observer，包摘要 `sha256:2377b1e3960b032e83d53bb57eae3065923228a777f7d740d90847470ea3babe` 与 Gateway 实机及发布源码一致。首轮10部、2组、4基础请求、cap24；qualified_nights=0，reasons/refused_by为空。120–180秒节奏和授权回执均在实际容器中核实。
+- 正式 cron 部署 `025c3bfe-9474-4863-9344-ef62b59d8b73` SUCCESS，服务设置和部署manifest逐项匹配。下一次触发为2026-10-08 17:00 UTC，仅窗口检查；首个有效窗口17:30 UTC，对应2026-10-09批次，截止次日01:45 UTC。失败或限流可能延长等待或停止，不保证预检估算等于实际耗时。
+- 部署前后旧批次/预算记录、运行状态、请求与原始结果总量一致；保护性配置（数据库身份、TLS和状态密钥）哈希一致；发布过程中零新增Google请求。历史US雷达没有被新全球批次覆盖，原日级失败表及停止告警继续保留。
+- 最终组合 CI `37781842812` SUCCESS：业务双库5037 passed /29 skipped，宿主108 passed，reader45 passed /0 skipped。前端完整3006 passed /45本地PG-dependent skipped，check/build通过；本地组合业务4060 passed。独立Python/数据审查的分组展示、跨夜profile、组身份和计划外请求问题均修复并复核通过。
+- 本地直连生产预检超时未计通过；最终以实际采集器容器预检为证据。源码合并冲突、可选PG驱动缺失、初次菜单定位失败等记录保留在私有验收目录。浏览器最终版本及旧表回读通过，未记录warning/error。
+- 只读验收heartbeat已更新为新policy/起点/组与剧的计数口径，原时刻与通知边界不变。**尚未到首个真实采集窗口；三个真实合格夜晚和首周观察仍未完成。** 容器自检、预检和模拟成功都不计作真实采集通过。
+
+执行合同见[五词合批恢复](../plans/2026-10-08-trends-five-title-recovery.md)。
+
+- `pick-deploy-guard target=gateway commit=9c6ae901a97fbdf4c4923fd2ff81b73aa0fb2338 prod_head=0008 chain_head=0008 at=2026-10-08T13:37:55Z`
+- `pick-deploy-guard target=frontend commit=9c6ae901a97fbdf4c4923fd2ff81b73aa0fb2338 at=2026-10-08T13:39:26Z`
+- `pick-deploy-guard target=cron:trends commit=9c6ae901a97fbdf4c4923fd2ff81b73aa0fb2338 prod_head=0008 chain_head=0008 at=2026-10-08T14:06:43Z`
+
+---
+
+# 历史发布状态（2026-10-08，PR #52 完整历史雷达集成）
+
+[PR #52](https://github.com/phananhson733-oss/ggwork-deerflow/pull/52) 已合并并发布，纠正 PR #48 只迁移单晚表格、遗漏本地完整浏览体验的问题。产品提交 `98b8427d588cadad06748ba9311aeaef69ac1589` 与最终通过检查的 PR HEAD 文件树完全一致；前端版本 `20261008-98b8427`。
+
+- 默认 Google 趋势页现在展示 US 历史快照的四张覆盖卡、综合/历史信号双视图、六项筛选、分页、完整证据详情和全匹配 CSV，统一使用 GGWork 主题。全球日级采集表在 `?tab=trends&rv=daily`，排序及返回链接保持来源边界。
+- Gateway `f1081d47-ab08-4fa4-8eab-c649448a18fb` SUCCESS；实际 installed 172 个业务 Python 文件与发布源码匹配。Vercel `dpl_38qMnXXZ9aGYmFgo8x1wE2mNS9ay` READY，正式域名与 About 版本独立核对一致。生产迁移仍为 `0008`。
+- 原始快照单独放入 Gateway 私有持久目录，固定校验哈希匹配、文件只读；不进入 Git/前端公开资源。完整源行、评分、日期、曲线与本地试用版逐项相同，原始响应仍未核验，实验评分不是正式选剧等级或预测概率。
+- 最终前端 3,004 passed /45 PG-dependent skipped，check/build 通过；PR CI `37765463036` SUCCESS：完整业务双库 5,011 passed /29 skipped，宿主入口等 108 passed，reader integration 45 passed /0 skipped。规范审查无待修问题；Spec 审查发现搜索防抖与详情评分解释漏迁，两项修复后复核关闭。
+- 生产普通 QA 验证统计、第一页剧名及顺序、分页、组合筛选、历史信号、完整详情和 CSV；匿名接口均拒绝。390px 下页面无横向溢出，表格局部滚动；浅深主题及真实版本通过，浏览器未记录 warning/error。上线前后的个人清单完整内容、日级批次、数据行和告警一致。
+- 没有主动采集 Google、应用模型运行、个人保存或飞书写入；未重部署采集器或修改其参数/停止状态。既有反馈功能配置保持。日级验收 heartbeat 只更新仓库名称和 `rv=daily` 页面入口，保留原调度及只读边界，不能把历史曲线计入恢复资格。
+- 保留验证限制：本地浏览器使用仅 loopback 的合成身份测试 harness，生产鉴权证据来自正式普通 QA 与匿名检查。本地全套首次时间格式合同失败，修正后定向复验及最终 CI 通过；初次窄屏截图裁切经页面级截图与尺寸检查解决。失败日志、原始数据和截图留在私有验收目录。
+
+**本次完成的是历史雷达完整迁入与上线；全球日级三个真实合格夜晚及首周观察仍未完成。** 执行合同见[完整集成 Spec](../plans/2026-10-08-radar-integration.md)。
+
+- `pick-deploy-guard target=gateway commit=98b8427d588cadad06748ba9311aeaef69ac1589 prod_head=0008 chain_head=0008 at=2026-10-08T11:15:26Z`
+- `pick-deploy-guard target=frontend commit=98b8427d588cadad06748ba9311aeaef69ac1589 at=2026-10-08T11:21:06Z`
+
+---
+
+# 历史前端发布状态（2026-10-08，PR #48 Trends 原生界面）
 
 [PR #48](https://github.com/phananhson733-oss/ggwork-deerflow/pull/48) 已合并并部署到正式域名。产品提交 `7f462e86f1ff4f4ace6f7cc8be05dcf96f55c7ef`，前端版本 `20261008-7f462e8`，Vercel 部署 `dpl_GWY4VLcrSBrWZhbrjvMQBcw1GKSW` 为 READY；正式域名独立回读指向此部署，About 版本一致。
 
@@ -872,3 +913,28 @@ PR #47 产品提交 `638f3ae18a44f2d9496234a689c380d9a95fc0b2` 已部署到gatew
 - `pick-deploy-guard target=gateway commit=7f462e86f1ff4f4ace6f7cc8be05dcf96f55c7ef prod_head=0008 chain_head=0008 at=2026-10-08T09:51:21Z`
 
 首个真实scheduled任务于09:55:10 UTC启动、09:59:12 UTC成功，16表完整发布。生产反馈分析工具受控调用返回该版本的非空题材分析及来源证据，地区查询正确拒绝；授权owner状态接口200、其他账户403、未登录401，健康检查正常。来源质量partial和待确认映射继续如实保留。后续小时执行尚未观察，没有调用真实LLM或创建候选。详见[生产启用记录](releases/2026-10-08-feedback-production-activation.md)。
+
+
+## 2026-10-08 Native selection source cutover
+
+- `pick-deploy-guard target=gateway commit=4befd4c9ff64f8030e30888ceaa48b1b7a3f44ba prod_head=0008 chain_head=0008 at=2026-10-08T13:00:48Z`
+
+Gateway deployment `d3add884-b667-4dc3-bfb5-c8e297d294f5` passed readiness with the native loopback source enabled. Its first scheduled Feishu catalog collection completed at 13:10 UTC; MoboReels remained the explicitly retained source and Queyu authentication remained pending. Two CPS list reads hit provider `service overloaded` responses, so incomplete CPS data was not published to the mirror. The follow-up bounded-read retry handles this observed transient failure. Production data acceptance and frontend promotion are recorded separately after they pass.
+
+
+- `pick-deploy-guard target=gateway commit=6b6c65efd5663b19a56a9823bb3506d46a63929e prod_head=0008 chain_head=0008 at=2026-10-08T13:22:31Z`
+
+CPS retry deployment `91875ef9-d215-4147-a843-f9030d2905e9` passed readiness; the complete cloud CPS collection succeeded at 13:34 UTC. Mirror publication then exposed source-query contention. The additive `002-read-indexes` migration was applied under both source advisory locks; a separate temporary read probe using the reviewed query changes reduced complete-manifest execution from 95.78 seconds to 31.177 seconds with identical exported counts. That probe does not itself establish production mirror publication.
+
+
+- `pick-deploy-guard target=gateway commit=cfde99206f208b4911728063da4aee6ced7aa535 prod_head=0008 chain_head=0008 at=2026-10-08T14:13:42Z`
+
+Indexed source deployment `2f5b8b09-4c9c-4122-a2da-8449d12f1cb3` passed readiness. Its live mirror attempt read the manifest in 28.685 seconds and passed v1 text checks. It then exposed a route matcher that rejected the digit in `rs_clicks14`; version 26 was therefore not published. The route correction is covered across every declared export resource, retaining authentication and the exact resource allowlist.
+
+
+## 2026-10-08 Native selection source accepted
+
+- `pick-deploy-guard target=gateway commit=3a82b95e9d3dac7c9d42560d617ae4d3f473447b prod_head=0008 chain_head=0008 at=2026-10-08T14:40:26Z`
+- `pick-deploy-guard target=frontend commit=3a82b95e9d3dac7c9d42560d617ae4d3f473447b at=2026-10-08T14:53:14Z`
+
+Native mirror v27 published paired at 14:48 UTC with all eight gates passing, zero drift, zero scrub hits and cleared mirror-failure status. Production frontend promotion and authenticated browser checks passed. Queyu authentication remains explicitly pending; the owner-approved MoboReels retained-source exception stays visible. See [release acceptance](releases/2026-10-08-native-source-acceptance.md) for identities, validation boundaries and scheduled-run evidence.

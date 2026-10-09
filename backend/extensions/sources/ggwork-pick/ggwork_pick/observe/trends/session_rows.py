@@ -236,7 +236,15 @@ def _series_rows(unit: QueryUnit, result: FetchResult, request: SentRequest | No
             {
                 **base,
                 "request_id": request.request_id if request else None,
-                "line_role": _line_role(unit, term),
+                "line_role": "bare" if unit.members else _line_role(unit, term),
+                **(
+                    {
+                        "identity": unit.members[index][1],
+                        "params_json": {**base["params_json"], "unit": unit.members[index][0], "query_unit": unit.key, "term": term},
+                    }
+                    if unit.members
+                    else {}
+                ),
                 "line_index": index,
                 "fetch_status": status.value,
                 "data_json": line.as_raw() if line is not None else None,

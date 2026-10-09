@@ -79,7 +79,22 @@ export const mirrorFieldSchema = z.union([
   mirrorReadErrorSchema,
 ]);
 
+export const nativeSourceSchema = z.object({
+  enabled: z.literal(true),
+  error: z.string().optional(),
+  jobs: z.array(
+    z.object({
+      name: z.enum(["cps", "catalog", "queyu"]),
+      status: z.enum(["running", "success", "failed"]),
+      attempted_at: z.string(),
+      completed_at: z.string().nullable(),
+      last_success_at: z.string().nullable(),
+      error_code: z.string().nullable(),
+    }),
+  ),
+});
 export const syncStatusSchema = z.object({
+  native_source: nativeSourceSchema.nullable().optional().catch(undefined),
   configured: z.boolean(),
   current: z
     .object({

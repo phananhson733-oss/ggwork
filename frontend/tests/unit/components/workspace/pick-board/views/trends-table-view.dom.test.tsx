@@ -28,6 +28,11 @@ import { parsePickRequest } from "@/core/pick-board/request";
 
 import fixture from "../../../../core/pick/fixtures/backend-trends-table.json";
 
+rs.mock("next/navigation", () => ({
+  usePathname: () => "/workspace/pick-data",
+  useSearchParams: () => new URLSearchParams("v=7&tab=rows"),
+}));
+
 rs.mock("next/link", () => ({
   default: ({
     href,
@@ -211,7 +216,9 @@ describe("the table", () => {
       "Zero Curve Nights",
     ]);
     const change = screen.getByRole("link", { name: "按变化" });
-    expect(change.getAttribute("href")).toBe("/workspace/pick-data?tab=trends");
+    expect(change.getAttribute("href")).toBe(
+      "/workspace/pick-data?tab=trends&rv=daily",
+    );
     expect(change.getAttribute("data-prefetch")).toBe("false");
   });
 
@@ -415,4 +422,18 @@ it("does not call a finished partial batch fully collected", () => {
   expect(root.querySelector("h2")?.textContent).toContain("已结束，未采完整");
   expect(root.textContent).not.toContain("US 历史快照");
   expect(screen.getByRole("button", { name: "导出当前筛选 CSV" })).toBeTruthy();
+});
+
+it("shows actual group terms beside each grouped observation", () => {
+  show(
+    table([
+      {
+        ...ROWS[0]!,
+        query_group: "group:123456789abc",
+        comparison_terms: [ROWS[0]!.term, "Another drama"],
+      },
+    ]),
+  );
+  expect(screen.getByText("2 词同组查询")).toBeTruthy();
+  expect(screen.getByText(/指数仅在同组、同市场及窗口内可比/)).toBeTruthy();
 });

@@ -39,6 +39,11 @@ import {
   signal,
 } from "./fixtures";
 
+rs.mock("next/navigation", () => ({
+  usePathname: () => "/workspace/pick-data",
+  useSearchParams: () => new URLSearchParams("v=7&tab=rows"),
+}));
+
 rs.mock("next/link", () => ({
   default: ({
     href,

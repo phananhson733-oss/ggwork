@@ -293,14 +293,22 @@ describe("each tab takes its branch", () => {
 });
 
 describe("the resolved version", () => {
-  it("every internal link and form carries the resolved v", async () => {
+  it("evidence links and forms carry the resolved v; current resources are explicit", async () => {
     const root = await renderPage({ tab: "pick" });
     const internal = Array.from(root.querySelectorAll("a"))
       .map((a) => a.getAttribute("href") ?? "")
-      .filter((h) => h.startsWith("/"));
+      .filter((h) => h.startsWith("/workspace/pick-data"));
     expect(internal.length).toBeGreaterThan(5);
     for (const href of internal)
       expect(href).toMatch(/^\/workspace\/pick-data\?(?:.*&)?v=7(?:&|$)/);
+    const resources = root.querySelectorAll(
+      'a[href^="/workspace/pick-resources?"]',
+    );
+    expect(resources.length).toBeGreaterThan(0);
+    for (const link of resources) {
+      expect(link.textContent).toMatch(/当前(?:资源|取货资料)/);
+      expect(link.getAttribute("href")).not.toContain("v=");
+    }
     const forms = Array.from(root.querySelectorAll("form"));
     expect(forms.length).toBeGreaterThan(0);
     for (const form of forms)
@@ -372,10 +380,12 @@ describe("the resolved version", () => {
     ]);
   });
 
-  it("the footer: sources and the differences from RealShort", async () => {
+  it("the footer explains owner-only resources and the retired website", async () => {
     await renderPage();
-    expect(screen.getByText("与 RealShort 选剧台的差异")).toBeTruthy();
-    expect(screen.getByText(/网盘只显示有没有/)).toBeTruthy();
+    expect(
+      screen.getByText(/网盘与官方取货链接按资料所有者权限读取/),
+    ).toBeTruthy();
+    expect(screen.getByText(/原公开网站已停止服务/)).toBeTruthy();
   });
 
   it("the trimmed-curve note reaches the ReelShort evidence page", async () => {
@@ -631,7 +641,7 @@ describe("simplified trends entry", () => {
       table: { ...trendsFixture, batch: null, rows: [] },
     });
     state.loaders.loadTrendsCandidates = () => ({ kind: "unauthenticated" });
-    await expect(renderPage({ tab: "trends" })).rejects.toThrow(
+    await expect(renderPage({ tab: "trends", rv: "daily" })).rejects.toThrow(
       "NEXT_REDIRECT",
     );
     expect(state.calls).toEqual([
@@ -655,7 +665,7 @@ describe("simplified trends entry", () => {
         rows: [],
       },
     });
-    await renderPage({ tab: "trends" });
+    await renderPage({ tab: "trends", rv: "daily" });
     expect(
       screen.getByText(/目前没有可用于趋势查询的榜单或收入候选/),
     ).toBeTruthy();
@@ -678,7 +688,7 @@ describe("simplified trends entry", () => {
       kind: "ok",
       candidates: candidatesFixture,
     });
-    await renderPage({ tab: "trends", ts: "order" });
+    await renderPage({ tab: "trends", rv: "daily", ts: "order" });
     expect(state.calls).toEqual([
       "requireBoardUser",
       "loadTrendsTable",
@@ -694,7 +704,7 @@ describe("simplified trends entry", () => {
       kind: "ok",
       table: trendsFixture,
     });
-    await renderPage({ tab: "trends" });
+    await renderPage({ tab: "trends", rv: "daily" });
     expect(state.calls).toEqual(["requireBoardUser", "loadTrendsTable"]);
     expect(screen.queryByRole("heading", { name: /待采集剧集/ })).toBeNull();
   });
@@ -705,7 +715,7 @@ describe("simplified trends entry", () => {
       table: { ...trendsFixture, batch: null, rows: [] },
     });
     state.loaders.loadTrendsCandidates = () => ({ kind: "unavailable" });
-    await renderPage({ tab: "trends" });
+    await renderPage({ tab: "trends", rv: "daily" });
     expect(screen.getByText(/待采集剧集暂时读不了/)).toBeTruthy();
     expect(document.querySelector("[data-trends-banners]")).not.toBeNull();
     expect(
@@ -715,7 +725,7 @@ describe("simplified trends entry", () => {
 
   it("retains a fixed notice when the table cannot be read", async () => {
     state.loaders.loadTrendsTable = () => ({ kind: "unavailable" });
-    await renderPage({ tab: "trends" });
+    await renderPage({ tab: "trends", rv: "daily" });
     expect(state.calls).toEqual(["requireBoardUser", "loadTrendsTable"]);
     expect(screen.getByRole("alert")).toBeTruthy();
   });

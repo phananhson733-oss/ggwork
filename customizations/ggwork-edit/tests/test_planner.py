@@ -265,7 +265,8 @@ async def test_live_profile_revocation_prevents_cloud_planning(api):
 
 
 @pytest.mark.asyncio
-async def test_stop_during_cloud_call_remains_responsive_and_fences_plan(api):
+@pytest.mark.parametrize("provider_fails", [False, True])
+async def test_stop_during_cloud_call_remains_responsive_and_fences_plan(api, provider_fails):
     import asyncio
 
     from ggwork_edit.planner import TextPlanner
@@ -277,6 +278,8 @@ async def test_stop_during_cloud_call_remains_responsive_and_fences_plan(api):
         async def ainvoke(self, messages):
             entered.set()
             await release.wait()
+            if provider_fails:
+                raise RuntimeError("private provider failure after stop")
             return AIMessage(content=json.dumps(valid_plan()))
 
     client, task, device, worker, attempt = await ready_task(api, store_plan=False)
@@ -302,3 +305,144 @@ async def test_stop_during_cloud_call_remains_responsive_and_fences_plan(api):
     response = await asyncio.wait_for(planning, timeout=2)
     assert response.status_code == 409
     assert (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()["plan"] is None
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_is_safe_terminal_and_requires_explicit_new_attempt(api):
+    import asyncio
+
+    from ggwork_edit.planner import TextPlanner
+    from ggwork_edit.planner_routes import build_planner_router
+
+    class RecoveringModel:
+        calls = 0
+        fail = True
+
+        async def ainvoke(self, messages):
+            self.calls += 1
+            await asyncio.sleep(0.05)
+            if self.fail:
+                raise RuntimeError("private-endpoint private-credential private-transcript")
+            return AIMessage(content=json.dumps(valid_plan()))
+
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
+    model = RecoveringModel()
+    api[2].include_router(build_planner_router(api[1], TextPlanner(model)))
+    path = f"/api/editing/worker/devices/{device}/tasks/{task['id']}/plan"
+    body = {
+        "attempt_id": attempt["id"],
+        "fence": attempt["fence"],
+        "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+    }
+    responses = await asyncio.gather(client.post(path, headers=worker, json=body), client.post(path, headers=worker, json=body))
+    for response in responses:
+        assert response.status_code == 502
+        assert response.json() == {"detail": {"code": "planner_unavailable", "retry": "explicit"}}
+        assert "private" not in response.text
+    assert model.calls == 1
+    current = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+    assert current["status"] == "failed"
+    assert current["plan"] is None
+    assert {output["error"] for output in current["outputs"]} == {"planner_unavailable"}
+    model.fail = False
+    assert (await client.post(path, headers=worker, json=body)).status_code == 502
+    assert model.calls == 1
+    retried = await client.post(f"/api/editing/tasks/{task['id']}/retry", headers=OWNER, json={"request_id": "explicit-planning-retry", "stage": "planning"})
+    assert retried.status_code == 200
+    claim = await client.post(f"/api/editing/worker/devices/{device}/claim", headers=worker, json={"request_id": "claim-after-provider-recovery"})
+    next_attempt = claim.json()["attempt"]
+    recovered = await client.post(path, headers=worker, json={**body, "attempt_id": next_attempt["id"], "fence": next_attempt["fence"]})
+    assert recovered.status_code == 200, recovered.text
+    assert recovered.json()["plan"] == valid_plan()
+    assert model.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_cancelled_model_call_propagates_without_manufacturing_failure(api):
+    import asyncio
+
+    from ggwork_edit.planner import TextPlanner
+    from ggwork_edit.planner_routes import build_planner_router
+
+    class CancelledModel:
+        async def ainvoke(self, messages):
+            raise asyncio.CancelledError()
+
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False)
+    api[2].include_router(build_planner_router(api[1], TextPlanner(CancelledModel())))
+    with pytest.raises(asyncio.CancelledError):
+        await client.post(
+            f"/api/editing/worker/devices/{device}/tasks/{task['id']}/plan",
+            headers=worker,
+            json={
+                "attempt_id": attempt["id"],
+                "fence": attempt["fence"],
+                "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+            },
+        )
+    current = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+    assert current["status"] == "running"
+    assert current["plan"] is None
+    assert all(output["error"] is None for output in current["outputs"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("review_plan", [False, True])
+@pytest.mark.parametrize("failure_code", ["planner_outcome_unknown", "planner_unavailable"])
+async def test_plan_committed_after_recovery_read_wins_ambiguous_failure_report(api, review_plan, failure_code):
+    from test_contract import REQUEST
+
+    from ggwork_edit.planner import TextPlanner
+    from ggwork_edit.planner_routes import build_planner_router
+
+    request = {**REQUEST, "requirements": {**REQUEST["requirements"], "review_plan": review_plan}}
+    client, task, device, worker, attempt = await ready_task(api, store_plan=False, request=request)
+    api[2].include_router(build_planner_router(api[1], TextPlanner(Model(valid_plan()))))
+    base = f"/api/editing/worker/devices/{device}/tasks/{task['id']}"
+    # The worker's last recovery GET observes no plan. The provider commits before its failure POST.
+    assert (await client.get(base, headers=worker)).json()["plan"] is None
+    planned = await client.post(
+        base + "/plan",
+        headers=worker,
+        json={
+            "attempt_id": attempt["id"],
+            "fence": attempt["fence"],
+            "transcripts": [{"media_id": "m-1", "segments": [{"start": 0, "end": 90, "text": "Dialogue"}]}],
+        },
+    )
+    assert planned.status_code == 200
+    failure = {"attempt_id": attempt["id"], "fence": attempt["fence"], "event_id": "late-planning-failure", "kind": "failure", "error": failure_code}
+    reported = await client.post(base + "/report", headers=worker, json=failure)
+    assert reported.status_code == 200, reported.text
+    current = reported.json()["task"]
+    assert current["status"] == ("awaiting_plan" if review_plan else "running")
+    assert current["plan"] == valid_plan()
+    assert current["plan_confirmed"] is (not review_plan)
+    assert all(output["status"] == "pending" and output["error"] is None for output in current["outputs"])
+    assert (await client.post(base + "/report", headers=worker, json=failure)).json() == reported.json()
+    changed = await client.post(base + "/report", headers=worker, json={**failure, "error": "changed-failure"})
+    assert changed.status_code == 409
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("barrier", ["stop", "stale"])
+async def test_winning_plan_does_not_bypass_failure_report_fences(api, barrier):
+    client, task, device, worker, attempt = await ready_task(api)
+    if barrier == "stop":
+        stopped = await client.post(f"/api/editing/tasks/{task['id']}/stop", headers=OWNER, json={})
+        assert stopped.json()["status"] == "stopping"
+    response = await client.post(
+        f"/api/editing/worker/devices/{device}/tasks/{task['id']}/report",
+        headers=worker,
+        json={
+            "attempt_id": attempt["id"],
+            "fence": attempt["fence"] + (barrier == "stale"),
+            "event_id": "fenced-planning-failure",
+            "kind": "failure",
+            "error": "planner_outcome_unknown",
+        },
+    )
+    assert response.status_code == 409
+    current = (await client.get(f"/api/editing/tasks/{task['id']}", headers=OWNER)).json()
+    assert current["status"] == ("stopping" if barrier == "stop" else "running")
+    assert current["plan"] == valid_plan()
