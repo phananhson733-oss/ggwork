@@ -76,6 +76,9 @@ The control loop runs during ASR, cloud planning, plan review and rendering.
 Each attempt journals its planning submission before network dispatch. Provider
 failures require an explicit planning-stage retry and a newly claimed attempt;
 reconnect/restart never automatically submits that same attempt to the model again.
+An old worker journal already in planning without a submission marker is treated
+as uncertain during upgrade; a fresh explicitly retried claim records permission
+to submit its new attempt.
 After an uncertain response, the worker makes at most three task lookups (two
 seconds between lookups), with the budget preserved across restarts. An already
 stored plan or accepted stop wins. If the outcome remains unknown, it records a

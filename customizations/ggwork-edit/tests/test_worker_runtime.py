@@ -212,6 +212,7 @@ async def test_real_http_planner_failure_is_once_per_attempt_and_manual_retry_is
         assert calls == ["attempt-1"]
         await http.post("/retry", json={})
         claimed = await restarted.claim()
+        assert store.journal()["planner_submit_allowed"] is True
         with pytest.raises(WorkerError, match="planner_unavailable"):
             await restarted.request_plan(claimed["id"], claimed["attempt"], [])
         assert calls == ["attempt-1", "attempt-2"]

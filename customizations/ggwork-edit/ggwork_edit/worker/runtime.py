@@ -63,7 +63,7 @@ class WorkerSession:
             self.state = {}
             self.save()
             return None
-        self.state.update(task_id=result["task"]["id"], attempt=result["attempt"])
+        self.state.update(task_id=result["task"]["id"], attempt=result["attempt"], planner_submit_allowed=True)
         self.save()
         return result["task"]
 
@@ -193,6 +193,7 @@ class WorkerSession:
             # Persist BEFORE sending. An unknown transport outcome or a process
             # restart may query the attempt, but can never blindly invoke it again.
             self.state["planning_request"] = {"lookups": 0, "error": "planner_outcome_unknown"}
+            self.state.pop("planner_submit_allowed", None)
             self.save()
             try:
                 return await self.controlled_request(
@@ -263,6 +264,11 @@ class WorkerSession:
                     return
             manifest, requirements = task["source_manifest"], task["requirements"]
             if task.get("plan") is None:
+                if task.get("stage") in ("planning", "awaiting_plan") and not self.state.get("planner_submit_allowed") and "planning_request" not in self.state:
+                    # A pre-upgrade journal cannot prove that its planning stage
+                    # never submitted. Reconcile it; only a new claim permits POST.
+                    self.state["planning_request"] = {"lookups": 0, "error": "planner_outcome_unknown"}
+                    self.save()
                 transcripts = None
                 if "planning_request" not in self.state:
                     await self.report("stage", stage="transcribing")
