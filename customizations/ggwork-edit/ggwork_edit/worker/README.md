@@ -73,6 +73,18 @@ CRF 20/veryfast, heartbeat 10 seconds, polling 2 seconds, HTTP timeout 15 second
 and 1 MiB transfer chunks are initial policy defaults, not benchmark claims.
 
 The control loop runs during ASR, cloud planning, plan review and rendering.
+Each attempt journals its planning submission before network dispatch. Provider
+failures require an explicit planning-stage retry and a newly claimed attempt;
+reconnect/restart never automatically submits that same attempt to the model again.
+An old worker journal already in planning without a submission marker is treated
+as uncertain during upgrade; a fresh explicitly retried claim records permission
+to submit its new attempt.
+After an uncertain response, the worker makes at most three task lookups (two
+seconds between lookups), with the budget preserved across restarts. An already
+stored plan or accepted stop wins. If the outcome remains unknown, it records a
+safe failure for explicit retry; if Gateway is unreachable, its idempotent failure
+report remains in the local journal until reconnect. These are initial policy
+limits, not throughput claims.
 Cloud planning receives media IDs and transcription text/times; video stays local.
 A remote stop terminates the native process group and waits for exit before ACK.
 Ctrl-C stops local processes but preserves the active attempt for restart; it does

@@ -15,6 +15,7 @@ from .storage import WorkerError, no_symlink
 # Explicit initial policy, not a measured throughput or maximum-resource promise.
 HEARTBEAT_SECONDS = 10
 POLL_SECONDS = 2
+PLAN_LOOKUP_LIMIT = 3
 TERMINAL = {"completed", "partial", "failed", "stopped"}
 
 
@@ -62,7 +63,7 @@ class WorkerSession:
             self.state = {}
             self.save()
             return None
-        self.state.update(task_id=result["task"]["id"], attempt=result["attempt"])
+        self.state.update(task_id=result["task"]["id"], attempt=result["attempt"], planner_submit_allowed=True)
         self.save()
         return result["task"]
 
@@ -142,15 +143,10 @@ class WorkerSession:
                     return
                 await self.request("POST", "/tasks/" + task["id"] + "/preparation-error", json={"error": str(error)})
 
-    async def request_plan(self, task_id, attempt, transcripts):
-        pending = asyncio.create_task(
-            self.request(
-                "POST",
-                "/tasks/" + task_id + "/plan",
-                json={"attempt_id": attempt["id"], "fence": attempt["fence"], "transcripts": transcripts},
-                timeout=180,
-            )
-        )
+    async def controlled_request(self, method, path, **kwargs):
+        if self.stop.is_set():
+            raise WorkerStopped("stopped")
+        pending = asyncio.create_task(self.request(method, path, **kwargs))
         stopped = asyncio.create_task(self.stop.wait())
         try:
             await asyncio.wait((pending, stopped), return_when=asyncio.FIRST_COMPLETED)
@@ -161,6 +157,62 @@ class WorkerSession:
             pending.cancel()
             stopped.cancel()
             await asyncio.gather(pending, stopped, return_exceptions=True)
+
+    async def recover_plan(self, task_id):
+        outcome = self.state["planning_request"]
+        while outcome["lookups"] < PLAN_LOOKUP_LIMIT:
+            outcome["lookups"] += 1
+            self.save()
+            try:
+                current = await self.controlled_request("GET", "/tasks/" + task_id)
+            except httpx.HTTPError:
+                if self.authorization_lost:
+                    raise
+            else:
+                if current["status"] == "stopping":
+                    raise WorkerStopped("stopped")
+                if (
+                    current.get("plan") is not None
+                    or current["status"] in TERMINAL | {"queued"}
+                    or (current.get("attempt") or {}).get("id") != self.state["attempt"]["id"]
+                ):
+                    return current
+                if outcome.get("definite"):
+                    break
+            if outcome["lookups"] < PLAN_LOOKUP_LIMIT:
+                try:
+                    await asyncio.wait_for(self.stop.wait(), timeout=POLL_SECONDS)
+                except TimeoutError:
+                    pass
+                if self.stop.is_set():
+                    raise WorkerStopped("stopped")
+        raise WorkerError(outcome["error"])
+
+    async def request_plan(self, task_id, attempt, transcripts):
+        if "planning_request" not in self.state:
+            # Persist BEFORE sending. An unknown transport outcome or a process
+            # restart may query the attempt, but can never blindly invoke it again.
+            self.state["planning_request"] = {"lookups": 0, "error": "planner_outcome_unknown"}
+            self.state.pop("planner_submit_allowed", None)
+            self.save()
+            try:
+                return await self.controlled_request(
+                    "POST",
+                    "/tasks/" + task_id + "/plan",
+                    json={"attempt_id": attempt["id"], "fence": attempt["fence"], "transcripts": transcripts},
+                    timeout=180,
+                )
+            except httpx.HTTPStatusError as error:
+                if self.authorization_lost:
+                    raise
+                self.state["planning_request"].update(
+                    definite=True,
+                    error="planner_unavailable" if error.response.status_code >= 500 else "gateway_request_rejected",
+                )
+                self.save()
+            except httpx.TransportError:
+                pass  # The durable marker already records the uncertain outcome.
+        return await self.recover_plan(task_id)
 
     async def execute(self, task):
         if self.shutdown.is_set():
@@ -185,6 +237,21 @@ class WorkerSession:
             heartbeat = await self.report("heartbeat")  # renew before replaying output after a restart
             if heartbeat["stop_requested"]:
                 raise WorkerStopped("stopped")
+            task = heartbeat["task"]
+            if task["status"] in TERMINAL:
+                self.state = {}
+                self.save()
+                return
+            pending = self.state.get("pending_report")
+            if (
+                task.get("plan") is not None
+                and pending
+                and pending.get("kind") == "failure"
+                and pending.get("error") in ("planner_outcome_unknown", "planner_unavailable")
+            ):
+                # A late stored plan wins over a deferred planner failure after reconnect.
+                self.state.pop("pending_report")
+                self.save()
             if self.state.get("pending_report"):
                 pending = self.state["pending_report"]
                 result = await self.report(pending["kind"], **{k: v for k, v in pending.items() if k not in ("kind", "attempt_id", "fence", "event_id")})
@@ -197,10 +264,23 @@ class WorkerSession:
                     return
             manifest, requirements = task["source_manifest"], task["requirements"]
             if task.get("plan") is None:
-                await self.report("stage", stage="transcribing")
-                transcripts = await self.native.transcribe(manifest, requirements["language"], attempt["id"])
-                await self.report("stage", stage="planning")
+                if task.get("stage") in ("planning", "awaiting_plan") and not self.state.get("planner_submit_allowed") and "planning_request" not in self.state:
+                    # A pre-upgrade journal cannot prove that its planning stage
+                    # never submitted. Reconcile it; only a new claim permits POST.
+                    self.state["planning_request"] = {"lookups": 0, "error": "planner_outcome_unknown"}
+                    self.save()
+                transcripts = None
+                if "planning_request" not in self.state:
+                    await self.report("stage", stage="transcribing")
+                    transcripts = await self.native.transcribe(manifest, requirements["language"], attempt["id"])
+                    await self.report("stage", stage="planning")
                 task = await self.request_plan(task_id, attempt, transcripts)
+                if task["status"] in TERMINAL:
+                    self.state = {}
+                    self.save()
+                    return
+                if task["status"] == "queued" or (task.get("attempt") or {}).get("id") != attempt["id"]:
+                    return  # claim() reconciles an explicit retry or supersession.
             while not task["plan_confirmed"]:
                 if self.stop.is_set():
                     raise WorkerStopped("stopped")
@@ -256,9 +336,12 @@ class WorkerSession:
             self.save()
         except WorkerError as error:
             if not self.authorization_lost:
-                await self.report("failure", error=str(error))
-                self.state = {}
-                self.save()
+                result = await self.report("failure", error=str(error))
+                if result["task"]["status"] in TERMINAL:
+                    self.state = {}
+                    self.save()
+                # A server transaction may preserve a concurrently stored plan.
+                # Keep this attempt so the next authoritative read can execute it.
 
 
 async def run(store):
