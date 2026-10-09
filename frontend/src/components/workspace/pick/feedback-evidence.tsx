@@ -44,13 +44,17 @@ const warningLabels: Record<string, string> = {
   ambiguous_post_drama: "部分帖子无法唯一归属到剧集",
   undated_observations: "部分观测缺少采集日期",
   publication_not_confirmed_public: "部分发布记录尚未确认公开发布",
+  conflicting_publication_times: "同一帖子的发布时间存在冲突，观察时长待核对",
   conflicting_observations: "同一帖子存在冲突观测",
   ambiguous_revenue_drama: "部分收益无法唯一归属到剧集",
   post_rs_currency_and_attribution_unverified:
     "发布记录收益的币种和归因尚待核实",
 };
-function warningText(value: string) {
-  return warningLabels[value] ?? `待核实：${value}`;
+export function warningText(value: string) {
+  return (
+    warningLabels[value] ??
+    (/^[a-z0-9_]+$/.test(value) ? "部分来源证据仍待核实" : value)
+  );
 }
 
 export function FeedbackSummary({ feedback }: { feedback: FeedbackReply }) {
@@ -100,12 +104,12 @@ const metrics: Record<string, string> = {
   views_mean: "单帖平均播放",
   views_median: "单帖播放中位数",
 };
-const lanes = {
+export const lanes = {
   cps_auto: "CPS 自动明细",
   cps_manual: "CPS 手动明细",
   post_rs: "发布记录 RS",
 };
-const money = {
+export const money = {
   order_amount: "用户订单金额",
   refund: "退款",
   commission: "分成收益",
@@ -114,7 +118,7 @@ const money = {
   bonus: "奖金",
   orders: "订单数",
 };
-const grains = {
+export const grains = {
   drama: "单剧",
   post: "帖子",
   account: "账号",

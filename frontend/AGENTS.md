@@ -298,6 +298,55 @@ The daily Trends view (`rv=daily`) keeps its authenticated server fetch and stat
 
 The default Trends view is the authenticated historical DramaRadar client in `components/workspace/radar`, with validated GET-only `/api/pick/radar` reads. Keep its sealed US snapshot and experimental scores separate from live worldwide observations and candidate ranking. The default view must retain coverage cards, both historical tabs, six filters, pagination, full-match export and evidence details; it is not a single-night table.
 
+### Personal selections
+
+`pick/selection-drafts.tsx` mounts once in `WorkspaceContent`, keyed by authenticated
+owner. It keeps unsaved personal notes and their original row versions in workspace
+memory across Back/Forward navigation; changing owner destroys those drafts. No
+browser storage holds note drafts. My selections confirms explicit link departure,
+warns on document unload, and compares the server note before rebasing a conflict.
+Candidate saves reconcile dropped responses through the authenticated command-receipt
+endpoint and retry unchanged payloads with the same request ID. The existing CSV is
+labelled a reference list and keeps its original fields.
+
+`pnpm exec playwright test --config playwright.pick-selections.config.ts` uses
+`PICK_SELECTION_FIXTURE` for a private dedicated synthetic prior result/account and
+`PICK_E2E_URL` for a loopback frontend connected to an isolated real Gateway. It
+makes no model runs. Keep it separate from `personal-selection.spec.ts`, which does.
+
+### Completion frontend
+
+`core/pick/completion-api.ts` validates the frozen completion DTOs at the authenticated
+Gateway boundary. Plans and actual-post review live at `/workspace/pick-plans` and
+`/workspace/pick-review`. Commands retain IDs after unknown outcomes; execution exports
+retain immutable receipts for download retry. `PlanDraftProvider` keeps edits and base
+versions in owner-keyed workspace memory only. Time editing uses the plan timezone,
+explicit DST folds, and an explicit timezone-change preview. The SSR common-query seam
+forwards both visitor access and CSRF cookies; the declared candidate/catalog/rank/posted/rules entrypoint readers use common-query adapters after real same-version PostgreSQL/Gateway parity. Direct query modules remain the oracle and specialized row/detail/replay/Trends readers retain their fixed-version paths.
+
+Two-batch comparison requires two explicit current-thread results and one selected
+source per stable identity; batch saves have independent real receipts. Visual comparison
+does not automatically become plural chat context. Trusted checked-message status reads
+only `additional_kwargs.pick_completion`; raw internal checked facts never render.
+
+`pnpm exec playwright test --config playwright.pick-completion-mock.config.ts` is a
+frontend-only mocked-HTTP browser suite with no model calls. It is not evidence of real
+Gateway persistence, owner authorization, runtime final publication, source freshness,
+or production delivery. Completion requires the separate assembled backend acceptance.
+
+
+The read-only `pick/common-query-card.tsx` consumes the closed bounded
+`queryModelProjectionSchema` for `pick_query_data`; the HTTP board adapters still
+consume full `QueryResponse`. Keep original requested limits, actual query limits,
+complete match counts and projection omissions distinct. Unknown-language raw records
+have no candidate identity/eligibility and no save controls. Selected RS comparator
+values retain their source units and rolling-window scope; platform metrics without
+verified evidence are unknown, while a verified decimal string0 remains measured0.
+Message-group renders this card outside collapsed generic steps without exposing raw
+query proof/audit payloads.
+
+- Plural pick context is an explicit versioned `pick_references` envelope, separate from the legacy single `pick_reference`. Per-snapshot chat-reference checkboxes may include the same stable identity in two historical versions; save-source selection still deduplicates identity. Keep dispatch copies, owner/thread-fenced restore failures, stored human-turn refs, edit/regenerate and cross-thread branch behavior in `core/pick/references.ts` / `core/threads/hooks.ts` / pick context. Viewing a comparison must never bind the composer automatically.
+
 ## Editing workspace
 
 `/workspace/editing` owns independent paginated editing history; `/new` owns page

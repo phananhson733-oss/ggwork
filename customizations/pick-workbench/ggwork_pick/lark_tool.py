@@ -57,8 +57,8 @@ async def lark_cli_tool(argv: list[str], runtime: Runtime) -> str:
         return _answer("rejected", "运行缺少已认证身份")
     try:
         command = check_args(argv)
-        # A started worker thread outlives a cancelled await, so each step is bounded by what is left of the turn.
-        return await lark_runner.in_lark_thread(_run, user_id, command, time.monotonic() + task.remaining())
+        # A started worker thread outlives a cancelled await; pass the unchanged ordinary-phase deadline.
+        return await lark_runner.in_lark_thread(_run, user_id, command, task.ordinary_deadline)
     except LarkRefused as exc:
         return _answer("rejected", str(exc))
     except lark_runner.LarkBusy as exc:
@@ -69,14 +69,16 @@ async def lark_cli_tool(argv: list[str], runtime: Runtime) -> str:
 
 
 def _run(user_id: str, command: Command, deadline: float) -> str:
+    if time.monotonic() >= deadline:
+        raise TimeoutError("本轮普通执行时间已结束")
     if command.guide:
-        return render(lark_runner.run_guide(command.args, timeout=_left(deadline, lark_runner.HELP_TIMEOUT_SECONDS)))
+        return render(lark_runner.run_guide(command.args, timeout=_left(deadline, lark_runner.HELP_TIMEOUT_SECONDS), deadline=deadline))
     if not lark_connected(user_id):
         return _answer("not_connected", NOT_CONNECTED)
-    risk = lark_runner.command_risk(command.path, timeout=_left(deadline, lark_runner.HELP_TIMEOUT_SECONDS))
+    risk = lark_runner.command_risk(command.path, timeout=_left(deadline, lark_runner.HELP_TIMEOUT_SECONDS), deadline=deadline)
     if risk != "read":
         raise LarkRefused(f"`lark-cli {' '.join(command.path)}` 是 {risk} 命令；本工具只读，不能写入、发送或删除")
-    return render(lark_runner.run_for_user(user_id, command.args, timeout=_left(deadline, lark_runner.TIMEOUT_SECONDS)))
+    return render(lark_runner.run_for_user(user_id, command.args, timeout=_left(deadline, lark_runner.TIMEOUT_SECONDS), deadline=deadline))
 
 
 def _left(deadline: float, cap: float) -> float:

@@ -906,6 +906,49 @@ PR #47 产品提交 `638f3ae18a44f2d9496234a689c380d9a95fc0b2` 已部署到gatew
 
 初始映射仍待确认，生产反馈及调度仍关闭；已登录页面确认关闭状态，未触发生产反馈或模型请求。原有RealShort feed 503另行记录，不将该来源宣称为健康。现有采集器、停止标记及计划保持，迁移仍为0008；本次没有cron兼容镜像更新。详见[发布记录](releases/2026-10-08-feedback-identity-mapping.md)及[映射维护说明](feedback-identity-mapping.md)。
 
+
+## T7 draft API — local source implementation
+
+Private draft CRUD/version/idempotency/time handling is implemented under the existing authenticated Gateway. SQLite and disposable PostgreSQL tests cover frozen sources, conflicting writes, lost replies, restart, source disappearance,100-row bounds and private schema grants; a models-disabled loopback Gateway proves cookie/CSRF and owner isolation. This does not claim production rollout, preview/export (T8), or feedback linkage (T9). See [planning contract and boundaries](planning.md).
+
+
+## 2026-10-08 completion package — local final review
+
+The selection, checking, personal-list, draft/CSV and published-review implementation
+is assembled on `codex/pick-completion-20261008`; this entry records local package
+validation, not a release. The final official-manager snapshot includes the reviewed
+legacy-detail repair5519fdb7. Its192 runtime files match source, managed and physical
+noneditable installation at digest
+`sha256:cd6ad51fd738ce52833ed94418e351bf951f0a2a68752fca5a4b678db1dc8f72`;
+private migration head is0011, with no production migration performed.
+
+Source broad5380passed/29skipped exposed one legacy-detail regression; the reviewed
+repair passed173 affected tests including the original case. Host18344passed plus
+997 affected-module passes after correcting inherited manager configuration form
+explicit composite evidence; initial159 invocation failures remain recorded.
+Frontend3101passed/52skipped, lint/typecheck/build, blocking149 and original projection
+benchmark passed. Actual installed legacy-null detail, strict old/new DTO decoding
+and immutable export probes passed. See the [package verification record](releases/2026-10-08-completion-package.md)
+for exact artifact boundaries, historical failures and retained ledgers.
+
+The required finalcd6 installed browser rerun passed checked chat → saved selections
+→ revision-bound plan/CSV (65.252s) and actual published metrics → explicit manual
+link (3.848s). Both starts verified installed provenance, default uvloop and TLS;
+the host file manifest matched at the recorded start/post-run checkpoints. This
+scripted-model browser pass does not substitute for live-model or VoiceOver gates.
+
+T11 remains open: the original996 package consumed all40 baseline/candidate Agent
+attempts without full semantic acceptance; no additional model runs are authorized.
+The repairedcd6 package has local/offline validation, not a new real-model pass.
+T12 native VoiceOver remains unverified. Do not infer complete acceptance, deployment,
+automatic publication or external plan-ID propagation from these local checks.
+
+## 2026-10-08 一期追加验收完成（本地集成）
+
+用户确认的7个追加案例共20项检查已全部满足，实际21次模型调用、164246个已知tokens；六个事实答复经过一次纠正后确认，同名合并案例正确等待澄清。原40次失败记录未改写，累计47/47额度耗尽。D901版本展示缺口以仅前端f2df7b32修复，并在同一完成线程实测通过，没有增加模型运行。原生VoiceOver由用户明确移到后续，仍未验证。
+
+本地集成代码、cd6实际安装、真实Gateway浏览器与独立Standards/Spec审查完成；所有26个实现临时工作树已清理，仅保留集成目录及可恢复证据。线上未部署。详见[追加验收与交接](releases/2026-10-08-completion-followup.md)。
+
 ## 2026-10-08 飞书反馈生产启用
 
 用户明确授权后，已将生产反馈和小时调度启用并绑定现有已授权owner。仅变更三个反馈配置项，配置部署 `6bbb7959-91d6-44a2-9769-a6dcd87f0319` 成功；gateway源代码与此前映射发布一致，迁移仍为0008，未部署前端或修改采集器。
@@ -947,3 +990,19 @@ Native mirror v27 published paired at 14:48 UTC with all eight gates passing, ze
 - Browser validation: three brand directions in light/dark modes, minimum badge contrast 4.68:1 / 6.95:1; at 390px, no page overflow or truncated labels and detail remains readable. These theme combinations used local synthetic fixtures with the real components.
 - Authenticated production readback confirms Return of the King remains neutral with green +9.2%, Off the Ice has blue historical stable with red -1%, and Taste of the Wild has green historical climb with green +1.7%. All three retain amber historical-window labels and their original numeric values; coverage remains 6,716 total / 2,816 with curves / 3,900 without usable curves. The evidence dialog and daily record navigation also work.
 - This release changes frontend presentation and documentation only; no Gateway deployment, data mutation, migration, schedule change, or manual Google query was performed.
+
+
+## 2026-10-09 — Completion Gateway and frontend production publication
+
+PR #73 merged as `2f12e68cfbbf9cb8b4186ff1428f72134a7afd9b`. Final CI on `21587cf7` passed: source 5,450 passed / 29 expected skips; host entrypoint, JSON sanitizer and account CLI 108 passed; real board integration 51 cases with no skips. CI fixes were dependency/fixture-only and independently reviewed.
+
+- Gateway deployment `f01793fc-c7cc-46c1-a051-359881412bc4` is successful. Actual installed digest is `sha256:4bd745bba1c491ad58879acdf08a67735b12063c553fbc18c67333f7161d814e`; private migration head `0011`; seven new tables deny PUBLIC, anon, authenticated, board/query readers and observer. Existing 15 selections and 67 candidate sets remain; native source and feedback stay enabled, current mirror is 29. Five installed query domains pass in 0.526–1.508 seconds, without model/provider or business writes. Startup logs show no extension/application startup failure.
+- Vercel production deployment `dpl_HMhQt44Qe2PZbmYHxGr41EiqEsoV` was built from the guarded Git archive, staged, verified and promoted. The canonical alias `ggwork-deerflow.vercel.app` now resolves to this exact READY deployment. Authenticated browser shows the new navigation and the empty personal planning list; the current QA identity correctly receives the existing source-authorization requirement in published review.
+- Backup restoration validated 137 tables, 2,715,642 rows, 18 sequences and constraints; the local production-clone migration retained exact content hashes for all 136 old tables excluding the version table. Recovery artifacts and schema ACL/role metadata are private.
+- A Gateway-only `ggwork_query_reader` login inherits existing `pick_board_reader` permissions (INHERIT true, SET/ADMIN false), uses verified TLS and default read-only transactions; no existing passwords changed. Connection cap 20 matches Supavisor, UTC is explicit. Reader URL/CA and exact native-source revision were verified in Railway.
+- Existing Trends compatibility redeployment is the next release step. Preserve its schedule, recovery approvals and breaker/budget state; do not manually collect Google data.
+
+Original 47 Agent attempts remain the acceptance boundary; this release adds none. Native VoiceOver remains deferred/unverified. Existing Queyu authorization and named MoboReels retention boundaries are unchanged.
+
+- `pick-deploy-guard target=gateway commit=2f12e68cfbbf9cb8b4186ff1428f72134a7afd9b prod_head=0008 chain_head=0011 at=2026-10-09T04:45:21Z`
+- `pick-deploy-guard target=frontend commit=2f12e68cfbbf9cb8b4186ff1428f72134a7afd9b at=2026-10-09T04:46:21Z`

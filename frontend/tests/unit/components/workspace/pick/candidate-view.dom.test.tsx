@@ -171,13 +171,76 @@ function checkLinks() {
   return screen.queryAllByRole("link", { name: /在选剧资料核对/ });
 }
 
+describe("candidate snapshot versions", () => {
+  it("shows the historical result's frozen versions in read-only history", () => {
+    renderView(
+      {
+        ...result,
+        catalog_batch_id: "catalog-2026-09-21",
+        knowledge_batch_id: "knowledge-2026-09-20",
+        rule_version: "eligibility-v3",
+        ranking_version: "ranking-v2",
+      },
+      true,
+    );
+    expect(
+      screen.getByRole("region", { name: "查询时的版本快照" }),
+    ).toBeTruthy();
+    expect(screen.getByText("剧库批次：catalog-2026-09-21")).toBeTruthy();
+    expect(screen.getByText("知识批次：knowledge-2026-09-20")).toBeTruthy();
+    expect(screen.getByText("筛选规则：eligibility-v3")).toBeTruthy();
+    expect(screen.getByText("排序规则：ranking-v2")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "以下版本属于这份候选生成时的快照，不代表当前执行许可。",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("follows the displayed snapshot when switching results and preserves unused knowledge", () => {
+    const historical = { ...result, catalog_batch_id: "catalog-old" };
+    const newer = {
+      ...result,
+      id: "r2",
+      catalog_batch_id: "catalog-new",
+      knowledge_batch_id: "knowledge-new",
+      rule_version: "rules-new",
+      ranking_version: "ranking-new",
+    };
+    const view = (value: PickResult) => (
+      <CandidateView
+        result={value}
+        selected={[]}
+        onToggle={rs.fn()}
+        onSave={rs.fn()}
+        busy={false}
+      />
+    );
+    const { rerender } = render(view(newer));
+    expect(screen.getByText("剧库批次：catalog-new")).toBeTruthy();
+    expect(screen.getByText("知识批次：knowledge-new")).toBeTruthy();
+    expect(screen.getByText("筛选规则：rules-new")).toBeTruthy();
+    expect(screen.getByText("排序规则：ranking-new")).toBeTruthy();
+
+    rerender(view(historical));
+    expect(screen.getByText("剧库批次：catalog-old")).toBeTruthy();
+    expect(screen.getByText("知识批次：未使用")).toBeTruthy();
+    expect(screen.getByText("筛选规则：v1")).toBeTruthy();
+    expect(screen.getByText("排序规则：v1")).toBeTruthy();
+    expect(screen.queryByText("剧库批次：catalog-new")).toBeNull();
+    expect(screen.queryByText("知识批次：knowledge-new")).toBeNull();
+    expect(screen.queryByText("筛选规则：rules-new")).toBeNull();
+    expect(screen.queryByText("排序规则：ranking-new")).toBeNull();
+  });
+});
+
 describe("row check links (P4-1)", () => {
   it("links every decodable card to its row at the pinned version", () => {
     renderView(synced);
     const links = checkLinks();
     expect(links.map((link) => link.getAttribute("aria-label"))).toEqual([
-      "在选剧资料核对：剧一",
-      "在选剧资料核对：剧二",
+      "在选剧资料核对：剧一（新标签页）",
+      "在选剧资料核对：剧二（新标签页）",
     ]);
     const [first, second] = links.map(
       (link) =>
@@ -189,7 +252,7 @@ describe("row check links (P4-1)", () => {
     expect(first?.searchParams.get("v")).toBe("7");
     expect(second?.searchParams.get("row")).toBe("shortmax-856049 ");
     for (const link of links) {
-      expect(link.textContent).toBe("在选剧资料核对");
+      expect(link.textContent).toBe("在选剧资料核对（新标签页）");
       expect(link.getAttribute("target")).toBe("_blank");
       expect(link.getAttribute("rel")).toContain("noopener");
     }
@@ -229,14 +292,14 @@ describe("row check links (P4-1)", () => {
       ],
     });
     expect(checkLinks().map((link) => link.getAttribute("aria-label"))).toEqual(
-      ["在选剧资料核对：剧一"],
+      ["在选剧资料核对：剧一（新标签页）"],
     );
   });
 
   it("renders the replay link as its own line in a new tab, for P4-2", () => {
     const href = "/workspace/pick-data?result=0123456789abcdef0123456789abcdef";
     const { container } = render(<ReplayLink href={href} />);
-    const link = screen.getByRole("link", { name: "回放这份候选" });
+    const link = screen.getByRole("link", { name: "回放这份候选（新标签页）" });
     expect(link.getAttribute("href")).toBe(href);
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toContain("noopener");
@@ -247,7 +310,7 @@ describe("row check links (P4-1)", () => {
   it("offers replay with the replay view (P4-2, critique A4): pinned to the result's version", () => {
     expect(REPLAY_LINK_ENABLED).toBe(true);
     renderView(synced);
-    const link = screen.getByRole("link", { name: "回放这份候选" });
+    const link = screen.getByRole("link", { name: "回放这份候选（新标签页）" });
     expect(link.getAttribute("href")).toBe(
       `/workspace/pick-data?result=${synced.id}&v=7`,
     );
@@ -257,7 +320,9 @@ describe("row check links (P4-1)", () => {
   it("replays an unpaired shared result on the current version, never a personal one (U28)", () => {
     renderView({ ...synced, data_as_of: { ...SHARED, mirror_version: null } });
     expect(
-      screen.getByRole("link", { name: "回放这份候选" }).getAttribute("href"),
+      screen
+        .getByRole("link", { name: "回放这份候选（新标签页）" })
+        .getAttribute("href"),
     ).toBe(`/workspace/pick-data?result=${synced.id}`);
     cleanup();
     renderView({ ...synced, data_as_of: { ...SHARED, shared: false } });
@@ -579,4 +644,22 @@ describe("notes failures keep candidate operations independent", () => {
       expect(container.querySelectorAll("details li")).toHaveLength(count);
     },
   );
+});
+
+// T6: absence of evidence is not evidence of zero matches.
+describe("incomplete candidate results", () => {
+  it.each([
+    "pending",
+    "running",
+    "interrupted",
+    "error",
+    "timeout",
+    "unknown",
+  ] as const)("does not claim an empty success for %s", (run_status) => {
+    renderView({ ...result, run_status, items: [], matched_total: 0 });
+    expect(screen.queryByText(/找到 0 部/)).toBeNull();
+    expect(screen.queryByText(/没有符合这次条件/)).toBeNull();
+    expect(screen.queryByText(/符合条件共 0 部/)).toBeNull();
+    expect(screen.getByText(/尚不能确认符合条件的数量/)).toBeTruthy();
+  });
 });

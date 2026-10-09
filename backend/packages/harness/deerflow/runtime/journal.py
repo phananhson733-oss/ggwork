@@ -313,11 +313,23 @@ class RunJournal(BaseCallbackHandler):
         # reads to learn whether retrying could produce a different one,
         # without polling the store (#4696 review).
         self._feed_generation = 0
+        self.pick_publication = None
+        self._published_pick_message_ids: set[str] = set()
 
         # Artifact-production tracking for the terminal run.delivery event
         # (#4272 slice 1). Deduped by (path, tool_name); insertion order kept.
         self._produced_artifacts: list[tuple[str, str | None]] = []
         self._produced_artifact_keys: set[tuple[str, str | None]] = set()
+
+    def publish_pick_message(self, payload: dict) -> None:
+        """Append the host-approved message once; provider usage was counted separately."""
+        if self._closed or payload["id"] in self._published_pick_message_ids:
+            return
+        message = AIMessage(**payload)
+        self._published_pick_message_ids.add(payload["id"])
+        self._remember_current_run_tool_calls(message, caller="lead_agent")
+        self._put(event_type=LLM_AI_RESPONSE_EVENT.event_type, category=LLM_AI_RESPONSE_EVENT.category, content=message.model_dump(), metadata={"caller": "lead_agent"})
+        self._record_message_summary(message, caller="lead_agent")
 
     # -- Lifecycle callbacks --
 
@@ -392,7 +404,7 @@ class RunJournal(BaseCallbackHandler):
         self._put(
             event_type=RUN_ERROR_EVENT.event_type,
             category=RUN_ERROR_EVENT.category,
-            content=str(error),
+            content="Pick execution did not complete a checked answer" if self.pick_publication is not None and self.pick_publication.active else str(error),
             metadata={"error_type": type(error).__name__},
         )
         self._flush_sync()
@@ -505,7 +517,9 @@ class RunJournal(BaseCallbackHandler):
                 detail = additional_kwargs.get("error_detail")
                 reason = additional_kwargs.get("error_reason")
                 fallback_text = self._message_text(message).strip()
-                if isinstance(detail, str) and detail.strip():
+                if self.pick_publication is not None and self.pick_publication.active:
+                    self._llm_error_fallback_message = "The model did not complete a checked answer"
+                elif isinstance(detail, str) and detail.strip():
                     self._llm_error_fallback_message = detail.strip()
                 elif isinstance(reason, str) and reason.strip():
                     self._llm_error_fallback_message = reason.strip()
@@ -563,7 +577,11 @@ class RunJournal(BaseCallbackHandler):
                         per_call_model = response_metadata.get("model_name") or response_metadata.get("model")
                     self._record_model_usage(per_call_model, input_tk, output_tk, total_tk, self._extract_cache_read(usage_dict))
 
-        if messages:
+        suppressed = self.pick_publication is not None and self.pick_publication.active
+        if suppressed:
+            self._counted_message_llm_run_ids.add(rid)
+            self._llm_response_callers[rid] = caller
+        if messages and not suppressed:
             self._queue_llm_response_events(
                 str(run_id),
                 response_events,
@@ -583,7 +601,7 @@ class RunJournal(BaseCallbackHandler):
         self._put(
             event_type=LLM_ERROR_EVENT.event_type,
             category=LLM_ERROR_EVENT.category,
-            content=str(error),
+            content="Pick execution did not complete a checked answer" if self.pick_publication is not None and self.pick_publication.active else str(error),
         )
 
         self._schedule_progress_flush()
@@ -732,6 +750,10 @@ class RunJournal(BaseCallbackHandler):
             self._current_run_tool_call_names[tool_call_id] = str(name or "")
 
     def _persist_tool_result_message(self, message: BaseMessage) -> None:
+        if self.pick_publication is not None and self.pick_publication.active and isinstance(message, ToolMessage):
+            self.pick_publication.record_tool_result(message.name, message.tool_call_id, message.content)
+            if self._current_run_tool_call_names.get(message.tool_call_id) == message.name == "ask_clarification":
+                self.pick_publication.record_human_input(message.model_dump())
         self._put(
             event_type=LLM_TOOL_RESULT_EVENT.event_type,
             category=LLM_TOOL_RESULT_EVENT.category,
@@ -1237,6 +1259,10 @@ class RunJournal(BaseCallbackHandler):
         """Drop every external or potentially cyclic run-scoped reference."""
         self._closed = True
         self._store = None
+        if self.pick_publication is not None:
+            self.pick_publication.on_tool_message = None
+        self.pick_publication = None
+        self._published_pick_message_ids.clear()
         self._progress_reporter = None
         self._buffer.clear()
         self._pending_llm_response = None

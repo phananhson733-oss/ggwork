@@ -140,6 +140,7 @@ _SERVER_OWNED_MESSAGE_METADATA_KEYS = (
             # A replayed message carrying it back would write a thread-scoped seq
             # into the checkpoint, which a fork then re-seeds and reassigns (#4380).
             MESSAGE_SEQ_KEY,
+            "pick_completion",
             # The transient project-context request message marker (spec §12):
             # a client-supplied copy must never survive into a run, where the
             # renderer would treat the message as its own.
@@ -681,8 +682,9 @@ def merge_run_context_overrides(config: dict[str, Any], context: Mapping[str, An
     # Pick references are untrusted UI identifiers, never authorization. The
     # business extension validates owner/thread/items before any use. Keep them
     # out of checkpoint configurable state so later runs cannot inherit a choice.
-    if "pick_reference" in context and isinstance(runtime_context, dict):
-        runtime_context["pick_reference"] = copy.deepcopy(context["pick_reference"])
+    for key in ("pick_reference", "pick_references"):
+        if key in context and isinstance(runtime_context, dict):
+            runtime_context[key] = copy.deepcopy(context[key])
     if "user_id" in context and isinstance(runtime_context, dict):
         runtime_context.setdefault("user_id", context["user_id"])
 

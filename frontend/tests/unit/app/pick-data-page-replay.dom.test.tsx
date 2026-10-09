@@ -151,28 +151,21 @@ describe("replay: tab=pick&result= (P4-2)", () => {
     );
   });
 
-  it("B11: no paired version reads the current version and says so", async () => {
-    state.loaders.loadReplay = replayOf({ mirrorVersion: null });
-    await renderPage({ result: RESULT });
-    expect(dataCalls()).toContain("resolveBoard:null");
-    expect(texts("status")).toContain(
-      "这份候选当时没有配对的镜像版本，行数据取自当前版本 v7",
-    );
+  it("does not use current rows as historical evidence when the result has no paired version",async()=>{
+    state.loaders.loadReplay=replayOf({mirrorVersion:null});
+    await renderPage({result:RESULT});
+    expect(dataCalls()).not.toContain("resolveBoard:null");
+    expect(dataCalls()).not.toContain("loadRowsByKeys");
+    expect(screen.getByText("原始镜像版本未保留，不能完整回放历史资料。")).toBeTruthy();
+    expect(screen.getByRole("link",{name:"用最新资料重新查询"}).getAttribute("href")).not.toContain("result=");
   });
-
-  it("the paired version pruned: current rows, the fallback banner, missing rows listed", async () => {
-    state.loaders.loadReplay = replayOf({ mirrorVersion: 5 });
-    state.resolved = readyBoard({ pruned: true, requestedV: 5 });
-    state.loaders.loadMissingKeys = () => ["kalos-demo-1"];
-    state.loaders.loadRowsByKeys = () => [];
-    await renderPage({ result: RESULT });
-    expect(texts("status")).toContain(
-      "镜像 v5 已清理：名单与顺序按智能体当时的批次，行数据取自当前版本 v7，可能与当时不同",
-    );
-    expect(texts("status").join("\n")).not.toContain("链接里的版本 v5 已清理");
-    expect(texts("alert").join("\n")).toContain(
-      "第 1 位 · kalos-demo-1：当前版本已无此行",
-    );
+  it("does not substitute current rows when the replay's paired version was pruned",async()=>{
+    state.loaders.loadReplay=replayOf({mirrorVersion:5});
+    state.resolved=readyBoard({pruned:true,requestedV:5});
+    await renderPage({result:RESULT});
+    expect(dataCalls()).not.toContain("loadRowsByKeys");
+    expect(screen.getByText(/该版本刚被清理/)).toBeTruthy();
+    expect(screen.getByRole("link",{name:"打开当前版本"}).getAttribute("href")).not.toContain("result=");
   });
 
   it("C27: the 选剧 tab leaves the replay; every link carries the shown v", async () => {
@@ -257,7 +250,7 @@ describe("replay: tab=pick&result= (P4-2)", () => {
     expect(dataCalls()).not.toContain("loadRowsByKeys");
   });
 
-  it("the version pruned while reading the replay's rows: 打开当前版本 goes on replaying", async () => {
+  it("the version pruned while reading the replay's rows: current is an explicit new query", async () => {
     state.loaders.loadReplay = replayOf({ mirrorVersion: 5 });
     state.resolved = boardAt(5, { pinned: true, requestedV: 5 });
     state.loaders.loadMissingKeys = () => {
@@ -266,7 +259,7 @@ describe("replay: tab=pick&result= (P4-2)", () => {
     const root = await renderPage({ result: RESULT, v: "5" });
     expect(screen.getByText(/该版本刚被清理/)).toBeTruthy();
     expect(within(root).getByText("打开当前版本").getAttribute("href")).toBe(
-      `/workspace/pick-data?result=${RESULT}`,
+      "/workspace/pick-data",
     );
   });
 

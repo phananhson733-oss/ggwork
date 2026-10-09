@@ -21,6 +21,9 @@ import { cn } from "@/lib/utils";
 const LINKABLE_SECTIONS: Record<string, true> = {
   agents: true,
   chats: true,
+  "pick-plans": true,
+  "pick-review": true,
+  picks: true,
   "scheduled-tasks": true,
 };
 
@@ -136,6 +139,8 @@ function nameOfSegment(
   if (!segment) return t.common.home;
   if (segment === "workspace") return t.breadcrumb.workspace;
   if (segment === "chats") return t.breadcrumb.chats;
+  if (segment === "pick-plans") return "排期草稿";
+  if (segment === "pick-review") return "发布复盘";
   if (segment === "picks") return "我的选剧";
   if (segment === "pick-data") return "选剧资料";
   return segment[0]?.toUpperCase() + segment.slice(1);

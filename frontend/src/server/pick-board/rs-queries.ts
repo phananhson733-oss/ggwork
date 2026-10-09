@@ -330,7 +330,7 @@ interface ObserveRaw extends Record<string, unknown> {
   last_bill_on: string | null;
 }
 
-function toObserveRow(r: ObserveRaw): ObserveRow {
+export function toObserveRow(r: ObserveRaw): ObserveRow {
   return {
     id: r.id,
     title: r.title,

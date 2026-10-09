@@ -2,6 +2,10 @@
 
 The GGWork web interface, built on the open-source DeerFlow project.
 
+Candidate results display the catalog batch, knowledge batch, filtering rule and
+ranking rule recorded in that result's snapshot, including read-only history.
+These historical versions do not establish current execution permission.
+
 ## Tech Stack
 
 - **Framework**: [Next.js 16](https://nextjs.org/) with [App Router](https://nextjs.org/docs/app)

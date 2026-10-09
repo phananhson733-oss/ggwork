@@ -46,6 +46,7 @@ import { useArtifacts } from "../artifacts";
 import { useMaybeBrowserView } from "../browser-view";
 import { EditingToolCard } from "../editing/editing-task";
 import { FlipDisplay } from "../flip-display";
+import { CommonQueryCard } from "../pick/common-query-card";
 import { PickToolCard } from "../pick/pick-tool-card";
 import { Tooltip } from "../tooltip";
 
@@ -609,7 +610,7 @@ function isAlwaysVisibleStep(step: CoTStep) {
   return (
     step.type === "assistantText" ||
     (step.type === "toolCall" &&
-      ["pick", "editing"].includes(getToolCallKind(step.name)))
+      ["pick", "common-pick", "editing"].includes(getToolCallKind(step.name)))
   );
 }
 
@@ -627,6 +628,7 @@ function getToolCallKind(name: string) {
     ].includes(name)
   )
     return "editing";
+  if (name === "pick_query_data") return "common-pick";
   if (name === "pick_query_candidates" || name === "pick_prepare_selection")
     return "pick";
   if (name.startsWith("browser_")) return "browser";
@@ -998,6 +1000,8 @@ function ToolCall({
     );
   } else if (kind === "editing") {
     return <EditingToolCard result={result} isLoading={isLoading} />;
+  } else if (kind === "common-pick") {
+    return <CommonQueryCard result={result} isLoading={isLoading} />;
   } else if (kind === "pick") {
     return (
       <PickToolCard result={result} threadId={threadId} isLoading={isLoading} />

@@ -93,7 +93,10 @@ async def frozen_feedback(task, result_id):
     repo = FeedbackRepository(task.service.session_factory, task.owner_id)
     reply = await repo.result_evidence(result_id)
     service = getattr(task.service, "feedback", None)
-    if service is not None and service.enabled and service.owner_id == task.owner_id:
+    # Explicit readonly comparison keeps each sidecar on its own version;
+    # it must not establish or replace the ordinary analysis/derived-query pin.
+    comparison = len(task.references) > 1 and result_id in task.references
+    if service is not None and service.enabled and service.owner_id == task.owner_id and not comparison:
         _, failure = pin_historical_feedback(task, reply)
         if failure is not None:
             return FeedbackReply.model_validate(failure)

@@ -24,7 +24,7 @@ export function QueyuButton({ title, off }: { title: string; off: boolean }) {
       }}
       className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[12px] whitespace-nowrap ${
         off
-          ? "border-line text-ink-dim hover:border-line-strong"
+          ? "border-line text-helper hover:border-line-strong"
           : "border-brand bg-brand text-on-brand hover:border-brand-hover hover:bg-brand-hover font-semibold"
       }`}
       title={

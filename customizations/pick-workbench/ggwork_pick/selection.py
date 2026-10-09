@@ -11,6 +11,7 @@ from ggwork_pick.contracts import PickConditions
 from ggwork_pick.freshness import RANK_KINDS, data_notices, parse_timestamp
 from ggwork_pick.item_facts import facts_by_item, with_facts
 from ggwork_pick.pin import Pin, as_pin
+from ggwork_pick.query_reader import QueryFailure
 from ggwork_pick.references import check_posted_account, check_references, hot_scope, is_hot_kind, names_account
 from ggwork_pick.repository import PickRepository, stamp, stored_data_as_of, with_mirror_version
 
@@ -19,7 +20,8 @@ RANKING_VERSION = "evidence-date-v1"
 RANK_RANKING_VERSION = "signal-rank-v1"
 # hot_only by date: the newest hot evidence, not the newest signal (clk is dated today on almost every ReelShort row).
 HOT_RANKING_VERSION = "hot-evidence-date-v1"
-RANKING_VERSIONS = frozenset({RANKING_VERSION, RANK_RANKING_VERSION, HOT_RANKING_VERSION})
+COMMON_RANKING_VERSION = "mirror-board-v1"
+RANKING_VERSIONS = frozenset({RANKING_VERSION, RANK_RANKING_VERSION, HOT_RANKING_VERSION, COMMON_RANKING_VERSION})
 # The replay's ordered identity list stops here; total and truncated say how many there were (plan:1620).
 REPLAY_LIMIT = 2000
 # 换一批 walks its chain of parents no further than this; a conversation never gets near it.
@@ -29,10 +31,11 @@ CHAIN_LIMIT = 100
 class CatalogRefusal(ValueError):
     """A business refusal, optionally scoped after the selected catalog was read."""
 
-    def __init__(self, message: str, *, catalog_batch_id: str | None = None, data_as_of: dict | None = None):
+    def __init__(self, message: str, *, catalog_batch_id: str | None = None, data_as_of: dict | None = None, query_failure: QueryFailure | None = None):
         super().__init__(message)
         self.catalog_batch_id = catalog_batch_id
         self.data_as_of = copy.deepcopy(data_as_of)
+        self.query_failure = query_failure
 
 
 class PostedDataUnavailable(CatalogRefusal):
@@ -111,8 +114,8 @@ def _posted_excluded(row, conditions: PickConditions) -> bool:
     return False
 
 
-def _row_matches(row, conditions: PickConditions, excluded: set[str]) -> bool:
-    if row["availability"] == "delisted" or row["identity"] in excluded:
+def _row_matches(row, conditions: PickConditions, excluded: set[str], *, with_off: bool = False) -> bool:
+    if (row["availability"] == "delisted" and not with_off) or row["identity"] in excluded:
         return False
     if conditions.theater and row["theater"].casefold() != conditions.theater.casefold():
         return False
@@ -135,9 +138,9 @@ def _row_matches(row, conditions: PickConditions, excluded: set[str]) -> bool:
     return True
 
 
-def _filtered(rows, conditions: PickConditions, excluded) -> list:
+def _filtered(rows, conditions: PickConditions, excluded, *, with_off: bool = False) -> list:
     """The rows the conditions keep, unordered: the row filter, then with sort=rank the kind's latest board only."""
-    matches = [row for row in rows if _row_matches(row, conditions, excluded)]
+    matches = [row for row in rows if _row_matches(row, conditions, excluded, with_off=with_off)]
     if conditions.sort == "rank":
         # One board at a time, like RealShort's rank tab: ranks from different days are not comparable.
         kind_signals = [s for row in rows for s in row["signals"] if s["kind"] == conditions.signal_kind]
@@ -149,14 +152,14 @@ def _filtered(rows, conditions: PickConditions, excluded) -> list:
     return matches
 
 
-def matching_rows(rows, conditions: PickConditions, excluded: set[str], *, check: bool = True):
+def matching_rows(rows, conditions: PickConditions, excluded: set[str], *, check: bool = True, with_off: bool = False):
     """The ordered matches. check=False only replays a stored result on its own batch: the values it names passed
     the reference checks of their day there, and a check added later must not turn its replay into a refusal."""
     if conditions.sort == "rank" and not conditions.signal_kind:
         raise ValueError("按名次排序必须指定 signal_kind（同一类榜单内才能比较名次）")
     if check:
         _check_references(rows, conditions)
-    matches = _filtered(rows, conditions, excluded)
+    matches = _filtered(rows, conditions, excluded, with_off=with_off)
     matches.sort(key=lambda row: row["identity"])
     if conditions.sort == "rank":
 
@@ -262,7 +265,7 @@ def unmappable_conditions(conditions: PickConditions) -> list[str]:
     return [name for name, active in present if active]
 
 
-def replay_view(record: dict, rows) -> dict:
+def replay_view(record: dict, rows, *, matches=None, ranking_version=None) -> dict:
     """The stored result re-run on its own batch rows with the identities it excluded (plan 2.5 item 4).
 
     Rule or ranking versions other than this code's are flagged, not refused (U36). Raises ValidationError or
@@ -270,7 +273,8 @@ def replay_view(record: dict, rows) -> dict:
     """
     conditions = PickConditions.model_validate(record["conditions_json"])
     excluded = record.get("excluded_json")
-    identities = [row["identity"] for row in matching_rows(rows, conditions, frozenset(excluded or ()), check=False)]
+    matches = matching_rows(rows, conditions, frozenset(excluded or ()), check=False) if matches is None else matches
+    identities = [row["identity"] for row in matches]
     return {
         "result_id": record["id"],
         "catalog_batch_id": record["catalog_batch_id"],
@@ -284,7 +288,7 @@ def replay_view(record: dict, rows) -> dict:
         "shown": identities[: conditions.limit],
         # Results from before P2 recorded no exclusions: exclude_selected and 换一批 cannot be redone for them.
         "excluded_reproducible": excluded is not None,
-        "ranking_reproducible": record["rule_version"] == RULE_VERSION and record["ranking_version"] == ranking_version_for(conditions),
+        "ranking_reproducible": record["rule_version"] == RULE_VERSION and record["ranking_version"] == (ranking_version or ranking_version_for(conditions)),
         "unmappable": unmappable_conditions(conditions),
     }
 
@@ -313,6 +317,8 @@ def candidate_item(row, conditions, matched_total: int | None = None):
     elif any(s["observed_at"] is None for s in row["signals"]):
         warnings.append("部分依据日期未知")
     warnings.extend(_posted_warnings(row, conditions))
+    if row.get("_common_posted_unknown"):
+        warnings.append("该账号或时间范围的发布记录不完整，不能确认从未发布")
     reason = f"符合本次筛选条件；有{len(row['signals'])}条来源信号。"
     if conditions.hot_only:
         hot = sum(1 for s in row["signals"] if is_hot_kind(s["kind"]))
@@ -368,8 +374,10 @@ def _request_hash(conditions: PickConditions, parent_result_id: str | None, use_
 
 
 class SelectionService:
-    def __init__(self, repository: PickRepository):
+    def __init__(self, repository: PickRepository, *, query_service=None, deadline=None):
         self.repository = repository
+        self.query_service = query_service
+        self.deadline = deadline
 
     async def _parent(self, parent_result_id: str | None, thread_id: str) -> dict | None:
         if not parent_result_id:
@@ -442,10 +450,17 @@ class SelectionService:
     async def _matched_in_scope(self, rows, conditions: PickConditions, excluded, pin: Pin):
         """Only called after catalog_rows has checked ownership and loaded this Pin's rows."""
         try:
+            if self.query_service is not None:
+                return await self.query_service.candidate_matches(rows, conditions, excluded, pin, deadline=self.deadline)
             return matching_rows(rows, conditions, excluded)
         except ValueError as exc:
             refused = PostedDataUnavailable if isinstance(exc, PostedDataUnavailable) else CatalogRefusal
-            raise refused(str(exc), catalog_batch_id=pin.catalog_id, data_as_of=await self._pin_data_as_of(pin)) from exc
+            raise refused(
+                str(exc),
+                catalog_batch_id=pin.catalog_id,
+                data_as_of=await self._pin_data_as_of(pin),
+                query_failure=exc if isinstance(exc, QueryFailure) else None,
+            ) from exc
 
     async def query(
         self,
@@ -506,7 +521,11 @@ class SelectionService:
             catalog_batch_id=pin.catalog_id,
             knowledge_batch_id=pin.knowledge_id,
             rule_version=RULE_VERSION,
-            ranking_version=ranking_version_for(effective),
+            ranking_version=(
+                COMMON_RANKING_VERSION
+                if self.query_service is not None and pin.mirror_version is not None and not (effective.signal_kind or "").startswith("obs_")
+                else ranking_version_for(effective)
+            ),
             conditions_json=effective.model_dump(),
             ordered_items_json=items,
             created_at=stamp(),
@@ -605,7 +624,21 @@ class SelectionService:
         except LookupError:
             raise ReplayGone("这份候选用的剧库批次已过保留期被清理，无法回放") from None
         try:
-            view = await asyncio.to_thread(replay_view, record, rows)
+            if record["ranking_version"] == COMMON_RANKING_VERSION:
+                if self.query_service is None:
+                    raise ReplayUnrunnable("此候选需要公共查询服务才能按原顺序回放")
+                conditions = PickConditions.model_validate(record["conditions_json"])
+                pin = Pin(record["catalog_batch_id"], record["knowledge_batch_id"], record.get("mirror_version"), stored_data_as_of(record))
+                matches = await self.query_service.candidate_matches(
+                    rows, conditions, frozenset(record.get("excluded_json") or ()), pin, deadline=self.deadline
+                )
+                view = replay_view(record, rows, matches=matches, ranking_version=COMMON_RANKING_VERSION)
+            else:
+                view = await asyncio.to_thread(replay_view, record, rows)
+        except QueryFailure as exc:
+            if exc.code == "version_gone":
+                raise ReplayGone("这份候选的镜像版本已过保留期，无法回放") from None
+            raise
         except ValueError:
             # Pydantic's ValidationError included; only the re-run's refusals are a 409, not a ValueError anywhere.
             raise ReplayUnrunnable("这份候选的条件已不能按当前规则重跑，无法回放") from None
@@ -622,8 +655,66 @@ class SelectionService:
                     rows = []
                 (shown,) = with_facts([item], rows)
                 notices = data_notices(data_as_of, rows, PickConditions.model_validate(record["conditions_json"]))
-                return {"result_id": result_id, "catalog_batch_id": record["catalog_batch_id"], "item": shown, **({"data_notices": notices} if notices else {})}
+                from ggwork_pick.query_facts import HistoricalResultSummary
+
+                summary = HistoricalResultSummary(
+                    result_id=result_id, matched_total=_matched_total(record), conditions=record["conditions_json"], reference=f"result:{result_id}"
+                )
+                try:
+                    supplement = await self._historical_source_facts(record, item)
+                except QueryFailure as exc:
+                    if exc.code not in {"not_found", "version_gone", "source_unavailable", "version_conflict"}:
+                        raise
+                    # The authorized frozen item remains readable when its optional
+                    # historical source is unavailable; never substitute a current pin.
+                    supplement = None
+                    notices = [*notices, "历史来源补充暂不可核对；以下仅保留这份候选已保存的内容，不代表当前资料。"]
+                return {
+                    "result_id": result_id,
+                    "catalog_batch_id": record["catalog_batch_id"],
+                    "item": shown,
+                    "historical_summary": summary.model_dump(mode="json"),
+                    **({"source_facts": supplement} if supplement is not None else {}),
+                    **({"data_notices": notices} if notices else {}),
+                }
         raise LookupError("候选条目不存在")
+
+    async def _historical_source_facts(self, record: dict, item: dict) -> dict | None:
+        from ggwork_pick.completion_contracts import CommonQuery, QueryPin
+        from ggwork_pick.query_facts import HistoricalItemFacts, episode_fact
+        from ggwork_pick.query_service import rule_id
+
+        version = record.get("mirror_version")
+        if version is None or self.query_service is None:
+            return None
+        source, source_id, language = json.loads(item["identity"])
+        pin = QueryPin(
+            catalog_batch_id=record["catalog_batch_id"], knowledge_batch_id=record["knowledge_batch_id"], mirror_version=version, rule_version=rule_id(version)
+        )
+        response = await self.query_service.query(
+            CommonQuery(
+                domain="catalog",
+                scope="full_catalog",
+                source=source,
+                source_id=source_id,
+                language=language,
+                pin=pin,
+                with_off=True,
+                confirmed_eligible_only=False,
+                limit=2,
+            ),
+            deadline=self.deadline,
+        )
+        payload = response.model_dump(mode="json")
+        matches = [row for row in payload["rows"] if row["identity"] == item["identity"]]
+        if len(matches) != 1 or response.counts.matched != 1:
+            return None
+        fact = episode_fact(payload, matches[0])
+        if fact is None:
+            return None
+        return HistoricalItemFacts(
+            **fact.model_dump(), pin=response.pin, identity=item["identity"], reference=f"result:{record['id']}:{item['item_id']}"
+        ).model_dump(mode="json")
 
     async def prepare(self, result_id: str, item_ids: list[str], note: str = ""):
         if len(note) > 2000:

@@ -87,6 +87,7 @@ import { cn } from "@/lib/utils";
 import { ArtifactFileList } from "../artifacts/artifact-file-list";
 import { useMaybeBrowserView } from "../browser-view";
 import { CopyButton } from "../copy-button";
+import pickControls from "../pick/control-scope.module.css";
 import { useMaybeSidecar } from "../sidecar/context";
 import { Tooltip } from "../tooltip";
 
@@ -874,6 +875,11 @@ export function MessageList({
       enableRegenerateForTurn: boolean,
     ) => {
       const clipboardData = getAssistantTurnCopyData(messages, { isStreaming });
+      const checkedPickTurn = messages.some(
+        (message) =>
+          message.type === "ai" &&
+          message.additional_kwargs?.pick_completion != null,
+      );
       const actionTarget = [...messages]
         .reverse()
         .find((message) => message.type === "ai" && message.id);
@@ -886,8 +892,19 @@ export function MessageList({
       }
 
       return (
-        <div className="mt-2 flex justify-start gap-1 opacity-0 transition-opacity delay-200 duration-300 group-hover/assistant-turn:opacity-100">
-          {clipboardData && <CopyButton clipboardData={clipboardData} />}
+        <div
+          className={cn(
+            "mt-2 flex justify-start gap-1 opacity-0 transition-opacity delay-200 duration-300 group-hover/assistant-turn:opacity-100",
+            checkedPickTurn &&
+              "focus-within:opacity-100 focus-within:delay-0 focus-within:duration-0",
+          )}
+        >
+          {clipboardData && (
+            <CopyButton
+              clipboardData={clipboardData}
+              className={checkedPickTurn ? pickControls.taskAction : undefined}
+            />
+          )}
           {enableBranchForTurn &&
             !isStreaming &&
             actionTarget?.id &&

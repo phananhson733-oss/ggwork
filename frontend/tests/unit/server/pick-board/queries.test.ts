@@ -391,7 +391,11 @@ describe("source scan", () => {
   it("no query reads the wall clock: no now(), no argument-less new Date(), no Date.now()", () => {
     for (const name of files) {
       const text = readFileSync(path.join(dir, name), "utf8");
-      expect(text, name).not.toMatch(/\bnow\(\)/i);
+      // Monotonic transport deadlines do not supply business/source observation time.
+      expect(
+        text.replaceAll("performance.now()", "monotonic-deadline"),
+        name,
+      ).not.toMatch(/\bnow\(\)/i);
       expect(text, name).not.toMatch(/new Date\(\)/);
       expect(text, name).not.toMatch(/Date\.now\(/);
     }
