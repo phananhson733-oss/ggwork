@@ -16,8 +16,29 @@ No production data or additional paid model request was involved.
 Final canonical extension suite: **319 passed, zero skips**, including both
 SQLite and disposable PostgreSQL plus real FFmpeg/whisper test assets. The
 tool/Skill suite passed **38** tests. These counts overlap; do not add them.
-The independent follow-up review and refreshed development-wheel proof will be
-recorded in the [delivery ledger](delivery-ledger.md) before PR handoff.
+All four original reviewers independently rechecked source `27bae0d9` and approved
+their respective fixes with no new bug finding. Distribution/CLI/guidance tests
+passed **22**; blocking-I/O passed **149**. Guidance against the pre-repair
+`d88364c2` baseline reported zero errors and zero warnings. Ruff check and format
+passed for all 38 canonical Python files. No frontend source changed; the directory
+repair reproduces the existing browser payload through actual HTTP/native code.
+
+The new paired development wheels were installed into a fresh **13-package**
+native environment. All **25** installed editing Python files matched the source,
+including the updated cancellation cleanup; no FastAPI, SQLAlchemy, LangChain or
+harness package was installed. The real native CLI doctor loaded the pinned model
+and returned ready with a synthetic grant. Bundle contents are both wheels,
+native README, SHA256SUMS and safe install/doctor evidence:
+
+- Editing wheel SHA-256: `92e7e56921616ca391ff0d96456bd2ddd8bc659d963bb3bafa2105df72b2c717`
+- Matching extension API wheel SHA-256: `c54f6d145b3c439284db77bc5eccd284d55c9b4c327fc423817b9355e5330da1`
+
+These unsigned development wheels retain their existing version numbers. Stop
+the foreground worker and use `pip install --force-reinstall` with **both** local
+wheels, or create a fresh virtualenv. A plain same-version installation may skip
+the fix. Preserve the existing worker state home and restart with it; do not rerun
+setup or remove grants, receipts, journals or artifact indexes. See the
+[native guide](../../customizations/ggwork-edit/ggwork_edit/worker/README.md).
 
 The four source fixes do not change the one-Gateway-process relay restriction,
 cloud text-only boundary, source/output preservation or the recorded eight paid
