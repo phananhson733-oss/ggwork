@@ -49,6 +49,11 @@ import {
 } from "./fixtures";
 import { PINNED_BOARD_LINK, hrefs } from "./support";
 
+rs.mock("next/navigation", () => ({
+  usePathname: () => "/workspace/pick-data",
+  useSearchParams: () => new URLSearchParams("v=7&tab=rows"),
+}));
+
 rs.mock("next/link", () => ({
   default: ({
     href,
@@ -129,24 +134,33 @@ function everything(): ReactNode {
   );
 }
 
+function isContextualLink(href: string) {
+  if (PINNED_BOARD_LINK.test(href)) return true;
+  const url = new URL(href, "https://qa.invalid");
+  return (
+    href.startsWith("/workspace/editing/new?") &&
+    url.pathname === "/workspace/editing/new" &&
+    !!url.searchParams.get("title") &&
+    url.searchParams.get("returnTo") === "/workspace/pick-data?v=7&tab=rows"
+  );
+}
+
 describe("links stay on the pinned version or leave over https", () => {
-  it("every href is a pinned board link or an https link", () => {
+  it("every href preserves board context or is an https link", () => {
     const { container } = render(everything());
     const all = hrefs(container);
     expect(all.length).toBeGreaterThan(40);
     for (const href of all)
-      expect(PINNED_BOARD_LINK.test(href) || href.startsWith("https://")).toBe(
-        true,
-      );
+      expect(isContextualLink(href) || href.startsWith("https://")).toBe(true);
   });
 
-  it("next/link is only used for board links and never prefetches", () => {
+  it("next/link preserves board context and never prefetches", () => {
     const { container } = render(everything());
     const links = Array.from(container.querySelectorAll("a[data-next-link]"));
     expect(links.length).toBeGreaterThan(20);
     for (const a of links) {
       expect(a.getAttribute("data-prefetch")).toBe("false");
-      expect(a.getAttribute("href")).toMatch(PINNED_BOARD_LINK);
+      expect(isContextualLink(a.getAttribute("href") ?? "")).toBe(true);
     }
   });
 
