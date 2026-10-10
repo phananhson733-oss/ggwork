@@ -1,5 +1,8 @@
 # Production feedback re-enabled on feedback-v3
 
+The query-time behaviour described under "What users will see" was changed later the same day; see the
+[published-version release](2026-10-10-feedback-published-version.md). The text below is the state at re-enabling.
+
 The user explicitly authorized switching production feedback and its hourly refresh back on on 2026-10-10, after the
 [feedback-v3 release](2026-10-10-feedback-v3-release.md). This is a configuration-only change that ends the
 [suspension](2026-10-10-feedback-suspension.md). It changes no application code, source data, mappings or collector

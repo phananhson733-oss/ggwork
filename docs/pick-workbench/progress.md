@@ -1078,3 +1078,17 @@ The user authorized one `ANALYZE pick_source.drama_observations` on production. 
 - One manifest request timed the same way as before answered 200 after 32.4 seconds (85.6 before), inside the 27–37 seconds of the paired runs. This confirms the stale statistics as the cause of the three fallbacks on 10-10.
 - Not yet observed: a paired run after the refresh. The page stays on mirror 30 until the next run (a manual sync, the 12:00 UTC collection, or the 15:40 UTC slot); consecutive failures stay at 2 until then.
 - Expected to recur: the table has no per-table autovacuum settings, so autoanalyze waits for about 107,000 modifications (50 plus 10% of 1,070,178 rows) while a day adds about 36,000. The second day after each analyze has both "today" and "yesterday" unknown to the planner, which is the state that failed here. A durable fix is a separate change and is not made.
+
+
+## 2026-10-10 — Queries use the published feedback version
+
+PR #77 merged as `f58ecd33a393854bc854587f96acb1043c35351c`. The user chose the product change, asked for the release after CI passed, and confirmed that the gateway deployment would also carry PR #78, merged shortly before and not yet deployed. Gateway only; no migration and no frontend deployment.
+
+- `pick-deploy-guard target=gateway commit=f58ecd33a393854bc854587f96acb1043c35351c prod_head=0011 chain_head=0011 at=2026-10-10T08:31:50Z`
+- Gateway deployment `bfaa0896-b780-413d-b4fb-7f197131adc4` is successful. Installed digest `sha256:ba42543402ea551356fd667e47dfdd622cbaad2969bba13d29e61f292497cc7c` equals the merged managed snapshot; migration head stays `0011`; `PICK_SOURCE_REVISION` is the product merge; startup has no traceback and `/health/ready` reports database and checkpointer ok. Against the previous gateway source the image changes four extension files and PR #78's two host authentication files.
+- Four-cell tests on the product merge: complete extension suite on SQLite and PostgreSQL 5,509 passed / 25 skipped / 0 failed; required gateway files 35 passed, 0 skipped; PR #78's host authentication tests 120 passed. CI run 38030806217 passed on the PR head before PR #78 was merged; the synthetic browser acceptance passed 3/3 on that head.
+- After deployment the startup refresh succeeded (08:34:22–08:36:17 UTC). The product's own query-time logic, driven in the container through database sessions that cannot write, pins the current published version for a plain query and for one carrying an old receipt, with no refresh started and the run history unchanged.
+- Hourly occurrences read back from the previous container: 07:11 UTC succeeded, 08:11 UTC failed with `source_changed`.
+- Open: the logged-in checks (the affected user's retried query, an existing conversation, saved selections) and a candidate generated on production by a live model. PR #78 was shipped by this deployment, not accepted by it.
+
+See [the release record](releases/2026-10-10-feedback-published-version.md).
