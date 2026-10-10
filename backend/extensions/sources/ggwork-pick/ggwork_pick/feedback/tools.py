@@ -11,7 +11,7 @@ from pydantic import Field
 from ggwork_pick.context import task_from_runtime
 from ggwork_pick.feedback.analytics import analyze_feedback
 from ggwork_pick.feedback.contracts import FeedbackAnalysisQuery, FeedbackDetailQuery, FeedbackReply
-from ggwork_pick.feedback.runtime import frozen_feedback, model_feedback, prepare_feedback
+from ggwork_pick.feedback.runtime import frozen_feedback, model_feedback, noticed, prepare_feedback
 
 RefreshId = Annotated[str, Field(pattern=r"^fr_[0-9a-f]{32}$")]
 
@@ -46,7 +46,8 @@ async def get_feedback_tool(query: FeedbackDetailQuery, runtime: Runtime) -> str
 @tool("pick_analyze_feedback")
 async def analyze_feedback_tool(query: FeedbackAnalysisQuery, runtime: Runtime, feedback_refresh_id: RefreshId | None = None) -> str:
     """分析完整飞书反馈范围的题材/语言/剧场表现，不是只统计候选前20条。日期按北京时间的实际发布日期；缺省最近30自然日含当日。
-    一轮固定反馈版本。refresh_pending时稍后用返回的feedback_refresh_id继续该刷新，不反复重试。
+    一轮固定反馈版本，使用最近一次成功读取的版本（freshness=stale，读取时间见scan_completed_at），不现场刷新。
+    只有还没有任何版本时才返回refresh_pending：稍后用返回的feedback_refresh_id继续该刷新，不反复重试。
     国家/地区没有可靠维度，不能用语言/币种代替。没有固定年龄快照/点击分母时不得报D7或转化率。
     返回来源、样本、覆盖、混合场景提醒及金额通道；多标签组和收益通道不能直接相加。
     """
@@ -75,6 +76,6 @@ async def analyze_feedback_tool(query: FeedbackAnalysisQuery, runtime: Runtime, 
             reply = FeedbackReply.model_validate(
                 {**reply.model_dump(mode="json"), "scan_started_at": pin.scan_started_at, "scan_completed_at": pin.verified_at}
             )
-        return json.dumps(model_feedback(reply), ensure_ascii=False)
+        return json.dumps(model_feedback(noticed(reply, pin)), ensure_ascii=False)
 
     return await _answer(work)

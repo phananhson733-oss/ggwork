@@ -122,7 +122,9 @@ async def query_candidates_tool(
     matched_total为0时另有zero_diagnosis：去掉每一项条件后各有多少部，据此说明是哪个条件筛空的，不自行推测原因。
     hot_only时另有hot_scope：算作热门依据的信号种类与未算的种类。
     数据过期时另有data_notices：批次太久没更新、剧单导入太久、榜单最新一期太旧等提示，回答里如实转述。
-    启用运营反馈时先刷新并固定版本；返回refresh_pending时不要循环查询，稍后传返回的feedback_refresh_id继续该任务。
+    启用运营反馈时固定使用最近一次成功读取的反馈版本，不为本次查询现场刷新：feedback.freshness=stale即指这种情况，读取时间见
+    feedback.scan_completed_at，有notice时如实转述。只有还没有任何反馈版本时才返回refresh_pending：不要循环查询，稍后传返回的
+    feedback_refresh_id继续该任务。
     """
     task = task_from_runtime(runtime)
     repo = await task.repository(runtime)

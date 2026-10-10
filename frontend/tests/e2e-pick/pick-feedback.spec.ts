@@ -53,6 +53,18 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   ).toBe(200);
   const status = async () =>
     (await context.request.get("/api/pick/feedback/status")).json();
+  // A candidate uses the published feedback as it stands, so a changed source reaches it only through a refresh.
+  const republish = async () => {
+    const before = (await status()).current?.id;
+    expect(
+      (
+        await context.request.post("/api/pick/feedback/sync", { headers })
+      ).status(),
+    ).toBe(202);
+    await expect
+      .poll(async () => (await status()).current?.id, { timeout: 20000 })
+      .not.toBe(before);
+  };
   await page.goto("/workspace/pick-data?tab=imports");
   const panel = page.getByRole("region", { name: "飞书运营反馈同步" });
   await expect(
@@ -164,6 +176,14 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
     fullPage: true,
   });
   state("ok", 900);
+  // Without a refresh the next candidate still reads the version already published.
+  const unrefreshed = await (
+    await context.request.post("/api/pick/e2e/candidate", { headers })
+  ).json();
+  expect(unrefreshed.feedback.feedback_version_id).toBe(
+    first.feedback.feedback_version_id,
+  );
+  await republish();
   const next = await (
     await context.request.post("/api/pick/e2e/candidate", { headers })
   ).json();
@@ -187,6 +207,7 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   ).toContainText("累计播放：150");
   // A manual row whose grain is not stated as single-drama keeps its link but attributes nothing.
   state("ok", 900, "manual_unverified");
+  await republish();
   const revokedResponse = await context.request.post(
     "/api/pick/e2e/candidate",
     { headers },
@@ -217,6 +238,7 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   expect((await notes(first.id)).feedback).toEqual(frozen.feedback);
 
   state("ok", 900, "pending_master");
+  await republish();
   const unmatchedResponse = await context.request.post(
     "/api/pick/e2e/candidate",
     { headers },
