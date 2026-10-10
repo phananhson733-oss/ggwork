@@ -221,10 +221,11 @@ async def test_transition_publication_is_atomic_and_preserves_v1_history(pick_db
         if mode == "ok":
             assert outcome.status == "ok"
             assert current["id"] != old["id"]
-            assert current["manifest_json"]["transform_version"] == "feedback-v2"
-            assert len((await repo.snapshot(current["id"])).tables) == 16
+            # A v1 baseline now moves straight to the current version (see test_schema_v3.py).
+            assert current["manifest_json"]["transform_version"] == "feedback-v3"
+            assert len((await repo.snapshot(current["id"])).tables) == 13
             assert (await service.refresh("alice", wait_seconds=2)).version_id == current["id"]
-            assert constructions == ["feedback-v1", "feedback-v2"]
+            assert constructions == ["feedback-v1", "feedback-v3"]
         else:
             assert outcome.status != "ok"
             assert current["id"] == old["id"]

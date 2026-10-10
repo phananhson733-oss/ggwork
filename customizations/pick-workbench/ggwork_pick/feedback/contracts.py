@@ -13,7 +13,7 @@ from ggwork_pick.contracts import StrictInput
 
 BASE_TOKEN = "OtnsbnRnwaLmnVsJByscTkFMntd"
 CONTRACT_VERSION = "feedback-v1"
-TRANSFORM_VERSION = "feedback-v2"
+TRANSFORM_VERSION = "feedback-v3"
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,14 @@ TABLES_V1 = (
     SourceTable("operator_daily", "tblYCdQgOk5c1QWH", "运营日报汇总"),
     SourceTable("commission_rules", "tblTDKF4IpJdKYkW", "分成比例配置"),
 )
+# Every table any version has read (the feedback-v2 set). Stored versions and frozen candidate evidence
+# keep naming all of them, so the lookups below never shrink.
 TABLES = (*TABLES_V1, SourceTable("external_ids", "tblEuEDLaqrcu5Ym", "外部剧集ID映射"))
+# 2026-10-09: the Base owner retired the automatic CPS detail and both revenue roll-ups. A scan reads
+# the rest; revenue now comes from the manual CPS table and the posts' RS column only.
+RETIRED_V3 = frozenset({"cps_auto", "theater_revenue", "revenue_totals"})
+TABLES_V3 = tuple(table for table in TABLES if table.key not in RETIRED_V3)
+TABLES_BY_VERSION = {"feedback-v1": TABLES_V1, "feedback-v2": TABLES, "feedback-v3": TABLES_V3}
 TABLE_BY_ID = {table.table_id: table for table in TABLES}
 TABLE_BY_KEY = {table.key: table for table in TABLES}
 
@@ -179,14 +186,14 @@ class FeedbackSnapshot(StrictInput):
     scan_completed_at: AwareDatetime
     consistency: Literal["bounded_scan"]
     tables: list[TableSnapshot]
-    transform_version: Literal["feedback-v1", "feedback-v2"] = CONTRACT_VERSION
+    transform_version: Literal["feedback-v1", "feedback-v2", "feedback-v3"] = CONTRACT_VERSION
 
     @model_validator(mode="before")
     @classmethod
     def versioned_records(cls, data):
-        # Parse v2 before the legacy table annotation can normalize nested JSON strings.
+        # Parse v2 and later before the legacy table annotation can normalize nested JSON strings.
         # This also covers publication revalidation and reconstruction from stored manifests.
-        if isinstance(data, dict) and data.get("transform_version") == "feedback-v2" and isinstance(data.get("tables"), list):
+        if isinstance(data, dict) and data.get("transform_version") in ("feedback-v2", "feedback-v3") and isinstance(data.get("tables"), list):
             return {
                 **data,
                 "tables": [TableSnapshotV2.model_validate(table.model_dump() if isinstance(table, TableSnapshot) else table) for table in data["tables"]],
@@ -195,7 +202,7 @@ class FeedbackSnapshot(StrictInput):
 
     @model_validator(mode="after")
     def complete_scan(self):
-        expected = TABLES_V1 if self.transform_version == "feedback-v1" else TABLES
+        expected = TABLES_BY_VERSION[self.transform_version]
         if len(self.tables) != len(expected) or {table.table_id for table in self.tables} != {table.table_id for table in expected}:
             raise ValueError(f"反馈必须包含{len(expected)}张完整数据表")
         if self.scan_completed_at < self.scan_started_at:

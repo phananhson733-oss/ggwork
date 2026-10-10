@@ -18,7 +18,7 @@ class CatalogBinding:
 
 
 def bind_catalog(dataset: FeedbackDataset, catalog_rows, confirmed_links=()) -> dict[str, CatalogBinding]:
-    if dataset.transform_version == "feedback-v2":
+    if dataset.transform_version != "feedback-v1":
         return _bind_v2(dataset, catalog_rows)
     result, claimed = {}, {}
     for row in catalog_rows:

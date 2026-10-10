@@ -7,7 +7,7 @@ from typing import Protocol
 
 from pydantic import ValidationError
 
-from ggwork_pick.feedback.contracts import TABLES, TRANSFORM_VERSION, FeedbackSnapshot, SourceField, SourcePage, SourceTable, TableSnapshotV2
+from ggwork_pick.feedback.contracts import TABLES_BY_VERSION, TRANSFORM_VERSION, FeedbackSnapshot, SourceField, SourcePage, SourceTable, TableSnapshotV2
 
 MAX_RECORDS = 50_000
 MAX_BYTES = 64 * 1024 * 1024
@@ -49,7 +49,7 @@ async def _scan(source: FeedbackSource) -> FeedbackSnapshot:
     started = datetime.now(UTC)
     tables = []
     total_records, total_bytes = 0, 0
-    for table in TABLES:
+    for table in TABLES_BY_VERSION[TRANSFORM_VERSION]:
         fields = await source.fields(table)
         records, seen, offset, revision, total = [], set(), 0, None, None
         for page_number in range(1, MAX_PAGES + 1):

@@ -3,7 +3,7 @@
 Never deploy/import this module in production. Run with isolated DEER_FLOW_HOME,
 config, database and regular QA account. FEEDBACK_E2E_HOME/state.json controls
 source mode (ok/partial/auth/error/pending), views and mapping_mode
-(confirmed/inactive_external/pending_master). Source replaces ONLY the
+(confirmed/manual_unverified/pending_master). Source replaces ONLY the
 provider: actual sync, SQL, auth, routes, runtime tools, and frontend stay intact.
 The fixture endpoints require normal authenticated sessions. Candidate runs are
 explicitly scripted, not evidence that a live model selected/called these tools.
@@ -46,26 +46,23 @@ class SyntheticSource:
                 "外部ID类型": "剧目ID",
                 "外部ID": "001Synthetic",
                 "适用范围": "账号:synthetic-cps-account",
-                "确认状态": "已停用" if mapping_mode == "inactive_external" else "已确认",
+                "确认状态": "已确认",
                 "核对依据": "Synthetic fixture assertion; not real financial evidence",
             }
         ]
-        rows["cps_auto"][0].update(
+        # feedback-v3 has no automatic CPS lane: revenue reaches a drama only through a manual row that
+        # links it and states the single-drama grain. A direct link alone must not attribute the amount.
+        rows["cps_manual"][0].update(
             {
                 "关联剧集": [{"id": "drama-a"}],
-                "合作方": "RSBoost",
                 "剧场": "ReelShort",
-                "来源剧目ID": "001Synthetic",
-                "账号ID": "synthetic-cps-account",
-                "数据粒度": "单剧",
+                "数据粒度": "待核验" if mapping_mode == "manual_unverified" else "单剧",
             }
         )
-        # A legacy association and direct CPS link must not bypass a revoked v2 mapping.
-        rows["posts"][0]["剧ID（RS Boost）"] = "001Synthetic"
         rows["observations"][1]["播放量"] = self.state.get("views", 150)
         if self.state["mode"] == "partial":
             rows["observations"][1]["采集状态"] = ["部分缺失"]
-        self.tables = {t.table_id: t for t in snapshot_from_rows(rows, transform_version="feedback-v2").tables}
+        self.tables = {t.table_id: t for t in snapshot_from_rows(rows, transform_version="feedback-v3").tables}
 
     async def fields(self, table):
         if self.state["mode"] == "auth":

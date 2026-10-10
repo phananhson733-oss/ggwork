@@ -347,5 +347,14 @@ V2_ADDITIONS = {
         "确认时间": frozenset({"datetime"}),
     },
 }
+# Reviewed feedback-v2 -> feedback-v3 removals (2026-10-09 Base reorganisation). A column bound by an older
+# baseline may be absent from a scan only if it is named here; a column of that name added later is not read.
+V3_REMOVALS = {
+    "accounts": frozenset({"表现形式", "所属组"}),
+    "posts": frozenset({"剧ID（RS Boost）"}),
+    "cps_manual": frozenset({"收益汇总表"}),
+}
 REQUIRED_FIELDS = {key: {**REQUIRED_FIELDS_V1.get(key, {}), **V2_ADDITIONS.get(key, {})} for key in REQUIRED_FIELDS_V1 | V2_ADDITIONS}
-FIELD_NAMES = {key: FIELD_NAMES_V1.get(key, frozenset()).union(V2_ADDITIONS.get(key, {})) for key in FIELD_NAMES_V1 | V2_ADDITIONS}
+FIELD_NAMES = {
+    key: FIELD_NAMES_V1.get(key, frozenset()).union(V2_ADDITIONS.get(key, {})) - V3_REMOVALS.get(key, frozenset()) for key in FIELD_NAMES_V1 | V2_ADDITIONS
+}
