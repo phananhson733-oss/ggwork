@@ -87,7 +87,9 @@ Content-Type: application/json
 
 - `scopes` — subset of the route permissions: `threads:read`, `threads:write`,
   `threads:delete`, `runs:create`, `runs:read`, `runs:cancel`. A PAT can only
-  *narrow* its owning user's permissions, never widen them.
+  *narrow* its owning user's permissions, never widen them. One route-bound
+  scope may be requested as well, alone or beside the others: `pick:read`
+  (see PAT Constraints).
 - `expires_in_days` — optional (`1`–`365`); omitted means the token never expires.
 
 **Response (`201`):**
@@ -148,6 +150,14 @@ Revocation is immediate.
   regardless of scopes. Scope enforcement alone only constrains
   permission-decorated routes, so the allowlist is the outer boundary;
   session-cookie callers are unaffected.
+- **Route-bound scope `pick:read`:** the pick workbench's routes carry no
+  permission decorator, so the route policy checks the token's own scope.
+  A token holding `pick:read` is admitted to `POST /api/pick/query` (a POST
+  that only reads) and `GET /api/pick/sync`, and runs as its owning user.
+  Every other `/api/pick` route — selections, plans, imports, feedback,
+  resource links, and `POST /api/pick/sync` — answers `403` to PAT callers.
+  `pick:read` is not a route permission: it grants nothing on thread/run
+  routes, and the thread/run scopes grant nothing on pick routes.
 - PAT credentials never carry admin capability, even when the owning user is
   an admin. This includes extension-contributed admin routes: the extension
   principal projection suppresses every admin signal for PAT callers.
