@@ -85,7 +85,10 @@ def count(value) -> int | None:
 
 
 def rows(snapshot: FeedbackSnapshot, key: str) -> list[dict]:
-    table = next(table for table in snapshot.tables if table.table_id == TABLE_BY_KEY[key].table_id)
+    # A validated snapshot holds exactly its version's tables; one it never read has no rows.
+    table = next((table for table in snapshot.tables if table.table_id == TABLE_BY_KEY[key].table_id), None)
+    if table is None:
+        return []
     names = {field.field_id: field.semantic_name or field.name for field in table.fields}
     return [{"record_id": record.record_id, **{names[field_id]: value for field_id, value in record.values.items()}} for record in table.records]
 
@@ -135,7 +138,7 @@ class FeedbackDataset:
 
 
 def normalize(snapshot: FeedbackSnapshot) -> FeedbackDataset:
-    v2 = snapshot.transform_version == "feedback-v2"
+    v2 = snapshot.transform_version != "feedback-v1"
     dramas = {}
     for row in rows(snapshot, "dramas"):
         language = text_value(row.get("语言"))

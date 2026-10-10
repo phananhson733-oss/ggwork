@@ -25,7 +25,7 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
     views = 150,
     mapping_mode:
       | "confirmed"
-      | "inactive_external"
+      | "manual_unverified"
       | "pending_master" = "confirmed",
   ) =>
     writeFileSync(
@@ -61,12 +61,12 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   await panel.getByRole("button", { name: "刷新飞书反馈" }).click();
   await expect
     .poll(async () => (await status()).current?.tables.length)
-    .toBe(16);
-  await expect(panel).toContainText("16 / 16", { timeout: 20000 });
+    .toBe(13);
+  await expect(panel).toContainText("13 / 13", { timeout: 20000 });
   await panel.getByText("逐表状态", { exact: true }).click();
-  await expect(panel.getByRole("listitem")).toHaveCount(16);
+  await expect(panel.getByRole("listitem")).toHaveCount(13);
   await page.screenshot({
-    path: info.outputPath("feedback-16-tables.png"),
+    path: info.outputPath("feedback-13-tables.png"),
     fullPage: true,
   });
   const selectionsBefore = await (
@@ -96,7 +96,7 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   expect(frozen.feedback.items[0].metrics.views_total).toBe("150");
   expect(frozen.feedback.items[0].revenue).toEqual([
     expect.objectContaining({
-      source_lane: "cps_auto",
+      source_lane: "cps_manual",
       grain: "drama",
       currency: "USD",
       metric: "commission",
@@ -107,15 +107,18 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
     expect.arrayContaining([
       expect.objectContaining({ source_lane: "dramas", record_id: "drama-a" }),
       expect.objectContaining({
-        source_lane: "cps_auto",
-        record_id: "revenue-account",
-      }),
-      expect.objectContaining({
-        source_lane: "external_ids",
-        record_id: "synthetic-mapping-a",
+        source_lane: "cps_manual",
+        record_id: "revenue-manual",
+        attribution: "confirmed",
       }),
     ]),
   );
+  // feedback-v3 reads no automatic CPS table, and nothing else stands in for it.
+  expect(
+    frozen.feedback.items[0].evidence_refs.map(
+      (ref: { source_lane: string }) => ref.source_lane,
+    ),
+  ).not.toContain("cps_auto");
   expect(frozen.feedback.items[0].coverage.measured_posts).toBe(2);
   expect(frozen.feedback.items[0].coverage.missing_posts).toBe(1);
   expect((await context.request.get("/api/pick/selections")).ok()).toBeTruthy();
@@ -144,7 +147,7 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   await expect(evidence).toContainText("累计播放：150");
   await expect(evidence).toContainText("点赞：未知");
   await expect(evidence).toContainText(
-    "CPS 自动明细 · 单剧 · 分成收益：12.34 USD",
+    "CPS 手动明细 · 单剧 · 分成收益：12.34 USD",
   );
   await expect(evidence).toContainText("已测播放 2 条 · 缺失 1 条");
   await expect(
@@ -182,7 +185,8 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   await expect(
     page.getByRole("region", { name: "运营反馈依据" }).last(),
   ).toContainText("累计播放：150");
-  state("ok", 900, "inactive_external");
+  // A manual row whose grain is not stated as single-drama keeps its link but attributes nothing.
+  state("ok", 900, "manual_unverified");
   const revokedResponse = await context.request.post(
     "/api/pick/e2e/candidate",
     { headers },
@@ -199,13 +203,13 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
   expect(revokedNotes.feedback.items[0].metrics.views_total).toBe("900");
   expect(revokedNotes.feedback.items[0].revenue).toEqual([]);
   expect(revokedNotes.feedback.items[0].warnings).toContain(
-    "external_mapping_inactive",
+    "revenue_grain_unconfirmed",
   );
   expect(revokedNotes.feedback.items[0].evidence_refs).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        source_lane: "external_ids",
-        record_id: "synthetic-mapping-a",
+        source_lane: "cps_manual",
+        record_id: "revenue-manual",
         attribution: "ambiguous",
       }),
     ]),
@@ -246,7 +250,7 @@ test("synthetic source crosses real sync, persistence, candidate notes and UI", 
     .last();
   await expect(historicalEvidence).toContainText("累计播放：150");
   await expect(historicalEvidence).toContainText(
-    "CPS 自动明细 · 单剧 · 分成收益：12.34 USD",
+    "CPS 手动明细 · 单剧 · 分成收益：12.34 USD",
   );
   await page.screenshot({
     path: info.outputPath("feedback-mapping-change-frozen.png"),

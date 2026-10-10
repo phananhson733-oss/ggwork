@@ -53,8 +53,8 @@ async def test_refresh_pending_coalesces_and_can_resume_completed_job(pick_db_ur
         assert len(constructions) == 1
         await service.refresh("alice", wait_seconds=2)
         assert len(constructions) == 2
-        assert len(constructions[1][1]) == 16
-        assert constructions[1][2] == "feedback-v2"
+        assert len(constructions[1][1]) == 13
+        assert constructions[1][2] == "feedback-v3"
         assert constructions[0][2] is None
         with pytest.raises(PermissionError):
             await service.refresh("bob", resume_run_id=run_id)

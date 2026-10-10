@@ -8,8 +8,7 @@ from ggwork_pick import lark_runner
 from ggwork_pick.feedback.contracts import (
     BASE_TOKEN,
     TABLE_BY_KEY,
-    TABLES,
-    TABLES_V1,
+    TABLES_BY_VERSION,
     TRANSFORM_VERSION,
     SourceField,
     SourcePage,
@@ -18,7 +17,7 @@ from ggwork_pick.feedback.contracts import (
     SourceRecordV2,
     SourceTable,
 )
-from ggwork_pick.feedback.fields import FIELD_NAMES, REQUIRED_FIELDS, V2_ADDITIONS
+from ggwork_pick.feedback.fields import FIELD_NAMES, REQUIRED_FIELDS, V2_ADDITIONS, V3_REMOVALS
 from ggwork_pick.feedback.source import FeedbackSourceError
 
 
@@ -40,10 +39,10 @@ def envelope(completed: lark_runner.Completed) -> dict:
 
 def parse_export(table: SourceTable, fields: list[SourceField], ndjson: str, manifest: dict, *, transform_version: str = "feedback-v1") -> SourcePage:
     try:
-        if transform_version not in {"feedback-v1", "feedback-v2"}:
+        if transform_version not in TABLES_BY_VERSION:
             raise FeedbackSourceError("incomplete")
-        record_type = SourceRecordV2 if transform_version == "feedback-v2" else SourceRecord
-        page_type = SourcePageV2 if transform_version == "feedback-v2" else SourcePage
+        record_type = SourceRecord if transform_version == "feedback-v1" else SourceRecordV2
+        page_type = SourcePage if transform_version == "feedback-v1" else SourcePageV2
         if manifest.get("base_token") != BASE_TOKEN or manifest.get("table_id") != table.table_id:
             raise FeedbackSourceError("incomplete")
         context = manifest.get("query_context", {})
@@ -89,11 +88,13 @@ class FeishuFeedbackSource:
         if not owner_id or owner_id in ("default", "system:shared"):
             raise ValueError("缺少反馈用户身份")
         if baseline_transform_version is not None:
-            expected = {table.table_id for table in (TABLES_V1 if baseline_transform_version == "feedback-v1" else TABLES)}
-            if baseline_transform_version not in {"feedback-v1", "feedback-v2"} or set(baseline or {}) != expected:
+            expected = {table.table_id for table in TABLES_BY_VERSION.get(baseline_transform_version, ())}
+            if not expected or set(baseline or {}) != expected:
                 raise FeedbackSourceError("schema_changed")
         self.owner_id = owner_id
         self.transition_tables = set(baseline or {}) if baseline_transform_version == "feedback-v1" else set()
+        # A baseline older than this code's version may lose the reviewed columns, once per table.
+        self.retiring_tables = set(baseline or {}) if baseline_transform_version not in (None, TRANSFORM_VERSION) else set()
         # Only server-loaded last-published schema supplies the baseline, never model parameters.
         self.bound_fields = {table_id: {field.field_id: field for field in fields} for table_id, fields in (baseline or {}).items()}
 
@@ -183,7 +184,9 @@ class FeishuFeedbackSource:
             if any(field.name not in approved for field in additions):
                 raise FeedbackSourceError("schema_changed")
             selected = [field for field in all_fields if field.field_id in bound]
-            if len(selected) != len(bound) or any(
+            retired = V3_REMOVALS.get(table.key, frozenset()) if table.table_id in self.retiring_tables else frozenset()
+            missing = [field for field_id, field in bound.items() if field_id not in seen]
+            if any((field.semantic_name or field.name) not in retired for field in missing) or any(
                 field.field_type != bound[field.field_id].field_type or field.properties != bound[field.field_id].properties for field in selected
             ):
                 raise FeedbackSourceError("schema_changed")
@@ -196,6 +199,7 @@ class FeishuFeedbackSource:
         # Only bind after every schema check. Later reads in this same scan are strict too.
         self.bound_fields[table.table_id] = {field.field_id: field for field in selected}
         self.transition_tables.discard(table.table_id)
+        self.retiring_tables.discard(table.table_id)
         return selected
 
     @staticmethod

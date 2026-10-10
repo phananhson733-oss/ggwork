@@ -25,12 +25,12 @@ def coverage(posts):
 def _item(data, key, posts, drama_ids, now, *, kind="cohort", include_revenue=True):
     metrics = {}
     warnings = set(data.warnings)
-    if data.transform_version == "feedback-v2":
+    if data.transform_version != "feedback-v1":
         warnings = {warning for warning in warnings if not _mapping_warning(warning)}
     evidence = [ref for post in posts for ref in data.evidence[post.post_key]]
     for drama_id in sorted(drama_ids):
         evidence.extend(data.evidence.get(f"dramas:{drama_id}", []))
-    if data.transform_version == "feedback-v2":
+    if data.transform_version != "feedback-v1":
         for source_key, resolution in data.revenue_resolutions.items():
             if drama_ids.intersection(resolution.related_drama_ids):
                 warnings.update(resolution.warnings)
@@ -178,7 +178,7 @@ def analyze_feedback(snapshot, query: FeedbackAnalysisQuery, version_id: str, *,
         "unknown_identity_exclusion_scope": "source_snapshot_all_publications",
         "unattributed_revenue_observations_excluded": sum(row.attribution != "confirmed" for row in data.revenue),
     }
-    if data.transform_version == "feedback-v2":
+    if data.transform_version != "feedback-v1":
         scope.update(_mapping_scope(data))
     warnings = sorted(set(data.warnings) | {"genre_groups_non_additive", "missing_is_not_zero", "no_fixed_age_or_conversion_claim"})
     if not include_revenue:
@@ -213,7 +213,7 @@ def drama_feedback(
         posts = [post for post in data.posts if post.drama_record_id in drama_ids and post.channel != "unknown"]
         selected.update({post.post_key: post for post in posts})
         item = _item(data, identity, posts, drama_ids, now, kind="direct" if binding.status == "confirmed" else "unknown")
-        if data.transform_version == "feedback-v2":
+        if data.transform_version != "feedback-v1":
             item.warnings = sorted(set(item.warnings) | set(binding.warnings))
             known_refs = {(ref.table_id, ref.record_id) for ref in item.evidence_refs}
             for drama_id in binding.evidence_drama_ids:
@@ -225,7 +225,7 @@ def drama_feedback(
         items.append(item)
     mapping_scope = {}
     warnings = set(data.warnings)
-    if data.transform_version == "feedback-v2":
+    if data.transform_version != "feedback-v1":
         mapping_scope = _mapping_scope(data)
         mapping_scope["catalog_binding_counts"] = dict(Counter(binding.status for binding in bindings.values()))
         mapping_scope["catalog_binding_scope"] = "catalog_population_before_candidate_filter"
