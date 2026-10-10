@@ -136,6 +136,8 @@ class Manifest:
     row: Mapping[str, object]
     metrics: PageMetrics
     busy_sleeps: tuple[int, ...] = ()
+    # Requests before this one that got no response at all (client.manifest_when_free asks once more): 0 or 1.
+    unanswered_retries: int = 0
 
     @property
     def as_of_text(self) -> str:
@@ -262,7 +264,7 @@ def _manifest_row(body: object, as_of_text: str) -> dict:
     return row
 
 
-def parse_manifest(body: object, *, as_of: datetime, metrics: PageMetrics, busy_sleeps: tuple[int, ...] = ()) -> Manifest:
+def parse_manifest(body: object, *, as_of: datetime, metrics: PageMetrics, busy_sleeps: tuple[int, ...] = (), unanswered_retries: int = 0) -> Manifest:
     """The manifest page (rs:src/lib/pick/export-v2.ts:497-518): transport here, then contracts.parse_manifest for the
     content (every key and nested shape of MANIFEST_SHAPE, forbidden names, NUL); synchronous, so a large page's caller
     runs it in a worker thread."""
@@ -283,4 +285,5 @@ def parse_manifest(body: object, *, as_of: datetime, metrics: PageMetrics, busy_
         row=MappingProxyType(row),
         metrics=metrics,
         busy_sleeps=tuple(busy_sleeps),
+        unanswered_retries=unanswered_retries,
     )

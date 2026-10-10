@@ -100,6 +100,58 @@ async def test_one_request_has_a_total_time_limit():
     assert "0.05" in str(caught.value) and caught.value.resource == "manifest"
 
 
+def _unanswered(*numbers: int, otherwise=None):
+    """An intercept under which these manifest requests (by number) get no response at all; otherwise(call) answers the rest."""
+
+    def intercept(call):
+        if call.resource == "manifest" and call.n in numbers:
+            raise httpx.ReadTimeout("no answer")
+        return otherwise(call) if otherwise is not None else None
+
+    return intercept
+
+
+@pytest.mark.asyncio
+async def test_an_unanswered_manifest_is_asked_once_more_when_a_retry_delay_is_set():
+    fake, clock = world(intercept=_unanswered(1))
+    async with make_client(fake, clock, manifest_retry_delay=90) as client:
+        manifest = await client.manifest_when_free()
+    asked = [call.params["as_of"] for call in fake.calls]
+    assert clock.sleeps == [90] and manifest.unanswered_retries == 1
+    # The second request chooses its own as_of: the first one's is a minute and a half older by then.
+    assert len(asked) == 2 and asked[0] != asked[1] and manifest.as_of_text == asked[1]
+
+
+@pytest.mark.asyncio
+async def test_a_manifest_unanswered_twice_raises_and_says_it_was_asked_again():
+    fake, clock = world(intercept=_unanswered(1, 2))
+    async with make_client(fake, clock, manifest_retry_delay=90) as client:
+        with pytest.raises(FeedConnectionError) as caught:
+            await client.manifest_when_free()
+    assert clock.sleeps == [90] and len(fake.calls) == 2
+    assert "ReadTimeout" in str(caught.value) and "重试 1 次" in str(caught.value) and caught.value.resource == "manifest"
+    assert EXPORT_TOKEN not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_an_unanswered_manifest_is_not_asked_again_without_a_retry_delay():
+    # The dry run and the backfill keep the client's default: one request, its failure raised as it is.
+    fake, clock = world(intercept=_unanswered(1))
+    async with make_client(fake, clock) as client:
+        with pytest.raises(FeedConnectionError) as caught:
+            await client.manifest_when_free()
+    assert clock.sleeps == [] and len(fake.calls) == 1 and "重试" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_the_retry_keeps_the_busy_waits_already_spent():
+    # busy, no answer, busy, answered: one busy budget for the whole call, whatever the retry adds in between.
+    fake, clock = world(intercept=_unanswered(2, otherwise=lambda call: busy() if call.n in (1, 3) else None))
+    async with make_client(fake, clock, manifest_retry_delay=90) as client:
+        manifest = await client.manifest_when_free()
+    assert clock.sleeps == [60, 90, 60] and manifest.busy_sleeps == (60, 60) and manifest.unanswered_retries == 1
+
+
 @pytest.mark.parametrize("base", ["http://127.0.0.1:8123", "http://localhost:3000", "http://[::1]:3000", "http://realshort.test", BASE])
 def test_cleartext_only_to_local_or_test_hosts(base):
     FeedClient(base_url=base, export_token=EXPORT_TOKEN)
