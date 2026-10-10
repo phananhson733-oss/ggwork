@@ -1015,3 +1015,14 @@ Trends deployment `70ba9db3-21c5-42f4-8f86-5382a2373bb5` is successful; service/
 Formal-domain checks also passed for the current user's four saved selections and notes, prefilled planning form (no draft created), an existing20-card conversation, shared published records and the6,716-row historical Radar. The published-review source authorization notice is correct for the QA session. See [the complete production release record](releases/2026-10-09-completion-production.md).
 
 - `pick-deploy-guard target=cron:trends commit=954d0eb415b536a91b3da40102578b992e9a7e24 prod_head=0011 chain_head=0011 at=2026-10-09T04:55:42Z`
+
+
+## 2026-10-10 — Feedback suspended after an intentional source reorganisation
+
+The fixed feedback Base lost three tables and four bound columns on 2026-10-09. Every refresh was then refused with `schema_changed` (27 in a row), and the feedback owner's non-ranking candidate queries returned that refusal instead of candidates. The user confirmed the removal was intentional and authorized suspending feedback.
+
+- `PICK_FEEDBACK_ENABLED` and `PICK_FEEDBACK_SCHEDULE_ENABLED` were set to `0`; Railway configuration deployment `65c15829-8084-452f-b734-2a756fa73309` reached SUCCESS at 04:16 UTC. The container resolves feedback as disabled with the owner still configured, no run was created after the restart, and the current version and lease are unchanged. No source upload, migration, data mutation or frontend deployment; the deployment guard was not run for this variable-only change.
+- The affected user's retried candidate query has not yet been confirmed.
+- Not deployed: the feedback-v3 source contract (thirteen tables; revenue from manual CPS and RS only) and the candidate card that shows why no candidates were produced. Both are implemented with tests in the change set that carries this record and were not deployed when it was written. Deploying v3 and re-enabling the flags each need separate authorization.
+
+See [the suspension record](releases/2026-10-10-feedback-suspension.md).
