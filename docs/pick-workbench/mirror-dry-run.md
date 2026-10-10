@@ -12,7 +12,7 @@
 ## 什么时候跑
 
 - **P1-6**：P2-2a 客户端合并之后、realshort#67 合并之前，在 RealShort `feat/pick-export-v2` 分支的 Preview 上跑。Preview 读生产库时，测到的数字就是生产的查询增量；读的是不是生产库，前提第 1 步要先核实。
-- 避开三个时段：RealShort 的 cron、Mac mini 的剧单导入、工作台 03:40 / 15:40 UTC 的定时同步。
+- 避开三个时段：RealShort 的 cron、Mac mini 的剧单导入、工作台 03:40 / 15:40 UTC 的定时同步（原生采集模式下，每次采集完成后约 5 分钟内还有一次同步）。
 - 在哪台机器上跑：出口 IP 不能属于阿里云（AS45102）或腾讯云（AS132203）。RealShort 的防火墙按 ASN 拒绝这两家（`rs:src/lib/crawler-policy.ts`），响应是 `403`。挂着这两家的代理，或在这两家的云主机上跑，都会被挡。
 - **`--scan`（U52）**：能在 P1-6 这次一起跑就一起跑。没跑成的话，等 Production 配好正式 `PICK_EXPORT_TOKEN`、打开镜像之前，在 Production 上单独跑一次，同样避开 cron。Production 不需要 bypass。`--scan` 还会把 v2 每页（含 rs_series_day）和 manifest 过一遍镜像写入用的严格模型（门槛 `contract`），在生产上跑这一次，也就顺带验证了严格行模型接得住真实数据。
 

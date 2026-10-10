@@ -42,6 +42,15 @@ CPS metrics are collected before a new daily observation can be created. Restori
 
 MoboReels is the named retained-source exception approved on 2026-10-08. Its rows and signal records are not rewritten during another theater's import. The source receipt carries `moboreels_retained` and the workbench displays that warning. Other missing sources never silently become empty tables. Queyu ranking files reconstructed from retained signal histories explicitly identify their backup provenance and keep observed dates; missing login and incomplete library collection are visible independently.
 
+## Publication after collection
+
+Collection writes `pick_source`; the workbench page and the agent read published versions, which only a sync run produces. Besides the two daily slots (03:40 / 15:40 UTC), the gateway asks the loopback `/status` every five minutes (`ggwork_pick/schedule.py`, `run_collection_watch`). When a job's `last_success_at` is later than the latest sync run's `started_at` and no job is running, it starts one run with trigger `collect`. The source process never calls the gateway and still holds no gateway credential.
+
+- One run per finished collection. A run of any status that started after the collection counts, so a failed or degraded run is not repeated for the same collection; the slots remain the retry.
+- A job still `running` postpones the run: the source would answer `source_busy`, and the next job's rows would need a second run.
+- With the current cadence this adds about five runs a day (four CPS collections, one catalog import). Each publishes a mirror version, so the retention rules in `mirror/retention.py` turn over faster: the latest three versions always stay, and versions kept only because a recent candidate snapshot names them give way sooner once more than ten are held.
+- A manifest request that gets no response is asked once more after 90 seconds before the run falls back to v1 (see [mirror-runbook.md](mirror-runbook.md), section 4).
+
 ## Recovery
 
 - A failed catalog transaction preserves all previous content. Fix the reported source, then run the corresponding collector once; do not bypass shrink/completeness checks.
