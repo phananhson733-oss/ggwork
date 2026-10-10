@@ -141,6 +141,26 @@ def _make_pat_app(with_pat_repo: bool = True):
         require_cancel_permission_if(request, body.multitask_strategy != "reject")
         return {"ok": True}
 
+    # Mirrors the pick extension's router shape (ggwork_pick/routes.py): no
+    # @require_permission, the handler only needs the authenticated owner.
+    # The two reads the route-bound pick:read scope admits, the write that
+    # shares a path with one of them, and a write beside them.
+    @app.post("/api/pick/query")
+    async def pick_query(request: Request):
+        return {"owner": str(request.state.user.id), "permissions": list(request.state.auth.permissions)}
+
+    @app.get("/api/pick/sync")
+    async def pick_sync_status(request: Request):
+        return {"owner": str(request.state.user.id)}
+
+    @app.post("/api/pick/sync")
+    async def pick_sync_now(request: Request):
+        return {"started": True}
+
+    @app.post("/api/pick/selections")
+    async def pick_save_selection(request: Request):
+        return {"saved": True}
+
     return app
 
 
@@ -504,6 +524,87 @@ def test_pat_policy_allows_thread_lifecycle_routes(client):
     response = client.delete("/api/threads/t1", headers={"Authorization": f"Bearer {created['token']}"})
     assert response.status_code == 200
     assert response.json() == {"deleted": True}
+
+
+# ── Route-bound scopes: the pick workbench's read surface ─────────────────
+
+_ROUTE_PERMISSION_SCOPES = ["threads:read", "threads:write", "threads:delete", "runs:create", "runs:read", "runs:cancel"]
+
+
+def test_pick_read_pat_reaches_the_read_only_pick_routes(client):
+    """The pick routes carry no permission decorator, so the token's own
+    pick:read scope is what the route policy checks. The request runs as the
+    owning user, which is all the extension's owner check needs."""
+    created = _create_pat(client, scopes=["pick:read"])
+    client.cookies.clear()
+    bearer = {"Authorization": f"Bearer {created['token']}"}
+
+    query = client.post("/api/pick/query", json={}, headers=bearer)
+    assert query.status_code == 200
+    assert query.json()["owner"] == "user-1"
+    status = client.get("/api/pick/sync", headers=bearer)
+    assert status.status_code == 200
+    assert status.json() == {"owner": "user-1"}
+
+
+def test_pick_read_pat_cannot_write_pick_data(client):
+    """Read-only means the method too: starting a sync is a POST on the same
+    path as the status read, and saving a selection sits beside the query."""
+    created = _create_pat(client, scopes=["pick:read"])
+    client.cookies.clear()
+    bearer = {"Authorization": f"Bearer {created['token']}"}
+
+    for path in ("/api/pick/sync", "/api/pick/selections"):
+        response = client.post(path, json={}, headers=bearer)
+        assert response.status_code == 403, path
+        assert "PAT" in response.json()["detail"]
+
+
+def test_pat_without_pick_read_is_denied_on_pick_routes(client):
+    """Holding every route permission does not open the pick routes: the
+    route-bound scope is not implied by the thread/run scopes."""
+    created = _create_pat(client, scopes=_ROUTE_PERMISSION_SCOPES)
+    client.cookies.clear()
+    bearer = {"Authorization": f"Bearer {created['token']}"}
+
+    assert client.post("/api/pick/query", json={}, headers=bearer).status_code == 403
+    assert client.get("/api/pick/sync", headers=bearer).status_code == 403
+
+
+def test_pick_read_is_not_a_route_permission(client):
+    """pick:read opens its two routes and nothing else: it never appears in
+    the resolved permissions, so permission-decorated routes stay closed."""
+    created = _create_pat(client, scopes=["pick:read"])
+    client.cookies.clear()
+    bearer = {"Authorization": f"Bearer {created['token']}"}
+
+    assert client.post("/api/pick/query", json={}, headers=bearer).json()["permissions"] == []
+    assert client.post("/api/runs/stream", headers=bearer).status_code == 403
+    assert client.delete("/api/memory", headers=bearer).status_code == 403
+
+
+def test_pick_route_policy_names_methods_and_scope_exactly():
+    from app.gateway.auth.pat import PAT_ALLOWED_SCOPES, is_pat_allowed_route
+
+    pick = frozenset({"pick:read"})
+    assert is_pat_allowed_route("POST", "/api/pick/query", pick) is True
+    assert is_pat_allowed_route("GET", "/api/pick/sync", pick) is True
+    assert is_pat_allowed_route("GET", "/api/pick/sync/", pick) is True
+    # The scope is required: no scopes and every other scope are both denied.
+    assert is_pat_allowed_route("POST", "/api/pick/query") is False
+    assert is_pat_allowed_route("POST", "/api/pick/query", PAT_ALLOWED_SCOPES) is False
+    for method, path in [
+        ("GET", "/api/pick/query"),
+        ("POST", "/api/pick/sync"),
+        ("POST", "/api/pick/query/extra"),
+        ("GET", "/api/pick/selections"),
+        ("POST", "/api/pick/selections"),
+        ("GET", "/api/pick/resources"),
+        ("POST", "/api/pick/imports"),
+        ("POST", "/api/pick/plans"),
+        ("POST", "/api/pick/feedback/sync"),
+    ]:
+        assert is_pat_allowed_route(method, path, pick) is False, f"{method} {path} must stay closed to pick:read"
 
 
 def test_pat_policy_does_not_pre_authorize_unimplemented_methods():

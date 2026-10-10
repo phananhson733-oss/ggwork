@@ -7,7 +7,9 @@ generic failure surface so a 401 never reveals which check failed.
 
 v1 scopes are exactly the route-permission strings owned by
 ``app.gateway.authz`` — a PAT can only narrow its owning user's
-permissions, never widen them.
+permissions, never widen them. Route-bound scopes (``PAT_ROUTE_BOUND_SCOPES``)
+are the one addition: they name routes that carry no permission decorator, so
+the route policy itself checks that the token holds them.
 """
 
 from __future__ import annotations
@@ -38,6 +40,15 @@ PAT_ALLOWED_SCOPES: frozenset[str] = frozenset(
         "projects:delete",
     }
 )
+
+# Scopes for routes without ``@require_permission`` (extension routers resolve
+# the caller through the neutral principal projection instead). They are not
+# authz route permissions, so the middleware's permission intersection cannot
+# narrow them; ``_PAT_SCOPED_ROUTE_RULES`` enforces them at the route boundary.
+# Kept apart from ``PAT_ALLOWED_SCOPES`` so that set stays exactly the authz
+# permissions.
+PAT_PICK_READ_SCOPE = "pick:read"
+PAT_ROUTE_BOUND_SCOPES: frozenset[str] = frozenset({PAT_PICK_READ_SCOPE})
 
 PAT_MAX_NAME_LENGTH = 128
 
@@ -116,17 +127,32 @@ _PAT_ROUTE_RULES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = (
     (frozenset({"GET"}), re.compile(r"^/api/runs/[^/]+/(messages|feedback)$")),
 )
 
+# Routes admitted only to a token that itself holds the named scope. The pick
+# workbench's read surface for programmatic clients: the common query (a POST
+# that only reads) and the data-freshness status. Everything else under
+# /api/pick — selections, plans, imports, feedback, starting a sync (POST on
+# the same /sync path) — stays closed to PAT callers, so a leaked token can
+# read the owner's pick data but never change it.
+_PAT_SCOPED_ROUTE_RULES: tuple[tuple[frozenset[str], re.Pattern[str], str], ...] = (
+    (frozenset({"POST"}), re.compile(r"^/api/pick/query$"), PAT_PICK_READ_SCOPE),
+    (frozenset({"GET"}), re.compile(r"^/api/pick/sync$"), PAT_PICK_READ_SCOPE),
+)
+
 _BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 
-def is_pat_allowed_route(method: str, path: str) -> bool:
+def is_pat_allowed_route(method: str, path: str, scopes: frozenset[str] = frozenset()) -> bool:
     """Return whether the PAT route policy admits *method* + *path*.
 
     Trailing slashes are normalized away so the mounted route and its
-    redirect-style twin resolve identically.
+    redirect-style twin resolve identically. *scopes* are the token's own
+    stored scopes; they matter only for the route-bound rules, which admit a
+    route when the token holds that rule's scope.
     """
     normalized = path.rstrip("/") or "/"
-    return any(method in methods and pattern.match(normalized) for methods, pattern in _PAT_ROUTE_RULES)
+    if any(method in methods and pattern.match(normalized) for methods, pattern in _PAT_ROUTE_RULES):
+        return True
+    return any(method in methods and scope in scopes and pattern.match(normalized) for methods, pattern, scope in _PAT_SCOPED_ROUTE_RULES)
 
 
 @functools.cache
@@ -224,7 +250,7 @@ async def authenticate_pat(app: Any, authorization: str | None) -> tuple[Any, fr
 
 def validate_scopes(scopes: list[str]) -> list[str]:
     """Validate a creation-time scope list; returns the deduplicated order."""
-    unknown = sorted(set(scopes) - PAT_ALLOWED_SCOPES)
+    unknown = sorted(set(scopes) - PAT_ALLOWED_SCOPES - PAT_ROUTE_BOUND_SCOPES)
     if unknown:
         raise ValueError(f"Unknown PAT scopes: {', '.join(unknown)}")
     deduplicated = sorted(set(scopes))

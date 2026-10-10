@@ -95,6 +95,19 @@ def test_pat_scopes_stay_aligned_with_route_permissions():
     assert PAT_ALLOWED_SCOPES == frozenset(_ALL_PERMISSIONS)
 
 
+def test_route_bound_scopes_are_accepted_but_stay_outside_route_permissions():
+    """A route-bound scope is requestable at creation, alone or beside route
+    permissions, and never joins the authz permission set."""
+    from app.gateway.auth.pat import PAT_ROUTE_BOUND_SCOPES
+
+    assert PAT_ROUTE_BOUND_SCOPES == frozenset({"pick:read"})
+    assert PAT_ROUTE_BOUND_SCOPES.isdisjoint(PAT_ALLOWED_SCOPES)
+    assert validate_scopes(["pick:read"]) == ["pick:read"]
+    assert validate_scopes(["runs:read", "pick:read"]) == ["pick:read", "runs:read"]
+    with pytest.raises(ValueError, match="Unknown PAT scopes: pick:write"):
+        validate_scopes(["pick:read", "pick:write"])
+
+
 # ── Repository ────────────────────────────────────────────────────────────
 
 
