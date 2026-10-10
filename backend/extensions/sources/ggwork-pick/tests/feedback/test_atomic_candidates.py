@@ -21,7 +21,6 @@ RESULT_ID = "12345678123456781234567812345678"
 async def atomic_candidate(app_client, monkeypatch):
     from ggwork_pick.context import PickLifecycle, task_from_runtime
     from ggwork_pick.feedback.repository import FeedbackRepository
-    from ggwork_pick.feedback.sync import RefreshOutcome
     from ggwork_pick.imports import Importer
     from ggwork_pick.repository import PickRepository
 
@@ -35,14 +34,13 @@ async def atomic_candidate(app_client, monkeypatch):
     async def start(rows):
         snapshot = snapshot_from_rows(rows)
         run = await repo.claim("manual")
-        version = await repo.publish(run["id"], snapshot)
+        await repo.publish(run["id"], snapshot)
         service.feedback = SimpleNamespace(
             enabled=True,
             owner_id="alice",
             repository=lambda owner: FeedbackRepository(service.session_factory, owner),
-            refresh=AsyncMock(
-                return_value=RefreshOutcome("ok", version_id=version["id"], scan_started_at="2026-10-07T12:00:00Z", verified_at="2026-10-07T12:00:08Z")
-            ),
+            # The candidate pins the version just published; nothing here may start a scan.
+            refresh=AsyncMock(side_effect=AssertionError("a published version is never refreshed for a query")),
         )
         store = ExtensionData("task")
         await PickLifecycle(service).on_task_start(ExtensionData("app"), store, TaskInfo("task", "run", "thread", "lead"))

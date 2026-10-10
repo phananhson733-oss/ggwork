@@ -19,7 +19,6 @@ async def feedback_history(pick_db_url, tmp_path):
     from ggwork_pick.context import PickLifecycle, task_from_runtime
     from ggwork_pick.feedback.contracts import FeedbackReply
     from ggwork_pick.feedback.repository import FeedbackRepository
-    from ggwork_pick.feedback.sync import RefreshOutcome
     from ggwork_pick.imports import Importer
     from ggwork_pick.repository import PickRepository
     from ggwork_pick.selection import SelectionService
@@ -57,9 +56,8 @@ async def feedback_history(pick_db_url, tmp_path):
         enabled=True,
         owner_id="alice",
         repository=lambda owner: FeedbackRepository(factory, owner),
-        refresh=AsyncMock(
-            return_value=RefreshOutcome("ok", version_id=versions[1], scan_started_at="2026-10-07T12:00:00Z", verified_at="2026-10-07T12:00:08Z")
-        ),
+        # versions[1] is published, so live reads pin it as it stands; nothing here may start a scan.
+        refresh=AsyncMock(side_effect=AssertionError("a published version is never refreshed for a query")),
     )
 
     async def runtime_for(record):
@@ -202,7 +200,6 @@ async def test_malformed_feedback_blocks_external_writes(feedback_history, monke
     from langchain_core.tools import tool
 
     from ggwork_pick.feedback.repository import FeedbackRepository
-    from ggwork_pick.feedback.sync import RefreshOutcome
     from ggwork_pick.feedback.tools import analyze_feedback_tool
     from ggwork_pick.middleware import PickToolGate
     from ggwork_pick.tools import query_candidates_tool
@@ -223,10 +220,7 @@ async def test_malformed_feedback_blocks_external_writes(feedback_history, monke
     marker = "SYNTHETIC_OVERLONG_CURRENCY"
     rows["cps_auto"][0]["币种"] = [marker]
     run = await history.repo.claim("manual")
-    version = await history.repo.publish(run["id"], snapshot_from_rows(rows))
-    history.service.feedback.refresh.return_value = RefreshOutcome(
-        "ok", version_id=version["id"], scan_started_at="2026-10-07T12:00:00Z", verified_at="2026-10-07T12:00:08Z"
-    )
+    await history.repo.publish(run["id"], snapshot_from_rows(rows))
     runtime, task = await history.runtime_for(history.empty)
     runtime.tool_call_id = "malformed-feedback"
     snapshot_read = asyncio.Event()

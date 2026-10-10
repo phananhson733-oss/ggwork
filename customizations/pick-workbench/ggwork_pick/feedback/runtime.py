@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from ggwork_pick.feedback.analytics import drama_feedback
 from ggwork_pick.feedback.contracts import FeedbackReply
@@ -15,6 +16,14 @@ NOTICES = {
     "unavailable": "当前无法读取运营反馈，未将历史数据作为最新依据。",
     "refresh_failed": "运营反馈刷新未成功，请检查反馈同步状态；未将历史数据作为最新依据。",
 }
+# The hourly schedule keeps the published version current. Two missed slots is where its age stops being ordinary:
+# one alone is common, because the Base is often edited while it is read.
+STALE_NOTICE_SECONDS = 2 * 3600
+REFRESH_ERRORS = {
+    "auth_required": "需要重新完成飞书用户授权",
+    "schema_changed": "飞书反馈字段发生变化",
+    "source_changed": "读取期间来源表正在被修改",
+}
 
 
 @dataclass(frozen=True)
@@ -23,6 +32,25 @@ class FeedbackPin:
     verified_at: str | None
     scan_started_at: str | None
     freshness: str
+    notice: str = ""
+
+
+def published_pin(status: dict, *, now: datetime | None = None) -> FeedbackPin | None:
+    """The owner's last published version, as it stands; None before anything was published.
+
+    Its reply keeps the version's own scan times and says, past the refresh window, that it is not the latest data.
+    """
+    current = status["current"]
+    if current is None:
+        return None
+    verified_at = status["last_verified_at"] or current["published_at"]
+    age = ((now or datetime.now(UTC)) - datetime.fromisoformat(verified_at)).total_seconds()
+    notice = ""
+    if age > STALE_NOTICE_SECONDS:
+        last = status["last_run"] or {}
+        reason = f"（最近一次失败：{REFRESH_ERRORS.get(last.get('error_code'), '刷新未完成')}）" if last.get("status") == "failed" else ""
+        notice = f"运营反馈已超过{int(age // 3600)}小时没有成功刷新{reason}；本次使用最后一次成功读取的反馈，不是最新数据。"
+    return FeedbackPin(current["id"], verified_at, None, "stale", notice)
 
 
 async def prepare_feedback(task, *, parent=None, resume_run_id=None):
@@ -35,6 +63,14 @@ async def prepare_feedback(task, *, parent=None, resume_run_id=None):
         return pin_historical_feedback(task, frozen)
     if task.feedback_checked:
         return task.feedback_pin, task.feedback_failure
+    # A query never waits on a scan of its own once a version exists: a full read outlasts the foreground wait,
+    # and a refresh that fails must not withhold candidates. That holds for a receipt too: a retry in an old
+    # conversation passes the one it was handed, long expired, and a receipt only ever continues the first scan.
+    published = published_pin(await repo.status())
+    if published is not None:
+        task.feedback_checked = True
+        task.feedback_pin = published
+        return published, None
     outcome = await service.refresh(task.owner_id, wait_seconds=max(0, min(20, task.remaining() - 1)), resume_run_id=resume_run_id)
     task.feedback_checked = True
     if outcome.status != "ok":
@@ -86,7 +122,12 @@ async def candidate_feedback(task, pick_repo, record, pin):
     )
     if pin.scan_started_at and pin.verified_at:
         reply = FeedbackReply.model_validate({**reply.model_dump(mode="json"), "scan_started_at": pin.scan_started_at, "scan_completed_at": pin.verified_at})
-    return reply
+    return noticed(reply, pin)
+
+
+def noticed(reply: FeedbackReply, pin: FeedbackPin) -> FeedbackReply:
+    """What the pin knows about its own age travels with every successful reply read through it."""
+    return reply.model_copy(update={"notice": pin.notice}) if pin.notice and reply.status == "ok" else reply
 
 
 async def frozen_feedback(task, result_id):

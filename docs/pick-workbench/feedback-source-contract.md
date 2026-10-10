@@ -65,6 +65,6 @@ v1记录模型及默认版本保持不变。v2原始记录保留字符串值的�
 
 - 新增独立 `ggwp_feedback_runs`，不复用面向全部登录者的共享sync运行列表，防止财务来源状态跨用户泄漏。
 - 来源schema绑定从上一成功版本manifest加载，保留field_id/type/semantic_name；初始绑定使用15表的必需字段/类型检查。此检查是保守bootstrap，并不替代真实schema验收。
-- 超过20秒的同一请求可以凭已授权的run receipt继续等待，完成后使用该receipt的版本；不会每次重试重新扫描。receipt仅在服务端查owner、终态与短有效期后使用；新选剧仍需新刷新。
+- 超过20秒的同一请求可以凭已授权的run receipt继续等待，完成后使用该receipt的版本；不会每次重试重新扫描。receipt仅在服务端查owner、终态与短有效期后使用。2026-10-10起，已有已发布版本时新选剧直接使用该版本（freshness为stale），不再为每次查询发起刷新；只有尚无任何版本时才走上述等待，receipt也只在这种情况下用于续接首次刷新，见[运行手册](feedback-runbook.md)的用户侧行为。
 - 请求等待时间包含数据库claim和轮询；admission与worker属于服务，单个调用方的超时不取消它们。
 - 本机真实CLI返回兼容性已完成live核验；生产CLI版本及用户连接仍需部署验收：当前适配器严格检查固定artifact、manifest、记录数和类型，未知shape直接拒绝，不回退截图或不完整stdout。
