@@ -34,6 +34,28 @@ function parseResult(raw: unknown): {
   }
 }
 
+const FEEDBACK_BLOCKED = new Set([
+  "auth_required",
+  "schema_changed",
+  "unavailable",
+  "refresh_failed",
+]);
+
+/** Why a tool answer carries no candidates. The answer check drops the model's relay of a refusal, so
+ * the card is the one place its reason reaches the user. */
+function failureText(payload: ReturnType<typeof parseResult>): string {
+  const notice =
+    typeof payload?.notice === "string" && payload.notice ? payload.notice : "";
+  if (payload?.status === "catalog_unavailable")
+    return "当前工作空间尚未接入剧库。请在「选剧资料」确认数据状态后重新提问。";
+  // The server's wording for this one addresses the model (it names the resume id).
+  if (payload?.status === "refresh_pending")
+    return "运营反馈正在刷新，本次还没有生成候选。请稍后重新提问。";
+  if (notice && FEEDBACK_BLOCKED.has(payload?.status ?? ""))
+    return `未生成候选：${notice}`;
+  return notice || "选剧查询未完成，请检查资料或重试。";
+}
+
 /** The titles a save confirmation names, each with its pick-board check link when it has one. */
 function ConfirmTitles({
   result,
@@ -106,13 +128,7 @@ export function PickToolCard({
       </p>
     ) : (
       <p role="alert" className="text-danger-ink text-sm">
-        {payload?.status === "catalog_unavailable"
-          ? "当前工作空间尚未接入剧库。请在「选剧资料」确认数据状态后重新提问。"
-          : (payload?.status === "rejected" ||
-                payload?.status === "posted_unavailable") &&
-              typeof payload.notice === "string"
-            ? payload.notice
-            : "选剧查询未完成，请检查资料或重试。"}
+        {failureText(payload)}
       </p>
     );
   const requested = Array.isArray(payload?.item_ids)

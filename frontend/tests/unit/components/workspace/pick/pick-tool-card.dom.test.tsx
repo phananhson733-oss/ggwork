@@ -118,6 +118,56 @@ describe("chat save confirmation", () => {
   });
 });
 
+describe("a query that produced no candidates", () => {
+  const alertText = (result: unknown) => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <PickToolCard result={result} threadId="t1" />
+      </QueryClientProvider>,
+    );
+    return screen.getByRole("alert").textContent;
+  };
+
+  // 2026-10-10: a feedback refresh failing with schema_changed blocked the query, and the card said only
+  // "选剧查询未完成，请检查资料或重试。" The answer check drops the model's relay of the notice, so the
+  // card is the one place the reason can reach the user.
+  it.each(["schema_changed", "auth_required", "refresh_failed", "unavailable"])(
+    "says why when the feedback refresh ended as %s",
+    (status) => {
+      const notice =
+        "飞书反馈字段发生变化，需要核验字段映射；未使用旧数据冒充最新反馈。";
+      const text = alertText({
+        status,
+        notice,
+        items: [],
+        feedback_refresh_id: "fr_0123456789abcdef0123456789abcdef",
+      });
+      expect(text).toBe(`未生成候选：${notice}`);
+    },
+  );
+
+  it("asks to retry later while feedback is still refreshing, without the model-only resume id", () => {
+    const text = alertText({
+      status: "refresh_pending",
+      notice:
+        "运营反馈正在刷新，尚未生成候选。刷新完成后可用 feedback_refresh_id 继续同一次请求，不要反复创建新刷新。",
+      feedback_refresh_id: "fr_0123456789abcdef0123456789abcdef",
+    });
+    expect(text).toBe("运营反馈正在刷新，本次还没有生成候选。请稍后重新提问。");
+  });
+
+  it("keeps relaying a business refusal verbatim", () => {
+    const notice = "剧库里没有这个剧场：reelshort。可选：ReelShort";
+    expect(alertText({ status: "rejected", notice })).toBe(notice);
+  });
+
+  it("falls back to the generic line when a refusal carries no notice", () => {
+    expect(alertText({ status: "schema_changed" })).toBe(
+      "选剧查询未完成，请检查资料或重试。",
+    );
+  });
+});
+
 function syncedResult(mirror_version: number | null): PickResult {
   const identity = (key: string) =>
     JSON.stringify([
