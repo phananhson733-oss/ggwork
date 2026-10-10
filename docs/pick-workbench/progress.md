@@ -1041,3 +1041,16 @@ PR #76 merged as `74c48c8e38770eabc764211b2ef4bf26d08f2967`; CI run 38025442610 
 - Open: the four-cell manual checks by a logged-in user, the affected user's retried candidate query, and any re-enabling of feedback, which needs separate authorization.
 
 See [the release record](releases/2026-10-10-feedback-v3-release.md).
+
+
+## 2026-10-10 — Feedback re-enabled on feedback-v3
+
+The user explicitly authorized switching production feedback and its hourly refresh back on. Configuration only: the gateway source uploaded for the feedback-v3 release (`74c48c8e38770eabc764211b2ef4bf26d08f2967`) was reused, and the guard commit differs from it only by documentation. No frontend deployment.
+
+- `pick-deploy-guard target=gateway commit=0013cd0278622734d7f96cee2f2e7338a35ae840 prod_head=0011 chain_head=0011 at=2026-10-10T05:40:29Z`
+- `PICK_FEEDBACK_ENABLED` and `PICK_FEEDBACK_SCHEDULE_ENABLED` were set to `1` at 05:40:37 UTC; Railway configuration deployment `e4f2d20c-8fb7-4f0e-8fa8-4358321ee61c` reached SUCCESS. Startup has no traceback, `/health/ready` inside the container reports database and checkpointer ok, the installed digest and migration head `0011` are unchanged.
+- The scheduler's startup refresh ran 05:41:15–05:43:06 UTC and succeeded: the current version is feedback-v3 with all thirteen tables complete, produced by that run; no lease is held. Source quality is partial, as before. Against the new strict baseline the live schema binds all thirteen tables with no column dropped (read-only field listing).
+- User-visible: the feedback owner's non-ranking candidate queries wait on a refresh again. A complete scan outlasts the twenty-second foreground wait, so the first ask of a new query normally shows that feedback is refreshing and the candidates come on asking again in the same conversation.
+- Open: the logged-in checks (the affected user's retried query, an existing conversation, saved selections), a candidate and an analysis on the feedback-v3 version, and the next hourly occurrence. No production candidate has ever carried feedback evidence, so the ask-again path with a live model is unproven there; whether queries should use the latest scheduled version instead of refreshing is an open product decision.
+
+See [the re-enabling record](releases/2026-10-10-feedback-reactivation.md).

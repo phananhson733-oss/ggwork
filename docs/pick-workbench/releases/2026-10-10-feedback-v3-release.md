@@ -1,5 +1,8 @@
 # feedback-v3 source contract and candidate-card reason — production release
 
+Feedback was re-enabled after this release; see the [re-enabling record](2026-10-10-feedback-reactivation.md). The text
+below is the state at release time.
+
 The user asked for this deployment on 2026-10-10. It releases the reviewed feedback-v3 source contract to the gateway
 and the candidate card's failure reason to the frontend. It does **not** re-enable feedback: both feedback flags stay
 `0`, as set by the [suspension](2026-10-10-feedback-suspension.md), and no feedback-v3 version has been published.

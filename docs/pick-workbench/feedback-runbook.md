@@ -2,7 +2,7 @@
 
 功能默认关闭，读取固定「短剧发行管理」Base，不写飞书。业务数据私有，不能沿用共享剧库的 system:shared 权限。
 
-生产反馈曾于2026-10-08按用户明确授权启用（见[生产启用记录](releases/2026-10-08-feedback-production-activation.md)）。来源Base在2026-10-09被有意精简后，旧契约的刷新全部被拒绝；2026-10-10已按用户授权将反馈与小时调度暂停，见[暂停记录](releases/2026-10-10-feedback-suspension.md)。适配新来源的feedback-v3契约（见[来源契约](feedback-source-contract.md)）已于2026-10-10发布并通过真实Base只读验收，见[发布记录](releases/2026-10-10-feedback-v3-release.md)；反馈与调度仍为暂停，重新启用需单独授权。部署默认值仍保持关闭。
+生产反馈曾于2026-10-08按用户明确授权启用（见[生产启用记录](releases/2026-10-08-feedback-production-activation.md)）。来源Base在2026-10-09被有意精简后，旧契约的刷新全部被拒绝；2026-10-10按用户授权将反馈与小时调度暂停，见[暂停记录](releases/2026-10-10-feedback-suspension.md)。适配新来源的feedback-v3契约（见[来源契约](feedback-source-contract.md)）于同日发布并通过真实Base只读验收，见[发布记录](releases/2026-10-10-feedback-v3-release.md)。随后按用户明确授权重新启用反馈与小时调度，启动后的首次调度刷新成功并发布了13表的feedback-v3版本，见[重新启用记录](releases/2026-10-10-feedback-reactivation.md)。部署默认值仍保持关闭。
 
 ## 配置
 

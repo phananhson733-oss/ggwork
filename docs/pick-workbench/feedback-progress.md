@@ -1,6 +1,6 @@
 # 飞书反馈实施进度
 
-当前状态更新（2026-10-10）：来源Base于2026-10-09被有意精简（三张表、四个字段），旧契约的刷新全部以schema_changed拒绝并中断了owner的候选查询。生产反馈与小时调度已按用户授权暂停，现有版本与候选证据保留，见[暂停记录](releases/2026-10-10-feedback-suspension.md)。适配新来源的feedback-v3读取契约（13表，收益只看手动CPS与RS）与候选卡原因展示已于同日发布，真实Base只读绑定与内存双扫描通过，见[发布记录](releases/2026-10-10-feedback-v3-release.md)。反馈与调度仍为暂停，尚无v3版本入库；重新启用需另行授权。
+当前状态更新（2026-10-10）：来源Base于2026-10-09被有意精简（三张表、四个字段），旧契约的刷新全部以schema_changed拒绝并中断了owner的候选查询。生产反馈与小时调度先按用户授权暂停，现有版本与候选证据保留，见[暂停记录](releases/2026-10-10-feedback-suspension.md)。适配新来源的feedback-v3读取契约（13表，收益只看手动CPS与RS）与候选卡原因展示已于同日发布，真实Base只读绑定与内存双扫描通过，见[发布记录](releases/2026-10-10-feedback-v3-release.md)。随后按用户明确授权重新启用：05:41 UTC启动后的首次scheduled刷新于05:43 UTC成功，13表完整入库为feedback-v3，并成为之后刷新的严格基线；数据质量仍为partial。登录后的真实候选查询、v3版本上的候选与分析、后续小时任务尚未观察，见[重新启用记录](releases/2026-10-10-feedback-reactivation.md)。
 
 此前状态（2026-10-08）：用户明确授权后，生产反馈与每小时调度已启用。2026-10-08 09:59 UTC首次生产scheduled任务成功，16表完整入库；授权owner的实际反馈分析工具已返回同一生产版本及来源证据，其他账户403、未登录401。数据质量仍为partial，未确认映射继续排除。后续小时任务尚未观察，未宣称真实模型自主选工具验收。详见[生产启用记录](releases/2026-10-08-feedback-production-activation.md)。身份映射代码与历史兼容的交付见[PR #47发布记录](releases/2026-10-08-feedback-identity-mapping.md)。以下为此前PR #44的历史修复记录。
 
@@ -20,4 +20,4 @@
 
 真实来源数量、业务覆盖、账号及金额不在公开文档中发布，完整内部报告保留本地。
 
-2026-10-08至2026-10-10之间的运行状态以[生产启用记录](releases/2026-10-08-feedback-production-activation.md)为准，之后以[暂停记录](releases/2026-10-10-feedback-suspension.md)为准：owner现有授权、真实生产16表读取、首个自动调度和反馈分析工具已验收；后续小时执行与真实模型自主调用仍需分别观察。
+2026-10-08至2026-10-10之间的运行状态以[生产启用记录](releases/2026-10-08-feedback-production-activation.md)为准，之后依次以[暂停记录](releases/2026-10-10-feedback-suspension.md)和[重新启用记录](releases/2026-10-10-feedback-reactivation.md)为准：owner现有授权、真实生产16表读取、首个自动调度和反馈分析工具已验收；后续小时执行与真实模型自主调用仍需分别观察。

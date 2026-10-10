@@ -1,5 +1,8 @@
 # Production feedback suspension
 
+Later the same day feedback was switched back on with the feedback-v3 contract; see the
+[re-enabling record](2026-10-10-feedback-reactivation.md). The text below is the state when the suspension was applied.
+
 The user explicitly authorized suspending production feedback and its hourly refresh on 2026-10-10. This is a
 configuration-only rollback of the [2026-10-08 activation](2026-10-08-feedback-production-activation.md). It changes no
 application code, source data, mappings, stored feedback or collector settings.
