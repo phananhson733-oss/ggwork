@@ -7,6 +7,7 @@ what is published (nothing, the agent batches alone, or v1 directly), the run re
 import asyncio
 
 import gate_world as gw
+import httpx
 import pytest
 import pytest_asyncio
 from fake_realshort import busy, v1_error, v2_error
@@ -160,6 +161,53 @@ async def test_manifest_non_busy_failure_falls_back(harness):
     assert await versions(harness.engine) == []
     state = await control(harness.engine)
     assert (state["consecutive_failures"], state["last_failure"]) == (1, "fallback_v1")
+
+
+def _unanswered_manifest(*numbers: int):
+    """An intercept under which these manifest requests (by number) get no response at all, as a source too slow does."""
+
+    def intercept(call):
+        if call.resource == "manifest" and call.n in numbers:
+            raise httpx.ReadTimeout("no answer")
+        return None
+
+    return intercept
+
+
+@pytest.mark.asyncio
+async def test_manifest_unanswered_once_then_pairs(harness):
+    result, fake = await _run(harness, intercept=_unanswered_manifest(1))
+    details = result["details_json"]
+    assert (result["status"], details["outcome"], details["reason"], details["attempts"]) == ("success", "paired", None, 1)
+    assert details["manifest_retries"] == 1 and harness.clock.sleeps == [90]
+    assert [c.resource for c in fake.calls][:2] == ["manifest", "manifest"]
+    # Every page is read at the second manifest's as_of, the one that was answered.
+    assert {c.params["as_of"] for c in v1_calls(fake.calls)} == {details["as_of"]} == {fake.calls[1].params["as_of"]}
+    assert [v["status"] for v in await versions(harness.engine)] == ["published"]
+    assert (await control(harness.engine))["consecutive_failures"] == 0
+
+
+@pytest.mark.asyncio
+async def test_manifest_unanswered_twice_falls_back(harness, caplog):
+    result, fake = await _run(harness, intercept=_unanswered_manifest(1, 2))
+    details = result["details_json"]
+    assert (result["status"], details["outcome"], details["reason"]) == ("success", "fallback_v1", "fallback_v1")
+    assert details["fallback"]["cause"] == "manifest:FeedConnectionError" and "重试 1 次" in details["fallback"]["error"]
+    assert harness.clock.sleeps == [90]
+    assert [c.resource for c in fake.calls][:2] == ["manifest", "manifest"]
+    assert v1_calls(fake.calls) and not any("as_of" in c.params or "fp" in c.params for c in v1_calls(fake.calls))
+    assert await shared_current(harness.engine) == (result["catalog_batch_id"], result["knowledge_batch_id"])
+    assert await versions(harness.engine) == []
+    state = await control(harness.engine)
+    assert (state["consecutive_failures"], state["last_failure"]) == (1, "fallback_v1")
+    # The gateway log says why the page stayed behind; before, this path wrote nothing.
+    assert "[pick-mirror]" in caplog.text and "falls back to v1" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_paired_run_records_no_manifest_retry(harness):
+    result, _ = await _run(harness)
+    assert result["details_json"]["outcome"] == "paired" and result["details_json"]["manifest_retries"] == 0
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ Railway gateway 进程内定时（每天 03:40 / 15:40 UTC，北京 11:40 / 23:4
   → 共享批次（owner system:shared），所有登录用户可读
 ```
 
+- 原生采集模式下，每次采集完成后 gateway 还会自动同步一次（触发来源 `collect`），见 [native-source.md](native-source.md) 的「Publication after collection」。
 - 没有任何入站的定时接口，宿主的内部 token 不离开 Railway。gateway 启动时，如果最近一次成功同步已超过 12 小时（例如部署或崩溃跨过了一个时间点），60 秒后补跑一次。
 - 按单个 gateway 进程设计。若扩成多副本，每个副本都会拉取；内容相同的批次会去重，但会多占 RealShort 的查询。
 - RealShort 侧：`src/lib/pick/feed-map.ts`（纯映射）、`src/lib/pick/feed.ts`（查询）、`src/app/api/pick-feed/route.ts`。它与选剧 tab 用同一个 `unionRows()`，范围是「有来源信号且未标下架」的候选池，不是全部剧库。每行带两类数据：

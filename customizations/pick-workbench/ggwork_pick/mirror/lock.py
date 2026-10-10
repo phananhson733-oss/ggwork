@@ -36,8 +36,9 @@ MIRROR_LOCK_OBJID = MIRROR_LOCK_KEY & 0xFFFFFFFF
 LOCK_HOLDERS = ("sync", "backfill", "cleanup")
 # LOCK_STUCK_AFTER, in seconds in the brief (P2-5c constants, U14): a timedelta here, so no caller can mix up seconds
 # and minutes. 4800 (80 minutes), raised from the brief's 3600 by the owner's decision F7: the busy wait's 20 minutes
-# count per attempt (run.MirrorLimits.busy_wait_total), so a legitimate run can reach about 71.5 minutes (two busy waits,
-# the run deadline twice, the drift delay), past the 60 that would call it stuck. The curve fold after it stops taking
+# count per attempt (run.MirrorLimits.busy_wait_total), so a legitimate run can reach about 76.5 minutes (two busy waits,
+# the run deadline twice, the drift delay, and in each attempt a manifest unanswered for 60 seconds plus the 90 before it
+# is asked again), past the 60 that would call it stuck. The curve fold after it stops taking
 # new days 27 minutes after its as_of (series.FOLD_DEADLINE). /sync never calls this process's own run stuck anyway:
 # lock_stuck needs this process's sync_lock free (status.py).
 LOCK_STUCK_AFTER = timedelta(seconds=4800)

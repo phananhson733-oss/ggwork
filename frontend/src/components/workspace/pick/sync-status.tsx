@@ -28,6 +28,8 @@ const STATUS_TONE: Record<string, string> = {
 const TRIGGER_LABEL: Record<string, string> = {
   cron: "定时",
   manual: "手动",
+  // The run a finished collection starts (ggwork_pick/schedule.py COLLECT_TRIGGER).
+  collect: "采集后",
 };
 
 /** A /sync moment as the pick data board prints it: UTC, to the minute. */
@@ -180,7 +182,9 @@ export function SyncStatus() {
       <MirrorLine mirror={data?.mirror} />
       {data?.native_source && (
         <div className="space-y-1 text-xs" data-testid="pick-native-source">
-          <p>直接采集数据；「立即同步」发布已采集的资料版本。</p>
+          <p>
+            直接采集数据；采集完成后会自动同步一次，也可以点「立即同步」发布已采集的资料版本。
+          </p>
           {data.native_source.error && (
             <p role="alert">暂时无法读取采集状态。</p>
           )}

@@ -42,7 +42,7 @@
 
 ## 3. 回填与 cleanup 的时间窗
 
-镜像锁被回填（`--backfill`）或 `admin cleanup` 占着时，定时同步直接记失败（`lock_busy`，不计数），v1 也不发布（U46）。定时只有 03:40 / 15:40 UTC 两档，补跑只在进程启动时发生，所以撞上一档，智能体的数据就要晚 12 小时。
+镜像锁被回填（`--backfill`）或 `admin cleanup` 占着时，定时同步直接记失败（`lock_busy`，不计数），v1 也不发布（U46）。定时只有 03:40 / 15:40 UTC 两档，补跑只在进程启动时发生；原生采集模式下，每次采集完成后还会自动同步一次（见第 4 节）。撞上一档，智能体的数据最长要晚 12 小时。
 
 - 回填和 cleanup 在某一档**结束至少 30 分钟后**再开始（看 `/api/pick/sync` 的 runs[0] 已经结束），并在下一档之前确认进程已经退出。
 - 回填 92 天约 92 个 rs_series_day 页，实测每页约 1.2 秒、2.9 MB、34,841 行；每合并一天都会整表重写一次曲线，92 次合并约写出 3.3 GB 行版本（series.py 的估算）。跑的时候看 Supabase 的磁盘和 IO。
@@ -53,6 +53,9 @@
 降级（degraded）、容量超限（capacity）和退回 v1（fallback_v1）的运行都记为 success，现有资料页显示为绿色，原因只在 `details_json` 和 `/api/pick/sync` 的 `mirror` 里。P3 的横幅上线之前：
 
 - 每档之后看一次 `/api/pick/sync` 的 `mirror`：`current.id` 前进了，`behind` 为 false，`consecutive_failures` 为 0。
+- manifest 请求没有任何应答（60 秒没收完，或连接失败）时，镜像运行隔 90 秒换一个 as_of 再问一次，这次有应答就照常成对发布，`details_json.manifest_retries` 记 1；第二次仍无应答才退回 v1，`details_json.fallback.error` 会写明「重试 1 次后仍无应答」。manifest 平时就要 27–32 秒，2026-10-10 03:40 UTC 那一档超过 60 秒，当时没有重试，资料页因此落后智能体一档。
+- manifest 失败退回 v1 时，gateway 会打一条 WARNING：`[pick-mirror] the manifest failed (…); this run falls back to v1 and publishes no version`；重试时是 `[pick-mirror] the manifest got no answer (…); asking once more in 90 seconds`。此前这条路径不写日志。
+- 原生采集模式（`PICK_SOURCE_ENABLED=1`）下，gateway 每 5 分钟问一次采集服务的状态：有采集在最近一次同步开始之后完成、且没有采集在跑时，自动同步一次，记录的触发来源是 `collect`（资料页显示「采集后」）。每次采集只触发一次，这次同步失败或降级也不再为同一次采集重试，留给两档定时。按现在的采集节奏，每天约多 5 次同步（ReelShort 片库与账单 4 次、剧单 1 次）。「立即同步」的冷却不分触发来源，所以这次同步开始后的 5 分钟内（失败则 1 分钟内）点「立即同步」会得到 429。
 - `mirror` 是 `{"error": "<类名>"}` 时，说明 gateway 读 `pick_mirror` 失败了（语句超时、权限等），其余字段照常，要查 gateway 日志。
 - 连续失败到第 3 次，gateway 会打一条 ERROR：`[pick-mirror] 连续失败 N 次：<原因代码>`。可以在 Railway 日志上给这句配告警。
 - `mirror.lock_stuck` 只在锁被别的进程占了 80 分钟以上时出现（F7：一次合法的运行最长约 71.5 分钟）。按其中的 pid 核实后，才考虑 `pg_terminate_backend`。

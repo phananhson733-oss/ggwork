@@ -6,9 +6,11 @@ One run, under the process's sync_lock and the mirror lock on a dedicated connec
 2. leftovers of a dead run cleaned (clean_leftovers), version and batch retention (an unexpected error in either is
    recorded by step and class and the run goes on, F6), the disk check, the size cap (U43);
 3. the manifest, waiting out source_busy (a busy past 20 minutes fails, counted, U42; a 409 is drift; any other manifest
-   failure falls back to v1 without as_of, counted, U16). The 20 minutes are each attempt's: the drift retry's manifest
-   waits afresh (the brief's loop), so a run can reach about 71.5 minutes when a drift and a second busy spell meet;
-   lock.LOCK_STUCK_AFTER is 80 minutes for that reason (F7);
+   failure falls back to v1 without as_of, counted, U16). A manifest request that got no response at all is first asked
+   once more, 90 seconds later (MirrorLimits.manifest_retry_delay): the manifest takes half of its 60 seconds on a good
+   day, and falling back leaves the page a slot behind the agent. The 20 minutes are each attempt's: the drift retry's
+   manifest waits afresh (the brief's loop), so a run can reach about 76.5 minutes when a drift, a second busy spell and
+   an unanswered manifest in each attempt meet; lock.LOCK_STUCK_AFTER is 80 minutes for that reason (F7);
 4. a building version (none over the size cap), then the v1 half (run_v1) and the mirror half (run_v2);
 5. publish: the pair when both halves pass; the agent batches alone when only the mirror half failed (degraded, counted);
    nothing when the v1 half failed (counted). Drift repeats the attempt once after 90 s with a new as_of; the second drift
@@ -30,7 +32,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ggwork_pick.mirror import pan
-from ggwork_pick.mirror.client import FeedClient
+from ggwork_pick.mirror.client import MANIFEST_RETRY_DELAY_SECONDS, FeedClient
 from ggwork_pick.mirror.connection import MirrorConnectionError
 from ggwork_pick.mirror.errors import BusyTimeout, ConfigError, DriftError, FeedError
 from ggwork_pick.mirror.feed_shape import Manifest
@@ -144,6 +146,7 @@ class MirrorLimits:
     mirror_deadline: float = MIRROR_DEADLINE
     drift_retry_delay: float = DRIFT_RETRY_DELAY
     read_failed_retry_delay: float = READ_FAILED_RETRY_DELAY
+    manifest_retry_delay: float = MANIFEST_RETRY_DELAY_SECONDS  # before an unanswered manifest is asked once more
     copy_timeout: float = COPY_TIMEOUT
     statement_timeout: float = STATEMENT_TIMEOUT
     alert_after: int = ALERT_AFTER
@@ -440,6 +443,7 @@ class MirrorSync:
             timer=self._timer,
             busy_budget=self.limits.busy_wait_total,
             read_retry_delay=self.limits.read_failed_retry_delay,
+            manifest_retry_delay=self.limits.manifest_retry_delay,
         )
 
     async def _attempts(self, conn, repo: PickRepository, client: FeedClient, run_id: str, *, over_cap: bool) -> RunOutcome:
@@ -481,6 +485,7 @@ class MirrorSync:
         # The fold reads rs_series_day at this manifest's as_of and fp (U29); after a drift that fp is stale.
         pinned = replace(_with_text_gate(result, text_gate), manifest=manifest if result.drift_stage is None else None, source_as_of=manifest.as_of_text)
         attempt_details = {"as_of": manifest.as_of_text, "version": version.id if version else None, "warnings": warning_codes(manifest)}
+        attempt_details = {**attempt_details, "manifest_retries": manifest.unanswered_retries}
         return pinned.with_details(**attempt_details).with_stages(**stages)
 
     async def _read_manifest(self, client: FeedClient, repo: PickRepository, *, final: bool) -> Manifest | RunOutcome | Retry:
@@ -493,6 +498,8 @@ class MirrorSync:
                 return Retry(AT_MANIFEST)
             return replace(await self._count_failed(repo, DRIFT, error=safe_error(exc)), drift_stage=AT_MANIFEST)
         except FeedError as exc:
+            # Recorded as a success, so without this line nothing in the log says why the page stayed behind the agent.
+            logger.warning("[pick-mirror] the manifest failed (%s); this run falls back to v1 and publishes no version", safe_error(exc))
             return await self._fallback(repo, cause=f"manifest:{type(exc).__name__}", error=safe_error(exc))
 
     async def _open_version(

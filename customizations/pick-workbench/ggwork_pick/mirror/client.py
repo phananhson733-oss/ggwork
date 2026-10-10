@@ -12,6 +12,7 @@ Nothing here reads the database or the app config: the dry-run (mirror/dry_run.p
 
 import asyncio
 import json
+import logging
 import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -54,6 +55,8 @@ from ggwork_pick.mirror.feed_shape import (
     select_as_of,
 )
 from ggwork_pick.mirror.gate_result import id_part
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "AS_OF_MAX_AGE",
@@ -105,6 +108,10 @@ MAX_BODY_BYTES = 8_000_000
 DEFAULT_TIMEOUTS = httpx.Timeout(60.0, connect=10.0)
 # httpx's read timeout is per socket read; plan 5.1 gives one request 60 seconds in all (RealShort's maxDuration too).
 REQUEST_SECONDS = 60.0
+# The mirror run's wait before it asks an unanswered manifest once more (run.MirrorLimits.manifest_retry_delay). The
+# source goes on computing the request nobody is waiting for; asked again at once, the second lands on the same load.
+# The drift retry waits as long for the source to settle (run.DRIFT_RETRY_DELAY).
+MANIFEST_RETRY_DELAY_SECONDS = 90.0
 # The extension shares the gateway's one event loop (critique 1.9): a page body past this is parsed in a worker thread.
 THREAD_PARSE_BYTES = 64 * 1024
 _SECRET_TEXT = re.compile(r"^[\x21-\x7e]{1,4096}$")
@@ -336,6 +343,7 @@ class FeedClient:
         read_retry_delay: float = READ_RETRY_DELAY_SECONDS,
         max_body_bytes: int = MAX_BODY_BYTES,
         request_seconds: float = REQUEST_SECONDS,
+        manifest_retry_delay: float | None = None,
     ):
         self._origin = _origin(base_url)
         self._export_token = _secret(export_token, "export token")
@@ -345,6 +353,8 @@ class FeedClient:
         self._on_response = on_response
         self._busy_budget, self._read_retry_delay, self._max_body_bytes = busy_budget, read_retry_delay, max_body_bytes
         self._request_seconds = request_seconds
+        # None (the dry run, the backfill): an unanswered manifest is raised as it is. The mirror run sets it.
+        self._manifest_retry_delay = manifest_retry_delay
         self._http = httpx.AsyncClient(base_url=self._origin, transport=transport, timeout=timeouts, follow_redirects=False)
 
     def __repr__(self) -> str:
@@ -363,26 +373,42 @@ class FeedClient:
     def has_v1(self) -> bool:
         return self._feed_token is not None
 
-    async def manifest(self, as_of: datetime, *, busy_sleeps: tuple[int, ...] = ()) -> Manifest:
+    async def manifest(self, as_of: datetime, *, busy_sleeps: tuple[int, ...] = (), unanswered_retries: int = 0) -> Manifest:
         """One manifest request at as_of; source_busy raises BusyError, which manifest_when_free waits out."""
         request = _Request(V2_PATH + "manifest", {"as_of": format_as_of(as_of)}, self._export_token, "manifest", 1, as_of, _MANIFEST)
         body, metrics = await self._fetch(request)
-        check = partial(parse_manifest, body, as_of=as_of, metrics=metrics, busy_sleeps=busy_sleeps)
+        check = partial(parse_manifest, body, as_of=as_of, metrics=metrics, busy_sleeps=busy_sleeps, unanswered_retries=unanswered_retries)
         # pydantic over meta.rules and the rest: off the gateway's one event loop when the page is large (0.3).
         return await asyncio.to_thread(check) if metrics.bytes > THREAD_PARSE_BYTES else check()
 
     async def manifest_when_free(self) -> Manifest:
-        """Plan 5.2 step 3: sleep Retry-After on source_busy and choose a new as_of each time, 1200 seconds in all."""
+        """Plan 5.2 step 3: sleep Retry-After on source_busy and choose a new as_of each time, 1200 seconds in all.
+
+        With manifest_retry_delay set, a manifest request that got no response at all (FeedConnectionError: the 60
+        seconds ran out, or the connection failed) is asked once more after that delay, at a new as_of and within the
+        same busy budget. A second one unanswered is raised, saying it was asked again. The manifest takes about half
+        of its 60 seconds on a good day, so one slow answer used to cost the page a whole slot (run._fallback).
+        """
         slept: tuple[int, ...] = ()
+        retries = 0
         while True:
             try:
-                return await self.manifest(select_as_of(self._clock()), busy_sleeps=slept)
+                return await self.manifest(select_as_of(self._clock()), busy_sleeps=slept, unanswered_retries=retries)
             except BusyError as busy:
                 if sum(slept) + busy.retry_after > self._busy_budget:
                     message = f"RealShort manifest 一直 source_busy：已等 {sum(slept)} 秒，再等就超过 {self._busy_budget:g} 秒上限"
                     raise BusyTimeout(message, waited=sum(slept)) from None
                 await self._sleep(busy.retry_after)
                 slept = (*slept, busy.retry_after)
+            except FeedConnectionError as unanswered:
+                delay = self._manifest_retry_delay
+                if delay is None:
+                    raise
+                if retries:
+                    raise FeedConnectionError(f"{unanswered}；隔 {delay:g} 秒重试 1 次后仍无应答", resource=unanswered.resource) from None
+                logger.warning("[pick-mirror] the manifest got no answer (%s); asking once more in %g seconds", unanswered, delay)
+                await self._sleep(delay)
+                retries += 1
 
     def pages(self, resource: str, *, manifest: Manifest, day: str | None = None, limit: int | None = None) -> AsyncIterator[Page]:
         """Every page of one row resource at the manifest's as_of and fp, one at a time (plan 5.2 step 6).
