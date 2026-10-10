@@ -16,9 +16,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from ggwork_pick.feedback.settings import FeedbackSettings
 from ggwork_pick.feedback.sync import FeedbackSyncService
-from ggwork_pick.native_source import NativeSourceProcess
+from ggwork_pick.native_source import NativeSourceProcess, native_status
 from ggwork_pick.repository import PickRepository
-from ggwork_pick.schedule import CATCH_UP_DELAY_SECONDS, guarded_pull, run_schedule
+from ggwork_pick.schedule import CATCH_UP_DELAY_SECONDS, COLLECT_TRIGGER, COLLECTION_POLL_SECONDS, guarded_pull, run_collection_watch, run_schedule
 
 STOP_GRACE_SECONDS = 20
 # The mirror run (plan 5.1; U31, U39): on only when PICK_MIRROR_ENABLED is exactly "1", the host database is PostgreSQL
@@ -110,6 +110,7 @@ class PickService:
         *,
         catch_up_delay: float = CATCH_UP_DELAY_SECONDS,
         feedback_settings: FeedbackSettings | None = None,
+        collection_poll: float = COLLECTION_POLL_SECONDS,
     ):
         self.data_dir = data_dir
         self.native_source = NativeSourceProcess()
@@ -120,7 +121,9 @@ class PickService:
         self.sync_transport = None
         self.sync_lock = asyncio.Lock()
         self.scheduler: asyncio.Task | None = None
+        self.collection_watcher: asyncio.Task | None = None
         self.catch_up_delay = catch_up_delay
+        self.collection_poll = collection_poll
         self._background: set[asyncio.Task] = set()
         self.feedback_settings = feedback_settings or FeedbackSettings()
         self.feedback: FeedbackSyncService | None = None
@@ -209,6 +212,16 @@ class PickService:
                 catch_up_delay=self.catch_up_delay,
             )
         )
+        if self.native_source.enabled:
+            # The source collects on its own clock and cannot call the gateway: ask it, and publish what it finished.
+            self.collection_watcher = asyncio.create_task(
+                run_collection_watch(
+                    status=lambda: native_status(self),
+                    runs=lambda: PickRepository.shared(factory).sync_runs(limit=1),
+                    pull=lambda: guarded_pull(self.realshort_sync, COLLECT_TRIGGER),
+                    interval=self.collection_poll,
+                )
+            )
 
     async def initialize(self, session_factory: async_sessionmaker) -> None:
         engine = session_factory.kw.get("bind")
@@ -247,9 +260,10 @@ class PickService:
             except TimeoutError:
                 logger.warning("Feedback shutdown exceeded its grace period")
         tasks = list(self._background)
-        if self.scheduler is not None:
-            self.scheduler.cancel()
-            tasks.append(self.scheduler)
+        for schedule in (self.scheduler, self.collection_watcher):
+            if schedule is not None:
+                schedule.cancel()
+                tasks.append(schedule)
         # Let an in-flight pull record its outcome before the host disposes the engine, but never hang a deploy.
         await _drain(tasks, STOP_GRACE_SECONDS)
         await self.native_source.stop()

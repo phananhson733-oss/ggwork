@@ -166,6 +166,45 @@ describe("SyncStatus with the mirror key", () => {
   });
 });
 
+describe("SyncStatus in native source mode", () => {
+  function run(id: string, trigger: string, startedAt: string) {
+    return {
+      id,
+      source: "realshort",
+      trigger,
+      status: "success",
+      started_at: startedAt,
+      finished_at: startedAt,
+      rows: 12,
+      catalog_batch_id: "b-cat",
+      knowledge_batch_id: null,
+      source_as_of: startedAt,
+      error: null,
+    };
+  }
+
+  it("names the run a finished collection started, and says one follows", async () => {
+    api.sync = {
+      ...sync(MIRROR),
+      native_source: { enabled: true, jobs: [] },
+      runs: [
+        run("r-3", "collect", "2026-10-10T02:53:00.000000+00:00"),
+        run("r-2", "cron", "2026-10-09T15:40:00.000000+00:00"),
+        run("r-1", "manual", "2026-10-09T14:45:00.000000+00:00"),
+      ],
+    };
+    renderWithClient(<SyncStatus />);
+    await mirrorLine();
+    const runs = screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(runs[0]).toContain("· 采集后 ·");
+    expect(runs[1]).toContain("· 定时 ·");
+    expect(runs[2]).toContain("· 手动 ·");
+    expect(screen.getByTestId("pick-native-source").textContent).toContain(
+      "采集完成后会自动同步一次",
+    );
+  });
+});
+
 describe("the imports panel inside the pick data page", () => {
   it("has no page title of its own; the page gives it", async () => {
     renderWithClient(<DataImports />);
