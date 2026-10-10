@@ -1026,3 +1026,18 @@ The fixed feedback Base lost three tables and four bound columns on 2026-10-09. 
 - Not deployed: the feedback-v3 source contract (thirteen tables; revenue from manual CPS and RS only) and the candidate card that shows why no candidates were produced. Both are implemented with tests in the change set that carries this record and were not deployed when it was written. Deploying v3 and re-enabling the flags each need separate authorization.
 
 See [the suspension record](releases/2026-10-10-feedback-suspension.md).
+
+
+## 2026-10-10 — feedback-v3 source contract and candidate-card reason released
+
+PR #76 merged as `74c48c8e38770eabc764211b2ef4bf26d08f2967`; CI run 38025442610 passed on the identical tree. This release does not re-enable feedback: both flags remain `0` and no feedback-v3 version has been published.
+
+- `pick-deploy-guard target=gateway commit=74c48c8e38770eabc764211b2ef4bf26d08f2967 prod_head=0011 chain_head=0011 at=2026-10-10T05:31:25Z`
+- `pick-deploy-guard target=frontend commit=74c48c8e38770eabc764211b2ef4bf26d08f2967 at=2026-10-10T05:32:27Z`
+- Gateway deployment `732d59a1-91a2-4b35-9b34-612c73ae766b` is successful. Installed digest `sha256:f33e193a76ffe00fa2081275825689f77b8b31942559546f670f298d550e2e68` equals the merged managed snapshot; migration head stays `0011`; `PICK_SOURCE_REVISION` is the product merge; startup has no traceback and native source health returned 200. The Trends cron was not redeployed because the migration head did not move.
+- Vercel production deployment `dpl_AjwspRbjQMXm9qENwhYRQdJN9ceV` was built from the guard's Git archive, staged, checked for the login redirect and unauthenticated 401, then promoted; the canonical alias resolves to it.
+- Four-cell tests on the deployed tree: complete extension suite on SQLite and PostgreSQL 5,478 passed / 25 skipped / 0 failed; required gateway files 35 passed, 0 skipped; frontend rollback matrix 5 and contract fixtures 12 passed; full frontend 3,119 passed with typecheck clean.
+- Read-only against the real source Base: the published v2 baseline binds all thirteen scanned tables with exactly the four reviewed columns dropped (before merge and again with the installed package), and one complete in-memory double scan with publication revalidation, normalisation and analysis passed. Nothing was published or written.
+- Open: the four-cell manual checks by a logged-in user, the affected user's retried candidate query, and any re-enabling of feedback, which needs separate authorization.
+
+See [the release record](releases/2026-10-10-feedback-v3-release.md).
