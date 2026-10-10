@@ -1068,3 +1068,13 @@ PR #75 merged as `587825884ca4045dff96f3faf2d55dc5ada254a3`. Its CI passed on th
 - First natural occurrence: the collection watch started a `collect` run at 06:16:36 UTC, five minutes after startup, for the 06:07:50 collection. The manifest got no response within 60 seconds, was asked once more 90 seconds later and got none again; the run fell back to v1 (`fallback_v1`, consecutive failures 2) and published no mirror version. The page stays on mirror 30. The watch, the retry and both warning lines behaved as written; a paired `collect` run has not been observed.
 - Read-only finding: one manifest request timed with a 200 second limit answered 200 after 85.6 seconds, against 27–37 seconds in every paired run from 10-07 to 10-09. The planner statistics of `pick_source.drama_observations` date from 10-08 12:16 (72,600 modifications since, below the autoanalyze threshold of about 114,000): `observed_on` 2026-10-09 and 2026-10-10 are each estimated at 1 row against 36,221 and 36,379 actual, and the source runs the manifest's statements through a pool of four connections. This is the likely cause, not a confirmed one. No `ANALYZE` or any other write was run.
 - Open: the four-cell manual checks by a logged-in user; refreshing those statistics and a durable fix for them, each needing separate authorization.
+
+
+### Follow-up — observation statistics refreshed, manifest back to normal
+
+The user authorized one `ANALYZE pick_source.drama_observations` on production. It ran at 08:17:13 UTC as the table's owner in 1.5 seconds, with no sync, collection or deployment in progress. It writes planner statistics only; no table data, configuration or deployment changed.
+
+- Row estimates for `observed_on` 2026-10-09 and 2026-10-10 went from 1 each to 36,759 and 35,502 (actual 36,221 and 36,379).
+- One manifest request timed the same way as before answered 200 after 32.4 seconds (85.6 before), inside the 27–37 seconds of the paired runs. This confirms the stale statistics as the cause of the three fallbacks on 10-10.
+- Not yet observed: a paired run after the refresh. The page stays on mirror 30 until the next run (a manual sync, the 12:00 UTC collection, or the 15:40 UTC slot); consecutive failures stay at 2 until then.
+- Expected to recur: the table has no per-table autovacuum settings, so autoanalyze waits for about 107,000 modifications (50 plus 10% of 1,070,178 rows) while a day adds about 36,000. The second day after each analyze has both "today" and "yesterday" unknown to the planner, which is the state that failed here. A durable fix is a separate change and is not made.
